@@ -1,0 +1,18 @@
+[package]
+name = "geo-polygonize"
+version = "0.1.0"
+edition = "2021"
+description = "A native Rust port of the JTS/GEOS polygonization algorithm"
+license = "MIT/Apache-2.0"
+
+[dependencies]
+geo = "0.28"
+geo-types = "0.7"
+rstar = "0.12"
+rayon = "1.10"
+log = "0.4"
+thiserror = "1.0"
+float_next_after = "1.0"
+
+[dev-dependencies]
+approx = "0.5"
