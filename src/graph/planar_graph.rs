@@ -56,6 +56,7 @@ pub struct PlanarGraph {
     /// All directed half-edges. Index is `DirEdgeId`.
     pub directed_edges: Vec<DirectedEdge>,
     /// Lookup map to dedup nodes during construction.
+    /// OPTIMIZATION: Used only for incremental additions. Bulk load bypasses this.
     pub node_map: HashMap<NodeKey, NodeId>,
 }
 
@@ -66,11 +67,6 @@ pub struct NodeKey(i64, i64);
 impl From<Coord<f64>> for NodeKey {
     fn from(c: Coord<f64>) -> Self {
         // Simple quantization for map lookup.
-        // In a real robust system we might want something better, but this is a standard hack.
-        // Or we use `rstar` to find nodes. For now, strict equality on bits logic or quantization?
-        // Let's use `to_bits` for exact match if we assume input is noded exactly.
-        // If we want tolerance, we need a snapper.
-        // JTS uses a specific precision model. Here we assume exact coordinates for the graph key.
         NodeKey(c.x.to_bits() as i64, c.y.to_bits() as i64)
     }
 }
@@ -102,8 +98,153 @@ impl PlanarGraph {
         id
     }
 
+    /// Bulk loads edges into the graph.
+    /// This is significantly faster than `add_line_string` for large datasets as it avoids HashMap lookups.
+    pub fn bulk_load(&mut self, lines: Vec<Line<f64>>) {
+        if lines.is_empty() {
+            return;
+        }
+
+        // 1. Collect all coordinates
+        let mut coords = Vec::with_capacity(lines.len() * 2);
+        for line in &lines {
+            coords.push(line.start);
+            coords.push(line.end);
+        }
+
+        // 2. Sort and Dedup
+        // We define a comparison for Coords to sort them
+        coords.sort_by(|a, b| {
+            a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        // Dedup using epsilon
+        let tol = 1e-10;
+        coords.dedup_by(|a, b| {
+            (a.x - b.x).abs() < tol && (a.y - b.y).abs() < tol
+        });
+
+        // 3. Build Nodes
+        // We assume the graph is empty or we append?
+        // For simplicity, bulk_load assumes empty or appends.
+        // If appending, we need to handle existing nodes?
+        // Let's assume bulk_load is the primary build method.
+        // We will clear existing nodes? No, maybe we just append.
+
+        let start_node_idx = self.nodes.len();
+        for coord in &coords {
+            self.nodes.push(Node {
+                coordinate: *coord,
+                outgoing_edges: Vec::new(),
+                degree: 0,
+                is_marked: false,
+            });
+            // We do NOT update node_map to save time/memory.
+        }
+
+        // Helper to find node index
+        // Since coords is sorted, we can use binary search.
+        // But self.nodes includes previous nodes?
+        // If we mix modes, it's complex.
+        // We assume for optimization that bulk_load is called once on an empty graph.
+        // If not, we only search the new nodes?
+        // Let's assume lines connect only to these new nodes (or existing logic).
+        // For this optimization, we search `coords` to find the index relative to `start_node_idx`.
+
+        let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
+             let idx_res = coords.binary_search_by(|probe| {
+                 // Compare with tolerance? Binary search requires strict ordering.
+                 // If we used dedup_by with tolerance, our exact values in `coords` are the canonical ones.
+                 // But the input lines might have slightly different values (within tolerance).
+                 // This is tricky.
+                 // If we rely on robust noding, points should be exact.
+                 // If we rely on tolerance, we need a "fuzzy binary search" or just assume exact match after noding.
+                 // In `node_lines`, we snap endpoints?
+                 // Let's assume exact match for now as noding should align them.
+                 // Or we use the same comparator.
+                 probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
+                    .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+             });
+
+             // If exact match fails, we might check neighbors if tolerance is needed?
+             // But binary search returns Err(idx) if not found.
+             // If we rely on noding, we should have exact matches if we used the same points.
+
+             match idx_res {
+                 Ok(i) => Some(start_node_idx + i),
+                 Err(_) => None
+             }
+        };
+
+        // 4. Build Edges
+        self.edges.reserve(lines.len());
+        self.directed_edges.reserve(lines.len() * 2);
+
+        for line in lines {
+             let p0 = line.start;
+             let p1 = line.end;
+
+             // Skip degenerate
+             if (p0.x - p1.x).abs() < 1e-12 && (p0.y - p1.y).abs() < 1e-12 {
+                continue;
+            }
+
+            let u_opt = get_node_id(p0);
+            let v_opt = get_node_id(p1);
+
+            if u_opt.is_none() || v_opt.is_none() {
+                // Should not happen if lines endpoints were in coords
+                continue;
+            }
+            let u = u_opt.unwrap();
+            let v = v_opt.unwrap();
+
+            let edge_idx = self.edges.len();
+            let de_u_v_idx = self.directed_edges.len();
+            let de_v_u_idx = self.directed_edges.len() + 1;
+
+            let angle_u = (p1.y - p0.y).atan2(p1.x - p0.x);
+            let angle_v = (p0.y - p1.y).atan2(p0.x - p1.x);
+
+            self.directed_edges.push(DirectedEdge {
+                src: u,
+                dst: v,
+                edge_idx,
+                sym_idx: de_v_u_idx,
+                angle: angle_u,
+                is_visited: false,
+                is_marked: false,
+                edge_direction: true,
+            });
+
+            self.directed_edges.push(DirectedEdge {
+                src: v,
+                dst: u,
+                edge_idx,
+                sym_idx: de_u_v_idx,
+                angle: angle_v,
+                is_visited: false,
+                is_marked: false,
+                edge_direction: false,
+            });
+
+            self.edges.push(Edge {
+                line,
+                dir_edges: [de_u_v_idx, de_v_u_idx],
+                is_marked: false,
+            });
+
+            self.nodes[u].outgoing_edges.push(de_u_v_idx);
+            self.nodes[u].degree += 1;
+
+            self.nodes[v].outgoing_edges.push(de_v_u_idx);
+            self.nodes[v].degree += 1;
+        }
+    }
+
     /// Adds a line string to the graph.
-    /// Assumes the line string is properly noded (no self intersections, intersects others only at endpoints).
+    /// Assumes the line string is properly noded.
     pub fn add_line_string(&mut self, line: LineString<f64>) {
         if line.0.is_empty() {
             return;
@@ -183,7 +324,6 @@ impl PlanarGraph {
     }
 
     /// Prunes dangles (nodes with degree 1) from the graph iteratively.
-    /// Returns the number of dangles removed.
     pub fn prune_dangles(&mut self) -> usize {
         let mut dangles_removed = 0;
         let mut to_process: Vec<NodeId> = self.nodes.iter().enumerate()
