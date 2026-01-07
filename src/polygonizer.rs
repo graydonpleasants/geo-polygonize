@@ -7,6 +7,7 @@ use geo::algorithm::line_intersection::LineIntersection;
 use geo::Area;
 use geo::Line;
 use rstar::{RTree, AABB, RTreeObject};
+use rayon::prelude::*;
 
 // Wrapper for Polygon to be indexable by rstar
 struct IndexedPolygon(Polygon<f64>, usize);
@@ -125,22 +126,20 @@ impl Polygonizer {
 
         // Promote CW rings to Shells if they don't have a corresponding CCW Twin.
         // This handles mesh cases where the CCW traversal misses inner faces.
-        let mut promoted_shells = Vec::new();
-        for hole in &holes {
+        // Parallelized check.
+        let promoted_shells: Vec<_> = holes.par_iter().filter_map(|hole| {
             let hole_area = hole.unsigned_area();
-            let mut has_twin = false;
             // Naive check: Area match. (Optimization: Use RTree/Hash later if needed)
-            for shell in &shells {
+            // shells is read-only here so safe to share across threads.
+            let has_twin = shells.iter().any(|shell| {
                 if (shell.unsigned_area() - hole_area).abs() < 1e-6 {
-                    // Potential twin. Check coords?
-                    // Assuming identical graph traversal logic, areas should match exactly.
-                    // For robustness, maybe check bounding rect.
+                    // Potential twin. Check bounding rect.
                     if shell.bounding_rect() == hole.bounding_rect() {
-                        has_twin = true;
-                        break;
+                        return true;
                     }
                 }
-            }
+                false
+            });
 
             if !has_twin {
                 let mut shell_copy = hole.clone();
@@ -148,9 +147,11 @@ impl Polygonizer {
                     use geo::algorithm::winding_order::Winding;
                     ext.make_ccw_winding();
                 });
-                promoted_shells.push(shell_copy);
+                Some(shell_copy)
+            } else {
+                None
             }
-        }
+        }).collect();
         shells.extend(promoted_shells);
 
         // Assign holes to shells
@@ -161,11 +162,8 @@ impl Polygonizer {
         }
         let tree = RTree::bulk_load(indexed_shells);
 
-        // Map shell index to list of hole indices
-        let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
-
-        // For each hole, find candidate shells
-        for hole_poly in holes {
+        // Parallel hole assignment
+        let assignments: Vec<_> = holes.par_iter().filter_map(|hole_poly| {
             let hole_ring = hole_poly.exterior();
             // A hole is contained in a shell if the shell contains the hole's envelope
             // AND the shell contains a point of the hole.
@@ -184,7 +182,7 @@ impl Polygonizer {
                 let shell = &cand.0;
                 let idx = cand.1;
 
-                if shell.contains(&hole_poly) { // geo::Contains
+                if shell.contains(hole_poly) { // geo::Contains
                    let area = shell.unsigned_area();
                    let hole_area = hole_poly.unsigned_area();
 
@@ -197,10 +195,13 @@ impl Polygonizer {
                 }
             }
 
-            if let Some(idx) = best_shell_idx {
-                shell_holes[idx].push(hole_ring.clone());
-            }
-            // Else: Discard unassigned holes (e.g., infinite face boundary)
+            best_shell_idx.map(|idx| (idx, hole_ring.clone()))
+        }).collect();
+
+        // Map shell index to list of hole indices
+        let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
+        for (idx, hole) in assignments {
+            shell_holes[idx].push(hole);
         }
 
         // Construct final polygons
