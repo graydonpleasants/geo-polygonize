@@ -34,28 +34,27 @@ python3 benches/bench_shapely.py
 
 ## Comparative Results (Example)
 
-As of `geo-polygonize` v0.1.0 (with R-Tree noding and Edge memory optimization):
+As of `geo-polygonize` v0.1.0 (with R-Tree noding, Edge memory optimization, and Bulk Loading):
 
 ### Grid Topology (Intersecting Lines)
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | ~0.001 | ~0.001 | ~1.06x |
-| 10 | ~0.003 | ~0.004 | ~1.12x |
-| 20 | ~0.014 | ~0.014 | ~1.00x |
-| 50 | ~0.125 | ~0.087 | ~0.70x |
-| 100 | ~0.862 | ~0.445 | ~0.52x |
+| 5 | ~0.001 | ~0.001 | ~0.79x |
+| 10 | ~0.003 | ~0.004 | ~1.10x |
+| 20 | ~0.015 | ~0.013 | ~0.92x |
+| 50 | ~0.126 | ~0.085 | ~0.67x |
+| 100 | ~0.945 | ~0.370 | ~0.39x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | ~0.011 | ~0.038 | ~3.59x |
-| 100 | ~0.060 | ~0.092 | ~1.53x |
-| 200 | ~0.274 | ~0.248 | ~0.91x |
+| 50 | ~0.016 | ~0.013 | ~0.85x |
+| 100 | ~0.067 | ~0.042 | ~0.63x |
+| 200 | ~0.295 | ~0.166 | ~0.56x |
 
 **Analysis:**
 The library performs competitively with GEOS.
-- **Small/Medium Random Inputs:** `geo-polygonize` is often **faster** than Shapely/GEOS (up to 3.6x speedup) due to lower FFI/interpreter overhead and efficient batch noding.
-- **Dense Grids:** GEOS remains faster (~2x) for very large, highly connected grids (100x100), likely due to highly optimized graph traversal and C++ memory management. However, the Rust implementation scales reasonably well ($O(N \log N)$) and is suitable for most workloads.
-- **Optimization:** Recent improvements (R-Tree noding, reduced heap allocations in Graph Edges) have significantly closed the gap from the initial implementation.
+- **Architecture:** The noding algorithm uses a robust iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy with parallel sorting to minimize memory allocations and hashing overhead.
+- **Performance:** While GEOS (C++) remains ~2x faster for large inputs, `geo-polygonize` provides a pure Rust alternative with predictable scaling and memory safety. The performance gap is primarily due to the maturity of GEOS's optimized graph algorithms and C++ memory management.
