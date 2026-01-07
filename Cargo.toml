@@ -16,3 +16,12 @@ float_next_after = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
+geojson = "0.24"
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+criterion = "0.5"
+rand = "0.8"
+
+[[bench]]
+name = "polygonize_bench"
+harness = false
