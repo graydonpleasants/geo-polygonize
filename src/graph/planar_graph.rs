@@ -1,4 +1,5 @@
 use geo_types::{Coord, LineString};
+use geo::Line;
 use std::collections::HashMap;
 use rayon::prelude::*;
 
@@ -22,8 +23,8 @@ pub struct Node {
 pub struct Edge {
     // The geometry of the edge.
     // In JTS this might be a full LineString, but for the graph we mainly care about connectivity.
-    // However, we need to keep the geometry to reconstruct the polygons.
-    pub line: LineString<f64>,
+    // We store Line to reduce heap allocations compared to LineString.
+    pub line: Line<f64>,
     // Indices of the two directed edges associated with this undirected edge.
     pub dir_edges: [DirEdgeId; 2],
     pub is_marked: bool,
@@ -155,7 +156,7 @@ impl PlanarGraph {
             self.directed_edges.push(de_v_u);
 
             self.edges.push(Edge {
-                line: LineString::from(vec![p0, p1]),
+                line: Line::new(p0, p1),
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
             });
@@ -170,18 +171,6 @@ impl PlanarGraph {
 
     /// Sorts all outgoing edges of all nodes by angle.
     pub fn sort_edges(&mut self) {
-        // We need to access `directed_edges` to get the angle while sorting `nodes`.
-        // This is tricky with borrow checker if we iterate nodes and try to borrow directed_edges.
-        // Strategy:
-        // 1. We can extract the angles into a separate structure or closure?
-        // Or simply use indices and a lookup function.
-        // Since we want to use rayon, we can't easily share the `directed_edges` vec while mutating `nodes`.
-        //
-        // Better approach:
-        // Iterate over nodes mutably. We need read-only access to `directed_edges`.
-        // This is safe if we have a shared reference to `directed_edges` and mutable reference to `nodes`.
-        // But `self` owns both. We need to split the borrow.
-
         let directed_edges = &self.directed_edges;
         self.nodes.par_iter_mut().for_each(|node| {
              node.outgoing_edges.sort_by(|&a_idx, &b_idx| {
@@ -213,16 +202,8 @@ impl PlanarGraph {
             dangles_removed += 1;
 
             // Find the connected edge
-            // Since degree is 1, there should be 1 valid outgoing edge
             let mut edge_found = false;
             let mut neighbor_idx = 0;
-
-            // We need to remove the edge from the neighbor as well.
-            // And potentially add neighbor to to_process.
-
-            // We iterate over outgoing edges to find the one that is not marked removed?
-            // Or we just find the one that is active.
-            // Since we don't actually delete from Vec, we need to mark edges as removed too.
 
             let mut found_de_idx = None;
             for &de_idx in &self.nodes[node_idx].outgoing_edges {
@@ -263,11 +244,7 @@ impl PlanarGraph {
             de.is_visited = false;
         }
 
-        // We can't use par_iter here effectively because we need to traverse and mark visited.
-        // Unless we do connected components. But simple traversal is fine.
-
         // Iterate over all directed edges
-        // We need indices to avoid borrowing issues
         for start_de_idx in 0..self.directed_edges.len() {
             if self.directed_edges[start_de_idx].is_visited || self.directed_edges[start_de_idx].is_marked {
                 continue;
@@ -279,38 +256,13 @@ impl PlanarGraph {
             let mut is_valid_ring = true;
 
             loop {
-                // Borrow check: we can't hold reference to self.directed_edges while accessing others if mutable
-                // But we just need to read.
-                // However, we need to mark visited.
-
                 let curr_de = &mut self.directed_edges[curr_de_idx];
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
 
                 let dst_node_idx = curr_de.dst;
-
-                // Find next edge at dst_node
-                // Next edge is the one immediately CCW from sym_edge of curr_de
-
                 let sym_idx = curr_de.sym_idx;
-
-                // We need to look at dst_node's outgoing edges
                 let dst_node = &self.nodes[dst_node_idx];
-
-                // Find position of sym_idx in dst_node.outgoing_edges
-                // They are sorted by angle.
-
-                // Since we might have removed edges (marked), we should skip them?
-                // The sort order is still valid. But some might be marked.
-                // We need the next *unmarked* edge.
-
-                // Optimization: Binary search or just linear scan if degree is small.
-                // Binary search is good.
-
-                // Note: outgoing_edges contains indices of directed edges starting at dst.
-                // sym_idx is a directed edge ending at dst? No, sym_idx starts at dst (it is v->u).
-                // Yes, sym_idx is the reverse of curr_de (u->v), so sym_idx is v->u.
-                // So sym_idx IS in dst_node.outgoing_edges.
 
                 let mut found_idx = None;
                 for (i, &idx) in dst_node.outgoing_edges.iter().enumerate() {
@@ -321,7 +273,6 @@ impl PlanarGraph {
                 }
 
                 if found_idx.is_none() {
-                    // Should not happen in a valid graph
                     is_valid_ring = false;
                     break;
                 }
@@ -344,8 +295,6 @@ impl PlanarGraph {
                 if let Some(next) = next_de_idx {
                     curr_de_idx = next;
                 } else {
-                    // No outgoing edges (dead end), but we should have pruned dangles.
-                    // If we reach here, it's a dead end or isolated edge.
                     is_valid_ring = false;
                     break;
                 }
@@ -355,15 +304,6 @@ impl PlanarGraph {
                 }
 
                 if self.directed_edges[curr_de_idx].is_visited {
-                    // Encountered a visited edge that is not start.
-                    // This means we crashed into another ring or a previous part of this path?
-                    // In a valid planar graph traversal, this shouldn't happen for simple polygons?
-                    // It can happen if we have a "bowtie" or similar.
-                    // For now, we abort this ring.
-                    // In JTS, this creates an invalid ring or it handles it.
-                    // JTS `findRing` continues until node == startNode.
-                    // But here we check edge.
-                    // If we hit a visited edge, we stop.
                     is_valid_ring = false;
                     break;
                 }
@@ -371,7 +311,7 @@ impl PlanarGraph {
 
             if is_valid_ring && !ring_edges.is_empty() {
                 // Construct LineString
-                let mut coords = Vec::new();
+                let mut coords = Vec::with_capacity(ring_edges.len() + 1);
                 // Add start point of first edge
                 let start_node_idx = self.directed_edges[ring_edges[0]].src;
                 coords.push(self.nodes[start_node_idx].coordinate);
