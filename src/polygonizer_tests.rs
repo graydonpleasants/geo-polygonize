@@ -124,6 +124,9 @@ mod tests {
 
         let polygons = poly.polygonize().unwrap();
 
+        // We expect EXACTLY 2 polygons: Donut and Island.
+        assert_eq!(polygons.len(), 2, "Expected 2 polygons, found {}", polygons.len());
+
         // We expect a polygon with area ~64 (100-36).
         let donut = polygons.iter().find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
         if donut.is_none() {
@@ -136,5 +139,40 @@ mod tests {
         // We expect a polygon with area ~36.
         let island = polygons.iter().find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
+    }
+
+    #[test]
+    fn test_noding_crossing_lines() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+
+        // Frame: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+        poly.add_geometry(LineString::from(vec![
+            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
+        ]).into());
+
+        // Diagonal 1: (0,0)-(10,10)
+        poly.add_geometry(LineString::from(vec![
+            (0.0, 0.0), (10.0, 10.0)
+        ]).into());
+
+        // Diagonal 2: (0,10)-(10,0)
+        poly.add_geometry(LineString::from(vec![
+            (0.0, 10.0), (10.0, 0.0)
+        ]).into());
+
+        let polygons = poly.polygonize().expect("Polygonization failed");
+
+        // Should produce 4 triangles + 1 frame (empty) = 5 polygons.
+        // Total area 100. Each triangle 25.
+
+        assert_eq!(polygons.len(), 5, "Expected 5 polygons (Frame + 4 Triangles), found {}", polygons.len());
+
+        let triangles_count = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
+        assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
+
+        // Also check we have the Frame (area 0 or 100 if holes ignored? Area 0 if holes assigned)
+        let frame_empty = polygons.iter().find(|p| p.unsigned_area() < 1e-6);
+        assert!(frame_empty.is_some(), "Expected empty frame polygon");
     }
 }
