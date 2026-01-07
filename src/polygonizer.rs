@@ -82,16 +82,20 @@ impl Polygonizer {
             extract_lines(geom, &mut lines);
         }
 
+        let mut segments = Vec::new();
         if self.node_input {
-            let noded_lines = node_lines(lines);
-            for line in noded_lines {
-                self.graph.add_line_string(line);
-            }
+            // node_lines now returns Vec<Line> directly
+            segments = node_lines(lines);
         } else {
-            for line in lines {
-                self.graph.add_line_string(line);
+            for ls in lines {
+                for line in ls.lines() {
+                    segments.push(line);
+                }
             }
         }
+
+        // Use bulk load
+        self.graph.bulk_load(segments);
 
         self.dirty = false;
         Ok(())
@@ -233,7 +237,7 @@ fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
 }
 
 /// Robust Noding with R-Tree acceleration.
-fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<LineString<f64>> {
+fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     let mut segments: Vec<Line<f64>> = Vec::new();
     for ls in input_lines {
         for line in ls.lines() {
@@ -287,15 +291,6 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<LineString<f64>> {
                              }
                         },
                         LineIntersection::Collinear { intersection: overlap } => {
-                             // Handle collinear overlap.
-                             // We split both segments at the endpoints of the overlap.
-                             // The overlap segment is strictly contained in or equal to s1 and s2 (or parts of them).
-                             // We treat the overlap endpoints as split points.
-                             // We only need to add them if they are internal to the respective segment (or if we want to force splitting at endpoints even if equal).
-                             // Actually, for collinear logic, we want to normalize the segments.
-                             // If s1 and s2 overlap, we want to decompose them.
-                             // Adding split points at overlap start/end will achieve this decomposition in the next pass.
-
                              let p1 = overlap.start;
                              let p2 = overlap.end;
 
@@ -318,22 +313,6 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<LineString<f64>> {
                                  if s2_has_p1 { split_points[idx2].push(p1); }
                                  if s2_has_p2 { split_points[idx2].push(p2); }
                              }
-
-                             // If the segments are identical (or overlap covers whole segment), no internal split points are added.
-                             // This effectively means we keep both copies.
-                             // We rely on dedup later to merge them.
-                             // If s1 is (0,10) and s2 is (0,10), overlap is (0,10). p1=0, p2=10.
-                             // s1_has_p1 is False (endpoint). s1_has_p2 is False.
-                             // found_intersection remains whatever it was.
-                             // We need to flag that an overlap exists so we can at least dedup?
-                             // Dedup happens at the end of the function regardless of 'found_intersection'.
-                             // So if we have duplicates, they will be removed at the end.
-                             // But if we have partial overlap (0,10) and (5,15), overlap (5,10).
-                             // s1 gets split at 5. s2 gets split at 10.
-                             // Next pass: s1 -> (0,5), (5,10). s2 -> (5,10), (10,15).
-                             // (5,10) matches (5,10).
-                             // They will be deduped at the end.
-                             // Correct.
                         }
                     }
                 }
@@ -380,20 +359,9 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<LineString<f64>> {
     }
 
     // Dedup segments
-    // Sort to bring duplicates together
     segments.sort_by(|a, b| {
         let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
         let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        // Normalize orientation for undirected comparison?
-        // Noding usually preserves direction if input is directed graph?
-        // But here inputs are just lines.
-        // If we have (0,0)->(10,0) and (10,0)->(0,0), they are different directed edges but same geometry.
-        // If we want to unique-ify geometry, we should sort endpoints.
-        // But PlanarGraph might depend on direction?
-        // PlanarGraph::add_line_string adds edges.
-        // If we return (0,10) and (10,0), the graph will have both directed edges.
-        // This is fine. But if we have TWO (0,10), we definitely want to remove one.
-
         sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
     });
     segments.dedup_by(|a, b| {
@@ -402,5 +370,5 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<LineString<f64>> {
         (a.end.x - b.end.x).abs() < tol && (a.end.y - b.end.y).abs() < tol
     });
 
-    segments.into_iter().map(|s| LineString::from(vec![s.start, s.end])).collect()
+    segments
 }
