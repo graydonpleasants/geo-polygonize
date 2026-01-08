@@ -1,30 +1,34 @@
-polygonize/grid/5       time:   [1.0652 ms 1.0697 ms 1.0760 ms]
-                        change: [+0.4693% +1.5436% +2.5551%] (p = 0.01 < 0.05)
-                        Change within noise threshold.
-polygonize/grid/10      time:   [3.4317 ms 3.4424 ms 3.4529 ms]
-                        change: [+2.0379% +2.5340% +3.0288%] (p = 0.00 < 0.05)
-                        Performance has regressed.
-polygonize/grid/20      time:   [14.769 ms 15.025 ms 15.304 ms]
-                        change: [+8.9663% +11.526% +14.661%] (p = 0.00 < 0.05)
-                        Performance has regressed.
-Found 1 outliers among 10 measurements (10.00%)
-  1 (10.00%) high mild
-polygonize/grid/50      time:   [129.48 ms 132.18 ms 135.83 ms]
-                        change: [+6.5083% +8.6185% +11.374%] (p = 0.00 < 0.05)
-                        Performance has regressed.
-Found 1 outliers among 10 measurements (10.00%)
-  1 (10.00%) high mild
-polygonize/grid/100     time:   [870.38 ms 977.66 ms 1.1273 s]
-                        change: [+2.1875% +14.899% +34.369%] (p = 0.06 > 0.05)
+polygonize/grid/5       time:   [1.0902 ms 1.1258 ms 1.1752 ms]
+                        change: [+0.8006% +3.2674% +7.5268%] (p = 0.05 > 0.05)
                         No change in performance detected.
 Found 2 outliers among 10 measurements (20.00%)
-  2 (20.00%) high severe
-polygonize/random/50    time:   [10.435 ms 10.466 ms 10.531 ms]
-                        change: [+6.0676% +6.7753% +7.5064%] (p = 0.00 < 0.05)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+polygonize/grid/10      time:   [3.4833 ms 3.5142 ms 3.5723 ms]
+                        change: [+1.9901% +3.0703% +4.2027%] (p = 0.00 < 0.05)
                         Performance has regressed.
-polygonize/random/100   time:   [60.789 ms 61.118 ms 61.410 ms]
-                        change: [-1.6661% +0.2901% +2.0421%] (p = 0.78 > 0.05)
+polygonize/grid/20      time:   [15.377 ms 15.980 ms 16.335 ms]
+                        change: [-3.0061% +1.8390% +6.9931%] (p = 0.52 > 0.05)
                         No change in performance detected.
-polygonize/random/200   time:   [276.52 ms 277.38 ms 278.12 ms]
-                        change: [+0.6841% +1.6704% +2.5727%] (p = 0.00 < 0.05)
-                        Change within noise threshold.
+polygonize/grid/50      time:   [127.27 ms 128.42 ms 129.15 ms]
+                        change: [-5.5920% -3.2786% -1.3227%] (p = 0.01 < 0.05)
+                        Performance has improved.
+polygonize/grid/100     time:   [866.16 ms 872.89 ms 881.78 ms]
+                        change: [-22.656% -10.716% +0.4885%] (p = 0.17 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high severe
+polygonize/random/50    time:   [10.198 ms 10.305 ms 10.414 ms]
+                        change: [-3.2824% -2.4544% -1.5369%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+polygonize/random/100   time:   [60.466 ms 60.523 ms 60.609 ms]
+                        change: [-1.1514% -0.5732% +0.0605%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+polygonize/random/200   time:   [275.50 ms 276.66 ms 278.23 ms]
+                        change: [-0.6511% -0.2425% +0.1508%] (p = 0.28 > 0.05)
+                        No change in performance detected.
