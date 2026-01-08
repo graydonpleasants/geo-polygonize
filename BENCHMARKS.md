@@ -40,21 +40,21 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Edge memory optimiza
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | ~0.001 | ~0.001 | ~1.03x |
-| 10 | ~0.003 | ~0.004 | ~1.08x |
-| 20 | ~0.014 | ~0.014 | ~1.01x |
-| 50 | ~0.123 | ~0.085 | ~0.70x |
-| 100 | ~0.854 | ~0.379 | ~0.44x |
+| 5 | ~0.001 | ~0.001 | ~1.04x |
+| 10 | ~0.003 | ~0.004 | ~1.06x |
+| 20 | ~0.015 | ~0.014 | ~0.92x |
+| 50 | ~0.136 | ~0.093 | ~0.68x |
+| 100 | ~1.127 | ~0.420 | ~0.37x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | ~0.010 | ~0.013 | ~1.35x |
-| 100 | ~0.063 | ~0.044 | ~0.71x |
-| 200 | ~0.277 | ~0.173 | ~0.62x |
+| 50 | ~0.011 | ~0.015 | ~1.39x |
+| 100 | ~0.061 | ~0.045 | ~0.73x |
+| 200 | ~0.278 | ~0.189 | ~0.68x |
 
 **Analysis:**
 The library performs competitively with GEOS.
 - **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy with parallel sorting to minimize memory allocations and hashing overhead.
-- **Performance:** While GEOS (C++) remains ~2x faster for large inputs, `geo-polygonize` provides a pure Rust alternative with predictable scaling and memory safety. The performance gap is primarily due to the maturity of GEOS's optimized graph algorithms and C++ memory management.
+- **Performance:** While GEOS (C++) remains ~2-3x faster for very large grid inputs in this environment, `geo-polygonize` provides a pure Rust alternative with predictable scaling and memory safety. The parallel implementation significantly outperforms single-threaded versions.
