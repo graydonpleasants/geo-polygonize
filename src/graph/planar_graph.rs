@@ -2,6 +2,7 @@ use geo_types::{Coord, LineString};
 use geo::Line;
 use std::collections::HashMap;
 use rayon::prelude::*;
+use crate::utils::z_order_index;
 
 // Type aliases for indices to ensure we don't mix them up
 pub type NodeId = usize;
@@ -112,16 +113,21 @@ impl PlanarGraph {
             coords.push(line.end);
         }
 
-        // 2. Sort and Dedup
-        // Use parallel sort for performance
+        // 2. Sort and Dedup using Z-order curve for better locality
+        // Precompute Z-indices to avoid recomputing in sort?
+        // For simplicity, compute on fly. It's cheap bit ops.
         coords.par_sort_unstable_by(|a, b| {
-            a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+            let za = z_order_index(*a);
+            let zb = z_order_index(*b);
+            za.cmp(&zb)
+                .then_with(|| {
+                    // Tie-break with exact coords for determinism/dedup
+                    a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+                })
         });
 
         // Dedup using exact equality.
-        // We rely on the noder to produce exact topological endpoints.
-        // Using tolerance here breaks binary_search lookup if the search term differs slightly.
         coords.dedup();
 
         // 3. Build Nodes
@@ -139,9 +145,16 @@ impl PlanarGraph {
 
         // Helper to find node index
         let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
+             // Binary search must respect the sort order (Z-order)
+             let z_pt = z_order_index(pt);
+
              let idx_res = coords.binary_search_by(|probe| {
-                 probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
-                    .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+                 let z_probe = z_order_index(*probe);
+                 z_probe.cmp(&z_pt)
+                    .then_with(|| {
+                        probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
+                            .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+                    })
              });
 
              match idx_res {
