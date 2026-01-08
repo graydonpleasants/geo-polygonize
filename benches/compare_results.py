@@ -149,6 +149,39 @@ def update_markdown(filename, rust_results, python_results):
     with open(filename, 'w') as f:
         f.writelines(new_lines)
 
+def print_original_summary(rust_results, python_results):
+    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()))
+
+    # Group by category
+    categories = sorted(list(set(k[0] for k in all_keys)))
+
+    print("# Benchmark Comparison (Rust vs Python/Shapely)")
+    print("")
+
+    for cat in categories:
+        print(f"## Category: {cat}")
+        print(f"| Input Size | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
+        print(f"|---|---|---|---|")
+
+        keys_in_cat = sorted([k for k in all_keys if k[0] == cat], key=lambda x: x[1])
+
+        for k in keys_in_cat:
+            size = k[1]
+            r_time = rust_results.get(k, None)
+            p_time = python_results.get(k, None)
+
+            r_str = f"{r_time:.6f}" if r_time is not None else "-"
+            p_str = f"{p_time:.6f}" if p_time is not None else "-"
+
+            if r_time and p_time:
+                ratio = p_time / r_time
+                ratio_str = f"{ratio:.2f}x"
+            else:
+                ratio_str = "-"
+
+            print(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+        print("")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true", help="Update BENCHMARKS.md")
@@ -161,16 +194,7 @@ def main():
         print("Updating BENCHMARKS.md...")
         update_markdown("BENCHMARKS.md", rust_results, python_results)
     else:
-        # Print to stdout
-        print("# Benchmark Comparison (Rust vs Python/Shapely)")
-        print("")
-
-        grid_table = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results)
-        random_table = generate_table("random", "Random Lines", "Count", rust_results, python_results)
-
-        print("\n".join(grid_table))
-        print("")
-        print("\n".join(random_table))
+        print_original_summary(rust_results, python_results)
 
 if __name__ == "__main__":
     main()
