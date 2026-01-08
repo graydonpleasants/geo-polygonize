@@ -1,0 +1,49 @@
+name: Benchmark and Update
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Python dependencies
+        run: |
+          pip install shapely numpy
+
+      - name: Run Benchmarks
+        run: |
+          bash benches/run_comparison.sh
+
+      - name: Update BENCHMARKS.md
+        run: |
+          python3 benches/compare_results.py --update
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add BENCHMARKS.md
+          if git diff-index --quiet HEAD; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update benchmark results [skip ci]"
+            git push origin HEAD:${{ github.ref }}
+          fi
