@@ -253,74 +253,77 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
 
     let tol = 1e-10;
 
-    // Limit iterations to prevent infinite loops in pathological cases
-    for _iteration in 0..5 {
-        let mut indexed_segments = Vec::with_capacity(segments.len());
-        for (i, s) in segments.iter().enumerate() {
-            indexed_segments.push(IndexedLine { line: *s, index: i });
-        }
-        let tree = RTree::bulk_load(indexed_segments);
+    // One-Pass Robust Noding
+    // We run a single pass to collect all intersection events.
+    // Assuming the initial set of lines covers the geometry, splitting them at all intersection points
+    // should result in a fully noded graph (barring numerical robustness issues which we handle with tolerance).
 
-        // PARALLEL: Find all intersection events
-        // Returns a flat list of (segment_index, split_point)
-        let intersection_events: Vec<(usize, Coord<f64>)> = segments.par_iter().enumerate()
-            .flat_map(|(idx1, s1)| {
-                let s1_aabb = IndexedLine { line: *s1, index: idx1 }.envelope();
-                let candidates = tree.locate_in_envelope_intersecting(&s1_aabb);
+    // 1. Build Index
+    let mut indexed_segments = Vec::with_capacity(segments.len());
+    for (i, s) in segments.iter().enumerate() {
+        indexed_segments.push(IndexedLine { line: *s, index: i });
+    }
+    let tree = RTree::bulk_load(indexed_segments);
 
-                let mut events = Vec::new();
+    // 2. Find ALL intersection events using bulk query
+    // Returns a flat list of (segment_index, split_point)
+    // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
+    // Note: IntersectionIterator doesn't support ParallelIterator directly. We must collect first.
+    let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
 
-                for cand in candidates {
-                    let idx2 = cand.index;
+    let intersection_events: Vec<(usize, Coord<f64>)> = candidates.into_par_iter()
+        .flat_map(|(cand1, cand2)| {
+            let idx1 = cand1.index;
+            let idx2 = cand2.index;
 
-                    if idx1 >= idx2 { continue; }
+            // Optimization: only process unique pairs
+            if idx1 >= idx2 { return Vec::new(); }
 
-                    let s2 = cand.line;
+            let s1 = cand1.line;
+            let s2 = cand2.line;
 
-                    // Fast check before robust intersection
-                    if !s1.intersects(&s2) { continue; }
+            let mut events = Vec::new();
 
-                    if let Some(res) = geo::algorithm::line_intersection::line_intersection(*s1, s2) {
-                        match res {
-                            LineIntersection::SinglePoint { intersection: pt, .. } => {
-                                // Check strict internal (robustness)
-                                let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
-                                                  || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
-                                let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
-                                                  || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
+            // Fast check before robust intersection
+            if !s1.intersects(&s2) { return events; }
 
-                                if is_internal_s1 { events.push((idx1, pt)); }
-                                if is_internal_s2 { events.push((idx2, pt)); }
-                            },
-                            LineIntersection::Collinear { intersection: overlap } => {
-                                // Add overlap endpoints as split points if internal
-                                let p1 = overlap.start;
-                                let p2 = overlap.end;
+            if let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) {
+                match res {
+                    LineIntersection::SinglePoint { intersection: pt, .. } => {
+                        // Check strict internal (robustness)
+                        let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
+                                          || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
+                        let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
+                                          || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
 
-                                let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
-                                let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
+                        if is_internal_s1 { events.push((idx1, pt)); }
+                        if is_internal_s2 { events.push((idx2, pt)); }
+                    },
+                    LineIntersection::Collinear { intersection: overlap } => {
+                        // Add overlap endpoints as split points if internal
+                        let p1 = overlap.start;
+                        let p2 = overlap.end;
 
-                                if s1_has_p1 { events.push((idx1, p1)); }
-                                if s1_has_p2 { events.push((idx1, p2)); }
+                        let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
+                        let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
 
-                                let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
-                                let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
+                        if s1_has_p1 { events.push((idx1, p1)); }
+                        if s1_has_p2 { events.push((idx1, p2)); }
 
-                                if s2_has_p1 { events.push((idx2, p1)); }
-                                if s2_has_p2 { events.push((idx2, p2)); }
-                            }
-                        }
+                        let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
+                        let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
+
+                        if s2_has_p1 { events.push((idx2, p1)); }
+                        if s2_has_p2 { events.push((idx2, p2)); }
                     }
                 }
-                events
-            })
-            .collect();
+            }
+            events
+        })
+        .collect();
 
-        if intersection_events.is_empty() {
-            break;
-        }
-
-        // SERIAL: Apply splits
+    // 3. Apply splits
+    if !intersection_events.is_empty() {
         // 1. Sort events by Segment Index
         let mut events = intersection_events;
         // Parallel sort the events
@@ -333,7 +336,7 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
                 })
         });
 
-        // 2. Reconstruct segments
+        // Reconstruct segments
         let mut new_segments = Vec::with_capacity(segments.len() * 2);
         let mut event_idx = 0;
 
@@ -378,7 +381,6 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
                 new_segments.push(Line::new(curr, segment.end));
             }
         }
-
         segments = new_segments;
     }
 
