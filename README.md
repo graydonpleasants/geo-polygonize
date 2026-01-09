@@ -61,6 +61,34 @@ You can visualize the results using the provided Python script (requires `matplo
 python3 scripts/visualize.py --input lines.geojson --output polygons.geojson --save result.png
 ```
 
+## Examples
+
+Below are some examples of what the polygonizer can do.
+
+### Nested Holes and Islands
+
+The algorithm correctly identifies nested structures (Island inside a Hole inside a Shell).
+
+![Nested Holes](images/nested_holes.png)
+
+### Incomplete Grid / Dangles
+
+The algorithm prunes dangles (dead-end lines) and extracts only closed cycles.
+
+![Incomplete Grid](images/grid_incomplete.png)
+
+### Touching Polygons (Shared Edges)
+
+Using robust noding (`--node`), it can reconstruct adjacent polygons that share boundaries, even if the input lines are not perfectly noded.
+
+![Touching Polygons](images/touching_polys.png)
+
+### Self-Intersecting Geometry (Bowtie)
+
+Self-intersecting lines are split at intersection points, and valid cycles are extracted.
+
+![Bowtie](images/complex_bowtie.png)
+
 ## Benchmarks
 
 This library includes a "severe" comparison suite against `shapely` (GEOS).

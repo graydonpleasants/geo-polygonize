@@ -436,6 +436,15 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
         segments = new_segments;
     }
 
+    // Normalize segment direction to ensure deduplication works for reverse duplicates
+    for segment in &mut segments {
+        if segment.start.x > segment.end.x || ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
+             let temp = segment.start;
+             segment.start = segment.end;
+             segment.end = temp;
+        }
+    }
+
     // Final global dedup
     #[cfg(feature = "parallel")]
     segments.par_sort_unstable_by(|a, b| {
