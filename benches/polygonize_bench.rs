@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use geo_polygonize::Polygonizer;
-use geo_types::LineString;
+use geo_polygonize::{Polygonizer, TiledPolygonizer};
+use geo_types::{LineString, Rect, Coord};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 
@@ -56,6 +56,25 @@ fn bench_polygonize(c: &mut Criterion) {
                 poly.polygonize().unwrap();
             });
         });
+
+        // Benchmark Tiled version for larger sizes
+        if size >= 50 {
+             group.bench_with_input(BenchmarkId::new("grid_tiled", size), &size, |b, &size| {
+                let lines = generate_grid(size);
+                // BBox is roughly 0,0 to size,size
+                let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: size as f64, y: size as f64 });
+                // Tile size roughly size/2 to get 4 tiles?
+                let tile_size = (size as f64) / 2.0;
+
+                b.iter(|| {
+                    let mut tiler = TiledPolygonizer::new(bbox, tile_size).with_buffer(1.0);
+                    for line in &lines {
+                        tiler.add_geometry(line.clone().into());
+                    }
+                    tiler.polygonize();
+                });
+            });
+        }
     }
 
     // Random line counts

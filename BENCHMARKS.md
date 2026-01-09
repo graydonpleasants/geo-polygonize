@@ -34,27 +34,30 @@ python3 benches/bench_shapely.py
 
 ## Comparative Results
 
-As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Edge memory optimization, Spatial Sorting, and Bulk Loading):
+As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tiling, and Parallel Bulk Loading):
+
+**Environment:** GitHub Action Runner (Standard Linux, likely 2 vCPUs).
 
 ### Grid Topology (Intersecting Lines)
 
-| Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
+| Input Size (NxN) | Rust (Naive) (s) | Rust (Tiled) (s) | Python (GEOS) (s) |
 |---|---|---|---|
-| 5 | 0.001073 | 0.001118 | 1.04x |
-| 10 | 0.003486 | 0.004027 | 1.16x |
-| 20 | 0.013238 | 0.014362 | 1.08x |
-| 50 | 0.123050 | 0.096438 | 0.78x |
-| 100 | 1.077800 | 0.434352 | 0.40x |
+| 5 | 0.001217 | - | 0.000694 |
+| 10 | 0.005027 | - | 0.002209 |
+| 20 | 0.021879 | - | 0.009526 |
+| 50 | 0.197220 | **0.093773** | 0.053809 |
+| 100 | 1.398500 | **0.490010** | 0.235566 |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.009878 | 0.015255 | 1.54x |
-| 100 | 0.061004 | 0.045311 | 0.74x |
-| 200 | 0.279130 | 0.190323 | 0.68x |
+| 50 | 0.015139 | 0.008655 | 0.57x |
+| 100 | 0.093372 | 0.027151 | 0.29x |
+| 200 | 0.415210 | 0.111875 | 0.27x |
 
 **Analysis:**
-The library performs competitively with GEOS.
-- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy with parallel spatial sorting (Z-Order) to minimize memory allocations and hashing overhead.
-- **Performance:** `geo-polygonize` is now faster than Shapely (GEOS) for small to medium inputs, and competitive for larger inputs. The introduction of memory pooling and SmallVec optimizations has significantly improved performance.
+The library offers a pure Rust native alternative to GEOS.
+- **Performance:** On constrained environments (like CI runners with few cores), the parallel overhead of `rayon` may limit speedups compared to the highly optimized single-threaded C++ GEOS backend.
+- **Tiling Strategy:** For large dense datasets (e.g., Grid 100), the **TiledPolygonizer** provides a significant speedup (~1.7x to 2.8x faster than the naive approach), bridging the gap towards GEOS performance. This validates the scalability architecture for large-scale GIS tasks.
+- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy.
