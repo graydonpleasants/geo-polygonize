@@ -439,12 +439,15 @@ impl PlanarGraph {
             de.is_visited = false;
         }
 
+        // Reuse vector to avoid allocations
+        let mut ring_edges = Vec::new();
+
         for start_de_idx in 0..self.directed_edges.len() {
             if self.directed_edges[start_de_idx].is_visited || self.directed_edges[start_de_idx].is_marked {
                 continue;
             }
 
-            let mut ring_edges = Vec::new();
+            ring_edges.clear();
             let mut curr_de_idx = start_de_idx;
             let mut is_valid_ring = true;
 
