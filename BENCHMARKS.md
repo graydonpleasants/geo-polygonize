@@ -40,21 +40,21 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 ### Grid Topology (Intersecting Lines)
 
-| Input Size (NxN) | Rust (Naive) (s) | Rust (Tiled) (s) | Python (GEOS) (s) |
+| Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.001205 | 0.000687 | 0.57x |
-| 10 | 0.004951 | 0.002257 | 0.46x |
-| 20 | 0.021409 | 0.008372 | 0.39x |
-| 50 | 0.193370 | 0.051678 | 0.27x |
-| 100 | 1.389500 | 0.213420 | 0.15x |
+| 5 | 0.001229 | 0.000675 | 0.55x |
+| 10 | 0.004937 | 0.002214 | 0.45x |
+| 20 | 0.021770 | 0.008289 | 0.38x |
+| 50 | 0.193250 | 0.051903 | 0.27x |
+| 100 | 1.376000 | 0.215380 | 0.16x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.014648 | 0.008108 | 0.55x |
-| 100 | 0.091291 | 0.026205 | 0.29x |
-| 200 | 0.406860 | 0.101413 | 0.25x |
+| 50 | 0.014693 | 0.008036 | 0.55x |
+| 100 | 0.090811 | 0.025694 | 0.28x |
+| 200 | 0.414740 | 0.104059 | 0.25x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
