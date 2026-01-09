@@ -2,7 +2,7 @@
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
     use geo_types::{Coord, LineString};
-    use std::f64::consts::PI;
+    use crate::utils::pseudo_angle;
 
     #[test]
     fn test_graph_construction() {
@@ -26,13 +26,13 @@ mod tests {
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
-        // 1. Right (0 degrees)
+        // 1. Right (0 degrees) -> dx=10, dy=0 -> pseudo 0.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
-        // 2. Up (90 degrees / PI/2)
+        // 2. Up (90 degrees) -> dx=0, dy=10 -> pseudo 1.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, 10.0)]));
-        // 3. Left (180 degrees / PI)
+        // 3. Left (180 degrees) -> dx=-10, dy=0 -> pseudo 2.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (-10.0, 0.0)]));
-        // 4. Down (-90 degrees / -PI/2)
+        // 4. Down (-90 degrees) -> dx=0, dy=-10 -> pseudo 3.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, -10.0)]));
 
         graph.sort_edges();
@@ -43,12 +43,23 @@ mod tests {
             graph.directed_edges[idx].angle
         }).collect();
 
+        // Should be sorted 0.0, 1.0, 2.0, 3.0
+        // But wait, are they sorted or just stored?
+        // graph.sort_edges() sorts them.
+
         assert!(sorted_angles[0] < sorted_angles[1]);
         assert!(sorted_angles[1] < sorted_angles[2]);
         assert!(sorted_angles[2] < sorted_angles[3]);
 
-        assert!((sorted_angles[0] - (-PI/2.0)).abs() < 1e-6);
-        assert!((sorted_angles[1] - 0.0).abs() < 1e-6);
+        // Check values match expectations for pseudo_angle
+        // Right
+        assert!((sorted_angles[0] - 0.0).abs() < 1e-6, "Expected 0.0, got {}", sorted_angles[0]);
+        // Up
+        assert!((sorted_angles[1] - 1.0).abs() < 1e-6, "Expected 1.0, got {}", sorted_angles[1]);
+        // Left
+        assert!((sorted_angles[2] - 2.0).abs() < 1e-6, "Expected 2.0, got {}", sorted_angles[2]);
+        // Down
+        assert!((sorted_angles[3] - 3.0).abs() < 1e-6, "Expected 3.0, got {}", sorted_angles[3]);
     }
 
     #[test]

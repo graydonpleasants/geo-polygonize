@@ -34,3 +34,10 @@ rand = "0.8"
 [[bench]]
 name = "polygonize_bench"
 harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort" # Reduces binary size significantly for Wasm
+strip = true    # Removes symbols

@@ -1,4 +1,5 @@
 use geo_types::Coord;
+pub mod parallel;
 
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
@@ -58,4 +59,22 @@ fn part1by1(mut n: u64) -> u64 {
     n = (n | (n << 2))  & 0x3333333333333333;
     n = (n | (n << 1))  & 0x5555555555555555;
     n
+}
+
+/// Computes a pseudo-angle in the range [0, 4) for sorting.
+/// Faster than atan2.
+///
+/// The result maps the angle of the vector (dx, dy) to a value in [0, 4) monotonically.
+/// - (1, 0) -> 0.0
+/// - (0, 1) -> 1.0
+/// - (-1, 0) -> 2.0
+/// - (0, -1) -> 3.0
+pub fn pseudo_angle(dx: f64, dy: f64) -> f64 {
+    if dx == 0.0 && dy == 0.0 { return 0.0; }
+    let p = dx / (dx.abs() + dy.abs());
+    if dy < 0.0 {
+        3.0 + p
+    } else {
+        1.0 - p
+    }
 }
