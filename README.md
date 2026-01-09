@@ -89,6 +89,18 @@ Self-intersecting lines are split at intersection points, and valid cycles are e
 
 ![Bowtie](images/complex_bowtie.png)
 
+### Complex Geometries
+
+The polygonizer can handle complex, curved inputs (approximated by LineStrings) such as overlapping circles and shapes with multiple holes.
+
+**Overlapping Circles**: Note how the intersection regions are correctly identified as separate polygons.
+
+![Overlapping Circles](images/overlapping_circles.png)
+
+**Curved Holes**: A complex polygon with multiple circular holes.
+
+![Curved Holes](images/curved_holes.png)
+
 ## Benchmarks
 
 This library includes a "severe" comparison suite against `shapely` (GEOS).
