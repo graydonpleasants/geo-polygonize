@@ -42,19 +42,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Edge memory optimiza
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.001118 | 0.000612 | 0.55x |
-| 10 | 0.005226 | 0.002086 | 0.40x |
-| 20 | 0.022921 | 0.007846 | 0.34x |
-| 50 | 0.207660 | 0.051196 | 0.25x |
-| 100 | 1.493500 | 0.230271 | 0.15x |
+| 5 | 0.000158 | 0.000679 | 4.30x |
+| 10 | 0.000382 | 0.002262 | 5.93x |
+| 20 | 0.001289 | 0.008210 | 6.37x |
+| 50 | 0.007698 | 0.050776 | 6.60x |
+| 100 | 0.040030 | 0.217363 | 5.43x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.015712 | 0.007939 | 0.51x |
-| 100 | 0.100620 | 0.025486 | 0.25x |
-| 200 | 0.447270 | 0.104499 | 0.23x |
+| 50 | 0.001009 | 0.007992 | 7.92x |
+| 100 | 0.004164 | 0.025902 | 6.22x |
+| 200 | 0.016103 | 0.102249 | 6.35x |
 
 **Analysis:**
 The library performs competitively with GEOS.
@@ -989,9 +989,26 @@ impl Polygonizer {
         shells.extend(promoted_shells);
 
         // Assign holes to shells
-        let mut indexed_shells = Vec::new();
+        // Optimization: Store only AABB and index in R-Tree to avoid cloning Polygons
+        struct IndexedShell {
+            aabb: AABB<[f64; 2]>,
+            index: usize,
+        }
+
+        impl RTreeObject for IndexedShell {
+            type Envelope = AABB<[f64; 2]>;
+            fn envelope(&self) -> Self::Envelope {
+                self.aabb
+            }
+        }
+
+        let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
-            indexed_shells.push(IndexedPolygon(shell.clone(), i));
+            let bbox = shell.bounding_rect().unwrap();
+            indexed_shells.push(IndexedShell {
+                aabb: AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]),
+                index: i,
+            });
         }
         let tree = RTree::bulk_load(indexed_shells);
 
@@ -1005,14 +1022,28 @@ impl Polygonizer {
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            for cand in candidates {
-                let shell = &cand.0;
-                let idx = cand.1;
+            // Pick a point on the hole for point-in-polygon check.
+            // Using the first vertex of the ring is safe as long as the graph is valid.
+            // If the hole is inside the shell, any vertex of the hole is inside or on boundary.
+            let hole_pt = hole_ring.0[0];
 
-                if shell.contains(hole_poly) {
+            for cand in candidates {
+                let idx = cand.index;
+                let shell = &shells[idx];
+
+                // Fast AABB check (strict containment required for hole inside shell)
+                // Note: RTree query returns intersections, so we double check full containment
+                if !shell.bounding_rect().unwrap().contains(&hole_bbox) {
+                    continue;
+                }
+
+                // Check point in polygon
+                // This is much faster than Polygon contains Polygon
+                if shell.contains(&hole_pt) {
                    let area = shell.unsigned_area();
                    let hole_area = hole_poly.unsigned_area();
 
+                   // Ensure shell is larger than hole (sanity check) and find smallest shell
                    if area > hole_area + 1e-6 && area < min_area {
                        min_area = area;
                        best_shell_idx = Some(idx);
@@ -1088,60 +1119,57 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
 
     // 2. Find ALL intersection events using bulk query
     // Returns a flat list of (segment_index, split_point)
-    // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
-    // Note: IntersectionIterator doesn't support ParallelIterator directly. We must collect first.
-    let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
-
-    let intersection_events: Vec<(usize, Coord<f64>)> = candidates.into_par_iter()
-        .flat_map(|(cand1, cand2)| {
+    let intersection_events: Vec<(usize, Coord<f64>)> = tree
+        .intersection_candidates_with_other_tree(&tree)
+        .par_bridge()
+        .fold(Vec::new, |mut acc, (cand1, cand2)| {
             let idx1 = cand1.index;
             let idx2 = cand2.index;
 
             // Optimization: only process unique pairs
-            if idx1 >= idx2 { return Vec::new(); }
+            if idx1 >= idx2 { return acc; }
 
             let s1 = cand1.line;
             let s2 = cand2.line;
 
-            let mut events = Vec::new();
+            // Direct line intersection check, no pre-check
+            let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) else {
+                return acc;
+            };
 
-            // Fast check before robust intersection
-            if !s1.intersects(&s2) { return events; }
+            // Use distance squared for internal check
+            let is_internal = |s: Line<f64>, p: Coord<f64>| {
+                let dx0 = p.x - s.start.x;
+                let dy0 = p.y - s.start.y;
+                let dx1 = p.x - s.end.x;
+                let dy1 = p.y - s.end.y;
+                let tol2 = tol * tol;
+                (dx0 * dx0 + dy0 * dy0) > tol2 && (dx1 * dx1 + dy1 * dy1) > tol2
+            };
 
-            if let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) {
-                match res {
-                    LineIntersection::SinglePoint { intersection: pt, .. } => {
-                        // Check strict internal (robustness)
-                        let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
-                                          || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
-                        let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
-                                          || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
+            match res {
+                LineIntersection::SinglePoint { intersection: pt, .. } => {
+                    if is_internal(s1, pt) { acc.push((idx1, pt)); }
+                    if is_internal(s2, pt) { acc.push((idx2, pt)); }
+                },
+                LineIntersection::Collinear { intersection: overlap } => {
+                    // Add overlap endpoints as split points if internal
+                    let p1 = overlap.start;
+                    let p2 = overlap.end;
 
-                        if is_internal_s1 { events.push((idx1, pt)); }
-                        if is_internal_s2 { events.push((idx2, pt)); }
-                    },
-                    LineIntersection::Collinear { intersection: overlap } => {
-                        // Add overlap endpoints as split points if internal
-                        let p1 = overlap.start;
-                        let p2 = overlap.end;
+                    if is_internal(s1, p1) { acc.push((idx1, p1)); }
+                    if is_internal(s1, p2) { acc.push((idx1, p2)); }
 
-                        let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
-                        let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
-
-                        if s1_has_p1 { events.push((idx1, p1)); }
-                        if s1_has_p2 { events.push((idx1, p2)); }
-
-                        let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
-                        let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
-
-                        if s2_has_p1 { events.push((idx2, p1)); }
-                        if s2_has_p2 { events.push((idx2, p2)); }
-                    }
+                    if is_internal(s2, p1) { acc.push((idx2, p1)); }
+                    if is_internal(s2, p2) { acc.push((idx2, p2)); }
                 }
             }
-            events
+            acc
         })
-        .collect();
+        .reduce(Vec::new, |mut a, mut b| {
+            a.append(&mut b);
+            a
+        });
 
     // 3. Apply splits
     if !intersection_events.is_empty() {
@@ -1463,54 +1491,61 @@ impl PlanarGraph {
             return;
         }
 
-        // 1. Collect all coordinates
-        let mut coords = Vec::with_capacity(lines.len() * 2);
-        for line in &lines {
-            coords.push(line.start);
-            coords.push(line.end);
+        // 1. Collect all coordinates and precompute Z-order
+        struct NodeEntry {
+            z: u64,
+            c: Coord<f64>,
         }
 
-        // 2. Sort and Dedup using Z-order curve for better locality
-        // Precompute Z-indices to avoid recomputing in sort?
-        // For simplicity, compute on fly. It's cheap bit ops.
-        coords.par_sort_unstable_by(|a, b| {
-            let za = z_order_index(*a);
-            let zb = z_order_index(*b);
-            za.cmp(&zb)
+        let mut entries: Vec<NodeEntry> = Vec::with_capacity(lines.len() * 2);
+        for line in &lines {
+            entries.push(NodeEntry { z: z_order_index(line.start), c: line.start });
+            entries.push(NodeEntry { z: z_order_index(line.end), c: line.end });
+        }
+
+        // 2. Sort using precomputed Z-order
+        entries.par_sort_unstable_by(|a, b| {
+            a.z.cmp(&b.z)
                 .then_with(|| {
-                    // Tie-break with exact coords for determinism/dedup
-                    a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+                    // Tie-break with exact coords
+                    a.c.x.partial_cmp(&b.c.x).unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.c.y.partial_cmp(&b.c.y).unwrap_or(std::cmp::Ordering::Equal))
                 })
         });
 
-        // Dedup using exact equality.
-        coords.dedup();
+        // Dedup
+        entries.dedup_by(|a, b| {
+            // Z-order equality is necessary but not sufficient (collisions possible if mapped from float)
+            // But here z is u64 from float bits essentially, so usually distinct.
+            // Check coords.
+            // Note: dedup_by removes 'a' if it matches 'b'.
+            // Logic: if same coord, drop.
+            (a.c.x - b.c.x).abs() < 1e-12 && (a.c.y - b.c.y).abs() < 1e-12
+        });
 
         // 3. Build Nodes
         let start_node_idx = self.nodes.len();
-        self.nodes.reserve(coords.len());
+        self.nodes.reserve(entries.len());
 
-        for coord in &coords {
+        for entry in &entries {
             self.nodes.push(Node {
-                coordinate: *coord,
+                coordinate: entry.c,
                 outgoing_edges: Vec::new(),
                 degree: 0,
                 is_marked: false,
             });
         }
 
-        // Helper to find node index
+        // Helper to find node index using precomputed Z array (entries)
         let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
-             // Binary search must respect the sort order (Z-order)
              let z_pt = z_order_index(pt);
 
-             let idx_res = coords.binary_search_by(|probe| {
-                 let z_probe = z_order_index(*probe);
-                 z_probe.cmp(&z_pt)
+             // Binary search on the sorted entries
+             let idx_res = entries.binary_search_by(|probe| {
+                 probe.z.cmp(&z_pt)
                     .then_with(|| {
-                        probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
-                            .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+                        probe.c.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
+                            .then(probe.c.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
                     })
              });
 
@@ -1520,9 +1555,14 @@ impl PlanarGraph {
              }
         };
 
-        // 4. Build Edges
-        self.edges.reserve(lines.len());
-        self.directed_edges.reserve(lines.len() * 2);
+        // 4. Precompute Adjacency Lists sizes
+        // We do a first pass to map endpoints to node IDs and count degrees.
+        // This allows us to reserve exact capacity for outgoing_edges.
+        // It also avoids repeated binary searches in the second pass.
+
+        // Store valid edges as (u, v, line)
+        let mut valid_edges = Vec::with_capacity(lines.len());
+        let mut degrees = vec![0usize; self.nodes.len()];
 
         for line in lines {
              let p0 = line.start;
@@ -1535,11 +1575,26 @@ impl PlanarGraph {
             let u_opt = get_node_id(p0);
             let v_opt = get_node_id(p1);
 
-            if u_opt.is_none() || v_opt.is_none() {
-                continue;
+            if let (Some(u), Some(v)) = (u_opt, v_opt) {
+                valid_edges.push((u, v, line));
+                degrees[u] += 1;
+                degrees[v] += 1;
             }
-            let u = u_opt.unwrap();
-            let v = v_opt.unwrap();
+        }
+
+        // Reserve exact capacity
+        self.nodes.par_iter_mut().enumerate().for_each(|(i, node)| {
+            node.outgoing_edges.reserve_exact(degrees[i]);
+            node.degree = 0; // reset, we will increment again or just rely on push
+        });
+
+        // 5. Build Edges
+        self.edges.reserve(valid_edges.len());
+        self.directed_edges.reserve(valid_edges.len() * 2);
+
+        for (u, v, line) in valid_edges {
+            let p0 = line.start;
+            let p1 = line.end;
 
             let edge_idx = self.edges.len();
             let de_u_v_idx = self.directed_edges.len();
@@ -1715,6 +1770,32 @@ impl PlanarGraph {
     pub fn get_edge_rings(&mut self) -> Vec<LineString<f64>> {
         let mut rings = Vec::new();
 
+        // Build "next unmarked" pointers
+        // next_pointers[de_idx] = the index of the next valid (unmarked) edge
+        // in the CCW list of the node that de_idx originates from.
+        // During traversal, we look at next_pointers[sym_idx], which gives us the
+        // edge after the incoming edge (sym) in CCW order at the node.
+        let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
+
+        for node in &self.nodes {
+            if node.degree == 0 { continue; }
+
+            // Filter out marked edges from the adjacency list
+            let valid_edges: Vec<usize> = node.outgoing_edges.iter()
+                .cloned()
+                .filter(|&idx| !self.directed_edges[idx].is_marked)
+                .collect();
+
+            if valid_edges.is_empty() { continue; }
+
+            // Link them circular
+            for i in 0..valid_edges.len() {
+                let curr = valid_edges[i];
+                let next = valid_edges[(i + 1) % valid_edges.len()];
+                next_pointers[curr] = next;
+            }
+        }
+
         for de in &mut self.directed_edges {
             de.is_visited = false;
         }
@@ -1733,43 +1814,15 @@ impl PlanarGraph {
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
 
-                let dst_node_idx = curr_de.dst;
                 let sym_idx = curr_de.sym_idx;
-                let dst_node = &self.nodes[dst_node_idx];
+                let next_de_idx = next_pointers[sym_idx];
 
-                let mut found_idx = None;
-                for (i, &idx) in dst_node.outgoing_edges.iter().enumerate() {
-                    if idx == sym_idx {
-                        found_idx = Some(i);
-                        break;
-                    }
-                }
-
-                if found_idx.is_none() {
+                if next_de_idx == usize::MAX {
                     is_valid_ring = false;
                     break;
                 }
 
-                let idx_in_list = found_idx.unwrap();
-
-                let len = dst_node.outgoing_edges.len();
-                let mut next_de_idx = None;
-
-                for i in 1..=len {
-                    let next_pos = (idx_in_list + i) % len;
-                    let candidate_idx = dst_node.outgoing_edges[next_pos];
-                    if !self.directed_edges[candidate_idx].is_marked {
-                        next_de_idx = Some(candidate_idx);
-                        break;
-                    }
-                }
-
-                if let Some(next) = next_de_idx {
-                    curr_de_idx = next;
-                } else {
-                    is_valid_ring = false;
-                    break;
-                }
+                curr_de_idx = next_de_idx;
 
                 if curr_de_idx == start_de_idx {
                     break;
