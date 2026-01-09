@@ -1,6 +1,7 @@
 use geo_polygonize::Polygonizer;
-use geo_types::{LineString, Geometry, Polygon};
+use geo_types::{LineString, Geometry, Polygon, Coord};
 use geo::Area;
+use std::f64::consts::PI;
 
 #[test]
 fn test_nested_holes() {
@@ -109,4 +110,60 @@ fn test_bowtie() {
 
     let triangles = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
     assert_eq!(triangles, 2);
+}
+
+fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
+    let step = 2.0 * PI / ((points - 1) as f64);
+    let mut coords = Vec::new();
+    for i in 0..points {
+        let angle = (i as f64) * step;
+        coords.push(Coord {
+            x: x + r * angle.cos(),
+            y: y + r * angle.sin(),
+        });
+    }
+    LineString::new(coords)
+}
+
+#[test]
+fn test_overlapping_circles() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // 1. Overlapping Circles
+    let c1 = create_circle(30.0, 30.0, 30.0, 100);
+    let c2 = create_circle(60.0, 30.0, 30.0, 100);
+    let c3 = create_circle(45.0, 55.0, 30.0, 100);
+
+    poly.add_geometry(c1.into());
+    poly.add_geometry(c2.into());
+    poly.add_geometry(c3.into());
+
+    let polygons = poly.polygonize().unwrap();
+    // Expect 8 (7 regions + 1 union).
+    assert_eq!(polygons.len(), 8);
+}
+
+#[test]
+fn test_curved_holes() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // 2. Curved Holes
+    let outer = create_circle(50.0, 50.0, 50.0, 200);
+    let h1 = create_circle(30.0, 30.0, 10.0, 100);
+    let h2 = create_circle(70.0, 30.0, 10.0, 100);
+    let h3 = create_circle(50.0, 70.0, 15.0, 100);
+    let h4 = create_circle(50.0, 40.0, 5.0, 100);
+
+    poly.add_geometry(outer.into());
+    poly.add_geometry(h1.into());
+    poly.add_geometry(h2.into());
+    poly.add_geometry(h3.into());
+    poly.add_geometry(h4.into());
+
+    let polygons = poly.polygonize().unwrap();
+
+    // Expect 5 (Outer + 4 holes).
+    assert!(polygons.len() >= 5);
 }

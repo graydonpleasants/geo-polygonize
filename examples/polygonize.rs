@@ -1,11 +1,11 @@
 use clap::Parser;
 use geo_polygonize::Polygonizer;
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::convert::TryInto;
-use geo_types::{LineString, MultiLineString, Geometry as GeoGeometry};
+use geo_types::{Geometry as GeoGeometry};
 use std::error::Error;
 
 #[derive(Parser, Debug)]
