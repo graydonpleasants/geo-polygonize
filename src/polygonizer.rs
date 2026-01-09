@@ -436,6 +436,55 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
         segments = new_segments;
     }
 
+    // Snap Vertices (Robustness for near-miss intersections)
+    let mut points: Vec<_> = segments.iter().enumerate().flat_map(|(i, s)| {
+        vec![
+            (s.start, i, true), // coord, seg_idx, is_start
+            (s.end, i, false)
+        ]
+    }).collect();
+
+    points.sort_by(|a, b| {
+        a.0.x.partial_cmp(&b.0.x).unwrap_or(Ordering::Equal)
+            .then(a.0.y.partial_cmp(&b.0.y).unwrap_or(Ordering::Equal))
+    });
+
+    let mut merged = vec![false; points.len()];
+
+    for i in 0..points.len() {
+        if merged[i] { continue; }
+
+        let rep = points[i].0;
+
+        // Look ahead
+        for j in (i + 1)..points.len() {
+             if points[j].0.x - rep.x > tol {
+                 break;
+             }
+             if merged[j] { continue; }
+
+             if (points[j].0.x - rep.x).abs() < tol && (points[j].0.y - rep.y).abs() < tol {
+                 // Merge
+                 merged[j] = true;
+                 let (seg_idx, is_start) = (points[j].1, points[j].2);
+                 if is_start {
+                     segments[seg_idx].start = rep;
+                 } else {
+                     segments[seg_idx].end = rep;
+                 }
+             }
+        }
+    }
+
+    // Normalize segment direction to ensure deduplication works for reverse duplicates
+    for segment in &mut segments {
+        if segment.start.x > segment.end.x || ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
+             let temp = segment.start;
+             segment.start = segment.end;
+             segment.end = temp;
+        }
+    }
+
     // Final global dedup
     #[cfg(feature = "parallel")]
     segments.par_sort_unstable_by(|a, b| {
