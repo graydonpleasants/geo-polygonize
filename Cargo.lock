@@ -374,6 +374,7 @@ dependencies = [
  "rayon",
  "rstar 0.12.2",
  "serde_json",
+ "smallvec",
  "thiserror 1.0.69",
 ]
 

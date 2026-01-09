@@ -9,14 +9,19 @@ readme = "README.md"
 keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
 categories = ["science::geo", "algorithms"]
 
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
 [dependencies]
 geo = "0.28"
 geo-types = "0.7"
 rstar = "0.12"
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
+smallvec = "1.11"
 
 [dev-dependencies]
 approx = "0.5"
