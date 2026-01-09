@@ -38,6 +38,7 @@ pub fn z_order_index(c: Coord<f64>) -> u64 {
     part1by1(x as u64) | (part1by1(y as u64) << 1)
 }
 
+#[inline]
 fn sortable_float(f: f64) -> u64 {
     let bits = f.to_bits();
     if bits & 0x8000000000000000 != 0 {
@@ -48,6 +49,7 @@ fn sortable_float(f: f64) -> u64 {
 }
 
 // Interleave lower 32 bits to 64 bits
+#[inline]
 fn part1by1(mut n: u64) -> u64 {
     n &= 0x00000000FFFFFFFF;
     n = (n | (n << 16)) & 0x0000FFFF0000FFFF;

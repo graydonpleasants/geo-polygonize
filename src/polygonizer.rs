@@ -282,10 +282,20 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     // should result in a fully noded graph (barring numerical robustness issues which we handle with tolerance).
 
     // 1. Build Index
-    let mut indexed_segments = Vec::with_capacity(segments.len());
-    for (i, s) in segments.iter().enumerate() {
-        indexed_segments.push(IndexedLine { line: *s, index: i });
+    let indexed_segments: Vec<IndexedLine>;
+    #[cfg(feature = "parallel")]
+    {
+        indexed_segments = segments.par_iter().enumerate()
+            .map(|(i, s)| IndexedLine { line: *s, index: i })
+            .collect();
     }
+    #[cfg(not(feature = "parallel"))]
+    {
+        indexed_segments = segments.iter().enumerate()
+            .map(|(i, s)| IndexedLine { line: *s, index: i })
+            .collect();
+    }
+
     let tree = RTree::bulk_load(indexed_segments);
 
     // 2. Find ALL intersection events using bulk query

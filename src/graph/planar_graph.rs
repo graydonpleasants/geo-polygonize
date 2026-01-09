@@ -114,11 +114,25 @@ impl PlanarGraph {
             c: Coord<f64>,
         }
 
-        let mut entries: Vec<NodeEntry> = Vec::with_capacity(lines.len() * 2);
-        for line in &lines {
-            entries.push(NodeEntry { z: z_order_index(line.start), c: line.start });
-            entries.push(NodeEntry { z: z_order_index(line.end), c: line.end });
-        }
+        // Parallelize Z-order calculation
+        #[cfg(feature = "parallel")]
+        let mut entries: Vec<NodeEntry> = lines.par_iter()
+            .flat_map_iter(|line| {
+                 let z1 = z_order_index(line.start);
+                 let z2 = z_order_index(line.end);
+                 [NodeEntry { z: z1, c: line.start }, NodeEntry { z: z2, c: line.end }]
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut entries: Vec<NodeEntry> = {
+            let mut v = Vec::with_capacity(lines.len() * 2);
+            for line in &lines {
+                v.push(NodeEntry { z: z_order_index(line.start), c: line.start });
+                v.push(NodeEntry { z: z_order_index(line.end), c: line.end });
+            }
+            v
+        };
 
         // 2. Sort using precomputed Z-order
         #[cfg(feature = "parallel")]
