@@ -42,19 +42,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Edge memory optimiza
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.001217 | 0.000694 | 0.57x |
-| 10 | 0.005027 | 0.002209 | 0.44x |
-| 20 | 0.021879 | 0.009526 | 0.44x |
-| 50 | 0.197220 | 0.053809 | 0.27x |
-| 100 | 1.398500 | 0.235566 | 0.17x |
+| 5 | 0.001205 | 0.000687 | 0.57x |
+| 10 | 0.004951 | 0.002257 | 0.46x |
+| 20 | 0.021409 | 0.008372 | 0.39x |
+| 50 | 0.193370 | 0.051678 | 0.27x |
+| 100 | 1.389500 | 0.213420 | 0.15x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.015139 | 0.008655 | 0.57x |
-| 100 | 0.093372 | 0.027151 | 0.29x |
-| 200 | 0.415210 | 0.111875 | 0.27x |
+| 50 | 0.014648 | 0.008108 | 0.55x |
+| 100 | 0.091291 | 0.026205 | 0.29x |
+| 200 | 0.406860 | 0.101413 | 0.25x |
 
 **Analysis:**
 The library performs competitively with GEOS.
@@ -168,6 +168,46 @@ You can visualize the results using the provided Python script (requires `matplo
 ```bash
 python3 scripts/visualize.py --input lines.geojson --output polygons.geojson --save result.png
 ```
+
+## Examples
+
+Below are some examples of what the polygonizer can do.
+
+### Nested Holes and Islands
+
+The algorithm correctly identifies nested structures (Island inside a Hole inside a Shell).
+
+![Nested Holes](images/nested_holes.png)
+
+### Incomplete Grid / Dangles
+
+The algorithm prunes dangles (dead-end lines) and extracts only closed cycles.
+
+![Incomplete Grid](images/grid_incomplete.png)
+
+### Touching Polygons (Shared Edges)
+
+Using robust noding (`--node`), it can reconstruct adjacent polygons that share boundaries, even if the input lines are not perfectly noded.
+
+![Touching Polygons](images/touching_polys.png)
+
+### Self-Intersecting Geometry (Bowtie)
+
+Self-intersecting lines are split at intersection points, and valid cycles are extracted.
+
+![Bowtie](images/complex_bowtie.png)
+
+### Complex Geometries
+
+The polygonizer can handle complex, curved inputs (approximated by LineStrings) such as overlapping circles and shapes with multiple holes.
+
+**Overlapping Circles**: Note how the intersection regions are correctly identified as separate polygons.
+
+![Overlapping Circles](images/overlapping_circles.png)
+
+**Curved Holes**: A complex polygon with multiple circular holes.
+
+![Curved Holes](images/curved_holes.png)
 
 ## Benchmarks
 
@@ -609,13 +649,13 @@ File: examples/polygonize.rs
 ```
 use clap::Parser;
 use geo_polygonize::Polygonizer;
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::convert::TryInto;
-use geo::Area;
-use geo_types::{LineString, Polygon};
+use geo_types::{Geometry as GeoGeometry};
+use std::error::Error;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -633,22 +673,12 @@ struct Args {
     node: bool,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // DEBUG: Test area calculation
-    let ls = LineString::from(vec![
-        (0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (0.0, 0.0)
-    ]);
-    println!("DEBUG: Triangle coords: {:?}", ls);
-    println!("DEBUG: is_closed: {}", ls.is_closed());
-    println!("DEBUG: Triangle LS signed_area: {}", ls.signed_area());
-
-    let poly = Polygon::new(ls.clone(), vec![]);
-    println!("DEBUG: Triangle POLY signed_area: {}", poly.signed_area());
-
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     // Read Input
     if !args.input.exists() {
+        eprintln!("Input file does not exist: {:?}", args.input);
         return Ok(());
     }
 
@@ -660,10 +690,159 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut polygonizer = Polygonizer::new();
     polygonizer.node_input = args.node;
 
-    // ... (rest omitted for brevity as we just want the debug prints)
+    let mut count = 0;
+
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    if let Ok(geo_geom) = geom.try_into() {
+                        add_geometry(&mut polygonizer, geo_geom);
+                        count += 1;
+                    }
+                }
+            }
+        },
+        GeoJson::Geometry(geom) => {
+            if let Ok(geo_geom) = geom.try_into() {
+                add_geometry(&mut polygonizer, geo_geom);
+                count += 1;
+            }
+        },
+        GeoJson::Feature(feature) => {
+             if let Some(geom) = feature.geometry {
+                if let Ok(geo_geom) = geom.try_into() {
+                    add_geometry(&mut polygonizer, geo_geom);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    println!("Added {} geometries. Polygonizing...", count);
+
+    let polygons = polygonizer.polygonize()?;
+    println!("Found {} polygons.", polygons.len());
+
+    // Convert back to GeoJSON
+    let features: Vec<Feature> = polygons.into_iter().map(|poly| {
+        let geometry = Geometry::from(&poly);
+        Feature {
+            bbox: None,
+            geometry: Some(geometry),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        }
+    }).collect();
+
+    let output_fc = FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    };
+
+    let output_geojson = GeoJson::FeatureCollection(output_fc);
+
+    println!("Writing output to {:?}", args.output);
+    let file = File::create(&args.output)?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &output_geojson)?;
 
     Ok(())
 }
+
+fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
+    match geom {
+        GeoGeometry::LineString(ls) => {
+            polygonizer.add_geometry(GeoGeometry::LineString(ls));
+        },
+        GeoGeometry::MultiLineString(mls) => {
+            for ls in mls {
+                polygonizer.add_geometry(GeoGeometry::LineString(ls));
+            }
+        },
+        GeoGeometry::GeometryCollection(gc) => {
+            for g in gc {
+                add_geometry(polygonizer, g);
+            }
+        },
+        _ => {
+            // Ignore other types or try to add them if Polygonizer supports them?
+            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
+            // But usually we want LineStrings.
+             polygonizer.add_geometry(geom);
+        }
+    }
+}
+
+```
+
+File: scripts/generate_complex_geojson.py
+```
+import json
+import numpy as np
+from shapely.geometry import Point, LineString, mapping
+import os
+
+def create_circle(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    coords = []
+    for a in angles:
+        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
+    return LineString(coords)
+
+def main():
+    os.makedirs("examples/data", exist_ok=True)
+
+    # 1. Overlapping Circles
+    # Three circles: (0,0), (10,0), (5, 8.66)
+    c1 = create_circle(30, 30, 30)
+    c2 = create_circle(60, 30, 30)
+    c3 = create_circle(45, 55, 30)
+
+    features = []
+    for geom in [c1, c2, c3]:
+        features.append({
+            "type": "Feature",
+            "properties": {},
+            "geometry": mapping(geom)
+        })
+
+    with open("examples/data/overlapping_circles.geojson", "w") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f)
+
+    # 2. Curved Holes (Swiss Cheese)
+    # Large outer circle
+    outer = create_circle(50, 50, 50, points=200)
+
+    # Random holes
+    holes = []
+    holes.append(create_circle(30, 30, 10))
+    holes.append(create_circle(70, 30, 10))
+    holes.append(create_circle(50, 70, 15))
+    holes.append(create_circle(50, 40, 5)) # Central small one
+
+    features = []
+    features.append({
+        "type": "Feature",
+        "properties": {},
+        "geometry": mapping(outer)
+    })
+    for h in holes:
+         features.append({
+            "type": "Feature",
+            "properties": {},
+            "geometry": mapping(h)
+        })
+
+    with open("examples/data/curved_holes.geojson", "w") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f)
+
+    print("Generated examples/data/overlapping_circles.geojson and examples/data/curved_holes.geojson")
+
+if __name__ == "__main__":
+    main()
 
 ```
 
@@ -1264,6 +1443,55 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
         segments = new_segments;
     }
 
+    // Snap Vertices (Robustness for near-miss intersections)
+    let mut points: Vec<_> = segments.iter().enumerate().flat_map(|(i, s)| {
+        vec![
+            (s.start, i, true), // coord, seg_idx, is_start
+            (s.end, i, false)
+        ]
+    }).collect();
+
+    points.sort_by(|a, b| {
+        a.0.x.partial_cmp(&b.0.x).unwrap_or(Ordering::Equal)
+            .then(a.0.y.partial_cmp(&b.0.y).unwrap_or(Ordering::Equal))
+    });
+
+    let mut merged = vec![false; points.len()];
+
+    for i in 0..points.len() {
+        if merged[i] { continue; }
+
+        let rep = points[i].0;
+
+        // Look ahead
+        for j in (i + 1)..points.len() {
+             if points[j].0.x - rep.x > tol {
+                 break;
+             }
+             if merged[j] { continue; }
+
+             if (points[j].0.x - rep.x).abs() < tol && (points[j].0.y - rep.y).abs() < tol {
+                 // Merge
+                 merged[j] = true;
+                 let (seg_idx, is_start) = (points[j].1, points[j].2);
+                 if is_start {
+                     segments[seg_idx].start = rep;
+                 } else {
+                     segments[seg_idx].end = rep;
+                 }
+             }
+        }
+    }
+
+    // Normalize segment direction to ensure deduplication works for reverse duplicates
+    for segment in &mut segments {
+        if segment.start.x > segment.end.x || ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
+             let temp = segment.start;
+             segment.start = segment.end;
+             segment.end = temp;
+        }
+    }
+
     // Final global dedup
     #[cfg(feature = "parallel")]
     segments.par_sort_unstable_by(|a, b| {
@@ -1550,8 +1778,7 @@ File: src/tiling_tests.rs
 #[cfg(test)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Rect, Coord, LineString, Polygon, Geometry};
-    use geo::bounding_rect::BoundingRect;
+    use geo::{Rect, Coord, LineString, Geometry};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -2358,6 +2585,180 @@ fn part1by1(mut n: u64) -> u64 {
     n = (n | (n << 2))  & 0x3333333333333333;
     n = (n | (n << 1))  & 0x5555555555555555;
     n
+}
+
+```
+
+File: tests/integration_tests.rs
+```
+use geo_polygonize::Polygonizer;
+use geo_types::{LineString, Geometry, Polygon, Coord};
+use geo::Area;
+use std::f64::consts::PI;
+
+#[test]
+fn test_nested_holes() {
+    let mut poly = Polygonizer::new();
+
+    // Outer Box (0,0) - (100,100)
+    poly.add_geometry(LineString::from(vec![
+        (0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0), (0.0, 0.0)
+    ]).into());
+
+    // Inner Hole (20,20) - (80,80)
+    poly.add_geometry(LineString::from(vec![
+        (20.0, 20.0), (20.0, 80.0), (80.0, 80.0), (80.0, 20.0), (20.0, 20.0)
+    ]).into());
+
+    // Island inside Hole (40,40) - (60,60)
+    poly.add_geometry(LineString::from(vec![
+        (40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0), (40.0, 40.0)
+    ]).into());
+
+    let polygons = poly.polygonize().unwrap();
+
+    // The polygonizer produces a full mesh:
+    // 1. The Donut (Outer - Hole). Area = 10000 - 3600 = 6400.
+    // 2. The Filled Hole (Hole - Island). Area = 3600 - 400 = 3200.
+    // 3. The Island. Area = 400.
+
+    assert_eq!(polygons.len(), 3);
+
+    let donut = polygons.iter().find(|p| (p.unsigned_area() - 6400.0).abs() < 1e-6);
+    assert!(donut.is_some(), "Donut polygon with area 6400 not found");
+
+    let filled_hole = polygons.iter().find(|p| (p.unsigned_area() - 3200.0).abs() < 1e-6);
+    assert!(filled_hole.is_some(), "Filled hole polygon with area 3200 not found");
+
+    let island = polygons.iter().find(|p| (p.unsigned_area() - 400.0).abs() < 1e-6);
+    assert!(island.is_some(), "Island polygon with area 400 not found");
+}
+
+#[test]
+fn test_touching_polygons() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true; // Required to deduplicate the shared edge
+
+    // Square 1: (0,0)-(50,0)-(50,50)-(0,50)
+    poly.add_geometry(LineString::from(vec![
+        (0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0), (0.0, 0.0)
+    ]).into());
+
+    // Square 2: (50,0)-(100,0)-(100,50)-(50,50)-(50,0)
+    // Shared edge: (50,0)-(50,50)
+    poly.add_geometry(LineString::from(vec![
+        (50.0, 0.0), (100.0, 0.0), (100.0, 50.0), (50.0, 50.0), (50.0, 0.0)
+    ]).into());
+
+    let polygons = poly.polygonize().unwrap();
+
+    // Should find 3 polygons (Mesh behavior):
+    // 1. Square 1 (Area 2500)
+    // 2. Square 2 (Area 2500)
+    // 3. Union / Outer Shell (Area 5000) or similar.
+
+    assert!(polygons.len() >= 2);
+
+    let squares_count = polygons.iter().filter(|p| (p.unsigned_area() - 2500.0).abs() < 1e-6).count();
+    assert_eq!(squares_count, 2, "Expected 2 squares of area 2500");
+}
+
+#[test]
+fn test_dangles() {
+    let mut poly = Polygonizer::new();
+    // A square with a tail
+    poly.add_geometry(LineString::from(vec![
+        (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
+    ]).into());
+
+    // Tail
+    poly.add_geometry(LineString::from(vec![
+        (10.0, 10.0), (20.0, 20.0)
+    ]).into());
+
+    let polygons = poly.polygonize().unwrap();
+    assert_eq!(polygons.len(), 1);
+    assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_bowtie() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // Bowtie: (0,0)->(10,10)->(0,10)->(10,0)->(0,0)
+    // Intersects at (5,5)
+    poly.add_geometry(LineString::from(vec![
+        (0.0, 0.0), (10.0, 10.0), (0.0, 10.0), (10.0, 0.0), (0.0, 0.0)
+    ]).into());
+
+    let polygons = poly.polygonize().unwrap();
+
+    // Produces:
+    // 1. Triangle 1 (Shell). Area 25.
+    // 2. Triangle 2 (Shell). Area 25.
+    // 3. The "Universe" or Outer Frame.
+
+    assert!(polygons.len() >= 2);
+
+    let triangles = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
+    assert_eq!(triangles, 2);
+}
+
+fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
+    let step = 2.0 * PI / ((points - 1) as f64);
+    let mut coords = Vec::new();
+    for i in 0..points {
+        let angle = (i as f64) * step;
+        coords.push(Coord {
+            x: x + r * angle.cos(),
+            y: y + r * angle.sin(),
+        });
+    }
+    LineString::new(coords)
+}
+
+#[test]
+fn test_overlapping_circles() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // 1. Overlapping Circles
+    let c1 = create_circle(30.0, 30.0, 30.0, 100);
+    let c2 = create_circle(60.0, 30.0, 30.0, 100);
+    let c3 = create_circle(45.0, 55.0, 30.0, 100);
+
+    poly.add_geometry(c1.into());
+    poly.add_geometry(c2.into());
+    poly.add_geometry(c3.into());
+
+    let polygons = poly.polygonize().unwrap();
+    // Expect 8 (7 regions + 1 union).
+    assert_eq!(polygons.len(), 8);
+}
+
+#[test]
+fn test_curved_holes() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // 2. Curved Holes
+    let outer = create_circle(50.0, 50.0, 50.0, 200);
+    let h1 = create_circle(30.0, 30.0, 10.0, 100);
+    let h2 = create_circle(70.0, 30.0, 10.0, 100);
+    let h3 = create_circle(50.0, 70.0, 15.0, 100);
+    let h4 = create_circle(50.0, 40.0, 5.0, 100);
+
+    poly.add_geometry(outer.into());
+    poly.add_geometry(h1.into());
+    poly.add_geometry(h2.into());
+    poly.add_geometry(h3.into());
+    poly.add_geometry(h4.into());
+
+    let polygons = poly.polygonize().unwrap();
+
+    // Expect 5 (Outer + 4 holes).
+    assert!(polygons.len() >= 5);
 }
 
 ```
