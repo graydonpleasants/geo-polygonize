@@ -10,12 +10,11 @@ pub type NodeId = usize;
 pub type EdgeId = usize;
 pub type DirEdgeId = usize;
 
-// SoA layout: Node struct removed in favor of separate vectors
-// to improve cache locality and enable easier SIMD later.
-
 #[derive(Clone, Debug)]
 pub struct Edge {
     // The geometry of the edge.
+    // In JTS this might be a full LineString, but for the graph we mainly care about connectivity.
+    // We store Line to reduce heap allocations compared to LineString.
     pub line: Line<f64>,
     // Indices of the two directed edges associated with this undirected edge.
     pub dir_edges: [DirEdgeId; 2],
@@ -41,11 +40,15 @@ pub struct DirectedEdge {
 }
 
 pub struct PlanarGraph {
-    // Structure of Arrays for Nodes
+    /// Node coordinates (X). Index is `NodeId`.
     pub nodes_x: Vec<f64>,
+    /// Node coordinates (Y). Index is `NodeId`.
     pub nodes_y: Vec<f64>,
+    /// Node adjacency lists. Index is `NodeId`.
     pub nodes_outgoing: Vec<Vec<DirEdgeId>>,
+    /// Node connectivity degrees. Index is `NodeId`.
     pub nodes_degree: Vec<usize>,
+    /// Node marked flags. Index is `NodeId`.
     pub nodes_marked: Vec<bool>,
 
     /// All undirected edges (geometry owners). Index is `EdgeId`.
@@ -53,6 +56,7 @@ pub struct PlanarGraph {
     /// All directed half-edges. Index is `DirEdgeId`.
     pub directed_edges: Vec<DirectedEdge>,
     /// Lookup map to dedup nodes during construction.
+    /// OPTIMIZATION: Used only for incremental additions. Bulk load bypasses this.
     pub node_map: HashMap<NodeKey, NodeId>,
 }
 
@@ -121,7 +125,7 @@ impl PlanarGraph {
         entries.par_sort_unstable_by(|a, b| {
             a.z.cmp(&b.z)
                 .then_with(|| {
-                    // Tie-break with exact coords
+                    // Tie-break with exact coords for determinism/dedup
                     a.c.x.partial_cmp(&b.c.x).unwrap_or(std::cmp::Ordering::Equal)
                         .then(a.c.y.partial_cmp(&b.c.y).unwrap_or(std::cmp::Ordering::Equal))
                 })
@@ -137,9 +141,9 @@ impl PlanarGraph {
                 })
         });
 
-        // Dedup
+        // Dedup using exact equality.
         entries.dedup_by(|a, b| {
-            // Strict equality to match binary_search
+            // Strict equality to match binary_search and add_node behavior
             a.c == b.c
         });
 
@@ -161,6 +165,7 @@ impl PlanarGraph {
 
         // Helper to find node index using precomputed Z array (entries)
         let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
+             // Binary search must respect the sort order (Z-order)
              let z_pt = z_order_index(pt);
 
              // Binary search on the sorted entries
@@ -185,22 +190,7 @@ impl PlanarGraph {
 
         // Store valid edges as (u, v, line)
         let mut valid_edges = Vec::with_capacity(lines.len());
-        // Initialize degrees based on existing nodes if any, or just new zeros
-        // But since this is bulk load, we assume mainly appending.
-        // We need a temp degrees vector for the NEW edges to avoid resizing the main one yet?
-        // Actually, we can just update the main vector since we reserved capacity.
-        // But wait, we can't resize `nodes_degree` yet if we just reserved?
-        // Ah, we pushed elements in Step 3. So `nodes_degree` has the correct length.
-        // But if we have existing nodes, we shouldn't reset their degrees.
-        // However, `nodes_degree` was initialized to 0 for new nodes.
-        // So we just need to accumulate.
-
-        // To allow parallel accumulation, we need atomic adds or separate buffers.
-        // For simplicity and to fix the previous bug, we'll use a local buffer for new degrees if we want parallel.
-        // Or just sequential pass for valid_edges collection (it involves binary search anyway).
-
-        let mut temp_degrees = vec![0usize; self.nodes_x.len()]; // This might be large?
-        // Actually, `valid_edges` collection is sequential here.
+        let mut degrees = vec![0usize; self.nodes_x.len()]; // This might be large?
 
         for line in lines {
              let p0 = line.start;
@@ -215,19 +205,19 @@ impl PlanarGraph {
 
             if let (Some(u), Some(v)) = (u_opt, v_opt) {
                 valid_edges.push((u, v, line));
-                temp_degrees[u] += 1;
-                temp_degrees[v] += 1;
+                degrees[u] += 1;
+                degrees[v] += 1;
             }
         }
 
         // Reserve exact capacity
         #[cfg(feature = "parallel")]
-        self.nodes_outgoing.par_iter_mut().zip(temp_degrees.par_iter()).for_each(|(adj, &deg)| {
+        self.nodes_outgoing.par_iter_mut().zip(degrees.par_iter()).for_each(|(adj, &deg)| {
             adj.reserve(deg);
         });
 
         #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing.iter_mut().zip(temp_degrees.iter()).for_each(|(adj, &deg)| {
+        self.nodes_outgoing.iter_mut().zip(degrees.iter()).for_each(|(adj, &deg)| {
             adj.reserve(deg);
         });
 
