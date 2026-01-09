@@ -13,13 +13,14 @@ mod tests {
         graph.add_line_string(l1);
         graph.add_line_string(l2);
 
-        assert_eq!(graph.nodes_x.len(), 3); // (0,0), (10,0), (0,10)
+        assert_eq!(graph.nodes.len(), 3); // (0,0), (10,0), (0,10)
         assert_eq!(graph.edges.len(), 2);
         assert_eq!(graph.directed_edges.len(), 4);
 
         // Node at (0,0) should have 2 outgoing edges
         let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
-        assert_eq!(graph.nodes_outgoing[*center_node_idx].len(), 2);
+        let center_node = &graph.nodes[*center_node_idx];
+        assert_eq!(center_node.outgoing_edges.len(), 2);
     }
 
     #[test]
@@ -38,8 +39,9 @@ mod tests {
         graph.sort_edges();
 
         let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
+        let center_node = &graph.nodes[*center_node_idx];
 
-        let sorted_angles: Vec<f64> = graph.nodes_outgoing[*center_node_idx].iter().map(|&idx| {
+        let sorted_angles: Vec<f64> = center_node.outgoing_edges.iter().map(|&idx| {
             graph.directed_edges[idx].angle
         }).collect();
 
@@ -71,6 +73,11 @@ mod tests {
         graph.add_line_string(LineString::from(vec![(10.0, 0.0), (20.0, 0.0)]));
 
         // Before sort
+        // B has degree 2 (A->B, C->B) + 1 (D->B) = 3?
+        // A->B, B->A (degree 1)
+        // B->C, C->B
+        // C->A, A->C
+        // B->D, D->B
         // B connects to A, C, D. Degree 3.
         // D connects to B. Degree 1.
 
@@ -81,7 +88,7 @@ mod tests {
 
         // B should have degree 2 now
         let b_idx = graph.node_map.get(&Coord::from((10.0, 0.0)).into()).unwrap();
-        assert_eq!(graph.nodes_degree[*b_idx], 2);
+        assert_eq!(graph.nodes[*b_idx].degree, 2);
     }
 
     #[test]
@@ -96,7 +103,15 @@ mod tests {
         graph.sort_edges();
         let rings = graph.get_edge_rings();
 
-        // Should find 2 rings (Inner CCW, Outer CW)
+        // Should find 2 rings:
+        // 1. Exterior (CW): (0,0) -> (0,10) -> (10,0) -> (0,0)
+        // 2. Interior (CCW): (0,0) -> (10,0) -> (0,10) -> (0,0)
+        // Wait, JTS Polygonizer returns Minimal Edge Rings.
+        // For a single triangle, the graph has 2 faces (infinite face and the triangle).
+        // The algorithm traces both.
+        // The "Shell" is CCW. The hole in infinite face is CW.
+        // Typically we get both orientations.
+
         assert_eq!(rings.len(), 2);
     }
 }
