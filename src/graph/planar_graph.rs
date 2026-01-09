@@ -225,15 +225,16 @@ impl PlanarGraph {
         self.edges.reserve(valid_edges.len());
         self.directed_edges.reserve(valid_edges.len() * 2);
 
-        for (u, v, line) in valid_edges {
-            let edge_idx = self.edges.len();
-            let de_u_v_idx = self.directed_edges.len();
-            let de_v_u_idx = self.directed_edges.len() + 1;
+        #[cfg(feature = "parallel")]
+        let new_edges_data: Vec<_> = valid_edges.into_par_iter().enumerate().map(|(i, (u, v, line))| {
+            let edge_idx = self.edges.len() + i;
+            let de_u_v_idx = self.directed_edges.len() + 2 * i;
+            let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
             let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
             let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
 
-            self.directed_edges.push(DirectedEdge {
+            let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
@@ -242,9 +243,9 @@ impl PlanarGraph {
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
-            });
+            };
 
-            self.directed_edges.push(DirectedEdge {
+            let de_v_u = DirectedEdge {
                 src: v,
                 dst: u,
                 edge_idx,
@@ -253,17 +254,63 @@ impl PlanarGraph {
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
-            });
+            };
 
-            self.edges.push(Edge {
+            let edge = Edge {
                 line,
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
-            });
+            };
+
+            (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+        }).collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(|(i, (u, v, line))| {
+             let edge_idx = self.edges.len() + i;
+             let de_u_v_idx = self.directed_edges.len() + 2 * i;
+             let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
+
+             let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
+             let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
+
+             let de_u_v = DirectedEdge {
+                 src: u,
+                 dst: v,
+                 edge_idx,
+                 sym_idx: de_v_u_idx,
+                 angle: angle_u,
+                 is_visited: false,
+                 is_marked: false,
+                 edge_direction: true,
+             };
+
+             let de_v_u = DirectedEdge {
+                 src: v,
+                 dst: u,
+                 edge_idx,
+                 sym_idx: de_u_v_idx,
+                 angle: angle_v,
+                 is_visited: false,
+                 is_marked: false,
+                 edge_direction: false,
+             };
+
+             let edge = Edge {
+                 line,
+                 dir_edges: [de_u_v_idx, de_v_u_idx],
+                 is_marked: false,
+             };
+            (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+        }).collect();
+
+        for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
+            self.directed_edges.push(de_u_v);
+            self.directed_edges.push(de_v_u);
+            self.edges.push(edge);
 
             self.nodes_outgoing[u].push(de_u_v_idx);
             self.nodes_degree[u] += 1;
-
             self.nodes_outgoing[v].push(de_v_u_idx);
             self.nodes_degree[v] += 1;
         }
