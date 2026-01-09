@@ -42,19 +42,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Edge memory optimiza
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.001149 | 0.000673 | 0.59x |
-| 10 | 0.004888 | 0.002201 | 0.45x |
-| 20 | 0.021284 | 0.008260 | 0.39x |
-| 50 | 0.192900 | 0.053001 | 0.27x |
-| 100 | 1.388100 | 0.223430 | 0.16x |
+| 5 | 0.001217 | 0.000694 | 0.57x |
+| 10 | 0.005027 | 0.002209 | 0.44x |
+| 20 | 0.021879 | 0.009526 | 0.44x |
+| 50 | 0.197220 | 0.053809 | 0.27x |
+| 100 | 1.398500 | 0.235566 | 0.17x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.014394 | 0.008068 | 0.56x |
-| 100 | 0.091275 | 0.026735 | 0.29x |
-| 200 | 0.404880 | 0.103403 | 0.26x |
+| 50 | 0.015139 | 0.008655 | 0.57x |
+| 100 | 0.093372 | 0.027151 | 0.29x |
+| 200 | 0.415210 | 0.111875 | 0.27x |
 
 **Analysis:**
 The library performs competitively with GEOS.
@@ -814,11 +814,13 @@ pub mod graph;
 pub mod polygonizer;
 pub mod error;
 pub mod utils;
+pub mod tiling;
 
 #[cfg(test)]
 mod polygonizer_tests;
 
 pub use polygonizer::Polygonizer;
+pub use tiling::TiledPolygonizer;
 
 ```
 
@@ -1108,10 +1110,20 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     // should result in a fully noded graph (barring numerical robustness issues which we handle with tolerance).
 
     // 1. Build Index
-    let mut indexed_segments = Vec::with_capacity(segments.len());
-    for (i, s) in segments.iter().enumerate() {
-        indexed_segments.push(IndexedLine { line: *s, index: i });
+    let indexed_segments: Vec<IndexedLine>;
+    #[cfg(feature = "parallel")]
+    {
+        indexed_segments = segments.par_iter().enumerate()
+            .map(|(i, s)| IndexedLine { line: *s, index: i })
+            .collect();
     }
+    #[cfg(not(feature = "parallel"))]
+    {
+        indexed_segments = segments.iter().enumerate()
+            .map(|(i, s)| IndexedLine { line: *s, index: i })
+            .collect();
+    }
+
     let tree = RTree::bulk_load(indexed_segments);
 
     // 2. Find ALL intersection events using bulk query
@@ -1398,6 +1410,228 @@ mod tests {
 
 ```
 
+File: src/tiling.rs
+```
+use crate::Polygonizer;
+use geo_types::{Geometry, Polygon, Rect, Coord};
+use geo::bounding_rect::BoundingRect;
+use geo::intersects::Intersects;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+use geo::Area;
+
+pub struct TiledPolygonizer {
+    bbox: Rect<f64>,
+    tile_size: f64,
+    buffer: f64, // Overlap buffer to ensure polygons are fully captured
+    geometries: Vec<Geometry<f64>>,
+}
+
+impl TiledPolygonizer {
+    pub fn new(bbox: Rect<f64>, tile_size: f64) -> Self {
+        Self {
+            bbox,
+            tile_size,
+            buffer: 0.0,
+            geometries: Vec::new(),
+        }
+    }
+
+    pub fn with_buffer(mut self, buffer: f64) -> Self {
+        self.buffer = buffer;
+        self
+    }
+
+    pub fn add_geometry(&mut self, geom: Geometry<f64>) {
+        self.geometries.push(geom);
+    }
+
+    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
+        // 1. Generate tiles
+        let min = self.bbox.min();
+        let max = self.bbox.max();
+        let width = max.x - min.x;
+        let height = max.y - min.y;
+
+        let cols = (width / self.tile_size).ceil() as usize;
+        let rows = (height / self.tile_size).ceil() as usize;
+
+        let mut tiles = Vec::new();
+        for r in 0..rows {
+            for c in 0..cols {
+                let x0 = min.x + c as f64 * self.tile_size;
+                let y0 = min.y + r as f64 * self.tile_size;
+                let x1 = (x0 + self.tile_size).min(max.x);
+                let y1 = (y0 + self.tile_size).min(max.y);
+
+                tiles.push(Rect::new(
+                    Coord { x: x0, y: y0 },
+                    Coord { x: x1, y: y1 },
+                ));
+            }
+        }
+
+        // 2. Process tiles in parallel or sequential
+        let process_tile = |tile_bbox: Rect<f64>| -> Vec<Polygon<f64>> {
+            let mut local_poly = Polygonizer::new();
+            local_poly.node_input = true;
+
+            // Define buffered bbox
+            let buffered_bbox = Rect::new(
+                Coord { x: tile_bbox.min().x - self.buffer, y: tile_bbox.min().y - self.buffer },
+                Coord { x: tile_bbox.max().x + self.buffer, y: tile_bbox.max().y + self.buffer },
+            );
+
+            // Filter geometries intersecting the BUFFERED tile
+            let mut relevant_lines = 0;
+            for geom in &self.geometries {
+                if geom.bounding_rect().map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
+                    local_poly.add_geometry(geom.clone());
+                    relevant_lines += 1;
+                }
+            }
+
+            if relevant_lines == 0 {
+                return Vec::new();
+            }
+
+            // Run polygonization
+            if let Ok(polys) = local_poly.polygonize() {
+                // Ownership check:
+                let mut valid_polys = Vec::new();
+                for poly in polys {
+                    use geo::algorithm::centroid::Centroid;
+                    if let Some(pt) = poly.centroid() {
+                        let c = pt;
+                        let area = poly.unsigned_area();
+
+                        // Filter slivers
+                        if area < 1e-6 {
+                            continue;
+                        }
+
+                        // Check inclusion [min, max)
+                        let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
+                        let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
+
+                        if in_x && in_y {
+                            valid_polys.push(poly);
+                        }
+                    }
+                }
+                valid_polys
+            } else {
+                Vec::new()
+            }
+        };
+
+        let result_polygons: Vec<Polygon<f64>>;
+        #[cfg(feature = "parallel")]
+        {
+            result_polygons = tiles.into_par_iter().flat_map(process_tile).collect();
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            result_polygons = tiles.into_iter().flat_map(process_tile).collect();
+        }
+
+        result_polygons
+    }
+}
+
+#[cfg(test)]
+#[path = "tiling_tests.rs"]
+mod tests;
+
+```
+
+File: src/tiling_tests.rs
+```
+#[cfg(test)]
+mod tests {
+    use crate::TiledPolygonizer;
+    use geo::{Rect, Coord, LineString, Polygon, Geometry};
+    use geo::bounding_rect::BoundingRect;
+
+    #[test]
+    fn test_tiled_polygonization_grid() {
+        // Create a 2x2 grid of squares
+        // 0,0 - 10,0 - 20,0
+        //  |     |      |
+        // 0,10- 10,10- 20,10
+        //  |     |      |
+        // 0,20- 10,20- 20,20
+
+        let mut geoms = Vec::new();
+
+        // Horizontals
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 0.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 10.0 }, Coord { x: 20.0, y: 10.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 20.0 }, Coord { x: 20.0, y: 20.0 }])));
+
+        // Verticals
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 20.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 }])));
+
+        // BBox covers 0,0 to 20,20
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+
+        // Tile size 10 (exactly matching lines) or 15 (offset)
+        // Let's try 15 to ensure polygons span tiles
+        // Add buffer of 5.0 to ensure full polygons are captured in each tile
+        let mut tiler = TiledPolygonizer::new(bbox, 15.0).with_buffer(5.0);
+
+        for g in geoms {
+            tiler.add_geometry(g);
+        }
+
+        let polys = tiler.polygonize();
+
+        // Should find 4 polygons
+        assert_eq!(polys.len(), 4);
+
+        // Check areas
+        for p in polys {
+            use geo::Area;
+            assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_tiled_polygonization_exact_boundary() {
+        // Tile size 10, lines on 10.
+        // This tests the "ownership" logic at boundaries.
+
+        let mut geoms = Vec::new();
+         // Horizontals
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 0.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 10.0 }, Coord { x: 20.0, y: 10.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 20.0 }, Coord { x: 20.0, y: 20.0 }])));
+
+        // Verticals
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 20.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 }])));
+
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+
+        // Tile size 10.
+        // Tiles: [0,10]x[0,10], [10,20]x[0,10], etc.
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0);
+
+        for g in geoms {
+            tiler.add_geometry(g);
+        }
+
+        let polys = tiler.polygonize();
+
+        assert_eq!(polys.len(), 4);
+    }
+}
+
+```
+
 File: src/graph/mod.rs
 ```
 pub mod planar_graph;
@@ -1526,11 +1760,25 @@ impl PlanarGraph {
             c: Coord<f64>,
         }
 
-        let mut entries: Vec<NodeEntry> = Vec::with_capacity(lines.len() * 2);
-        for line in &lines {
-            entries.push(NodeEntry { z: z_order_index(line.start), c: line.start });
-            entries.push(NodeEntry { z: z_order_index(line.end), c: line.end });
-        }
+        // Parallelize Z-order calculation
+        #[cfg(feature = "parallel")]
+        let mut entries: Vec<NodeEntry> = lines.par_iter()
+            .flat_map_iter(|line| {
+                 let z1 = z_order_index(line.start);
+                 let z2 = z_order_index(line.end);
+                 [NodeEntry { z: z1, c: line.start }, NodeEntry { z: z2, c: line.end }]
+            })
+            .collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut entries: Vec<NodeEntry> = {
+            let mut v = Vec::with_capacity(lines.len() * 2);
+            for line in &lines {
+                v.push(NodeEntry { z: z_order_index(line.start), c: line.start });
+                v.push(NodeEntry { z: z_order_index(line.end), c: line.end });
+            }
+            v
+        };
 
         // 2. Sort using precomputed Z-order
         #[cfg(feature = "parallel")]
@@ -1637,15 +1885,16 @@ impl PlanarGraph {
         self.edges.reserve(valid_edges.len());
         self.directed_edges.reserve(valid_edges.len() * 2);
 
-        for (u, v, line) in valid_edges {
-            let edge_idx = self.edges.len();
-            let de_u_v_idx = self.directed_edges.len();
-            let de_v_u_idx = self.directed_edges.len() + 1;
+        #[cfg(feature = "parallel")]
+        let new_edges_data: Vec<_> = valid_edges.into_par_iter().enumerate().map(|(i, (u, v, line))| {
+            let edge_idx = self.edges.len() + i;
+            let de_u_v_idx = self.directed_edges.len() + 2 * i;
+            let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
             let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
             let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
 
-            self.directed_edges.push(DirectedEdge {
+            let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
@@ -1654,9 +1903,9 @@ impl PlanarGraph {
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
-            });
+            };
 
-            self.directed_edges.push(DirectedEdge {
+            let de_v_u = DirectedEdge {
                 src: v,
                 dst: u,
                 edge_idx,
@@ -1665,17 +1914,63 @@ impl PlanarGraph {
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
-            });
+            };
 
-            self.edges.push(Edge {
+            let edge = Edge {
                 line,
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
-            });
+            };
+
+            (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+        }).collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(|(i, (u, v, line))| {
+             let edge_idx = self.edges.len() + i;
+             let de_u_v_idx = self.directed_edges.len() + 2 * i;
+             let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
+
+             let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
+             let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
+
+             let de_u_v = DirectedEdge {
+                 src: u,
+                 dst: v,
+                 edge_idx,
+                 sym_idx: de_v_u_idx,
+                 angle: angle_u,
+                 is_visited: false,
+                 is_marked: false,
+                 edge_direction: true,
+             };
+
+             let de_v_u = DirectedEdge {
+                 src: v,
+                 dst: u,
+                 edge_idx,
+                 sym_idx: de_u_v_idx,
+                 angle: angle_v,
+                 is_visited: false,
+                 is_marked: false,
+                 edge_direction: false,
+             };
+
+             let edge = Edge {
+                 line,
+                 dir_edges: [de_u_v_idx, de_v_u_idx],
+                 is_marked: false,
+             };
+            (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+        }).collect();
+
+        for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
+            self.directed_edges.push(de_u_v);
+            self.directed_edges.push(de_v_u);
+            self.edges.push(edge);
 
             self.nodes_outgoing[u].push(de_u_v_idx);
             self.nodes_degree[u] += 1;
-
             self.nodes_outgoing[v].push(de_v_u_idx);
             self.nodes_degree[v] += 1;
         }
@@ -2043,6 +2338,7 @@ pub fn z_order_index(c: Coord<f64>) -> u64 {
     part1by1(x as u64) | (part1by1(y as u64) << 1)
 }
 
+#[inline]
 fn sortable_float(f: f64) -> u64 {
     let bits = f.to_bits();
     if bits & 0x8000000000000000 != 0 {
@@ -2053,6 +2349,7 @@ fn sortable_float(f: f64) -> u64 {
 }
 
 // Interleave lower 32 bits to 64 bits
+#[inline]
 fn part1by1(mut n: u64) -> u64 {
     n &= 0x00000000FFFFFFFF;
     n = (n | (n << 16)) & 0x0000FFFF0000FFFF;
