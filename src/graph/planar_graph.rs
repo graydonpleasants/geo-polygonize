@@ -106,61 +106,54 @@ impl PlanarGraph {
             return;
         }
 
-        // 1. Collect all coordinates and precompute Z-order
-        struct NodeEntry {
-            z: u64,
-            c: Coord<f64>,
-        }
-
-        let mut entries: Vec<NodeEntry> = Vec::with_capacity(lines.len() * 2);
+        // 1. Collect all coordinates
+        let mut coords = Vec::with_capacity(lines.len() * 2);
         for line in &lines {
-            entries.push(NodeEntry { z: z_order_index(line.start), c: line.start });
-            entries.push(NodeEntry { z: z_order_index(line.end), c: line.end });
+            coords.push(line.start);
+            coords.push(line.end);
         }
 
-        // 2. Sort using precomputed Z-order
-        entries.par_sort_unstable_by(|a, b| {
-            a.z.cmp(&b.z)
+        // 2. Sort and Dedup using Z-order curve for better locality
+        // Precompute Z-indices to avoid recomputing in sort?
+        // For simplicity, compute on fly. It's cheap bit ops.
+        coords.par_sort_unstable_by(|a, b| {
+            let za = z_order_index(*a);
+            let zb = z_order_index(*b);
+            za.cmp(&zb)
                 .then_with(|| {
-                    // Tie-break with exact coords
-                    a.c.x.partial_cmp(&b.c.x).unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.c.y.partial_cmp(&b.c.y).unwrap_or(std::cmp::Ordering::Equal))
+                    // Tie-break with exact coords for determinism/dedup
+                    a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
                 })
         });
 
-        // Dedup
-        entries.dedup_by(|a, b| {
-            // Z-order equality is necessary but not sufficient (collisions possible if mapped from float)
-            // But here z is u64 from float bits essentially, so usually distinct.
-            // Check coords.
-            // Note: dedup_by removes 'a' if it matches 'b'.
-            // Logic: if same coord, drop.
-            (a.c.x - b.c.x).abs() < 1e-12 && (a.c.y - b.c.y).abs() < 1e-12
-        });
+        // Dedup using exact equality.
+        coords.dedup();
 
         // 3. Build Nodes
         let start_node_idx = self.nodes.len();
-        self.nodes.reserve(entries.len());
+        self.nodes.reserve(coords.len());
 
-        for entry in &entries {
+        for coord in &coords {
             self.nodes.push(Node {
-                coordinate: entry.c,
+                coordinate: *coord,
                 outgoing_edges: Vec::new(),
                 degree: 0,
                 is_marked: false,
             });
         }
 
-        // Helper to find node index using precomputed Z array (entries)
+        // Helper to find node index
         let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
+             // Binary search must respect the sort order (Z-order)
              let z_pt = z_order_index(pt);
 
-             // Binary search on the sorted entries
-             let idx_res = entries.binary_search_by(|probe| {
-                 probe.z.cmp(&z_pt)
+             let idx_res = coords.binary_search_by(|probe| {
+                 let z_probe = z_order_index(*probe);
+                 z_probe.cmp(&z_pt)
                     .then_with(|| {
-                        probe.c.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
-                            .then(probe.c.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+                        probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
+                            .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
                     })
              });
 
@@ -170,14 +163,9 @@ impl PlanarGraph {
              }
         };
 
-        // 4. Precompute Adjacency Lists sizes
-        // We do a first pass to map endpoints to node IDs and count degrees.
-        // This allows us to reserve exact capacity for outgoing_edges.
-        // It also avoids repeated binary searches in the second pass.
-
-        // Store valid edges as (u, v, line)
-        let mut valid_edges = Vec::with_capacity(lines.len());
-        let mut degrees = vec![0usize; self.nodes.len()];
+        // 4. Build Edges
+        self.edges.reserve(lines.len());
+        self.directed_edges.reserve(lines.len() * 2);
 
         for line in lines {
              let p0 = line.start;
@@ -190,26 +178,11 @@ impl PlanarGraph {
             let u_opt = get_node_id(p0);
             let v_opt = get_node_id(p1);
 
-            if let (Some(u), Some(v)) = (u_opt, v_opt) {
-                valid_edges.push((u, v, line));
-                degrees[u] += 1;
-                degrees[v] += 1;
+            if u_opt.is_none() || v_opt.is_none() {
+                continue;
             }
-        }
-
-        // Reserve exact capacity
-        self.nodes.par_iter_mut().enumerate().for_each(|(i, node)| {
-            node.outgoing_edges.reserve_exact(degrees[i]);
-            node.degree = 0; // reset, we will increment again or just rely on push
-        });
-
-        // 5. Build Edges
-        self.edges.reserve(valid_edges.len());
-        self.directed_edges.reserve(valid_edges.len() * 2);
-
-        for (u, v, line) in valid_edges {
-            let p0 = line.start;
-            let p1 = line.end;
+            let u = u_opt.unwrap();
+            let v = v_opt.unwrap();
 
             let edge_idx = self.edges.len();
             let de_u_v_idx = self.directed_edges.len();
@@ -385,32 +358,6 @@ impl PlanarGraph {
     pub fn get_edge_rings(&mut self) -> Vec<LineString<f64>> {
         let mut rings = Vec::new();
 
-        // Build "next unmarked" pointers
-        // next_pointers[de_idx] = the index of the next valid (unmarked) edge
-        // in the CCW list of the node that de_idx originates from.
-        // During traversal, we look at next_pointers[sym_idx], which gives us the
-        // edge after the incoming edge (sym) in CCW order at the node.
-        let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
-
-        for node in &self.nodes {
-            if node.degree == 0 { continue; }
-
-            // Filter out marked edges from the adjacency list
-            let valid_edges: Vec<usize> = node.outgoing_edges.iter()
-                .cloned()
-                .filter(|&idx| !self.directed_edges[idx].is_marked)
-                .collect();
-
-            if valid_edges.is_empty() { continue; }
-
-            // Link them circular
-            for i in 0..valid_edges.len() {
-                let curr = valid_edges[i];
-                let next = valid_edges[(i + 1) % valid_edges.len()];
-                next_pointers[curr] = next;
-            }
-        }
-
         for de in &mut self.directed_edges {
             de.is_visited = false;
         }
@@ -429,15 +376,43 @@ impl PlanarGraph {
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
 
+                let dst_node_idx = curr_de.dst;
                 let sym_idx = curr_de.sym_idx;
-                let next_de_idx = next_pointers[sym_idx];
+                let dst_node = &self.nodes[dst_node_idx];
 
-                if next_de_idx == usize::MAX {
+                let mut found_idx = None;
+                for (i, &idx) in dst_node.outgoing_edges.iter().enumerate() {
+                    if idx == sym_idx {
+                        found_idx = Some(i);
+                        break;
+                    }
+                }
+
+                if found_idx.is_none() {
                     is_valid_ring = false;
                     break;
                 }
 
-                curr_de_idx = next_de_idx;
+                let idx_in_list = found_idx.unwrap();
+
+                let len = dst_node.outgoing_edges.len();
+                let mut next_de_idx = None;
+
+                for i in 1..=len {
+                    let next_pos = (idx_in_list + i) % len;
+                    let candidate_idx = dst_node.outgoing_edges[next_pos];
+                    if !self.directed_edges[candidate_idx].is_marked {
+                        next_de_idx = Some(candidate_idx);
+                        break;
+                    }
+                }
+
+                if let Some(next) = next_de_idx {
+                    curr_de_idx = next;
+                } else {
+                    is_valid_ring = false;
+                    break;
+                }
 
                 if curr_de_idx == start_de_idx {
                     break;
