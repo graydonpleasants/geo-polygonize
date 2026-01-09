@@ -4,10 +4,10 @@ use crate::error::Result;
 use geo::algorithm::contains::Contains;
 use geo::bounding_rect::BoundingRect;
 use geo::algorithm::line_intersection::LineIntersection;
+use geo::algorithm::intersects::Intersects;
 use geo::Area;
 use geo::Line;
 use rstar::{RTree, AABB, RTreeObject};
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 
@@ -143,12 +143,7 @@ impl Polygonizer {
         }
 
         // Promote CW rings to Shells if they don't have a corresponding CCW Twin.
-        #[cfg(feature = "parallel")]
-        let hole_iter = holes.par_iter();
-        #[cfg(not(feature = "parallel"))]
-        let hole_iter = holes.iter();
-
-        let promoted_shells: Vec<_> = hole_iter.filter_map(|hole| {
+        let promoted_shells: Vec<_> = holes.par_iter().filter_map(|hole| {
             let hole_area = hole.unsigned_area();
             let has_twin = shells.iter().any(|shell| {
                 if (shell.unsigned_area() - hole_area).abs() < 1e-6 {
@@ -173,35 +168,13 @@ impl Polygonizer {
         shells.extend(promoted_shells);
 
         // Assign holes to shells
-        // Optimization: Store only AABB and index in R-Tree to avoid cloning Polygons
-        struct IndexedShell {
-            aabb: AABB<[f64; 2]>,
-            index: usize,
-        }
-
-        impl RTreeObject for IndexedShell {
-            type Envelope = AABB<[f64; 2]>;
-            fn envelope(&self) -> Self::Envelope {
-                self.aabb
-            }
-        }
-
-        let mut indexed_shells = Vec::with_capacity(shells.len());
+        let mut indexed_shells = Vec::new();
         for (i, shell) in shells.iter().enumerate() {
-            let bbox = shell.bounding_rect().unwrap();
-            indexed_shells.push(IndexedShell {
-                aabb: AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]),
-                index: i,
-            });
+            indexed_shells.push(IndexedPolygon(shell.clone(), i));
         }
         let tree = RTree::bulk_load(indexed_shells);
 
-        #[cfg(feature = "parallel")]
-        let hole_iter = holes.par_iter();
-        #[cfg(not(feature = "parallel"))]
-        let hole_iter = holes.iter();
-
-        let assignments: Vec<_> = hole_iter.filter_map(|hole_poly| {
+        let assignments: Vec<_> = holes.par_iter().filter_map(|hole_poly| {
             let hole_ring = hole_poly.exterior();
             let hole_bbox = hole_poly.bounding_rect().unwrap();
             let hole_aabb = AABB::from_corners([hole_bbox.min().x, hole_bbox.min().y], [hole_bbox.max().x, hole_bbox.max().y]);
@@ -211,29 +184,14 @@ impl Polygonizer {
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            // Pick a point on the hole for point-in-polygon check.
-            // Using the first vertex of the ring is safe as long as the graph is valid.
-            // If the hole is inside the shell, any vertex of the hole is inside or on boundary.
-            // let hole_pt = hole_ring.0[0]; // SIMD disabled for now
-
             for cand in candidates {
-                let idx = cand.index;
-                let shell = &shells[idx];
+                let shell = &cand.0;
+                let idx = cand.1;
 
-                // Fast AABB check (strict containment required for hole inside shell)
-                // Note: RTree query returns intersections, so we double check full containment
-                if !shell.bounding_rect().unwrap().contains(&hole_bbox) {
-                    continue;
-                }
-
-                // Check point in polygon
-                // Reverted to standard `contains` for robustness (handling boundary points correctly)
-                // until SIMD version handles touching boundaries.
                 if shell.contains(hole_poly) {
                    let area = shell.unsigned_area();
                    let hole_area = hole_poly.unsigned_area();
 
-                   // Ensure shell is larger than hole (sanity check) and find smallest shell
                    if area > hole_area + 1e-6 && area < min_area {
                        min_area = area;
                        best_shell_idx = Some(idx);
@@ -309,89 +267,71 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
 
     // 2. Find ALL intersection events using bulk query
     // Returns a flat list of (segment_index, split_point)
-    // Common event processing logic
-    let process_intersection = |acc: &mut Vec<(usize, Coord<f64>)>, cand1: &IndexedLine, cand2: &IndexedLine| {
-        let idx1 = cand1.index;
-        let idx2 = cand2.index;
+    // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
+    // Note: IntersectionIterator doesn't support ParallelIterator directly. We must collect first.
+    let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
 
-        // Optimization: only process unique pairs
-        if idx1 >= idx2 { return; }
+    let intersection_events: Vec<(usize, Coord<f64>)> = candidates.into_par_iter()
+        .flat_map(|(cand1, cand2)| {
+            let idx1 = cand1.index;
+            let idx2 = cand2.index;
 
-        let s1 = cand1.line;
-        let s2 = cand2.line;
+            // Optimization: only process unique pairs
+            if idx1 >= idx2 { return Vec::new(); }
 
-        // Direct line intersection check, no pre-check
-        let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) else {
-            return;
-        };
+            let s1 = cand1.line;
+            let s2 = cand2.line;
 
-        // Use distance squared for internal check
-        let is_internal = |s: Line<f64>, p: Coord<f64>| {
-            let dx0 = p.x - s.start.x;
-            let dy0 = p.y - s.start.y;
-            let dx1 = p.x - s.end.x;
-            let dy1 = p.y - s.end.y;
-            let tol2 = tol * tol;
-            (dx0 * dx0 + dy0 * dy0) > tol2 && (dx1 * dx1 + dy1 * dy1) > tol2
-        };
+            let mut events = Vec::new();
 
-        match res {
-            LineIntersection::SinglePoint { intersection: pt, .. } => {
-                if is_internal(s1, pt) { acc.push((idx1, pt)); }
-                if is_internal(s2, pt) { acc.push((idx2, pt)); }
-            },
-            LineIntersection::Collinear { intersection: overlap } => {
-                // Add overlap endpoints as split points if internal
-                let p1 = overlap.start;
-                let p2 = overlap.end;
+            // Fast check before robust intersection
+            if !s1.intersects(&s2) { return events; }
 
-                if is_internal(s1, p1) { acc.push((idx1, p1)); }
-                if is_internal(s1, p2) { acc.push((idx1, p2)); }
+            if let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) {
+                match res {
+                    LineIntersection::SinglePoint { intersection: pt, .. } => {
+                        // Check strict internal (robustness)
+                        let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
+                                          || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
+                        let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
+                                          || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
 
-                if is_internal(s2, p1) { acc.push((idx2, p1)); }
-                if is_internal(s2, p2) { acc.push((idx2, p2)); }
+                        if is_internal_s1 { events.push((idx1, pt)); }
+                        if is_internal_s2 { events.push((idx2, pt)); }
+                    },
+                    LineIntersection::Collinear { intersection: overlap } => {
+                        // Add overlap endpoints as split points if internal
+                        let p1 = overlap.start;
+                        let p2 = overlap.end;
+
+                        let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
+                        let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
+
+                        if s1_has_p1 { events.push((idx1, p1)); }
+                        if s1_has_p2 { events.push((idx1, p2)); }
+
+                        let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
+                        let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
+
+                        if s2_has_p1 { events.push((idx2, p1)); }
+                        if s2_has_p2 { events.push((idx2, p2)); }
+                    }
+                }
             }
-        }
-    };
-
-    #[cfg(feature = "parallel")]
-    let intersection_events: Vec<(usize, Coord<f64>)> = tree
-        .intersection_candidates_with_other_tree(&tree)
-        .par_bridge()
-        .fold(Vec::new, |mut acc, (cand1, cand2)| {
-            process_intersection(&mut acc, cand1, cand2);
-            acc
+            events
         })
-        .reduce(Vec::new, |mut a, mut b| {
-            a.append(&mut b);
-            a
-        });
-
-    #[cfg(not(feature = "parallel"))]
-    let intersection_events: Vec<(usize, Coord<f64>)> = tree
-        .intersection_candidates_with_other_tree(&tree)
-        .fold(Vec::new(), |mut acc, (cand1, cand2)| {
-            process_intersection(&mut acc, cand1, cand2);
-            acc
-        });
+        .collect();
 
     // 3. Apply splits
     if !intersection_events.is_empty() {
         // 1. Sort events by Segment Index
         let mut events = intersection_events;
-
-        #[cfg(feature = "parallel")]
+        // Parallel sort the events
         events.par_sort_unstable_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| {
-                     a.1.x.partial_cmp(&b.1.x).unwrap_or(Ordering::Equal)
-                })
-        });
-
-        #[cfg(not(feature = "parallel"))]
-        events.sort_unstable_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then_with(|| {
+                     // Secondary sort by distance along segment?
+                     // Or just coordinate sort is enough for dedup
                      a.1.x.partial_cmp(&b.1.x).unwrap_or(Ordering::Equal)
                 })
         });
@@ -445,15 +385,7 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     }
 
     // Final global dedup
-    #[cfg(feature = "parallel")]
     segments.par_sort_unstable_by(|a, b| {
-        let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-        let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-    });
-
-    #[cfg(not(feature = "parallel"))]
-    segments.sort_unstable_by(|a, b| {
         let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
         let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
         sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)

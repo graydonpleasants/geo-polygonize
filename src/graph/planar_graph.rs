@@ -1,6 +1,7 @@
 use geo_types::{Coord, LineString};
 use geo::Line;
 use std::collections::HashMap;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use crate::utils::z_order_index;
 
@@ -8,17 +9,6 @@ use crate::utils::z_order_index;
 pub type NodeId = usize;
 pub type EdgeId = usize;
 pub type DirEdgeId = usize;
-
-#[derive(Clone, Debug)]
-pub struct Node {
-    pub coordinate: Coord<f64>,
-    /// Indices of outgoing DirectedEdges.
-    /// CRITICAL INVARIANT: Sorted by polar angle (CCW).
-    pub outgoing_edges: Vec<DirEdgeId>,
-    /// State flag for graph cleaning (dangle removal)
-    pub degree: usize,
-    pub is_marked: bool,
-}
 
 #[derive(Clone, Debug)]
 pub struct Edge {
@@ -50,8 +40,17 @@ pub struct DirectedEdge {
 }
 
 pub struct PlanarGraph {
-    /// All nodes in the graph. Index is `NodeId`.
-    pub nodes: Vec<Node>,
+    /// Node coordinates (X). Index is `NodeId`.
+    pub nodes_x: Vec<f64>,
+    /// Node coordinates (Y). Index is `NodeId`.
+    pub nodes_y: Vec<f64>,
+    /// Node adjacency lists. Index is `NodeId`.
+    pub nodes_outgoing: Vec<Vec<DirEdgeId>>,
+    /// Node connectivity degrees. Index is `NodeId`.
+    pub nodes_degree: Vec<usize>,
+    /// Node marked flags. Index is `NodeId`.
+    pub nodes_marked: Vec<bool>,
+
     /// All undirected edges (geometry owners). Index is `EdgeId`.
     pub edges: Vec<Edge>,
     /// All directed half-edges. Index is `DirEdgeId`.
@@ -75,7 +74,11 @@ impl From<Coord<f64>> for NodeKey {
 impl PlanarGraph {
     pub fn new() -> Self {
         Self {
-            nodes: Vec::new(),
+            nodes_x: Vec::new(),
+            nodes_y: Vec::new(),
+            nodes_outgoing: Vec::new(),
+            nodes_degree: Vec::new(),
+            nodes_marked: Vec::new(),
             edges: Vec::new(),
             directed_edges: Vec::new(),
             node_map: HashMap::new(),
@@ -88,13 +91,12 @@ impl PlanarGraph {
             return id;
         }
 
-        let id = self.nodes.len();
-        self.nodes.push(Node {
-            coordinate: coord,
-            outgoing_edges: Vec::new(),
-            degree: 0,
-            is_marked: false,
-        });
+        let id = self.nodes_x.len();
+        self.nodes_x.push(coord.x);
+        self.nodes_y.push(coord.y);
+        self.nodes_outgoing.push(Vec::new());
+        self.nodes_degree.push(0);
+        self.nodes_marked.push(false);
         self.node_map.insert(key, id);
         id
     }
@@ -106,54 +108,72 @@ impl PlanarGraph {
             return;
         }
 
-        // 1. Collect all coordinates
-        let mut coords = Vec::with_capacity(lines.len() * 2);
-        for line in &lines {
-            coords.push(line.start);
-            coords.push(line.end);
+        // 1. Collect all coordinates and precompute Z-order
+        struct NodeEntry {
+            z: u64,
+            c: Coord<f64>,
         }
 
-        // 2. Sort and Dedup using Z-order curve for better locality
-        // Precompute Z-indices to avoid recomputing in sort?
-        // For simplicity, compute on fly. It's cheap bit ops.
-        coords.par_sort_unstable_by(|a, b| {
-            let za = z_order_index(*a);
-            let zb = z_order_index(*b);
-            za.cmp(&zb)
+        let mut entries: Vec<NodeEntry> = Vec::with_capacity(lines.len() * 2);
+        for line in &lines {
+            entries.push(NodeEntry { z: z_order_index(line.start), c: line.start });
+            entries.push(NodeEntry { z: z_order_index(line.end), c: line.end });
+        }
+
+        // 2. Sort using precomputed Z-order
+        #[cfg(feature = "parallel")]
+        entries.par_sort_unstable_by(|a, b| {
+            a.z.cmp(&b.z)
                 .then_with(|| {
                     // Tie-break with exact coords for determinism/dedup
-                    a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-                        .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+                    a.c.x.partial_cmp(&b.c.x).unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.c.y.partial_cmp(&b.c.y).unwrap_or(std::cmp::Ordering::Equal))
+                })
+        });
+
+        #[cfg(not(feature = "parallel"))]
+        entries.sort_unstable_by(|a, b| {
+             a.z.cmp(&b.z)
+                .then_with(|| {
+                    // Tie-break with exact coords
+                    a.c.x.partial_cmp(&b.c.x).unwrap_or(std::cmp::Ordering::Equal)
+                        .then(a.c.y.partial_cmp(&b.c.y).unwrap_or(std::cmp::Ordering::Equal))
                 })
         });
 
         // Dedup using exact equality.
-        coords.dedup();
+        entries.dedup_by(|a, b| {
+            // Strict equality to match binary_search and add_node behavior
+            a.c == b.c
+        });
 
         // 3. Build Nodes
-        let start_node_idx = self.nodes.len();
-        self.nodes.reserve(coords.len());
+        let start_node_idx = self.nodes_x.len();
+        self.nodes_x.reserve(entries.len());
+        self.nodes_y.reserve(entries.len());
+        self.nodes_outgoing.reserve(entries.len());
+        self.nodes_degree.reserve(entries.len());
+        self.nodes_marked.reserve(entries.len());
 
-        for coord in &coords {
-            self.nodes.push(Node {
-                coordinate: *coord,
-                outgoing_edges: Vec::new(),
-                degree: 0,
-                is_marked: false,
-            });
+        for entry in &entries {
+            self.nodes_x.push(entry.c.x);
+            self.nodes_y.push(entry.c.y);
+            self.nodes_outgoing.push(Vec::new());
+            self.nodes_degree.push(0);
+            self.nodes_marked.push(false);
         }
 
-        // Helper to find node index
+        // Helper to find node index using precomputed Z array (entries)
         let get_node_id = |pt: Coord<f64>| -> Option<NodeId> {
              // Binary search must respect the sort order (Z-order)
              let z_pt = z_order_index(pt);
 
-             let idx_res = coords.binary_search_by(|probe| {
-                 let z_probe = z_order_index(*probe);
-                 z_probe.cmp(&z_pt)
+             // Binary search on the sorted entries
+             let idx_res = entries.binary_search_by(|probe| {
+                 probe.z.cmp(&z_pt)
                     .then_with(|| {
-                        probe.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
-                            .then(probe.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
+                        probe.c.x.partial_cmp(&pt.x).unwrap_or(std::cmp::Ordering::Equal)
+                            .then(probe.c.y.partial_cmp(&pt.y).unwrap_or(std::cmp::Ordering::Equal))
                     })
              });
 
@@ -163,9 +183,14 @@ impl PlanarGraph {
              }
         };
 
-        // 4. Build Edges
-        self.edges.reserve(lines.len());
-        self.directed_edges.reserve(lines.len() * 2);
+        // 4. Precompute Adjacency Lists sizes
+        // We do a first pass to map endpoints to node IDs and count degrees.
+        // This allows us to reserve exact capacity for outgoing_edges.
+        // It also avoids repeated binary searches in the second pass.
+
+        // Store valid edges as (u, v, line)
+        let mut valid_edges = Vec::with_capacity(lines.len());
+        let mut degrees = vec![0usize; self.nodes_x.len()]; // This might be large?
 
         for line in lines {
              let p0 = line.start;
@@ -178,18 +203,35 @@ impl PlanarGraph {
             let u_opt = get_node_id(p0);
             let v_opt = get_node_id(p1);
 
-            if u_opt.is_none() || v_opt.is_none() {
-                continue;
+            if let (Some(u), Some(v)) = (u_opt, v_opt) {
+                valid_edges.push((u, v, line));
+                degrees[u] += 1;
+                degrees[v] += 1;
             }
-            let u = u_opt.unwrap();
-            let v = v_opt.unwrap();
+        }
 
+        // Reserve exact capacity
+        #[cfg(feature = "parallel")]
+        self.nodes_outgoing.par_iter_mut().zip(degrees.par_iter()).for_each(|(adj, &deg)| {
+            adj.reserve(deg);
+        });
+
+        #[cfg(not(feature = "parallel"))]
+        self.nodes_outgoing.iter_mut().zip(degrees.iter()).for_each(|(adj, &deg)| {
+            adj.reserve(deg);
+        });
+
+        // 5. Build Edges
+        self.edges.reserve(valid_edges.len());
+        self.directed_edges.reserve(valid_edges.len() * 2);
+
+        for (u, v, line) in valid_edges {
             let edge_idx = self.edges.len();
             let de_u_v_idx = self.directed_edges.len();
             let de_v_u_idx = self.directed_edges.len() + 1;
 
-            let angle_u = (p1.y - p0.y).atan2(p1.x - p0.x);
-            let angle_v = (p0.y - p1.y).atan2(p0.x - p1.x);
+            let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
+            let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
 
             self.directed_edges.push(DirectedEdge {
                 src: u,
@@ -219,11 +261,11 @@ impl PlanarGraph {
                 is_marked: false,
             });
 
-            self.nodes[u].outgoing_edges.push(de_u_v_idx);
-            self.nodes[u].degree += 1;
+            self.nodes_outgoing[u].push(de_u_v_idx);
+            self.nodes_degree[u] += 1;
 
-            self.nodes[v].outgoing_edges.push(de_v_u_idx);
-            self.nodes[v].degree += 1;
+            self.nodes_outgoing[v].push(de_v_u_idx);
+            self.nodes_degree[v] += 1;
         }
     }
 
@@ -284,19 +326,29 @@ impl PlanarGraph {
                 is_marked: false,
             });
 
-            self.nodes[u].outgoing_edges.push(de_u_v_idx);
-            self.nodes[u].degree += 1;
+            self.nodes_outgoing[u].push(de_u_v_idx);
+            self.nodes_degree[u] += 1;
 
-            self.nodes[v].outgoing_edges.push(de_v_u_idx);
-            self.nodes[v].degree += 1;
+            self.nodes_outgoing[v].push(de_v_u_idx);
+            self.nodes_degree[v] += 1;
         }
     }
 
     /// Sorts all outgoing edges of all nodes by angle.
     pub fn sort_edges(&mut self) {
         let directed_edges = &self.directed_edges;
-        self.nodes.par_iter_mut().for_each(|node| {
-             node.outgoing_edges.sort_by(|&a_idx, &b_idx| {
+        #[cfg(feature = "parallel")]
+        self.nodes_outgoing.par_iter_mut().for_each(|adj| {
+             adj.sort_by(|&a_idx, &b_idx| {
+                 let a = &directed_edges[a_idx];
+                 let b = &directed_edges[b_idx];
+                 a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
+             });
+        });
+
+        #[cfg(not(feature = "parallel"))]
+        self.nodes_outgoing.iter_mut().for_each(|adj| {
+             adj.sort_by(|&a_idx, &b_idx| {
                  let a = &directed_edges[a_idx];
                  let b = &directed_edges[b_idx];
                  a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
@@ -307,25 +359,25 @@ impl PlanarGraph {
     /// Prunes dangles (nodes with degree 1) from the graph iteratively.
     pub fn prune_dangles(&mut self) -> usize {
         let mut dangles_removed = 0;
-        let mut to_process: Vec<NodeId> = self.nodes.iter().enumerate()
-            .filter(|(_, n)| n.degree == 1 && !n.is_marked)
+        let mut to_process: Vec<NodeId> = self.nodes_degree.iter().enumerate()
+            .filter(|(i, &d)| d == 1 && !self.nodes_marked[*i])
             .map(|(i, _)| i)
             .collect();
 
         while let Some(node_idx) = to_process.pop() {
-            if self.nodes[node_idx].degree != 1 {
+            if self.nodes_degree[node_idx] != 1 {
                 continue;
             }
 
-            self.nodes[node_idx].is_marked = true;
-            self.nodes[node_idx].degree = 0;
+            self.nodes_marked[node_idx] = true;
+            self.nodes_degree[node_idx] = 0;
             dangles_removed += 1;
 
             let mut edge_found = false;
             let mut neighbor_idx = 0;
 
             let mut found_de_idx = None;
-            for &de_idx in &self.nodes[node_idx].outgoing_edges {
+            for &de_idx in &self.nodes_outgoing[node_idx] {
                 if !self.directed_edges[de_idx].is_marked {
                     found_de_idx = Some(de_idx);
                     break;
@@ -342,10 +394,9 @@ impl PlanarGraph {
             }
 
             if edge_found {
-                let neighbor = &mut self.nodes[neighbor_idx];
-                if neighbor.degree > 0 {
-                    neighbor.degree -= 1;
-                    if neighbor.degree == 1 && !neighbor.is_marked {
+                if self.nodes_degree[neighbor_idx] > 0 {
+                    self.nodes_degree[neighbor_idx] -= 1;
+                    if self.nodes_degree[neighbor_idx] == 1 && !self.nodes_marked[neighbor_idx] {
                         to_process.push(neighbor_idx);
                     }
                 }
@@ -357,6 +408,32 @@ impl PlanarGraph {
     /// Extracts rings from the graph using the Next-CCW rule.
     pub fn get_edge_rings(&mut self) -> Vec<LineString<f64>> {
         let mut rings = Vec::new();
+
+        // Build "next unmarked" pointers
+        // next_pointers[de_idx] = the index of the next valid (unmarked) edge
+        // in the CCW list of the node that de_idx originates from.
+        // During traversal, we look at next_pointers[sym_idx], which gives us the
+        // edge after the incoming edge (sym) in CCW order at the node.
+        let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
+
+        for (i, degree) in self.nodes_degree.iter().enumerate() {
+            if *degree == 0 { continue; }
+
+            // Filter out marked edges from the adjacency list
+            let valid_edges: Vec<usize> = self.nodes_outgoing[i].iter()
+                .cloned()
+                .filter(|&idx| !self.directed_edges[idx].is_marked)
+                .collect();
+
+            if valid_edges.is_empty() { continue; }
+
+            // Link them circular
+            for k in 0..valid_edges.len() {
+                let curr = valid_edges[k];
+                let next = valid_edges[(k + 1) % valid_edges.len()];
+                next_pointers[curr] = next;
+            }
+        }
 
         for de in &mut self.directed_edges {
             de.is_visited = false;
@@ -376,43 +453,15 @@ impl PlanarGraph {
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
 
-                let dst_node_idx = curr_de.dst;
                 let sym_idx = curr_de.sym_idx;
-                let dst_node = &self.nodes[dst_node_idx];
+                let next_de_idx = next_pointers[sym_idx];
 
-                let mut found_idx = None;
-                for (i, &idx) in dst_node.outgoing_edges.iter().enumerate() {
-                    if idx == sym_idx {
-                        found_idx = Some(i);
-                        break;
-                    }
-                }
-
-                if found_idx.is_none() {
+                if next_de_idx == usize::MAX {
                     is_valid_ring = false;
                     break;
                 }
 
-                let idx_in_list = found_idx.unwrap();
-
-                let len = dst_node.outgoing_edges.len();
-                let mut next_de_idx = None;
-
-                for i in 1..=len {
-                    let next_pos = (idx_in_list + i) % len;
-                    let candidate_idx = dst_node.outgoing_edges[next_pos];
-                    if !self.directed_edges[candidate_idx].is_marked {
-                        next_de_idx = Some(candidate_idx);
-                        break;
-                    }
-                }
-
-                if let Some(next) = next_de_idx {
-                    curr_de_idx = next;
-                } else {
-                    is_valid_ring = false;
-                    break;
-                }
+                curr_de_idx = next_de_idx;
 
                 if curr_de_idx == start_de_idx {
                     break;
@@ -427,12 +476,12 @@ impl PlanarGraph {
             if is_valid_ring && !ring_edges.is_empty() {
                 let mut coords = Vec::with_capacity(ring_edges.len() + 1);
                 let start_node_idx = self.directed_edges[ring_edges[0]].src;
-                coords.push(self.nodes[start_node_idx].coordinate);
+                coords.push(Coord { x: self.nodes_x[start_node_idx], y: self.nodes_y[start_node_idx] });
 
                 for &de_idx in &ring_edges {
                     let de = &self.directed_edges[de_idx];
-                    let dst = &self.nodes[de.dst];
-                    coords.push(dst.coordinate);
+                    let dst_idx = de.dst;
+                    coords.push(Coord { x: self.nodes_x[dst_idx], y: self.nodes_y[dst_idx] });
                 }
 
                 rings.push(LineString::new(coords));
