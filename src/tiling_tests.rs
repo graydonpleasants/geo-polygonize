@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Rect, Coord, LineString, Polygon, Geometry};
-    use geo::bounding_rect::BoundingRect;
+    use geo::{Rect, Coord, LineString, Geometry};
 
     #[test]
     fn test_tiled_polygonization_grid() {
