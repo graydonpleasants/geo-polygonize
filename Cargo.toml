@@ -22,6 +22,7 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
+robust = "1.2"
 
 [dev-dependencies]
 approx = "0.5"

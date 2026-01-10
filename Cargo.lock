@@ -372,6 +372,7 @@ dependencies = [
  "log",
  "rand",
  "rayon",
+ "robust",
  "rstar 0.12.2",
  "serde_json",
  "smallvec",
