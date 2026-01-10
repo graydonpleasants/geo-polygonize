@@ -44,19 +44,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.001229 | 0.000675 | 0.55x |
-| 10 | 0.004937 | 0.002214 | 0.45x |
-| 20 | 0.021770 | 0.008289 | 0.38x |
-| 50 | 0.193250 | 0.051903 | 0.27x |
-| 100 | 1.376000 | 0.215380 | 0.16x |
+| 5 | 0.000959 | 0.000682 | 0.71x |
+| 10 | 0.003984 | 0.002228 | 0.56x |
+| 20 | 0.017657 | 0.008245 | 0.47x |
+| 50 | 0.167010 | 0.052868 | 0.32x |
+| 100 | 1.240800 | 0.233721 | 0.19x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.014693 | 0.008036 | 0.55x |
-| 100 | 0.090811 | 0.025694 | 0.28x |
-| 200 | 0.414740 | 0.104059 | 0.25x |
+| 50 | 0.012479 | 0.008542 | 0.68x |
+| 100 | 0.077491 | 0.028242 | 0.36x |
+| 200 | 0.351380 | 0.105220 | 0.30x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -104,6 +104,13 @@ rand = "0.8"
 [[bench]]
 name = "polygonize_bench"
 harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort" # Reduces binary size significantly for Wasm
+strip = true    # Removes symbols
 
 ```
 
@@ -667,6 +674,179 @@ echo "Done."
 
 ```
 
+File: benches/run_wasm_bench.sh
+```
+#!/bin/bash
+set -e
+
+# Ensure wasm-pack is available
+if ! command -v wasm-pack &> /dev/null; then
+    echo "wasm-pack not found. Please install it."
+    exit 1
+fi
+
+echo "Building Wasm Benchmark..."
+cd benches/wasm_bench
+wasm-pack build --target nodejs --release
+
+echo "Running Wasm Benchmark (Node.js)..."
+node -e '
+const { run_grid_bench, setup_panic_hook } = require("./pkg/wasm_bench.js");
+
+setup_panic_hook();
+
+// Warmup
+run_grid_bench(10);
+
+const sizes = [10, 20, 50, 80];
+
+console.log("| Input Size | Time (ms) |");
+console.log("|---|---|");
+
+for (const size of sizes) {
+    let total = 0;
+    const runs = 5;
+    for (let i = 0; i < runs; i++) {
+        total += run_grid_bench(size);
+    }
+    const avg = total / runs;
+    console.log(`| ${size} | ${avg.toFixed(2)} |`);
+}
+'
+
+```
+
+File: benches/wasm_bench/Cargo.toml
+```
+[package]
+name = "wasm-bench"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+geo-polygonize = { path = "../../" }
+geo-types = "0.7"
+geo = "0.28"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = ["Window", "Performance"] }
+js-sys = "0.3"
+
+```
+
+File: benches/wasm_bench/src/lib.rs
+```
+use wasm_bindgen::prelude::*;
+use geo_polygonize::Polygonizer;
+use geo_types::{LineString, Geometry, GeometryCollection};
+
+#[wasm_bindgen]
+pub fn setup_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+pub fn run_grid_bench(size: usize) -> f64 {
+    let mut lines = Vec::new();
+    // Generate grid
+    for i in 0..size {
+        // Vertical
+        lines.push(LineString::from(vec![
+            (i as f64, 0.0),
+            (i as f64, size as f64),
+        ]));
+        // Horizontal
+        lines.push(LineString::from(vec![
+            (0.0, i as f64),
+            (size as f64, i as f64),
+        ]));
+    }
+
+    let geom_coll: GeometryCollection<f64> = lines.into_iter().map(Geometry::LineString).collect();
+    let geom = Geometry::GeometryCollection(geom_coll);
+
+    let start = js_sys::Date::now();
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = true; // Force noding
+    polygonizer.add_geometry(geom);
+    let _ = polygonizer.polygonize().unwrap();
+
+    let end = js_sys::Date::now();
+    end - start
+}
+
+```
+
+File: docs/WASM_OPTIMIZATIONS.md
+```
+# Wasm Optimization Strategy
+
+This document outlines potential strategies to further improve WebAssembly (Wasm) performance for `geo-polygonize` while maintaining or improving Native performance.
+
+## 1. Monotone Chain Sweep Line (Bentley-Ottmann)
+
+The current implementation uses an R-Tree for noding (finding intersections). While robust and parallelizable (good for Native), it is memory-intensive and O(N^2) in worst-case dense grids.
+
+*   **Pros:**
+    *   **Algorithmic Efficiency:** O((N + k) log N) complexity is superior for dense intersections.
+    *   **Memory Footprint:** Significantly lower memory usage than constructing an R-Tree, crucial for Wasm's 4GB limit (and practical browser limits).
+*   **Cons:**
+    *   **Robustness:** Extremely difficult to implement robustly with floating-point arithmetic compared to the "find all, then split" R-Tree approach.
+    *   **Parallelism:** Inherently sequential algorithm. Replacing the parallel R-Tree with this would **degrade Native performance** on multi-core systems unless we maintain two separate implementations (high maintenance).
+
+## 2. Shared Memory Parallelism (Rayon on Wasm)
+
+Enable threads in Wasm using `SharedArrayBuffer` and `wasm-bindgen-rayon`.
+
+*   **Pros:**
+    *   **Speed:** Directly utilizes multi-core CPUs in the browser, potentially bringing Wasm parity with Native.
+*   **Cons:**
+    *   **Deployment Complexity:** Requires the hosting server to send specific headers (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`). This breaks many standard deployments (e.g., simple CDNs, iframes).
+    *   **Browser Support:** Good but not universal (e.g., Safari restrictions).
+    *   **Overhead:** Thread startup in Wasm is heavier than Native.
+
+## 3. Geometry Quantization (Int32 Coordinates)
+
+Convert all `f64` coordinates to `i32` (fixed precision) before processing.
+
+*   **Pros:**
+    *   **Math Speed:** Integer arithmetic is faster and exact.
+    *   **Size:** Reduces memory bandwidth (4 bytes vs 8 bytes per coord).
+*   **Cons:**
+    *   **Precision Loss:** Coordinates are snapped to a grid.
+    *   **Conversion Cost:** Overhead of converting to/from float at boundaries.
+    *   **API Breaking:** Changes the public API or requires a wrapper.
+
+## 4. Arena / Bump Allocation
+
+Use a custom allocator (like `bumpalo`) for the graph nodes and edges instead of `Vec` or standard heap.
+
+*   **Pros:**
+    *   **Allocation Speed:** Bump allocation is effectively instantaneous.
+    *   **Cache Locality:** Related data is stored contiguously.
+*   **Cons:**
+    *   **Memory Peaks:** Memory cannot be freed individually; it grows until the entire operation finishes. This increases the risk of OOM on Wasm for large datasets, even if it's faster.
+
+## 5. `wasm-opt` Tuning (Toolchain)
+
+Use `binaryen`'s `wasm-opt` to optimize the final binary.
+
+*   **Pros:**
+    *   **Free Performance:** 10-20% size reduction and speedup without code changes.
+*   **Cons:**
+    *   **Build Time:** Adds to CI/CD pipeline time.
+    *   **Debugging:** Makes stack traces harder to read (though DWARF helps).
+
+## Recommendation
+
+For the immediate future, we should stick to **Algorithmic Improvements** that benefit both targets (like the Tiled Polygonizer for large grids) and **Memory Optimizations** (like the lazy streaming implemented in this PR). Switching to a Sweep Line algorithm is the high-risk/high-reward option if memory constraints become the primary blocker.
+
+```
+
 File: examples/polygonize.rs
 ```
 use clap::Parser;
@@ -1116,6 +1296,16 @@ impl Polygonizer {
 
         let mut segments = Vec::new();
         if self.node_input {
+             // Deduplicate identical inputs before expensive noding
+             lines.sort_by(|a, b| {
+                 // Simple sort
+                 let pa = a.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
+                 let pb = b.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
+                 pa.x.partial_cmp(&pb.x).unwrap_or(Ordering::Equal)
+                    .then(pa.y.partial_cmp(&pb.y).unwrap_or(Ordering::Equal))
+             });
+             lines.dedup();
+
             segments = node_lines(lines);
         } else {
             for ls in lines {
@@ -1330,9 +1520,8 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     // 2. Find ALL intersection events using bulk query
     // Returns a flat list of (segment_index, split_point)
     // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
-    // Note: IntersectionIterator doesn't support ParallelIterator directly. We must collect first.
-    let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
 
+    // Closure to process intersection
     let process_intersection = |(cand1, cand2): (&IndexedLine, &IndexedLine)| -> SmallVec<[(usize, Coord<f64>); 2]> {
         let idx1 = cand1.index;
         let idx2 = cand2.index;
@@ -1383,15 +1572,29 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     };
 
     let intersection_events: Vec<(usize, Coord<f64>)>;
-    #[cfg(feature = "parallel")]
+
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        intersection_events = candidates.into_par_iter()
-            .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
-            .collect();
+         // Heuristic: Don't spin up Rayon for small candidate sets (if we can estimate).
+         // But we can't estimate intersection count easily without collecting.
+         // However, we can collect candidates first (Native only) and check size.
+         let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
+
+         if candidates.len() > 1000 {
+             intersection_events = candidates.into_par_iter()
+                .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
+                .collect();
+         } else {
+             intersection_events = candidates.into_iter()
+                .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
+                .collect();
+         }
     }
-    #[cfg(not(feature = "parallel"))]
+
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
     {
-        intersection_events = candidates.into_iter()
+         // Stream processing for Wasm (Low Memory Profile) or Sequential
+         intersection_events = tree.intersection_candidates_with_other_tree(&tree)
             .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
             .collect();
     }
@@ -1898,7 +2101,7 @@ use geo::Line;
 use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use crate::utils::z_order_index;
+use crate::utils::{z_order_index, pseudo_angle};
 
 // Type aliases for indices to ensure we don't mix them up
 pub type NodeId = usize;
@@ -1924,7 +2127,8 @@ pub struct DirectedEdge {
     pub edge_idx: EdgeId,
     /// Index of the symmetric (reverse) edge
     pub sym_idx: DirEdgeId,
-    /// Precomputed angle for efficient sorting
+    /// Precomputed pseudo-angle for efficient sorting.
+    /// Range [0, 4). Monotonic with actual angle.
     pub angle: f64,
     /// Traversal state: has this edge been processed into a ring?
     pub is_visited: bool,
@@ -2140,8 +2344,13 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len() + 2 * i;
             let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-            let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
-            let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
+            let dx_u = self.nodes_x[v] - self.nodes_x[u];
+            let dy_u = self.nodes_y[v] - self.nodes_y[u];
+            let angle_u = pseudo_angle(dx_u, dy_u);
+
+            let dx_v = self.nodes_x[u] - self.nodes_x[v];
+            let dy_v = self.nodes_y[u] - self.nodes_y[v];
+            let angle_v = pseudo_angle(dx_v, dy_v);
 
             let de_u_v = DirectedEdge {
                 src: u,
@@ -2180,8 +2389,13 @@ impl PlanarGraph {
              let de_u_v_idx = self.directed_edges.len() + 2 * i;
              let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-             let angle_u = (self.nodes_y[v] - self.nodes_y[u]).atan2(self.nodes_x[v] - self.nodes_x[u]);
-             let angle_v = (self.nodes_y[u] - self.nodes_y[v]).atan2(self.nodes_x[u] - self.nodes_x[v]);
+             let dx_u = self.nodes_x[v] - self.nodes_x[u];
+             let dy_u = self.nodes_y[v] - self.nodes_y[u];
+             let angle_u = pseudo_angle(dx_u, dy_u);
+
+             let dx_v = self.nodes_x[u] - self.nodes_x[v];
+             let dy_v = self.nodes_y[u] - self.nodes_y[v];
+             let angle_v = pseudo_angle(dx_v, dy_v);
 
              let de_u_v = DirectedEdge {
                  src: u,
@@ -2248,8 +2462,8 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len();
             let de_v_u_idx = self.directed_edges.len() + 1;
 
-            let angle_u = (p1.y - p0.y).atan2(p1.x - p0.x);
-            let angle_v = (p0.y - p1.y).atan2(p0.x - p1.x);
+            let angle_u = pseudo_angle(p1.x - p0.x, p1.y - p0.y);
+            let angle_v = pseudo_angle(p0.x - p1.x, p0.y - p1.y);
 
             let de_u_v = DirectedEdge {
                 src: u,
@@ -2459,7 +2673,7 @@ File: src/graph/tests.rs
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
     use geo_types::{Coord, LineString};
-    use std::f64::consts::PI;
+    use crate::utils::pseudo_angle;
 
     #[test]
     fn test_graph_construction() {
@@ -2483,13 +2697,13 @@ mod tests {
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
-        // 1. Right (0 degrees)
+        // 1. Right (0 degrees) -> dx=10, dy=0 -> pseudo 0.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
-        // 2. Up (90 degrees / PI/2)
+        // 2. Up (90 degrees) -> dx=0, dy=10 -> pseudo 1.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, 10.0)]));
-        // 3. Left (180 degrees / PI)
+        // 3. Left (180 degrees) -> dx=-10, dy=0 -> pseudo 2.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (-10.0, 0.0)]));
-        // 4. Down (-90 degrees / -PI/2)
+        // 4. Down (-90 degrees) -> dx=0, dy=-10 -> pseudo 3.0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, -10.0)]));
 
         graph.sort_edges();
@@ -2500,12 +2714,23 @@ mod tests {
             graph.directed_edges[idx].angle
         }).collect();
 
+        // Should be sorted 0.0, 1.0, 2.0, 3.0
+        // But wait, are they sorted or just stored?
+        // graph.sort_edges() sorts them.
+
         assert!(sorted_angles[0] < sorted_angles[1]);
         assert!(sorted_angles[1] < sorted_angles[2]);
         assert!(sorted_angles[2] < sorted_angles[3]);
 
-        assert!((sorted_angles[0] - (-PI/2.0)).abs() < 1e-6);
-        assert!((sorted_angles[1] - 0.0).abs() < 1e-6);
+        // Check values match expectations for pseudo_angle
+        // Right
+        assert!((sorted_angles[0] - 0.0).abs() < 1e-6, "Expected 0.0, got {}", sorted_angles[0]);
+        // Up
+        assert!((sorted_angles[1] - 1.0).abs() < 1e-6, "Expected 1.0, got {}", sorted_angles[1]);
+        // Left
+        assert!((sorted_angles[2] - 2.0).abs() < 1e-6, "Expected 2.0, got {}", sorted_angles[2]);
+        // Down
+        assert!((sorted_angles[3] - 3.0).abs() < 1e-6, "Expected 3.0, got {}", sorted_angles[3]);
     }
 
     #[test]
@@ -2548,6 +2773,7 @@ mod tests {
 File: src/utils/mod.rs
 ```
 use geo_types::Coord;
+pub mod parallel;
 
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
@@ -2607,6 +2833,76 @@ fn part1by1(mut n: u64) -> u64 {
     n = (n | (n << 2))  & 0x3333333333333333;
     n = (n | (n << 1))  & 0x5555555555555555;
     n
+}
+
+/// Computes a pseudo-angle in the range [0, 4) for sorting.
+/// Faster than atan2.
+///
+/// The result maps the angle of the vector (dx, dy) to a value in [0, 4) monotonically.
+/// - (1, 0) -> 0.0
+/// - (0, 1) -> 1.0
+/// - (-1, 0) -> 2.0
+/// - (0, -1) -> 3.0
+pub fn pseudo_angle(dx: f64, dy: f64) -> f64 {
+    if dx == 0.0 && dy == 0.0 { return 0.0; }
+    let p = dx / (dx.abs() + dy.abs());
+    if dy < 0.0 {
+        3.0 + p
+    } else {
+        1.0 - p
+    }
+}
+
+```
+
+File: src/utils/parallel.rs
+```
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
+/// A trait to switch between parallel and sequential iterators
+pub trait MaybeParIter<T> {
+    type Iter: Iterator<Item = T>;
+    fn maybe_par_iter(self) -> Self::Iter;
+}
+
+// Helper to switch based on size or architecture
+// Note: This helper runs for_each
+#[inline]
+pub fn iterate<T, F>(collection: &[T], f: F)
+where T: Sync, F: Fn(&T) + Sync + Send {
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        // Heuristic: Don't spin up Rayon for < 1000 items
+        if collection.len() > 1000 {
+            collection.par_iter().for_each(f);
+        } else {
+            collection.iter().for_each(f);
+        }
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        collection.iter().for_each(f);
+    }
+}
+
+// Helper for mutable iteration
+#[inline]
+pub fn iterate_mut<T, F>(collection: &mut [T], f: F)
+where T: Send, F: Fn(&mut T) + Sync + Send {
+     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        if collection.len() > 1000 {
+            collection.par_iter_mut().for_each(f);
+        } else {
+            collection.iter_mut().for_each(f);
+        }
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        collection.iter_mut().for_each(f);
+    }
 }
 
 ```
