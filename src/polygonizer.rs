@@ -243,7 +243,11 @@ impl Polygonizer {
         let mut result = Vec::new();
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
-            result.push(Polygon::new(shell.exterior().clone(), holes));
+            let poly = Polygon::new(shell.exterior().clone(), holes);
+            // Filter out polygons with negligible area (e.g. collapsed shells or shells completely filled by holes)
+            if poly.unsigned_area() > 1e-6 {
+                result.push(poly);
+            }
         }
 
         Ok(result)
