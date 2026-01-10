@@ -44,19 +44,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000959 | 0.000682 | 0.71x |
-| 10 | 0.003984 | 0.002228 | 0.56x |
-| 20 | 0.017657 | 0.008245 | 0.47x |
-| 50 | 0.167010 | 0.052868 | 0.32x |
-| 100 | 1.240800 | 0.233721 | 0.19x |
+| 5 | 0.000940 | 0.000695 | 0.74x |
+| 10 | 0.004076 | 0.002238 | 0.55x |
+| 20 | 0.017780 | 0.008297 | 0.47x |
+| 50 | 0.167310 | 0.050847 | 0.30x |
+| 100 | 1.250700 | 0.207662 | 0.17x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.012479 | 0.008542 | 0.68x |
-| 100 | 0.077491 | 0.028242 | 0.36x |
-| 200 | 0.351380 | 0.105220 | 0.30x |
+| 50 | 0.012312 | 0.007950 | 0.65x |
+| 100 | 0.077878 | 0.025877 | 0.33x |
+| 200 | 0.355040 | 0.098798 | 0.28x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1452,7 +1452,11 @@ impl Polygonizer {
         let mut result = Vec::new();
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
-            result.push(Polygon::new(shell.exterior().clone(), holes));
+            let poly = Polygon::new(shell.exterior().clone(), holes);
+            // Filter out polygons with negligible area (e.g. collapsed shells or shells completely filled by holes)
+            if poly.unsigned_area() > 1e-6 {
+                result.push(poly);
+            }
         }
 
         Ok(result)
@@ -3077,6 +3081,48 @@ fn test_curved_holes() {
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
+}
+
+```
+
+File: tests/overlapping_circles_test.rs
+```
+#[cfg(test)]
+mod tests {
+    use geo_polygonize::Polygonizer;
+    use geo_types::{Coord, LineString, Geometry};
+
+    #[test]
+    fn test_overlapping_circles_count() {
+        // Create 3 overlapping circles
+        let mut polygonizer = Polygonizer::new();
+        polygonizer.node_input = true;
+
+        let r = 10.0;
+        let centers = vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (5.0, 8.66),
+        ];
+
+        for (cx, cy) in centers {
+            let mut coords = Vec::new();
+            for i in 0..60 { // Resolution
+                let angle = (i as f64) * (360.0 / 60.0f64).to_radians();
+                coords.push(Coord {
+                    x: cx + r * angle.cos(),
+                    y: cy + r * angle.sin(),
+                });
+            }
+            coords.push(coords[0]); // Close
+            polygonizer.add_geometry(Geometry::LineString(LineString::new(coords)));
+        }
+
+        let polys = polygonizer.polygonize().unwrap();
+        // Expect 7 polygons: 1 center, 3 petals, 3 outer crescents
+        // The extra 8th polygon (Outer Face / Union) which has 0 area after hole assignment is now filtered out.
+        assert_eq!(polys.len(), 7, "Should find exactly 7 polygons for 3 overlapping circles");
+    }
 }
 
 ```
