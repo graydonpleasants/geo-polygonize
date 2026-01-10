@@ -87,6 +87,16 @@ impl Polygonizer {
 
         let mut segments = Vec::new();
         if self.node_input {
+             // Deduplicate identical inputs before expensive noding
+             lines.sort_by(|a, b| {
+                 // Simple sort
+                 let pa = a.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
+                 let pb = b.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
+                 pa.x.partial_cmp(&pb.x).unwrap_or(Ordering::Equal)
+                    .then(pa.y.partial_cmp(&pb.y).unwrap_or(Ordering::Equal))
+             });
+             lines.dedup();
+
             segments = node_lines(lines);
         } else {
             for ls in lines {
@@ -301,9 +311,8 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     // 2. Find ALL intersection events using bulk query
     // Returns a flat list of (segment_index, split_point)
     // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
-    // Note: IntersectionIterator doesn't support ParallelIterator directly. We must collect first.
-    let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
 
+    // Closure to process intersection
     let process_intersection = |(cand1, cand2): (&IndexedLine, &IndexedLine)| -> SmallVec<[(usize, Coord<f64>); 2]> {
         let idx1 = cand1.index;
         let idx2 = cand2.index;
@@ -354,15 +363,29 @@ fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
     };
 
     let intersection_events: Vec<(usize, Coord<f64>)>;
-    #[cfg(feature = "parallel")]
+
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        intersection_events = candidates.into_par_iter()
-            .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
-            .collect();
+         // Heuristic: Don't spin up Rayon for small candidate sets (if we can estimate).
+         // But we can't estimate intersection count easily without collecting.
+         // However, we can collect candidates first (Native only) and check size.
+         let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
+
+         if candidates.len() > 1000 {
+             intersection_events = candidates.into_par_iter()
+                .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
+                .collect();
+         } else {
+             intersection_events = candidates.into_iter()
+                .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
+                .collect();
+         }
     }
-    #[cfg(not(feature = "parallel"))]
+
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
     {
-        intersection_events = candidates.into_iter()
+         // Stream processing for Wasm (Low Memory Profile) or Sequential
+         intersection_events = tree.intersection_candidates_with_other_tree(&tree)
             .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
             .collect();
     }
