@@ -1,1 +1,13 @@
-/target
+target/
+**/*.rs.bk
+node_modules/
+.DS_Store
+*.swp
+*.log
+pkg/
+benches/wasm_bench/target/
+benches/wasm_bench/pkg/
+llms.txt
+python_bench_output.txt
+rust_bench_output.txt
+check_geo*

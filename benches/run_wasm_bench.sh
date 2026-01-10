@@ -13,12 +13,17 @@ wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
 node -e '
-const { run_grid_bench, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { BenchmarkContext, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { performance } = require("perf_hooks");
 
 setup_panic_hook();
 
 // Warmup
-run_grid_bench(10);
+{
+    const ctx = BenchmarkContext.new(10);
+    ctx.run();
+    ctx.free();
+}
 
 const sizes = [10, 20, 50, 80];
 
@@ -29,7 +34,12 @@ for (const size of sizes) {
     let total = 0;
     const runs = 5;
     for (let i = 0; i < runs; i++) {
-        total += run_grid_bench(size);
+        const ctx = BenchmarkContext.new(size);
+        const start = performance.now();
+        ctx.run();
+        const end = performance.now();
+        total += (end - start);
+        ctx.free();
     }
     const avg = total / runs;
     console.log(`| ${size} | ${avg.toFixed(2)} |`);
