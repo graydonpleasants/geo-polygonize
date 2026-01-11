@@ -1,1 +1,8 @@
 /target
+webapp/node_modules
+webapp/dist
+webapp/pkg
+
+webapp/node_modules/
+webapp/dist/
+webapp/pkg/
