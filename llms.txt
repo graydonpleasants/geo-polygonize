@@ -44,19 +44,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000940 | 0.000695 | 0.74x |
-| 10 | 0.004076 | 0.002238 | 0.55x |
-| 20 | 0.017780 | 0.008297 | 0.47x |
-| 50 | 0.167310 | 0.050847 | 0.30x |
-| 100 | 1.250700 | 0.207662 | 0.17x |
+| 5 | 0.000957 | 0.000694 | 0.73x |
+| 10 | 0.004048 | 0.002248 | 0.56x |
+| 20 | 0.017582 | 0.008419 | 0.48x |
+| 50 | 0.165790 | 0.051995 | 0.31x |
+| 100 | 1.246900 | 0.224988 | 0.18x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.012312 | 0.007950 | 0.65x |
-| 100 | 0.077878 | 0.025877 | 0.33x |
-| 200 | 0.355040 | 0.098798 | 0.28x |
+| 50 | 0.012128 | 0.008086 | 0.67x |
+| 100 | 0.077197 | 0.026248 | 0.34x |
+| 200 | 0.360330 | 0.104137 | 0.29x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -79,6 +79,9 @@ readme = "README.md"
 keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
 categories = ["science::geo", "algorithms"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
@@ -92,11 +95,15 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
+# WASM and GeoJSON dependencies
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+geojson = "0.24"
+serde_json = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
-geojson = "0.24"
-serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 criterion = "0.5"
 rand = "0.8"
@@ -111,6 +118,9 @@ lto = "fat"
 codegen-units = 1
 panic = "abort" # Reduces binary size significantly for Wasm
 strip = true    # Removes symbols
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
 
 ```
 
@@ -1197,6 +1207,9 @@ pub mod error;
 pub mod utils;
 pub mod tiling;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 #[cfg(test)]
 mod polygonizer_tests;
 
@@ -1811,20 +1824,19 @@ mod tests {
 
         let polygons = poly.polygonize().expect("Polygonization failed");
         // Frame (empty because triangles are holes) + 4 Triangles
-        // Wait, the logic assigns holes to shells.
         // Frame is OuterCCW (100) and OuterCW (-100).
         // Triangles are InnerCCW (25) and InnerCW (-25).
         // 4 Triangles (CW) are holes of Frame (OuterCCW).
         // Area = 100 - 4*25 = 0.
         // 4 Triangles (CCW) are shells. Area 25.
         // So we get:
-        // 1. Frame (Area 0)
+        // 1. Frame (Area 0) -> Filtered out
         // 2. Triangle 1 (Area 25)
         // 3. Triangle 2 (Area 25)
         // 4. Triangle 3 (Area 25)
         // 5. Triangle 4 (Area 25)
 
-        assert_eq!(polygons.len(), 5, "Expected 5 polygons, found {}", polygons.len());
+        assert_eq!(polygons.len(), 4, "Expected 4 polygons (frame is zero-area), found {}", polygons.len());
         let triangles_count = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
@@ -2084,6 +2096,90 @@ mod tests {
 
         assert_eq!(polys.len(), 4);
     }
+}
+
+```
+
+File: src/wasm.rs
+```
+use wasm_bindgen::prelude::*;
+use geojson::{GeoJson, Feature, FeatureCollection, Value, Geometry};
+use geo::Geometry as GeoGeometry;
+use crate::Polygonizer;
+use std::convert::TryInto;
+use std::str::FromStr;
+
+#[wasm_bindgen]
+pub fn init_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+    // Parse the GeoJSON string
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse GeoJSON: {}", e)))?;
+
+    let mut polygonizer = Polygonizer::new();
+    // Enable noding to handle intersecting lines from user input
+    polygonizer.node_input = true;
+
+    // Helper to add geometry to polygonizer
+    fn add_geom(p: &mut Polygonizer, geom: GeoGeometry<f64>) {
+        p.add_geometry(geom);
+    }
+
+    // Process GeoJSON to extract lines
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    if let Ok(geo_geom) = geom.try_into() {
+                        add_geom(&mut polygonizer, geo_geom);
+                    }
+                }
+            }
+        },
+        GeoJson::Feature(feature) => {
+             if let Some(geom) = feature.geometry {
+                if let Ok(geo_geom) = geom.try_into() {
+                    add_geom(&mut polygonizer, geo_geom);
+                }
+            }
+        },
+        GeoJson::Geometry(geometry) => {
+            if let Ok(geo_geom) = geometry.try_into() {
+                add_geom(&mut polygonizer, geo_geom);
+            }
+        },
+    }
+
+    // Run Polygonization
+    let result_polygons = polygonizer.polygonize()
+        .map_err(|e| JsValue::from_str(&format!("Polygonization failed: {}", e)))?;
+
+    // Convert back to GeoJSON
+    let features: Vec<Feature> = result_polygons
+        .into_iter()
+        .map(|poly| {
+            let geometry = Geometry::new(Value::from(&poly));
+            Feature {
+                bbox: None,
+                geometry: Some(geometry),
+                id: None,
+                properties: None,
+                foreign_members: None,
+            }
+        })
+        .collect();
+
+    let fc = FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    };
+
+    Ok(fc.to_string())
 }
 
 ```
