@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geo Polygonize Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="sidebar">
+        <h2>Geo Polygonize</h2>
+        <p>Draw lines on the map or upload a GeoJSON file.</p>
+
+        <div class="control-group">
+            <input type="file" id="file-input" accept=".json,.geojson">
+        </div>
+
+        <div class="control-group">
+            <button id="polygonize-btn">Polygonize</button>
+            <button id="clear-btn">Clear</button>
+        </div>
+
+        <div id="status">Ready</div>
+        <div id="stats"></div>
+    </div>
+    <div id="map"></div>
+
+    <script src="index.js"></script>
+</body>
+</html>
