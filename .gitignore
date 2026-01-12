@@ -11,3 +11,11 @@ llms.txt
 python_bench_output.txt
 rust_bench_output.txt
 check_geo*
+/target
+webapp/node_modules
+webapp/dist
+webapp/pkg
+
+webapp/node_modules/
+webapp/dist/
+webapp/pkg/
