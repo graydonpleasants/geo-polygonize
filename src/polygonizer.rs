@@ -1,56 +1,23 @@
 use crate::graph::PlanarGraph;
-use geo_types::{Geometry, LineString, Polygon, Coord};
+use geo_types::{Geometry, LineString, Polygon, Coord, Point};
 use crate::error::Result;
-use geo::algorithm::contains::Contains;
 use geo::bounding_rect::BoundingRect;
-use geo::algorithm::line_intersection::LineIntersection;
-use geo::algorithm::intersects::Intersects;
 use geo::Area;
-use geo::Line;
-use rstar::{RTree, AABB, RTreeObject};
+use geo::algorithm::centroid::Centroid;
+
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use smallvec::SmallVec;
-
-// Wrapper for Polygon to be indexable by rstar
-struct IndexedPolygon(Polygon<f64>, usize);
-
-impl RTreeObject for IndexedPolygon {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        let bbox = self.0.bounding_rect().unwrap();
-        AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y])
-    }
-}
-
-// Wrapper for Line to be indexable by rstar
-#[derive(Clone, Copy, Debug)]
-struct IndexedLine {
-    line: Line<f64>,
-    index: usize,
-}
-
-impl RTreeObject for IndexedLine {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        let p1 = self.line.start;
-        let p2 = self.line.end;
-        let min_x = p1.x.min(p2.x);
-        let min_y = p1.y.min(p2.y);
-        let max_x = p1.x.max(p2.x);
-        let max_y = p1.y.max(p2.y);
-        AABB::from_corners([min_x, min_y], [max_x, max_y])
-    }
-}
+use crate::noding::snap::SnapNoder;
+use geo_index::rtree::RTreeIndex; // Import trait for search
+use crate::utils::simd::SimdRing;
 
 pub struct Polygonizer {
     graph: PlanarGraph,
     // Configuration
     pub check_valid_rings: bool,
     pub node_input: bool,
+    pub snap_grid_size: f64,
 
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
@@ -63,9 +30,15 @@ impl Polygonizer {
             graph: PlanarGraph::new(),
             check_valid_rings: true,
             node_input: false,
+            snap_grid_size: 1e-10, // Default tolerance
             inputs: Vec::new(),
             dirty: false,
         }
+    }
+
+    pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
+        self.snap_grid_size = grid_size;
+        self
     }
 
     /// Adds a geometry to the graph.
@@ -97,7 +70,16 @@ impl Polygonizer {
              });
              lines.dedup();
 
-            segments = node_lines(lines);
+            // Convert LineStrings to Lines
+            let mut input_segments = Vec::new();
+            for ls in lines {
+                for line in ls.lines() {
+                    input_segments.push(line);
+                }
+            }
+
+            let noder = SnapNoder::new(self.snap_grid_size);
+            segments = noder.node(input_segments);
         } else {
             for ls in lines {
                 for line in ls.lines() {
@@ -190,28 +172,51 @@ impl Polygonizer {
 
         shells.extend(promoted_shells);
 
-        // Assign holes to shells
-        let mut indexed_shells = Vec::new();
-        for (i, shell) in shells.iter().enumerate() {
-            indexed_shells.push(IndexedPolygon(shell.clone(), i));
-        }
-        let tree = RTree::bulk_load(indexed_shells);
+        // Precompute SIMD shells
+        let simd_shells: Vec<SimdRing> = shells.iter()
+            .map(|s| SimdRing::new(&s.exterior().0))
+            .collect();
 
+        // Assign holes to shells using geo-index (Packed RTree)
+        // Optimization: Only build tree if we have enough shells to justify it (and avoid panics on small inputs)
+        let tree = if shells.len() >= 50 {
+            let mut builder = geo_index::rtree::RTreeBuilder::new(shells.len());
+            for shell in &shells {
+                let bbox = shell.bounding_rect().unwrap();
+                builder.add(bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y);
+            }
+            Some(builder.finish::<geo_index::rtree::sort::HilbertSort>())
+        } else {
+            None
+        };
+
+        // Process holes
         let process_hole_assignment = |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
             let hole_ring = hole_poly.exterior();
-            let hole_bbox = hole_poly.bounding_rect().unwrap();
-            let hole_aabb = AABB::from_corners([hole_bbox.min().x, hole_bbox.min().y], [hole_bbox.max().x, hole_bbox.max().y]);
+            let bbox = hole_poly.bounding_rect().unwrap();
 
-            let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
+            let candidates_indices = if let Some(tree) = &tree {
+                tree.search(bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y)
+            } else {
+                // Linear scan for small sets
+                (0..shells.len()).collect()
+            };
 
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            for cand in candidates {
-                let shell = &cand.0;
-                let idx = cand.1;
+            // Use centroid for inclusion check to avoid boundary issues
+            let probe_point = hole_poly.centroid().unwrap_or_else(|| {
+                // Fallback to first point if centroid fails (e.g. degenerate)
+                Point(hole_ring.0[0])
+            });
 
-                if shell.contains(hole_poly) {
+            for idx in candidates_indices {
+                // Use SIMD check first
+                let simd_shell = &simd_shells[idx];
+
+                if simd_shell.contains(probe_point.0) {
+                   let shell = &shells[idx];
                    let area = shell.unsigned_area();
                    let hole_area = hole_poly.unsigned_area();
 
@@ -243,10 +248,10 @@ impl Polygonizer {
         let mut result = Vec::new();
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
-            let poly = Polygon::new(shell.exterior().clone(), holes);
-            // Filter out polygons with negligible area (e.g. collapsed shells or shells completely filled by holes)
-            if poly.unsigned_area() > 1e-6 {
-                result.push(poly);
+            let p = Polygon::new(shell.exterior().clone(), holes);
+            // Filter out collapsed polygons (e.g. shells completely filled by holes)
+            if p.unsigned_area() > 1e-6 {
+                result.push(p);
             }
         }
 
@@ -277,260 +282,4 @@ fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
         },
         _ => {},
     }
-}
-
-/// Robust Noding with Parallel R-Tree queries and Flat Memory Layout
-fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
-    let mut segments: Vec<Line<f64>> = Vec::new();
-    for ls in input_lines {
-        for line in ls.lines() {
-            segments.push(line);
-        }
-    }
-
-    let tol = 1e-10;
-
-    // One-Pass Robust Noding
-    // We run a single pass to collect all intersection events.
-    // Assuming the initial set of lines covers the geometry, splitting them at all intersection points
-    // should result in a fully noded graph (barring numerical robustness issues which we handle with tolerance).
-
-    // 1. Build Index
-    let indexed_segments: Vec<IndexedLine>;
-    #[cfg(feature = "parallel")]
-    {
-        indexed_segments = segments.par_iter().enumerate()
-            .map(|(i, s)| IndexedLine { line: *s, index: i })
-            .collect();
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        indexed_segments = segments.iter().enumerate()
-            .map(|(i, s)| IndexedLine { line: *s, index: i })
-            .collect();
-    }
-
-    let tree = RTree::bulk_load(indexed_segments);
-
-    // 2. Find ALL intersection events using bulk query
-    // Returns a flat list of (segment_index, split_point)
-    // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
-
-    // Closure to process intersection
-    let process_intersection = |(cand1, cand2): (&IndexedLine, &IndexedLine)| -> SmallVec<[(usize, Coord<f64>); 2]> {
-        let idx1 = cand1.index;
-        let idx2 = cand2.index;
-
-        // Optimization: only process unique pairs
-        if idx1 >= idx2 { return SmallVec::new(); }
-
-        let s1 = cand1.line;
-        let s2 = cand2.line;
-
-        let mut events = SmallVec::new();
-
-        // Fast check before robust intersection
-        if !s1.intersects(&s2) { return events; }
-
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) {
-            match res {
-                LineIntersection::SinglePoint { intersection: pt, .. } => {
-                    // Check strict internal (robustness)
-                    let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
-                                      || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
-                    let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
-                                      || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
-
-                    if is_internal_s1 { events.push((idx1, pt)); }
-                    if is_internal_s2 { events.push((idx2, pt)); }
-                },
-                LineIntersection::Collinear { intersection: overlap } => {
-                    // Add overlap endpoints as split points if internal
-                    let p1 = overlap.start;
-                    let p2 = overlap.end;
-
-                    let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
-                    let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
-
-                    if s1_has_p1 { events.push((idx1, p1)); }
-                    if s1_has_p2 { events.push((idx1, p2)); }
-
-                    let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
-                    let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
-
-                    if s2_has_p1 { events.push((idx2, p1)); }
-                    if s2_has_p2 { events.push((idx2, p2)); }
-                }
-            }
-        }
-        events
-    };
-
-    let intersection_events: Vec<(usize, Coord<f64>)>;
-
-    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-    {
-         // Heuristic: Don't spin up Rayon for small candidate sets (if we can estimate).
-         // But we can't estimate intersection count easily without collecting.
-         // However, we can collect candidates first (Native only) and check size.
-         let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
-
-         if candidates.len() > 1000 {
-             intersection_events = candidates.into_par_iter()
-                .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
-                .collect();
-         } else {
-             intersection_events = candidates.into_iter()
-                .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
-                .collect();
-         }
-    }
-
-    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
-    {
-         // Stream processing for Wasm (Low Memory Profile) or Sequential
-         intersection_events = tree.intersection_candidates_with_other_tree(&tree)
-            .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
-            .collect();
-    }
-
-    // 3. Apply splits
-    if !intersection_events.is_empty() {
-        // 1. Sort events by Segment Index
-        let mut events = intersection_events;
-
-        // Helper to sort events
-        let sort_events = |a: &(usize, Coord<f64>), b: &(usize, Coord<f64>)| {
-            a.0.cmp(&b.0)
-                .then_with(|| {
-                     // Secondary sort by distance along segment?
-                     // Or just coordinate sort is enough for dedup
-                     a.1.x.partial_cmp(&b.1.x).unwrap_or(Ordering::Equal)
-                })
-        };
-
-        #[cfg(feature = "parallel")]
-        events.par_sort_unstable_by(sort_events);
-
-        #[cfg(not(feature = "parallel"))]
-        events.sort_unstable_by(sort_events);
-
-        // Reconstruct segments
-        let mut new_segments = Vec::with_capacity(segments.len() * 2);
-        let mut event_idx = 0;
-
-        for (seg_idx, segment) in segments.iter().enumerate() {
-            // Gather all points for this segment
-            let mut points_on_seg = Vec::new();
-
-            while event_idx < events.len() && events[event_idx].0 == seg_idx {
-                points_on_seg.push(events[event_idx].1);
-                event_idx += 1;
-            }
-
-            if points_on_seg.is_empty() {
-                new_segments.push(*segment);
-                continue;
-            }
-
-            // Sort points by distance from start
-            let start = segment.start;
-            points_on_seg.sort_by(|a, b| {
-                 let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
-                 let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                 da.partial_cmp(&db).unwrap_or(Ordering::Equal)
-            });
-
-            // Dedup points
-            points_on_seg.dedup_by(|a, b| {
-                 (a.x - b.x).abs() < tol && (a.y - b.y).abs() < tol
-            });
-
-            // Create sub-segments
-            let mut curr = start;
-            for pt in points_on_seg {
-                // Ensure min length
-                 if (pt.x - curr.x).powi(2) + (pt.y - curr.y).powi(2) > tol * tol {
-                     new_segments.push(Line::new(curr, pt));
-                     curr = pt;
-                 }
-            }
-            // Final segment
-            if (segment.end.x - curr.x).powi(2) + (segment.end.y - curr.y).powi(2) > tol * tol {
-                new_segments.push(Line::new(curr, segment.end));
-            }
-        }
-        segments = new_segments;
-    }
-
-    // Snap Vertices (Robustness for near-miss intersections)
-    let mut points: Vec<_> = segments.iter().enumerate().flat_map(|(i, s)| {
-        vec![
-            (s.start, i, true), // coord, seg_idx, is_start
-            (s.end, i, false)
-        ]
-    }).collect();
-
-    points.sort_by(|a, b| {
-        a.0.x.partial_cmp(&b.0.x).unwrap_or(Ordering::Equal)
-            .then(a.0.y.partial_cmp(&b.0.y).unwrap_or(Ordering::Equal))
-    });
-
-    let mut merged = vec![false; points.len()];
-
-    for i in 0..points.len() {
-        if merged[i] { continue; }
-
-        let rep = points[i].0;
-
-        // Look ahead
-        for j in (i + 1)..points.len() {
-             if points[j].0.x - rep.x > tol {
-                 break;
-             }
-             if merged[j] { continue; }
-
-             if (points[j].0.x - rep.x).abs() < tol && (points[j].0.y - rep.y).abs() < tol {
-                 // Merge
-                 merged[j] = true;
-                 let (seg_idx, is_start) = (points[j].1, points[j].2);
-                 if is_start {
-                     segments[seg_idx].start = rep;
-                 } else {
-                     segments[seg_idx].end = rep;
-                 }
-             }
-        }
-    }
-
-    // Normalize segment direction to ensure deduplication works for reverse duplicates
-    for segment in &mut segments {
-        if segment.start.x > segment.end.x || ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
-             let temp = segment.start;
-             segment.start = segment.end;
-             segment.end = temp;
-        }
-    }
-
-    // Final global dedup
-    #[cfg(feature = "parallel")]
-    segments.par_sort_unstable_by(|a, b| {
-        let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-        let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-    });
-    #[cfg(not(feature = "parallel"))]
-    segments.sort_unstable_by(|a, b| {
-        let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-        let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-    });
-
-    segments.dedup_by(|a, b| {
-        let tol = 1e-10;
-        (a.start.x - b.start.x).abs() < tol && (a.start.y - b.start.y).abs() < tol &&
-        (a.end.x - b.end.x).abs() < tol && (a.end.y - b.end.y).abs() < tol
-    });
-
-    segments
 }

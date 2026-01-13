@@ -3,9 +3,7 @@ pub mod polygonizer;
 pub mod error;
 pub mod utils;
 pub mod tiling;
-
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
+pub mod noding;
 
 #[cfg(test)]
 mod polygonizer_tests;

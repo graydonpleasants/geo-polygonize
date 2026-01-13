@@ -9,9 +9,6 @@ readme = "README.md"
 keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
 categories = ["science::geo", "algorithms"]
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
@@ -26,15 +23,13 @@ thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
 robust = "1.2"
-# WASM and GeoJSON dependencies
-wasm-bindgen = "0.2"
-serde-wasm-bindgen = "0.6"
-console_error_panic_hook = "0.1"
-geojson = "0.24"
-serde_json = "1.0"
+geo-index = "0.1"
+wide = "0.7"
 
 [dev-dependencies]
 approx = "0.5"
+geojson = "0.24"
+serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 criterion = "0.5"
 rand = "0.8"
@@ -49,6 +44,3 @@ lto = "fat"
 codegen-units = 1
 panic = "abort" # Reduces binary size significantly for Wasm
 strip = true    # Removes symbols
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
