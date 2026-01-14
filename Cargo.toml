@@ -23,7 +23,6 @@ thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
 robust = "1.2"
-geo-index = "0.1"
 wide = "0.7"
 
 [dev-dependencies]

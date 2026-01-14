@@ -4,13 +4,25 @@ use crate::error::Result;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
 use geo::algorithm::centroid::Centroid;
+use rstar::{RTree, AABB, RTreeObject};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use crate::noding::snap::SnapNoder;
-use geo_index::rtree::RTreeIndex; // Import trait for search
 use crate::utils::simd::SimdRing;
+
+// Wrapper for Polygon to be indexable by rstar
+struct IndexedPolygon(Polygon<f64>, usize);
+
+impl RTreeObject for IndexedPolygon {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        let bbox = self.0.bounding_rect().unwrap();
+        AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y])
+    }
+}
 
 pub struct Polygonizer {
     graph: PlanarGraph,
@@ -177,30 +189,20 @@ impl Polygonizer {
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
 
-        // Assign holes to shells using geo-index (Packed RTree)
-        // Optimization: Only build tree if we have enough shells to justify it (and avoid panics on small inputs)
-        let tree = if shells.len() >= 50 {
-            let mut builder = geo_index::rtree::RTreeBuilder::new(shells.len());
-            for shell in &shells {
-                let bbox = shell.bounding_rect().unwrap();
-                builder.add(bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y);
-            }
-            Some(builder.finish::<geo_index::rtree::sort::HilbertSort>())
-        } else {
-            None
-        };
+        // Assign holes to shells using RTree (Dynamic, but robust)
+        let mut indexed_shells = Vec::with_capacity(shells.len());
+        for (i, shell) in shells.iter().enumerate() {
+            indexed_shells.push(IndexedPolygon(shell.clone(), i));
+        }
+        let tree = RTree::bulk_load(indexed_shells);
 
         // Process holes
         let process_hole_assignment = |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
             let hole_ring = hole_poly.exterior();
             let bbox = hole_poly.bounding_rect().unwrap();
+            let hole_aabb = AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-            let candidates_indices = if let Some(tree) = &tree {
-                tree.search(bbox.min().x, bbox.min().y, bbox.max().x, bbox.max().y)
-            } else {
-                // Linear scan for small sets
-                (0..shells.len()).collect()
-            };
+            let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
 
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
@@ -211,7 +213,8 @@ impl Polygonizer {
                 Point(hole_ring.0[0])
             });
 
-            for idx in candidates_indices {
+            for cand in candidates {
+                let idx = cand.1;
                 // Use SIMD check first
                 let simd_shell = &simd_shells[idx];
 

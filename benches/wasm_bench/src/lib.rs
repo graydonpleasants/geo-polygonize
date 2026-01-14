@@ -51,6 +51,25 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
 }
 
 #[wasm_bindgen]
+pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = true;
+    if let Some(g) = grid_size {
+        polygonizer.snap_grid_size = g;
+    }
+
+    for line in lines {
+        polygonizer.add_geometry(Geometry::LineString(line));
+    }
+    let results = polygonizer.polygonize();
+
+    let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(JsValue::from(results_vec.len()))
+}
+
+#[wasm_bindgen]
 pub fn load_geoarrow(lines: JsValue) -> Result<JsValue, JsValue> {
     let lines = parse_input(lines)?;
 

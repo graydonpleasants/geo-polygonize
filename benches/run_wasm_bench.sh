@@ -13,10 +13,9 @@ wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
 node -e '
-const { polygonize, load_geoarrow, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { polygonize, polygonize_robust, load_geoarrow, setup_panic_hook } = require("./pkg/wasm_bench.js");
 const { performance } = require("perf_hooks");
 
-// Polyfill for browser performance API used in wasm-bindgen
 global.window = {
     performance: performance
 };
@@ -26,12 +25,10 @@ setup_panic_hook();
 function generateGrid(size) {
     const lines = [];
     for (let i = 0; i <= size; i++) {
-        // Vertical
         lines.push({
             type: "LineString",
             coordinates: [[i, 0], [i, size]]
         });
-        // Horizontal
         lines.push({
             type: "LineString",
             coordinates: [[0, i], [size, i]]
@@ -40,40 +37,61 @@ function generateGrid(size) {
     return lines;
 }
 
+function generateDirtyGrid(size) {
+    const lines = [];
+    for (let i = 0; i < size; i++) {
+        for (let j = 0; j < size; j++) {
+            // Bowtie pattern (X)
+            lines.push({
+                type: "LineString",
+                coordinates: [[i, j], [i+1, j+1]]
+            });
+            lines.push({
+                type: "LineString",
+                coordinates: [[i+1, j], [i, j+1]]
+            });
+        }
+    }
+    return lines;
+}
+
 const sizes = [10, 20, 50];
 
-console.log("| Grid Size | Polygonize (ms) | GeoArrow Ingest+Iter (ms) |");
-console.log("|---|---|---|");
+console.log("| Grid Size | Polygonize (ms) | GeoArrow (ms) | Robust (Dirty) (ms) |");
+console.log("|---|---|---|---|");
 
 for (const size of sizes) {
-    const lines = generateGrid(size);
+    const cleanLines = generateGrid(size);
+    const dirtyLines = generateDirtyGrid(size);
 
     // Warmup
     try {
-        polygonize(lines);
-        load_geoarrow(lines);
+        polygonize(cleanLines);
+        polygonize_robust(dirtyLines, 1e-6);
+        load_geoarrow(cleanLines);
     } catch (e) {
         console.error("Warmup failed:", e);
     }
 
     let polyTotal = 0;
     let arrowTotal = 0;
+    let robustTotal = 0;
     const runs = 5;
 
     for (let i = 0; i < runs; i++) {
-        // Benchmark Polygonize
-        const startPoly = performance.now();
-        polygonize(lines);
-        const endPoly = performance.now();
-        polyTotal += (endPoly - startPoly);
+        let start = performance.now();
+        polygonize(cleanLines);
+        polyTotal += (performance.now() - start);
 
-        // Benchmark GeoArrow
-        const startArrow = performance.now();
-        load_geoarrow(lines);
-        const endArrow = performance.now();
-        arrowTotal += (endArrow - startArrow);
+        start = performance.now();
+        load_geoarrow(cleanLines);
+        arrowTotal += (performance.now() - start);
+
+        start = performance.now();
+        polygonize_robust(dirtyLines, 1e-6);
+        robustTotal += (performance.now() - start);
     }
 
-    console.log(`| ${size}x${size} | ${(polyTotal / runs).toFixed(2)} | ${(arrowTotal / runs).toFixed(2)} |`);
+    console.log(`| ${size}x${size} | ${(polyTotal / runs).toFixed(2)} | ${(arrowTotal / runs).toFixed(2)} | ${(robustTotal / runs).toFixed(2)} |`);
 }
 '
