@@ -60,4 +60,16 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 The library offers a pure Rust native alternative to GEOS.
 - **Performance:** On constrained environments (like CI runners with few cores), the parallel overhead of `rayon` may limit speedups compared to the highly optimized single-threaded C++ GEOS backend.
 - **Tiling Strategy:** For large dense datasets (e.g., Grid 100), the **TiledPolygonizer** provides a significant speedup (~1.7x to 2.8x faster than the naive approach), bridging the gap towards GEOS performance. This validates the scalability architecture for large-scale GIS tasks.
-- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy.
+- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading Z-order sort.
+
+## WebAssembly Benchmarks
+
+Benchmarks running in Node.js (V8) via `wasm-bindgen`, utilizing `talc` allocator and SIMD optimizations.
+
+| Grid Size | Polygonize (Clean) | GeoArrow Ingest | Robust Noding (Dirty) |
+|---|---|---|---|
+| 10x10 | 0.35 ms | 0.31 ms | 7.49 ms |
+| 20x20 | 0.31 ms | 0.22 ms | 21.43 ms |
+| 50x50 | 0.68 ms | 0.56 ms | 164.07 ms |
+
+*Note:* "Clean" input assumes pre-noded lines (no intersection checks). "Dirty" input forces the robust Iterated Snap Rounding algorithm to resolve self-intersections (e.g., bowtie patterns). "GeoArrow" measures the zero-copy data ingestion overhead.

@@ -14,7 +14,7 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-geo = "0.28"
+geo = "0.32"
 geo-types = "0.7"
 rstar = "0.12"
 rayon = { version = "1.10", optional = true }
@@ -24,7 +24,6 @@ float_next_after = "1.0"
 smallvec = "1.11"
 robust = "1.2"
 wide = "0.7"
-geo-index = "0.3"
 
 [dev-dependencies]
 approx = "0.5"
