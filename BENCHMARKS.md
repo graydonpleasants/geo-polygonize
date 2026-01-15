@@ -68,8 +68,11 @@ Benchmarks running in Node.js (V8) via `wasm-bindgen`, utilizing `talc` allocato
 
 | Grid Size | Polygonize (Clean) | GeoArrow Ingest | Robust Noding (Dirty) |
 |---|---|---|---|
-| 10x10 | 0.35 ms | 0.31 ms | 7.49 ms |
-| 20x20 | 0.31 ms | 0.22 ms | 21.43 ms |
-| 50x50 | 0.68 ms | 0.56 ms | 164.07 ms |
+| 10x10 | 0.35 ms | 0.33 ms | 7.36 ms |
+| 20x20 | 0.35 ms | 0.22 ms | 21.29 ms |
+| 50x50 | 0.67 ms | 0.64 ms | 156.35 ms |
 
-*Note:* "Clean" input assumes pre-noded lines (no intersection checks). "Dirty" input forces the robust Iterated Snap Rounding algorithm to resolve self-intersections (e.g., bowtie patterns). "GeoArrow" measures the zero-copy data ingestion overhead.
+*Note:*
+- **Clean Input:** Pre-noded lines (no intersection checks).
+- **Dirty Input:** Self-intersecting lines (bowtie grid) requiring Iterated Snap Rounding.
+- **GeoArrow:** Measures ingestion into Arrow columnar memory. Note that current Wasm benchmarks include JSON deserialization overhead, which dominates small-scale tests.

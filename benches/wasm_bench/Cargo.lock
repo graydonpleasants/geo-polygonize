@@ -537,23 +537,6 @@ dependencies = [
 
 [[package]]
 name = "geo"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f811f663912a69249fa620dcd2a005db7254529da2d8a0b23942e81f47084501"
-dependencies = [
- "earcutr",
- "float_next_after",
- "geo-types",
- "geographiclib-rs",
- "log",
- "num-traits",
- "robust",
- "rstar 0.12.2",
- "spade",
-]
-
-[[package]]
-name = "geo"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f3901269ec6d4f6068d3f09e5f02f995bd076398dcd1dfec407cd230b02d11b"
@@ -574,26 +557,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo-index"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a27fb4e4ffdde62f8aa7a4165b30f6fe8e8337d35b657ebf86c98d884ee7c750"
-dependencies = [
- "bytemuck",
- "float_next_after",
- "geo-traits",
- "num-traits",
- "thiserror 1.0.69",
- "tinyvec",
-]
-
-[[package]]
 name = "geo-polygonize"
 version = "0.1.0"
 dependencies = [
  "float_next_after",
- "geo 0.28.0",
- "geo-index",
+ "geo",
  "geo-types",
  "log",
  "rayon",
@@ -1476,21 +1444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tinyvec"
-version = "1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa5fdc3bce6191a1dbc8c02d5c8bffcf557bafa17c124c5264a458f1b0613fa"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
 name = "toml_datetime"
 version = "0.7.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1559,7 +1512,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "console_error_panic_hook",
- "geo 0.32.0",
+ "geo",
  "geo-polygonize",
  "geo-types",
  "geoarrow",
