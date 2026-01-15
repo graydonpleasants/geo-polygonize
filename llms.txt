@@ -73,19 +73,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000215 | 0.000677 | 3.15x |
-| 10 | 0.000588 | 0.002202 | 3.75x |
-| 20 | 0.001923 | 0.008242 | 4.29x |
-| 50 | 0.012221 | 0.050385 | 4.12x |
-| 100 | 0.057623 | 0.207729 | 3.60x |
+| 5 | 0.000272 | 0.000675 | 2.48x |
+| 10 | 0.000620 | 0.002218 | 3.58x |
+| 20 | 0.001834 | 0.008199 | 4.47x |
+| 50 | 0.010433 | 0.050715 | 4.86x |
+| 100 | 0.045939 | 0.207546 | 4.52x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001611 | 0.007900 | 4.90x |
-| 100 | 0.007186 | 0.025892 | 3.60x |
-| 200 | 0.029356 | 0.099213 | 3.38x |
+| 50 | 0.001526 | 0.008031 | 5.26x |
+| 100 | 0.006501 | 0.025743 | 3.96x |
+| 200 | 0.025465 | 0.097653 | 3.83x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -108,6 +108,9 @@ readme = "README.md"
 keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
 categories = ["science::geo", "algorithms"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
@@ -123,11 +126,13 @@ float_next_after = "1.0"
 smallvec = "1.11"
 robust = "1.2"
 wide = "0.7"
+wasm-bindgen = "0.2"
+console_error_panic_hook = { version = "0.1.7", optional = true }
+geojson = "0.24"
+serde_json = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
-geojson = "0.24"
-serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 criterion = "0.5"
 rand = "0.8"
@@ -142,6 +147,9 @@ lto = "fat"
 codegen-units = 1
 panic = "abort" # Reduces binary size significantly for Wasm
 strip = true    # Removes symbols
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
 
 ```
 
@@ -200,6 +208,60 @@ fn main() {
     for p in polygons {
         println!("Found polygon with area: {}", p.unsigned_area());
     }
+}
+```
+
+### WebAssembly (WASM)
+
+This library supports WebAssembly with an ergonomic dual-build configuration that automatically utilizes SIMD instructions where available.
+
+**Installation:**
+```bash
+npm install geo-polygonize
+```
+
+**Standard Usage (Bundlers / Browser):**
+The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
+
+```javascript
+import init, { polygonize } from "geo-polygonize";
+
+async function run() {
+    await init();
+
+    const geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            // ... your line features
+        ]
+    };
+
+    // Returns a GeoJSON FeatureCollection string
+    const result = polygonize(JSON.stringify(geojson));
+    console.log(JSON.parse(result));
+}
+
+run();
+```
+
+**Slim Usage (Manual Loading):**
+If you prefer to manage the Wasm binary yourself (e.g., to reduce bundle size or load from a CDN), import from `geo-polygonize/slim`.
+
+```javascript
+import { initBest, polygonize } from "geo-polygonize/slim";
+
+async function run() {
+    // You must provide the compiled WebAssembly.Module or URL
+    // You can choose to load the SIMD or Scalar version based on your own detection or availability
+    const response = await fetch("geo_polygonize.wasm");
+    const buffer = await response.arrayBuffer();
+    const module = await WebAssembly.compile(buffer);
+
+    // Helper to initialize the best available implementation
+    // Pass the module to both arguments if you only have one version
+    await initBest(module, module);
+
+    // ... use polygonize
 }
 ```
 
@@ -1145,6 +1207,114 @@ fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
 
 ```
 
+File: scripts/build_wasm.sh
+```
+#!/bin/bash
+set -e
+
+# Configuration
+WASM_BINDGEN_VERSION="0.2.106"
+TARGET="wasm32-unknown-unknown"
+
+# Ensure target is installed
+echo "Checking for $TARGET..."
+rustup target add $TARGET
+
+# Install wasm-bindgen-cli if needed
+if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
+    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+
+# Install binaryen (wasm-opt) if needed - assuming it's not present or managing manual install is hard in this env,
+# we'll try to use the system one or skip if not found, but since we are "deconstructing", we should try to ensure it exists.
+# For this environment, we'll check if it's available. If not, we might assume it's pre-installed or we skip optimization
+# if we can't easily fetch it (since we can't use apt-get/brew).
+# However, `cargo install wasm-opt` allows installing a wrapper.
+if ! command -v wasm-opt &> /dev/null; then
+    echo "wasm-opt not found. Attempting to install via cargo..."
+    # There isn't a direct official cargo crate for wasm-opt binary, usually provided by system or npm.
+    # We will skip explicit installation logic for wasm-opt here to avoid breaking the build environment
+    # if it's complex, but we'll try to use it if present.
+    echo "Warning: wasm-opt not found. Build will proceed without optimization."
+else
+    echo "Found wasm-opt: $(wasm-opt --version)"
+fi
+
+build_variant() {
+    local VARIANT=$1
+    local OUT_DIR="pkg-$VARIANT"
+    local FLAGS=$2
+
+    echo "Building $VARIANT version..."
+
+    # 1. Cargo Build
+    # We use --release and the specified flags
+    # Note: We need to handle the fact that cargo build outputs to target/wasm32-unknown-unknown/release
+    # and filenames are based on crate name.
+
+    # Clean previous build artifacts for this target to ensure flags apply?
+    # Cargo handles rebuilds, but changing RUSTFLAGS might require a clean or careful handling.
+    # To be safe, we touch the source or rely on cargo detecting flag changes.
+
+    RUSTFLAGS="$FLAGS" cargo build --target $TARGET --release --features console_error_panic_hook --lib
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for $VARIANT..."
+    # The output filename is usually geo_polygonize.wasm based on Cargo.toml name
+    CRATE_NAME="geo_polygonize"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        exit 1
+    fi
+
+    rm -rf $OUT_DIR
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name $CRATE_NAME "$WASM_PATH"
+
+    # 3. Optimization
+    if command -v wasm-opt &> /dev/null; then
+        echo "Optimizing $VARIANT..."
+        wasm-opt -O3 -o "$OUT_DIR/${CRATE_NAME}_bg.wasm" "$OUT_DIR/${CRATE_NAME}_bg.wasm"
+    fi
+
+    # Remove .gitignore if generated
+    rm -f $OUT_DIR/.gitignore
+}
+
+# Build Scalar
+build_variant "scalar" ""
+
+# Build SIMD
+build_variant "simd" "-C target-feature=+simd128"
+
+# Ensure wrapper exists
+if [ ! -d "pkg-wrapper" ]; then
+    echo "pkg-wrapper directory missing!"
+    exit 1
+fi
+
+# Install npm deps
+if [ ! -d "node_modules" ]; then
+    npm install
+fi
+
+# Bundle with Rollup
+echo "Running rollup..."
+npx rollup -c
+
+# Prepare distribution files
+echo "Preparing dist..."
+# Copy the WASM files to dist for external consumption (Slim build)
+# We rename them to be explicit as per the "Wasm is not an implementation detail" advice
+cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
+cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+
+echo "Build complete! Artifacts are in dist/"
+
+```
+
 File: scripts/generate_complex_geojson.py
 ```
 import json
@@ -1362,6 +1532,9 @@ pub mod error;
 pub mod utils;
 pub mod tiling;
 pub mod noding;
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 #[cfg(test)]
 mod polygonizer_tests;
@@ -2002,6 +2175,82 @@ mod tests {
 
         assert_eq!(polys.len(), 4);
     }
+}
+
+```
+
+File: src/wasm.rs
+```
+use wasm_bindgen::prelude::*;
+use crate::Polygonizer;
+use geojson::{GeoJson, Geometry, Value};
+use std::convert::TryInto;
+use std::str::FromStr;
+
+#[wasm_bindgen]
+pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+    // Set panic hook for better error messages
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
+
+    let mut polygonizer = Polygonizer::new();
+
+    // Process inputs
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    let geo_geom: geo::Geometry<f64> = geom.try_into()
+                        .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                    polygonizer.add_geometry(geo_geom);
+                }
+            }
+        },
+        GeoJson::Feature(f) => {
+             if let Some(geom) = f.geometry {
+                let geo_geom: geo::Geometry<f64> = geom.try_into()
+                    .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                polygonizer.add_geometry(geo_geom);
+            }
+        },
+        GeoJson::Geometry(g) => {
+            let geo_geom: geo::Geometry<f64> = g.try_into()
+                .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+            polygonizer.add_geometry(geo_geom);
+        }
+    }
+
+    let polygons = polygonizer.polygonize()
+        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+
+    // Convert back to GeoJSON
+    let geometries: Vec<Geometry> = polygons.into_iter()
+        .map(|p| Geometry::new(Value::from(&p)))
+        .collect();
+
+    // Wrap in FeatureCollection? Or GeometryCollection?
+    // Let's return a FeatureCollection as it's standard for multiple geometries
+    let mut features = Vec::new();
+    for geom in geometries {
+        features.push(geojson::Feature {
+            bbox: None,
+            geometry: Some(geom),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        });
+    }
+
+    let fc = GeoJson::FeatureCollection(geojson::FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    });
+
+    Ok(fc.to_string())
 }
 
 ```
