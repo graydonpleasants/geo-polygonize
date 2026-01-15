@@ -5,6 +5,9 @@ node_modules/
 *.swp
 *.log
 pkg/
+pkg-scalar/
+pkg-simd/
+dist/
 benches/wasm_bench/target/
 benches/wasm_bench/pkg/
 llms.txt

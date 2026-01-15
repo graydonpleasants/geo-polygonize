@@ -1,0 +1,38 @@
+{
+  "name": "geo-polygonize",
+  "version": "0.1.0",
+  "description": "A native Rust port of the JTS/GEOS polygonization algorithm (Wasm)",
+  "type": "module",
+  "scripts": {
+    "build": "./scripts/build_wasm.sh",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/standard/es/index.js",
+      "require": "./dist/standard/cjs/index.js",
+      "default": "./dist/standard/es/index.js"
+    },
+    "./slim": {
+      "import": "./dist/slim/es/index_slim.js",
+      "require": "./dist/slim/cjs/index_slim.js",
+      "default": "./dist/slim/es/index_slim.js"
+    },
+    "./geo_polygonize.wasm": "./dist/geo_polygonize.wasm",
+    "./*": "./dist/*"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "@rollup/plugin-wasm": "^6.2.0",
+    "rollup": "^4.0.0",
+    "tslib": "^2.6.0",
+    "typescript": "^5.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
