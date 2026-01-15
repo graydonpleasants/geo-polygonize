@@ -24,6 +24,7 @@
       "default": "./dist/slim/es/index_slim.js"
     },
     "./geo_polygonize.wasm": "./dist/geo_polygonize.wasm",
+    "./geo_polygonize_simd.wasm": "./dist/geo_polygonize_simd.wasm",
     "./*": "./dist/*"
   },
   "types": "./dist/standard/es/index.d.ts",

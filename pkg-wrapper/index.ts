@@ -1,5 +1,4 @@
-import initScalar, * as scalarExports from "../pkg-scalar/geo_polygonize.js";
-import initSimd, * as simdExports from "../pkg-simd/geo_polygonize.js";
+import init, * as exports from "../pkg-scalar/geo_polygonize.js";
 import wasmScalarUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
 import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
 
@@ -16,18 +15,16 @@ function hasSimd() {
     return simdSupported;
 }
 
-// We need to export all the functions from the library.
-// Since the exports are identical for both, we can use the scalar exports type for TS.
+// We re-export everything from the scalar package.
+// The JS bindings in pkg-scalar/geo_polygonize.js are identical to pkg-simd/geo_polygonize.js
+// because the exported API is the same.
+// By calling init() with the correct Wasm binary, these exported functions will use that binary.
 export * from "../pkg-scalar/geo_polygonize.js";
 
 // Override the init function
 // input is ignored because we are using inlined Wasm
-export default async function init(_input?: any) {
-    if (hasSimd()) {
-        await initSimd(wasmSimdUrl);
-        return simdExports;
-    } else {
-        await initScalar(wasmScalarUrl);
-        return scalarExports;
-    }
+export default async function(_input?: any) {
+    const url = hasSimd() ? wasmSimdUrl : wasmScalarUrl;
+    await init(url);
+    return exports;
 }
