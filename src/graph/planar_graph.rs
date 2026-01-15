@@ -3,7 +3,7 @@ use geo::Line;
 use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use crate::utils::{z_order_index, pseudo_angle};
+use crate::utils::{z_order_index, compare_angular};
 
 // Type aliases for indices to ensure we don't mix them up
 pub type NodeId = usize;
@@ -29,9 +29,6 @@ pub struct DirectedEdge {
     pub edge_idx: EdgeId,
     /// Index of the symmetric (reverse) edge
     pub sym_idx: DirEdgeId,
-    /// Precomputed pseudo-angle for efficient sorting.
-    /// Range [0, 4). Monotonic with actual angle.
-    pub angle: f64,
     /// Traversal state: has this edge been processed into a ring?
     pub is_visited: bool,
     /// Is this edge explicitly marked (e.g. as part of a dangle)
@@ -246,20 +243,11 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len() + 2 * i;
             let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-            let dx_u = self.nodes_x[v] - self.nodes_x[u];
-            let dy_u = self.nodes_y[v] - self.nodes_y[u];
-            let angle_u = pseudo_angle(dx_u, dy_u);
-
-            let dx_v = self.nodes_x[u] - self.nodes_x[v];
-            let dy_v = self.nodes_y[u] - self.nodes_y[v];
-            let angle_v = pseudo_angle(dx_v, dy_v);
-
             let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
                 sym_idx: de_v_u_idx,
-                angle: angle_u,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
@@ -270,7 +258,6 @@ impl PlanarGraph {
                 dst: u,
                 edge_idx,
                 sym_idx: de_u_v_idx,
-                angle: angle_v,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
@@ -291,20 +278,11 @@ impl PlanarGraph {
              let de_u_v_idx = self.directed_edges.len() + 2 * i;
              let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-             let dx_u = self.nodes_x[v] - self.nodes_x[u];
-             let dy_u = self.nodes_y[v] - self.nodes_y[u];
-             let angle_u = pseudo_angle(dx_u, dy_u);
-
-             let dx_v = self.nodes_x[u] - self.nodes_x[v];
-             let dy_v = self.nodes_y[u] - self.nodes_y[v];
-             let angle_v = pseudo_angle(dx_v, dy_v);
-
              let de_u_v = DirectedEdge {
                  src: u,
                  dst: v,
                  edge_idx,
                  sym_idx: de_v_u_idx,
-                 angle: angle_u,
                  is_visited: false,
                  is_marked: false,
                  edge_direction: true,
@@ -315,7 +293,6 @@ impl PlanarGraph {
                  dst: u,
                  edge_idx,
                  sym_idx: de_u_v_idx,
-                 angle: angle_v,
                  is_visited: false,
                  is_marked: false,
                  edge_direction: false,
@@ -364,15 +341,11 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len();
             let de_v_u_idx = self.directed_edges.len() + 1;
 
-            let angle_u = pseudo_angle(p1.x - p0.x, p1.y - p0.y);
-            let angle_v = pseudo_angle(p0.x - p1.x, p0.y - p1.y);
-
             let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
                 sym_idx: de_v_u_idx,
-                angle: angle_u,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
@@ -383,7 +356,6 @@ impl PlanarGraph {
                 dst: u,
                 edge_idx,
                 sym_idx: de_u_v_idx,
-                angle: angle_v,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
@@ -408,22 +380,44 @@ impl PlanarGraph {
 
     /// Sorts all outgoing edges of all nodes by angle.
     pub fn sort_edges(&mut self) {
+        let nodes_x = &self.nodes_x;
+        let nodes_y = &self.nodes_y;
         let directed_edges = &self.directed_edges;
+
+        // Use a robust angular comparator.
+        // This requires accessing coordinates of src and dst nodes.
         #[cfg(feature = "parallel")]
-        self.nodes_outgoing.par_iter_mut().for_each(|adj| {
+        self.nodes_outgoing.par_iter_mut().enumerate().for_each(|(src_idx, adj)| {
+             let center = Coord { x: nodes_x[src_idx], y: nodes_y[src_idx] };
              adj.sort_by(|&a_idx, &b_idx| {
-                 let a = &directed_edges[a_idx];
-                 let b = &directed_edges[b_idx];
-                 a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
+                 let a_de = &directed_edges[a_idx];
+                 let b_de = &directed_edges[b_idx];
+
+                 // Get destination coordinates
+                 let dst_a_idx = a_de.dst;
+                 let dst_b_idx = b_de.dst;
+
+                 let target_a = Coord { x: nodes_x[dst_a_idx], y: nodes_y[dst_a_idx] };
+                 let target_b = Coord { x: nodes_x[dst_b_idx], y: nodes_y[dst_b_idx] };
+
+                 compare_angular(center, target_a, target_b)
              });
         });
 
         #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing.iter_mut().for_each(|adj| {
+        self.nodes_outgoing.iter_mut().enumerate().for_each(|(src_idx, adj)| {
+             let center = Coord { x: nodes_x[src_idx], y: nodes_y[src_idx] };
              adj.sort_by(|&a_idx, &b_idx| {
-                 let a = &directed_edges[a_idx];
-                 let b = &directed_edges[b_idx];
-                 a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
+                 let a_de = &directed_edges[a_idx];
+                 let b_de = &directed_edges[b_idx];
+
+                 let dst_a_idx = a_de.dst;
+                 let dst_b_idx = b_de.dst;
+
+                 let target_a = Coord { x: nodes_x[dst_a_idx], y: nodes_y[dst_a_idx] };
+                 let target_b = Coord { x: nodes_x[dst_b_idx], y: nodes_y[dst_b_idx] };
+
+                 compare_angular(center, target_a, target_b)
              });
         });
     }

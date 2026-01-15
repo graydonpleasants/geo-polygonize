@@ -9,8 +9,15 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "0.2"
 geo-polygonize = { path = "../../" }
-geo-types = "0.7"
-geo = "0.28"
+geo-types = { version = "0.7", features = ["serde"] }
+geo = { version = "0.32", features = ["serde"] }
 console_error_panic_hook = "0.1"
 web-sys = { version = "0.3", features = ["Window", "Performance"] }
 js-sys = "0.3"
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
+geoarrow = "0.7.0"
+arrow = "57.1.0"
+serde-wasm-bindgen = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+getrandom = { version = "0.2", features = ["js"] }
+geojson = "0.24"
