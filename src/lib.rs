@@ -5,6 +5,9 @@ pub mod utils;
 pub mod tiling;
 pub mod noding;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 #[cfg(test)]
 mod polygonizer_tests;
 

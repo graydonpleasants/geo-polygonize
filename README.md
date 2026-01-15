@@ -41,6 +41,60 @@ fn main() {
 }
 ```
 
+### WebAssembly (WASM)
+
+This library supports WebAssembly with an ergonomic dual-build configuration that automatically utilizes SIMD instructions where available.
+
+**Installation:**
+```bash
+npm install geo-polygonize
+```
+
+**Standard Usage (Bundlers / Browser):**
+The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
+
+```javascript
+import init, { polygonize } from "geo-polygonize";
+
+async function run() {
+    await init();
+
+    const geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            // ... your line features
+        ]
+    };
+
+    // Returns a GeoJSON FeatureCollection string
+    const result = polygonize(JSON.stringify(geojson));
+    console.log(JSON.parse(result));
+}
+
+run();
+```
+
+**Slim Usage (Manual Loading):**
+If you prefer to manage the Wasm binary yourself (e.g., to reduce bundle size or load from a CDN), import from `geo-polygonize/slim`.
+
+```javascript
+import { initBest, polygonize } from "geo-polygonize/slim";
+
+async function run() {
+    // You must provide the compiled WebAssembly.Module or URL
+    // You can choose to load the SIMD or Scalar version based on your own detection or availability
+    const response = await fetch("geo_polygonize.wasm");
+    const buffer = await response.arrayBuffer();
+    const module = await WebAssembly.compile(buffer);
+
+    // Helper to initialize the best available implementation
+    // Pass the module to both arguments if you only have one version
+    await initBest(module, module);
+
+    // ... use polygonize
+}
+```
+
 ### CLI Example
 
 The repository includes a CLI tool to polygonize GeoJSON files.
