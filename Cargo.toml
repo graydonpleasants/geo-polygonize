@@ -24,6 +24,7 @@ float_next_after = "1.0"
 smallvec = "1.11"
 robust = "1.2"
 wide = "0.7"
+geo-index = "0.3"
 
 [dev-dependencies]
 approx = "0.5"
