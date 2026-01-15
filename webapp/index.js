@@ -56,6 +56,17 @@ async function init() {
     const statusDiv = document.getElementById('status');
     const statsDiv = document.getElementById('stats');
 
+    // Initialize Panic Hook
+    try {
+        const wasm = await wasmPromise;
+        if (wasm.init_panic_hook) {
+            wasm.init_panic_hook();
+            console.log("Panic hook initialized");
+        }
+    } catch (e) {
+        console.warn("Failed to init wasm panic hook", e);
+    }
+
     // File Upload Handler
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -98,37 +109,20 @@ async function init() {
 
     // Polygonize Handler
     polygonizeBtn.addEventListener('click', async () => {
-        const wasm = await wasmPromise;
-        await wasm.default(); // Initialize WASM if using default export from wasm-pack
-        // Actually wasm-pack with target web usually exports init function as default or named
-        // We will check how it is generated. Usually `import init, { polygonize } from ...`
-        // But with dynamic import:
-
         statusDiv.innerText = "Processing...";
 
-        // 1. Get GeoJSON from drawn items
-        const geojson = drawnItems.toGeoJSON();
-        const geojsonStr = JSON.stringify(geojson);
-
         try {
-            const start = performance.now();
+             // 1. Get GeoJSON from drawn items
+            const geojson = drawnItems.toGeoJSON();
+            const geojsonStr = JSON.stringify(geojson);
 
             // 2. Call WASM
-            // Note: Depending on wasm-pack target, the export might vary.
-            // For 'web' target:
-            // import init, { polygonize } from './pkg/...';
-            // await init();
-            // polygonize(...);
+            const wasm = await wasmPromise;
+            // console.log("WASM Module:", wasm);
 
-            // For webpack async import, it handles the loading.
+            const start = performance.now();
 
-            // Let's assume the module exports the functions directly after loading
-            // But usually we need to call init() for `target: web`.
-            // However, with `webpack` and `asyncWebAssembly`, it might instantiate automatically?
-            // If we use `wasm-pack build --target web`, we get an init function.
-            // If we use `wasm-pack build --target bundler` (default), we don't need init.
-            // I will use `target bundler` for webpack.
-
+            // Direct call to exported function
             const resultStr = wasm.polygonize(geojsonStr);
 
             const end = performance.now();
