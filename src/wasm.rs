@@ -20,7 +20,7 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         GeoJson::FeatureCollection(fc) => {
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
-                    let geo_geom: geo_types::Geometry<f64> = geom.try_into()
+                    let geo_geom: geo::Geometry<f64> = geom.try_into()
                         .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
                     polygonizer.add_geometry(geo_geom);
                 }
@@ -28,13 +28,13 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         },
         GeoJson::Feature(f) => {
              if let Some(geom) = f.geometry {
-                let geo_geom: geo_types::Geometry<f64> = geom.try_into()
+                let geo_geom: geo::Geometry<f64> = geom.try_into()
                     .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
                 polygonizer.add_geometry(geo_geom);
             }
         },
         GeoJson::Geometry(g) => {
-            let geo_geom: geo_types::Geometry<f64> = g.try_into()
+            let geo_geom: geo::Geometry<f64> = g.try_into()
                 .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
             polygonizer.add_geometry(geo_geom);
         }

@@ -1,7 +1,7 @@
 import initScalar, * as scalarExports from "../pkg-scalar/geo_polygonize.js";
 import initSimd, * as simdExports from "../pkg-simd/geo_polygonize.js";
-import wasmScalar from "../pkg-scalar/geo_polygonize_bg.wasm";
-import wasmSimd from "../pkg-simd/geo_polygonize_bg.wasm";
+import wasmScalarUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
+import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
 
 let simdSupported: boolean | undefined;
 
@@ -21,12 +21,13 @@ function hasSimd() {
 export * from "../pkg-scalar/geo_polygonize.js";
 
 // Override the init function
-export default async function init(input?: any) {
+// input is ignored because we are using inlined Wasm
+export default async function init(_input?: any) {
     if (hasSimd()) {
-        await initSimd(wasmSimd());
+        await initSimd(wasmSimdUrl);
         return simdExports;
     } else {
-        await initScalar(wasmScalar());
+        await initScalar(wasmScalarUrl);
         return scalarExports;
     }
 }

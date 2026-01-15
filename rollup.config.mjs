@@ -1,4 +1,4 @@
-import { wasm } from "@rollup/plugin-wasm";
+import url from "@rollup/plugin-url";
 import commonjs from "@rollup/plugin-commonjs";
 import resolve from "@rollup/plugin-node-resolve";
 import typescript from "@rollup/plugin-typescript";
@@ -8,14 +8,22 @@ const rolls = (fmt, env) => ({
   output: {
     dir: `dist/${env}/${fmt}`,
     format: fmt,
-    entryFileNames: `[name].js`,
-    exports: "named", // Disable "Mixing named and default exports" warning
+    entryFileNames: env === "slim" ? "index_slim.js" : "index.js",
+    exports: "named",
   },
   plugins: [
     resolve(),
     commonjs(),
-    typescript(),
-    env !== "slim" && wasm({ maxFileSize: 10000000, targetEnv: "auto-inline" }),
+    typescript({
+      declaration: true,
+      outDir: `dist/${env}/${fmt}`,
+      rootDir: "pkg-wrapper",
+    }),
+    env !== "slim" && url({
+      include: ["**/*.wasm"],
+      limit: Infinity, // Always inline as data:application/wasm;base64,...
+      emitFiles: false,
+    }),
   ].filter(Boolean),
 });
 

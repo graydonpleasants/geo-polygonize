@@ -14,25 +14,29 @@
     ".": {
       "import": "./dist/standard/es/index.js",
       "require": "./dist/standard/cjs/index.js",
+      "types": "./dist/standard/es/index.d.ts",
       "default": "./dist/standard/es/index.js"
     },
     "./slim": {
       "import": "./dist/slim/es/index_slim.js",
       "require": "./dist/slim/cjs/index_slim.js",
+      "types": "./dist/slim/es/index_slim.d.ts",
       "default": "./dist/slim/es/index_slim.js"
     },
     "./geo_polygonize.wasm": "./dist/geo_polygonize.wasm",
     "./*": "./dist/*"
   },
+  "types": "./dist/standard/es/index.d.ts",
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-node-resolve": "^15.0.0",
     "@rollup/plugin-typescript": "^11.0.0",
-    "@rollup/plugin-wasm": "^6.2.0",
+    "@rollup/plugin-url": "^8.0.2",
     "rollup": "^4.0.0",
     "tslib": "^2.6.0",
     "typescript": "^5.0.0"
   },
+  "sideEffects": false,
   "author": "",
   "license": "MIT"
 }
