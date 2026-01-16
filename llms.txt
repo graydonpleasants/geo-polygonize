@@ -1,3 +1,32 @@
+File: ARCHITECTURE.md
+```
+# Architecture & Optimizations
+
+## 1. Robustness: Iterated Snap Rounding (ISR)
+To handle "dirty" input geometries (self-intersections, overlaps, floating-point inconsistencies), the engine implements **Iterated Snap Rounding**.
+-   **Module:** `src/noding/snap.rs`
+-   **Algorithm:**
+    1.  Snap all vertices to a configurable grid (default `1e-10`).
+    2.  Find intersections using an R-Tree (`rstar`).
+    3.  Split segments at intersections and snap split points.
+    4.  Repeat until no new intersections are found (topology stabilizes).
+-   **Usage:** Enable `node_input = true` on `Polygonizer`.
+
+## 2. Spatial Indexing
+-   **Dynamic R-Tree (`rstar`):** Used for both graph construction (noding) and hole-to-shell assignment.
+    -   *Note:* A static packed R-Tree approach (`geo-index`) was evaluated but reverted due to Wasm alignment issues. The dynamic R-Tree provides sufficient performance for current workloads.
+
+## 3. Hardware Acceleration: SIMD
+Critical geometric predicates are accelerated using Single Instruction, Multiple Data (SIMD) instructions via the `wide` crate (targeting `wasm32` SIMD128 and native AVX/SSE).
+-   **Ray Casting:** The `SimdRing` struct (`src/utils/simd.rs`) processes 4 segments in parallel to determine Point-in-Polygon inclusion.
+-   **Impact:** Significantly reduces the cost of the "Hole Assignment" phase, which is O(N*M) in the worst case (checking every hole against every shell candidate).
+
+## 4. Memory Management
+-   **Allocator:** Uses `talc` for Wasm targets to improve allocation throughput for small, short-lived objects (nodes, edges).
+-   **Data Layout:** `PlanarGraph` uses Structure of Arrays (SoA) for node coordinates to improve cache coherence.
+
+```
+
 File: BENCHMARKS.md
 ```
 # Benchmarks
@@ -44,19 +73,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000940 | 0.000695 | 0.74x |
-| 10 | 0.004076 | 0.002238 | 0.55x |
-| 20 | 0.017780 | 0.008297 | 0.47x |
-| 50 | 0.167310 | 0.050847 | 0.30x |
-| 100 | 1.250700 | 0.207662 | 0.17x |
+| 5 | 0.000272 | 0.000675 | 2.48x |
+| 10 | 0.000620 | 0.002218 | 3.58x |
+| 20 | 0.001834 | 0.008199 | 4.47x |
+| 50 | 0.010433 | 0.050715 | 4.86x |
+| 100 | 0.045939 | 0.207546 | 4.52x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.012312 | 0.007950 | 0.65x |
-| 100 | 0.077878 | 0.025877 | 0.33x |
-| 200 | 0.355040 | 0.098798 | 0.28x |
+| 50 | 0.001526 | 0.008031 | 5.26x |
+| 100 | 0.006501 | 0.025743 | 3.96x |
+| 200 | 0.025465 | 0.097653 | 3.83x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -79,6 +108,9 @@ readme = "README.md"
 keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
 categories = ["science::geo", "algorithms"]
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
@@ -92,11 +124,15 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
+robust = "1.2"
+wide = "0.7"
+wasm-bindgen = "0.2"
+console_error_panic_hook = { version = "0.1.7", optional = true }
+geojson = "0.24"
+serde_json = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
-geojson = "0.24"
-serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 criterion = "0.5"
 rand = "0.8"
@@ -111,6 +147,22 @@ lto = "fat"
 codegen-units = 1
 panic = "abort" # Reduces binary size significantly for Wasm
 strip = true    # Removes symbols
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+```
+
+File: PLAN.md
+```
+# Optimization Plan
+
+- [x] **Memory Architecture:** Transition to `talc` allocator.
+- [x] **Data Ingestion:** Implement GeoArrow Zero-Copy benchmark (`load_geoarrow`).
+- [x] **Robustness:** Implement Iterated Snap Rounding (`SnapNoder`) for noding.
+- [x] **Hardware:** Implement SIMD-accelerated Ray Casting (`SimdRing`).
+- [x] **Extended Benchmarking:** Verify ISR and SIMD performance in Wasm.
+- [ ] **Indexing:** Static Indexing (Reverted due to instability).
 
 ```
 
@@ -156,6 +208,60 @@ fn main() {
     for p in polygons {
         println!("Found polygon with area: {}", p.unsigned_area());
     }
+}
+```
+
+### WebAssembly (WASM)
+
+This library supports WebAssembly with an ergonomic dual-build configuration that automatically utilizes SIMD instructions where available.
+
+**Installation:**
+```bash
+npm install geo-polygonize
+```
+
+**Standard Usage (Bundlers / Browser):**
+The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
+
+```javascript
+import init, { polygonize } from "geo-polygonize";
+
+async function run() {
+    await init();
+
+    const geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            // ... your line features
+        ]
+    };
+
+    // Returns a GeoJSON FeatureCollection string
+    const result = polygonize(JSON.stringify(geojson));
+    console.log(JSON.parse(result));
+}
+
+run();
+```
+
+**Slim Usage (Manual Loading):**
+If you prefer to manage the Wasm binary yourself (e.g., to reduce bundle size or load from a CDN), import from `geo-polygonize/slim`.
+
+```javascript
+import { initBest, polygonize } from "geo-polygonize/slim";
+
+async function run() {
+    // You must provide the compiled WebAssembly.Module or URL
+    // You can choose to load the SIMD or Scalar version based on your own detection or availability
+    const response = await fetch("geo_polygonize.wasm");
+    const buffer = await response.arrayBuffer();
+    const module = await WebAssembly.compile(buffer);
+
+    // Helper to initialize the best available implementation
+    // Pass the module to both arguments if you only have one version
+    await initBest(module, module);
+
+    // ... use polygonize
 }
 ```
 
@@ -691,26 +797,86 @@ wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
 node -e '
-const { run_grid_bench, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { polygonize, polygonize_robust, load_geoarrow, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { performance } = require("perf_hooks");
+
+global.window = {
+    performance: performance
+};
 
 setup_panic_hook();
 
-// Warmup
-run_grid_bench(10);
+function generateGrid(size) {
+    const lines = [];
+    for (let i = 0; i <= size; i++) {
+        lines.push({
+            type: "LineString",
+            coordinates: [[i, 0], [i, size]]
+        });
+        lines.push({
+            type: "LineString",
+            coordinates: [[0, i], [size, i]]
+        });
+    }
+    return lines;
+}
 
-const sizes = [10, 20, 50, 80];
+function generateDirtyGrid(size) {
+    const lines = [];
+    for (let i = 0; i < size; i++) {
+        for (let j = 0; j < size; j++) {
+            // Bowtie pattern (X)
+            lines.push({
+                type: "LineString",
+                coordinates: [[i, j], [i+1, j+1]]
+            });
+            lines.push({
+                type: "LineString",
+                coordinates: [[i+1, j], [i, j+1]]
+            });
+        }
+    }
+    return lines;
+}
 
-console.log("| Input Size | Time (ms) |");
-console.log("|---|---|");
+const sizes = [10, 20, 50];
+
+console.log("| Grid Size | Polygonize (ms) | GeoArrow (ms) | Robust (Dirty) (ms) |");
+console.log("|---|---|---|---|");
 
 for (const size of sizes) {
-    let total = 0;
-    const runs = 5;
-    for (let i = 0; i < runs; i++) {
-        total += run_grid_bench(size);
+    const cleanLines = generateGrid(size);
+    const dirtyLines = generateDirtyGrid(size);
+
+    // Warmup
+    try {
+        polygonize(cleanLines);
+        polygonize_robust(dirtyLines, 1e-6);
+        load_geoarrow(cleanLines);
+    } catch (e) {
+        console.error("Warmup failed:", e);
     }
-    const avg = total / runs;
-    console.log(`| ${size} | ${avg.toFixed(2)} |`);
+
+    let polyTotal = 0;
+    let arrowTotal = 0;
+    let robustTotal = 0;
+    const runs = 5;
+
+    for (let i = 0; i < runs; i++) {
+        let start = performance.now();
+        polygonize(cleanLines);
+        polyTotal += (performance.now() - start);
+
+        start = performance.now();
+        load_geoarrow(cleanLines);
+        arrowTotal += (performance.now() - start);
+
+        start = performance.now();
+        polygonize_robust(dirtyLines, 1e-6);
+        robustTotal += (performance.now() - start);
+    }
+
+    console.log(`| ${size}x${size} | ${(polyTotal / runs).toFixed(2)} | ${(arrowTotal / runs).toFixed(2)} | ${(robustTotal / runs).toFixed(2)} |`);
 }
 '
 
@@ -729,54 +895,115 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "0.2"
 geo-polygonize = { path = "../../" }
-geo-types = "0.7"
-geo = "0.28"
+geo-types = { version = "0.7", features = ["serde"] }
+geo = { version = "0.32", features = ["serde"] }
 console_error_panic_hook = "0.1"
 web-sys = { version = "0.3", features = ["Window", "Performance"] }
 js-sys = "0.3"
+talc = { version = "4.4", default-features = false, features = ["lock_api"] }
+geoarrow = "0.7.0"
+arrow = "57.1.0"
+serde-wasm-bindgen = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+getrandom = { version = "0.2", features = ["js"] }
+geojson = "0.24"
 
 ```
 
 File: benches/wasm_bench/src/lib.rs
 ```
 use wasm_bindgen::prelude::*;
+use geo::{LineString, Geometry};
 use geo_polygonize::Polygonizer;
-use geo_types::{LineString, Geometry, GeometryCollection};
+use geoarrow::array::{GeoArrowArrayAccessor, LineStringBuilder};
+use geoarrow::datatypes::{LineStringType, Dimension};
+use std::convert::TryInto;
+
+#[cfg(target_arch = "wasm32")]
+use talc::*;
+
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: TalckWasm = unsafe { TalckWasm::new_global() };
 
 #[wasm_bindgen]
 pub fn setup_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
-#[wasm_bindgen]
-pub fn run_grid_bench(size: usize) -> f64 {
-    let mut lines = Vec::new();
-    // Generate grid
-    for i in 0..size {
-        // Vertical
-        lines.push(LineString::from(vec![
-            (i as f64, 0.0),
-            (i as f64, size as f64),
-        ]));
-        // Horizontal
-        lines.push(LineString::from(vec![
-            (0.0, i as f64),
-            (size as f64, i as f64),
-        ]));
+fn parse_input(lines: JsValue) -> Result<Vec<LineString>, JsValue> {
+    // Deserialize as Vec<geojson::Geometry>
+    let geometries: Vec<geojson::Geometry> = serde_wasm_bindgen::from_value(lines)?;
+
+    let mut geo_lines = Vec::with_capacity(geometries.len());
+    for g in geometries {
+        // Convert geojson::Geometry to geo::Geometry
+        let geo_geom: Geometry<f64> = g.try_into()
+            .map_err(|e| JsValue::from_str(&format!("GeoJSON conversion error: {}", e)))?;
+
+        match geo_geom {
+            Geometry::LineString(ls) => geo_lines.push(ls),
+            _ => return Err(JsValue::from_str("Input must be LineStrings")),
+        }
     }
+    Ok(geo_lines)
+}
 
-    let geom_coll: GeometryCollection<f64> = lines.into_iter().map(Geometry::LineString).collect();
-    let geom = Geometry::GeometryCollection(geom_coll);
+#[wasm_bindgen]
+pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
 
-    let start = js_sys::Date::now();
+    // Core Logic
+    let mut polygonizer = Polygonizer::new();
+    for line in lines {
+        polygonizer.add_geometry(Geometry::LineString(line));
+    }
+    let results = polygonizer.polygonize();
+
+    let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(JsValue::from(results_vec.len()))
+}
+
+#[wasm_bindgen]
+pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
 
     let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = true; // Force noding
-    polygonizer.add_geometry(geom);
-    let _ = polygonizer.polygonize().unwrap();
+    polygonizer.node_input = true;
+    if let Some(g) = grid_size {
+        polygonizer.snap_grid_size = g;
+    }
 
-    let end = js_sys::Date::now();
-    end - start
+    for line in lines {
+        polygonizer.add_geometry(Geometry::LineString(line));
+    }
+    let results = polygonizer.polygonize();
+
+    let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(JsValue::from(results_vec.len()))
+}
+
+#[wasm_bindgen]
+pub fn load_geoarrow(lines: JsValue) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
+
+    // Core Logic: Ingest
+    let mut builder = LineStringBuilder::new(LineStringType::new(Dimension::XY, Default::default()));
+    for line in &lines {
+        builder.push_line_string(Some(line))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    }
+    let array = builder.finish();
+
+    // Core Logic: Iterate
+    let mut count = 0;
+    for scalar_result in array.iter_values() {
+         if let Ok(_scalar) = scalar_result {
+             count += 1;
+         }
+    }
+
+    Ok(JsValue::from(count))
 }
 
 ```
@@ -977,6 +1204,114 @@ fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
         }
     }
 }
+
+```
+
+File: scripts/build_wasm.sh
+```
+#!/bin/bash
+set -e
+
+# Configuration
+WASM_BINDGEN_VERSION="0.2.106"
+TARGET="wasm32-unknown-unknown"
+
+# Ensure target is installed
+echo "Checking for $TARGET..."
+rustup target add $TARGET
+
+# Install wasm-bindgen-cli if needed
+if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
+    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+
+# Install binaryen (wasm-opt) if needed - assuming it's not present or managing manual install is hard in this env,
+# we'll try to use the system one or skip if not found, but since we are "deconstructing", we should try to ensure it exists.
+# For this environment, we'll check if it's available. If not, we might assume it's pre-installed or we skip optimization
+# if we can't easily fetch it (since we can't use apt-get/brew).
+# However, `cargo install wasm-opt` allows installing a wrapper.
+if ! command -v wasm-opt &> /dev/null; then
+    echo "wasm-opt not found. Attempting to install via cargo..."
+    # There isn't a direct official cargo crate for wasm-opt binary, usually provided by system or npm.
+    # We will skip explicit installation logic for wasm-opt here to avoid breaking the build environment
+    # if it's complex, but we'll try to use it if present.
+    echo "Warning: wasm-opt not found. Build will proceed without optimization."
+else
+    echo "Found wasm-opt: $(wasm-opt --version)"
+fi
+
+build_variant() {
+    local VARIANT=$1
+    local OUT_DIR="pkg-$VARIANT"
+    local FLAGS=$2
+
+    echo "Building $VARIANT version..."
+
+    # 1. Cargo Build
+    # We use --release and the specified flags
+    # Note: We need to handle the fact that cargo build outputs to target/wasm32-unknown-unknown/release
+    # and filenames are based on crate name.
+
+    # Clean previous build artifacts for this target to ensure flags apply?
+    # Cargo handles rebuilds, but changing RUSTFLAGS might require a clean or careful handling.
+    # To be safe, we touch the source or rely on cargo detecting flag changes.
+
+    RUSTFLAGS="$FLAGS" cargo build --target $TARGET --release --features console_error_panic_hook --lib
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for $VARIANT..."
+    # The output filename is usually geo_polygonize.wasm based on Cargo.toml name
+    CRATE_NAME="geo_polygonize"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        exit 1
+    fi
+
+    rm -rf $OUT_DIR
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name $CRATE_NAME "$WASM_PATH"
+
+    # 3. Optimization
+    if command -v wasm-opt &> /dev/null; then
+        echo "Optimizing $VARIANT..."
+        wasm-opt -O3 -o "$OUT_DIR/${CRATE_NAME}_bg.wasm" "$OUT_DIR/${CRATE_NAME}_bg.wasm"
+    fi
+
+    # Remove .gitignore if generated
+    rm -f $OUT_DIR/.gitignore
+}
+
+# Build Scalar
+build_variant "scalar" ""
+
+# Build SIMD
+build_variant "simd" "-C target-feature=+simd128"
+
+# Ensure wrapper exists
+if [ ! -d "pkg-wrapper" ]; then
+    echo "pkg-wrapper directory missing!"
+    exit 1
+fi
+
+# Install npm deps
+if [ ! -d "node_modules" ]; then
+    npm install
+fi
+
+# Bundle with Rollup
+echo "Running rollup..."
+npx rollup -c
+
+# Prepare distribution files
+echo "Preparing dist..."
+# Copy the WASM files to dist for external consumption (Slim build)
+# We rename them to be explicit as per the "Wasm is not an implementation detail" advice
+cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
+cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+
+echo "Build complete! Artifacts are in dist/"
 
 ```
 
@@ -1196,6 +1531,10 @@ pub mod polygonizer;
 pub mod error;
 pub mod utils;
 pub mod tiling;
+pub mod noding;
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 #[cfg(test)]
 mod polygonizer_tests;
@@ -1208,19 +1547,18 @@ pub use tiling::TiledPolygonizer;
 File: src/polygonizer.rs
 ```
 use crate::graph::PlanarGraph;
-use geo_types::{Geometry, LineString, Polygon, Coord};
+use geo_types::{Geometry, LineString, Polygon, Coord, Point};
 use crate::error::Result;
-use geo::algorithm::contains::Contains;
 use geo::bounding_rect::BoundingRect;
-use geo::algorithm::line_intersection::LineIntersection;
-use geo::algorithm::intersects::Intersects;
 use geo::Area;
-use geo::Line;
+use geo::algorithm::centroid::Centroid;
 use rstar::{RTree, AABB, RTreeObject};
+
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use smallvec::SmallVec;
+use crate::noding::snap::SnapNoder;
+use crate::utils::simd::SimdRing;
 
 // Wrapper for Polygon to be indexable by rstar
 struct IndexedPolygon(Polygon<f64>, usize);
@@ -1234,32 +1572,12 @@ impl RTreeObject for IndexedPolygon {
     }
 }
 
-// Wrapper for Line to be indexable by rstar
-#[derive(Clone, Copy, Debug)]
-struct IndexedLine {
-    line: Line<f64>,
-    index: usize,
-}
-
-impl RTreeObject for IndexedLine {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        let p1 = self.line.start;
-        let p2 = self.line.end;
-        let min_x = p1.x.min(p2.x);
-        let min_y = p1.y.min(p2.y);
-        let max_x = p1.x.max(p2.x);
-        let max_y = p1.y.max(p2.y);
-        AABB::from_corners([min_x, min_y], [max_x, max_y])
-    }
-}
-
 pub struct Polygonizer {
     graph: PlanarGraph,
     // Configuration
     pub check_valid_rings: bool,
     pub node_input: bool,
+    pub snap_grid_size: f64,
 
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
@@ -1272,9 +1590,15 @@ impl Polygonizer {
             graph: PlanarGraph::new(),
             check_valid_rings: true,
             node_input: false,
+            snap_grid_size: 1e-10, // Default tolerance
             inputs: Vec::new(),
             dirty: false,
         }
+    }
+
+    pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
+        self.snap_grid_size = grid_size;
+        self
     }
 
     /// Adds a geometry to the graph.
@@ -1306,7 +1630,16 @@ impl Polygonizer {
              });
              lines.dedup();
 
-            segments = node_lines(lines);
+            // Convert LineStrings to Lines
+            let mut input_segments = Vec::new();
+            for ls in lines {
+                for line in ls.lines() {
+                    input_segments.push(line);
+                }
+            }
+
+            let noder = SnapNoder::new(self.snap_grid_size);
+            segments = noder.node(input_segments);
         } else {
             for ls in lines {
                 for line in ls.lines() {
@@ -1399,28 +1732,42 @@ impl Polygonizer {
 
         shells.extend(promoted_shells);
 
-        // Assign holes to shells
-        let mut indexed_shells = Vec::new();
+        // Precompute SIMD shells
+        let simd_shells: Vec<SimdRing> = shells.iter()
+            .map(|s| SimdRing::new(&s.exterior().0))
+            .collect();
+
+        // Assign holes to shells using RTree (Dynamic, but robust)
+        let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
             indexed_shells.push(IndexedPolygon(shell.clone(), i));
         }
         let tree = RTree::bulk_load(indexed_shells);
 
+        // Process holes
         let process_hole_assignment = |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
             let hole_ring = hole_poly.exterior();
-            let hole_bbox = hole_poly.bounding_rect().unwrap();
-            let hole_aabb = AABB::from_corners([hole_bbox.min().x, hole_bbox.min().y], [hole_bbox.max().x, hole_bbox.max().y]);
+            let bbox = hole_poly.bounding_rect().unwrap();
+            let hole_aabb = AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
             let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
 
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            for cand in candidates {
-                let shell = &cand.0;
-                let idx = cand.1;
+            // Use centroid for inclusion check to avoid boundary issues
+            let probe_point = hole_poly.centroid().unwrap_or_else(|| {
+                // Fallback to first point if centroid fails (e.g. degenerate)
+                Point(hole_ring.0[0])
+            });
 
-                if shell.contains(hole_poly) {
+            for cand in candidates {
+                let idx = cand.1;
+                // Use SIMD check first
+                let simd_shell = &simd_shells[idx];
+
+                if simd_shell.contains(probe_point.0) {
+                   let shell = &shells[idx];
                    let area = shell.unsigned_area();
                    let hole_area = hole_poly.unsigned_area();
 
@@ -1452,10 +1799,10 @@ impl Polygonizer {
         let mut result = Vec::new();
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
-            let poly = Polygon::new(shell.exterior().clone(), holes);
-            // Filter out polygons with negligible area (e.g. collapsed shells or shells completely filled by holes)
-            if poly.unsigned_area() > 1e-6 {
-                result.push(poly);
+            let p = Polygon::new(shell.exterior().clone(), holes);
+            // Filter out collapsed polygons (e.g. shells completely filled by holes)
+            if p.unsigned_area() > 1e-6 {
+                result.push(p);
             }
         }
 
@@ -1486,262 +1833,6 @@ fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
         },
         _ => {},
     }
-}
-
-/// Robust Noding with Parallel R-Tree queries and Flat Memory Layout
-fn node_lines(input_lines: Vec<LineString<f64>>) -> Vec<Line<f64>> {
-    let mut segments: Vec<Line<f64>> = Vec::new();
-    for ls in input_lines {
-        for line in ls.lines() {
-            segments.push(line);
-        }
-    }
-
-    let tol = 1e-10;
-
-    // One-Pass Robust Noding
-    // We run a single pass to collect all intersection events.
-    // Assuming the initial set of lines covers the geometry, splitting them at all intersection points
-    // should result in a fully noded graph (barring numerical robustness issues which we handle with tolerance).
-
-    // 1. Build Index
-    let indexed_segments: Vec<IndexedLine>;
-    #[cfg(feature = "parallel")]
-    {
-        indexed_segments = segments.par_iter().enumerate()
-            .map(|(i, s)| IndexedLine { line: *s, index: i })
-            .collect();
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        indexed_segments = segments.iter().enumerate()
-            .map(|(i, s)| IndexedLine { line: *s, index: i })
-            .collect();
-    }
-
-    let tree = RTree::bulk_load(indexed_segments);
-
-    // 2. Find ALL intersection events using bulk query
-    // Returns a flat list of (segment_index, split_point)
-    // We use intersection_candidates_with_other_tree which is usually optimized for internal node checks.
-
-    // Closure to process intersection
-    let process_intersection = |(cand1, cand2): (&IndexedLine, &IndexedLine)| -> SmallVec<[(usize, Coord<f64>); 2]> {
-        let idx1 = cand1.index;
-        let idx2 = cand2.index;
-
-        // Optimization: only process unique pairs
-        if idx1 >= idx2 { return SmallVec::new(); }
-
-        let s1 = cand1.line;
-        let s2 = cand2.line;
-
-        let mut events = SmallVec::new();
-
-        // Fast check before robust intersection
-        if !s1.intersects(&s2) { return events; }
-
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(s1, s2) {
-            match res {
-                LineIntersection::SinglePoint { intersection: pt, .. } => {
-                    // Check strict internal (robustness)
-                    let is_internal_s1 = (pt.x - s1.start.x).abs() > tol && (pt.x - s1.end.x).abs() > tol
-                                      || (pt.y - s1.start.y).abs() > tol && (pt.y - s1.end.y).abs() > tol;
-                    let is_internal_s2 = (pt.x - s2.start.x).abs() > tol && (pt.x - s2.end.x).abs() > tol
-                                      || (pt.y - s2.start.y).abs() > tol && (pt.y - s2.end.y).abs() > tol;
-
-                    if is_internal_s1 { events.push((idx1, pt)); }
-                    if is_internal_s2 { events.push((idx2, pt)); }
-                },
-                LineIntersection::Collinear { intersection: overlap } => {
-                    // Add overlap endpoints as split points if internal
-                    let p1 = overlap.start;
-                    let p2 = overlap.end;
-
-                    let s1_has_p1 = (p1.x - s1.start.x).abs() > tol && (p1.x - s1.end.x).abs() > tol || (p1.y - s1.start.y).abs() > tol && (p1.y - s1.end.y).abs() > tol;
-                    let s1_has_p2 = (p2.x - s1.start.x).abs() > tol && (p2.x - s1.end.x).abs() > tol || (p2.y - s1.start.y).abs() > tol && (p2.y - s1.end.y).abs() > tol;
-
-                    if s1_has_p1 { events.push((idx1, p1)); }
-                    if s1_has_p2 { events.push((idx1, p2)); }
-
-                    let s2_has_p1 = (p1.x - s2.start.x).abs() > tol && (p1.x - s2.end.x).abs() > tol || (p1.y - s2.start.y).abs() > tol && (p1.y - s2.end.y).abs() > tol;
-                    let s2_has_p2 = (p2.x - s2.start.x).abs() > tol && (p2.x - s2.end.x).abs() > tol || (p2.y - s2.start.y).abs() > tol && (p2.y - s2.end.y).abs() > tol;
-
-                    if s2_has_p1 { events.push((idx2, p1)); }
-                    if s2_has_p2 { events.push((idx2, p2)); }
-                }
-            }
-        }
-        events
-    };
-
-    let intersection_events: Vec<(usize, Coord<f64>)>;
-
-    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-    {
-         // Heuristic: Don't spin up Rayon for small candidate sets (if we can estimate).
-         // But we can't estimate intersection count easily without collecting.
-         // However, we can collect candidates first (Native only) and check size.
-         let candidates: Vec<_> = tree.intersection_candidates_with_other_tree(&tree).collect();
-
-         if candidates.len() > 1000 {
-             intersection_events = candidates.into_par_iter()
-                .flat_map_iter(|(cand1, cand2)| process_intersection((cand1, cand2)))
-                .collect();
-         } else {
-             intersection_events = candidates.into_iter()
-                .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
-                .collect();
-         }
-    }
-
-    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
-    {
-         // Stream processing for Wasm (Low Memory Profile) or Sequential
-         intersection_events = tree.intersection_candidates_with_other_tree(&tree)
-            .flat_map(|(cand1, cand2)| process_intersection((cand1, cand2)))
-            .collect();
-    }
-
-    // 3. Apply splits
-    if !intersection_events.is_empty() {
-        // 1. Sort events by Segment Index
-        let mut events = intersection_events;
-
-        // Helper to sort events
-        let sort_events = |a: &(usize, Coord<f64>), b: &(usize, Coord<f64>)| {
-            a.0.cmp(&b.0)
-                .then_with(|| {
-                     // Secondary sort by distance along segment?
-                     // Or just coordinate sort is enough for dedup
-                     a.1.x.partial_cmp(&b.1.x).unwrap_or(Ordering::Equal)
-                })
-        };
-
-        #[cfg(feature = "parallel")]
-        events.par_sort_unstable_by(sort_events);
-
-        #[cfg(not(feature = "parallel"))]
-        events.sort_unstable_by(sort_events);
-
-        // Reconstruct segments
-        let mut new_segments = Vec::with_capacity(segments.len() * 2);
-        let mut event_idx = 0;
-
-        for (seg_idx, segment) in segments.iter().enumerate() {
-            // Gather all points for this segment
-            let mut points_on_seg = Vec::new();
-
-            while event_idx < events.len() && events[event_idx].0 == seg_idx {
-                points_on_seg.push(events[event_idx].1);
-                event_idx += 1;
-            }
-
-            if points_on_seg.is_empty() {
-                new_segments.push(*segment);
-                continue;
-            }
-
-            // Sort points by distance from start
-            let start = segment.start;
-            points_on_seg.sort_by(|a, b| {
-                 let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
-                 let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                 da.partial_cmp(&db).unwrap_or(Ordering::Equal)
-            });
-
-            // Dedup points
-            points_on_seg.dedup_by(|a, b| {
-                 (a.x - b.x).abs() < tol && (a.y - b.y).abs() < tol
-            });
-
-            // Create sub-segments
-            let mut curr = start;
-            for pt in points_on_seg {
-                // Ensure min length
-                 if (pt.x - curr.x).powi(2) + (pt.y - curr.y).powi(2) > tol * tol {
-                     new_segments.push(Line::new(curr, pt));
-                     curr = pt;
-                 }
-            }
-            // Final segment
-            if (segment.end.x - curr.x).powi(2) + (segment.end.y - curr.y).powi(2) > tol * tol {
-                new_segments.push(Line::new(curr, segment.end));
-            }
-        }
-        segments = new_segments;
-    }
-
-    // Snap Vertices (Robustness for near-miss intersections)
-    let mut points: Vec<_> = segments.iter().enumerate().flat_map(|(i, s)| {
-        vec![
-            (s.start, i, true), // coord, seg_idx, is_start
-            (s.end, i, false)
-        ]
-    }).collect();
-
-    points.sort_by(|a, b| {
-        a.0.x.partial_cmp(&b.0.x).unwrap_or(Ordering::Equal)
-            .then(a.0.y.partial_cmp(&b.0.y).unwrap_or(Ordering::Equal))
-    });
-
-    let mut merged = vec![false; points.len()];
-
-    for i in 0..points.len() {
-        if merged[i] { continue; }
-
-        let rep = points[i].0;
-
-        // Look ahead
-        for j in (i + 1)..points.len() {
-             if points[j].0.x - rep.x > tol {
-                 break;
-             }
-             if merged[j] { continue; }
-
-             if (points[j].0.x - rep.x).abs() < tol && (points[j].0.y - rep.y).abs() < tol {
-                 // Merge
-                 merged[j] = true;
-                 let (seg_idx, is_start) = (points[j].1, points[j].2);
-                 if is_start {
-                     segments[seg_idx].start = rep;
-                 } else {
-                     segments[seg_idx].end = rep;
-                 }
-             }
-        }
-    }
-
-    // Normalize segment direction to ensure deduplication works for reverse duplicates
-    for segment in &mut segments {
-        if segment.start.x > segment.end.x || ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
-             let temp = segment.start;
-             segment.start = segment.end;
-             segment.end = temp;
-        }
-    }
-
-    // Final global dedup
-    #[cfg(feature = "parallel")]
-    segments.par_sort_unstable_by(|a, b| {
-        let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-        let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-    });
-    #[cfg(not(feature = "parallel"))]
-    segments.sort_unstable_by(|a, b| {
-        let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-        let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-        sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-    });
-
-    segments.dedup_by(|a, b| {
-        let tol = 1e-10;
-        (a.start.x - b.start.x).abs() < tol && (a.start.y - b.start.y).abs() < tol &&
-        (a.end.x - b.end.x).abs() < tol && (a.end.y - b.end.y).abs() < tol
-    });
-
-    segments
 }
 
 ```
@@ -2088,6 +2179,82 @@ mod tests {
 
 ```
 
+File: src/wasm.rs
+```
+use wasm_bindgen::prelude::*;
+use crate::Polygonizer;
+use geojson::{GeoJson, Geometry, Value};
+use std::convert::TryInto;
+use std::str::FromStr;
+
+#[wasm_bindgen]
+pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+    // Set panic hook for better error messages
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
+
+    let mut polygonizer = Polygonizer::new();
+
+    // Process inputs
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    let geo_geom: geo::Geometry<f64> = geom.try_into()
+                        .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                    polygonizer.add_geometry(geo_geom);
+                }
+            }
+        },
+        GeoJson::Feature(f) => {
+             if let Some(geom) = f.geometry {
+                let geo_geom: geo::Geometry<f64> = geom.try_into()
+                    .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                polygonizer.add_geometry(geo_geom);
+            }
+        },
+        GeoJson::Geometry(g) => {
+            let geo_geom: geo::Geometry<f64> = g.try_into()
+                .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+            polygonizer.add_geometry(geo_geom);
+        }
+    }
+
+    let polygons = polygonizer.polygonize()
+        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+
+    // Convert back to GeoJSON
+    let geometries: Vec<Geometry> = polygons.into_iter()
+        .map(|p| Geometry::new(Value::from(&p)))
+        .collect();
+
+    // Wrap in FeatureCollection? Or GeometryCollection?
+    // Let's return a FeatureCollection as it's standard for multiple geometries
+    let mut features = Vec::new();
+    for geom in geometries {
+        features.push(geojson::Feature {
+            bbox: None,
+            geometry: Some(geom),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        });
+    }
+
+    let fc = GeoJson::FeatureCollection(geojson::FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    });
+
+    Ok(fc.to_string())
+}
+
+```
+
 File: src/graph/mod.rs
 ```
 pub mod planar_graph;
@@ -2105,7 +2272,7 @@ use geo::Line;
 use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use crate::utils::{z_order_index, pseudo_angle};
+use crate::utils::{z_order_index, compare_angular};
 
 // Type aliases for indices to ensure we don't mix them up
 pub type NodeId = usize;
@@ -2131,9 +2298,6 @@ pub struct DirectedEdge {
     pub edge_idx: EdgeId,
     /// Index of the symmetric (reverse) edge
     pub sym_idx: DirEdgeId,
-    /// Precomputed pseudo-angle for efficient sorting.
-    /// Range [0, 4). Monotonic with actual angle.
-    pub angle: f64,
     /// Traversal state: has this edge been processed into a ring?
     pub is_visited: bool,
     /// Is this edge explicitly marked (e.g. as part of a dangle)
@@ -2348,20 +2512,11 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len() + 2 * i;
             let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-            let dx_u = self.nodes_x[v] - self.nodes_x[u];
-            let dy_u = self.nodes_y[v] - self.nodes_y[u];
-            let angle_u = pseudo_angle(dx_u, dy_u);
-
-            let dx_v = self.nodes_x[u] - self.nodes_x[v];
-            let dy_v = self.nodes_y[u] - self.nodes_y[v];
-            let angle_v = pseudo_angle(dx_v, dy_v);
-
             let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
                 sym_idx: de_v_u_idx,
-                angle: angle_u,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
@@ -2372,7 +2527,6 @@ impl PlanarGraph {
                 dst: u,
                 edge_idx,
                 sym_idx: de_u_v_idx,
-                angle: angle_v,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
@@ -2393,20 +2547,11 @@ impl PlanarGraph {
              let de_u_v_idx = self.directed_edges.len() + 2 * i;
              let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
 
-             let dx_u = self.nodes_x[v] - self.nodes_x[u];
-             let dy_u = self.nodes_y[v] - self.nodes_y[u];
-             let angle_u = pseudo_angle(dx_u, dy_u);
-
-             let dx_v = self.nodes_x[u] - self.nodes_x[v];
-             let dy_v = self.nodes_y[u] - self.nodes_y[v];
-             let angle_v = pseudo_angle(dx_v, dy_v);
-
              let de_u_v = DirectedEdge {
                  src: u,
                  dst: v,
                  edge_idx,
                  sym_idx: de_v_u_idx,
-                 angle: angle_u,
                  is_visited: false,
                  is_marked: false,
                  edge_direction: true,
@@ -2417,7 +2562,6 @@ impl PlanarGraph {
                  dst: u,
                  edge_idx,
                  sym_idx: de_u_v_idx,
-                 angle: angle_v,
                  is_visited: false,
                  is_marked: false,
                  edge_direction: false,
@@ -2466,15 +2610,11 @@ impl PlanarGraph {
             let de_u_v_idx = self.directed_edges.len();
             let de_v_u_idx = self.directed_edges.len() + 1;
 
-            let angle_u = pseudo_angle(p1.x - p0.x, p1.y - p0.y);
-            let angle_v = pseudo_angle(p0.x - p1.x, p0.y - p1.y);
-
             let de_u_v = DirectedEdge {
                 src: u,
                 dst: v,
                 edge_idx,
                 sym_idx: de_v_u_idx,
-                angle: angle_u,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: true,
@@ -2485,7 +2625,6 @@ impl PlanarGraph {
                 dst: u,
                 edge_idx,
                 sym_idx: de_u_v_idx,
-                angle: angle_v,
                 is_visited: false,
                 is_marked: false,
                 edge_direction: false,
@@ -2510,22 +2649,44 @@ impl PlanarGraph {
 
     /// Sorts all outgoing edges of all nodes by angle.
     pub fn sort_edges(&mut self) {
+        let nodes_x = &self.nodes_x;
+        let nodes_y = &self.nodes_y;
         let directed_edges = &self.directed_edges;
+
+        // Use a robust angular comparator.
+        // This requires accessing coordinates of src and dst nodes.
         #[cfg(feature = "parallel")]
-        self.nodes_outgoing.par_iter_mut().for_each(|adj| {
+        self.nodes_outgoing.par_iter_mut().enumerate().for_each(|(src_idx, adj)| {
+             let center = Coord { x: nodes_x[src_idx], y: nodes_y[src_idx] };
              adj.sort_by(|&a_idx, &b_idx| {
-                 let a = &directed_edges[a_idx];
-                 let b = &directed_edges[b_idx];
-                 a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
+                 let a_de = &directed_edges[a_idx];
+                 let b_de = &directed_edges[b_idx];
+
+                 // Get destination coordinates
+                 let dst_a_idx = a_de.dst;
+                 let dst_b_idx = b_de.dst;
+
+                 let target_a = Coord { x: nodes_x[dst_a_idx], y: nodes_y[dst_a_idx] };
+                 let target_b = Coord { x: nodes_x[dst_b_idx], y: nodes_y[dst_b_idx] };
+
+                 compare_angular(center, target_a, target_b)
              });
         });
 
         #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing.iter_mut().for_each(|adj| {
+        self.nodes_outgoing.iter_mut().enumerate().for_each(|(src_idx, adj)| {
+             let center = Coord { x: nodes_x[src_idx], y: nodes_y[src_idx] };
              adj.sort_by(|&a_idx, &b_idx| {
-                 let a = &directed_edges[a_idx];
-                 let b = &directed_edges[b_idx];
-                 a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal)
+                 let a_de = &directed_edges[a_idx];
+                 let b_de = &directed_edges[b_idx];
+
+                 let dst_a_idx = a_de.dst;
+                 let dst_b_idx = b_de.dst;
+
+                 let target_a = Coord { x: nodes_x[dst_a_idx], y: nodes_y[dst_a_idx] };
+                 let target_b = Coord { x: nodes_x[dst_b_idx], y: nodes_y[dst_b_idx] };
+
+                 compare_angular(center, target_a, target_b)
              });
         });
     }
@@ -2677,7 +2838,6 @@ File: src/graph/tests.rs
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
     use geo_types::{Coord, LineString};
-    use crate::utils::pseudo_angle;
 
     #[test]
     fn test_graph_construction() {
@@ -2701,40 +2861,43 @@ mod tests {
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
-        // 1. Right (0 degrees) -> dx=10, dy=0 -> pseudo 0.0
+        // 1. Right (0 degrees) -> dx=10, dy=0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
-        // 2. Up (90 degrees) -> dx=0, dy=10 -> pseudo 1.0
+        // 2. Up (90 degrees) -> dx=0, dy=10
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, 10.0)]));
-        // 3. Left (180 degrees) -> dx=-10, dy=0 -> pseudo 2.0
+        // 3. Left (180 degrees) -> dx=-10, dy=0
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (-10.0, 0.0)]));
-        // 4. Down (-90 degrees) -> dx=0, dy=-10 -> pseudo 3.0
+        // 4. Down (-90 degrees) -> dx=0, dy=-10
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (0.0, -10.0)]));
 
         graph.sort_edges();
 
         let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
 
-        let sorted_angles: Vec<f64> = graph.nodes_outgoing[*center_node_idx].iter().map(|&idx| {
-            graph.directed_edges[idx].angle
-        }).collect();
+        let edges = &graph.nodes_outgoing[*center_node_idx];
+        assert_eq!(edges.len(), 4);
 
-        // Should be sorted 0.0, 1.0, 2.0, 3.0
-        // But wait, are they sorted or just stored?
-        // graph.sort_edges() sorts them.
+        // We expect the sort order to be CCW starting from +X axis.
+        // Right, Up, Left, Down
+        // Check destination coordinates to verify.
+        let get_dst = |idx: usize| -> (f64, f64) {
+            let dst_node_idx = graph.directed_edges[idx].dst;
+            (graph.nodes_x[dst_node_idx], graph.nodes_y[dst_node_idx])
+        };
 
-        assert!(sorted_angles[0] < sorted_angles[1]);
-        assert!(sorted_angles[1] < sorted_angles[2]);
-        assert!(sorted_angles[2] < sorted_angles[3]);
+        let dst0 = get_dst(edges[0]);
+        let dst1 = get_dst(edges[1]);
+        let dst2 = get_dst(edges[2]);
+        let dst3 = get_dst(edges[3]);
 
-        // Check values match expectations for pseudo_angle
         // Right
-        assert!((sorted_angles[0] - 0.0).abs() < 1e-6, "Expected 0.0, got {}", sorted_angles[0]);
+        assert!(dst0.0 > 0.0 && dst0.1.abs() < 1e-6, "Expected Right (10, 0), got {:?}", dst0);
         // Up
-        assert!((sorted_angles[1] - 1.0).abs() < 1e-6, "Expected 1.0, got {}", sorted_angles[1]);
+        assert!(dst1.0.abs() < 1e-6 && dst1.1 > 0.0, "Expected Up (0, 10), got {:?}", dst1);
         // Left
-        assert!((sorted_angles[2] - 2.0).abs() < 1e-6, "Expected 2.0, got {}", sorted_angles[2]);
+        assert!(dst2.0 < 0.0 && dst2.1.abs() < 1e-6, "Expected Left (-10, 0), got {:?}", dst2);
         // Down
-        assert!((sorted_angles[3] - 3.0).abs() < 1e-6, "Expected 3.0, got {}", sorted_angles[3]);
+        assert!(dst3.0.abs() < 1e-6 && dst3.1 < 0.0, "Expected Down (0, -10), got {:?}", dst3);
     }
 
     #[test]
@@ -2774,44 +2937,204 @@ mod tests {
 
 ```
 
+File: src/noding/mod.rs
+```
+pub mod snap;
+
+```
+
+File: src/noding/snap.rs
+```
+use geo::{Line, Coord};
+use rstar::{RTree, RTreeObject, AABB};
+use std::cmp::Ordering;
+use geo::algorithm::line_intersection::LineIntersection;
+
+#[derive(Clone, Copy, Debug)]
+struct IndexedLine {
+    line: Line<f64>,
+    index: usize,
+}
+
+impl RTreeObject for IndexedLine {
+    type Envelope = AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        let p1 = self.line.start;
+        let p2 = self.line.end;
+        AABB::from_corners(
+            [p1.x.min(p2.x), p1.y.min(p2.y)],
+            [p1.x.max(p2.x), p1.y.max(p2.y)]
+        )
+    }
+}
+
+pub struct SnapNoder {
+    pub grid_size: f64,
+    pub max_iter: usize,
+}
+
+impl SnapNoder {
+    pub fn new(grid_size: f64) -> Self {
+        Self { grid_size, max_iter: 10 }
+    }
+
+    pub fn node(&self, mut lines: Vec<Line<f64>>) -> Vec<Line<f64>> {
+        // 1. Initial Snap of endpoints
+        for line in &mut lines {
+            line.start = self.snap(line.start);
+            line.end = self.snap(line.end);
+        }
+
+        // Remove degenerates
+        lines.retain(|l| l.start != l.end);
+
+        // 2. Iterative Noding
+        for _ in 0..self.max_iter {
+            // Check for intersections
+            let split_map = self.find_splits(&lines);
+
+            if split_map.is_empty() {
+                break;
+            }
+
+            // Apply splits
+            let mut new_lines = Vec::with_capacity(lines.len() * 2);
+            for (i, line) in lines.iter().enumerate() {
+                if let Some(splits) = split_map.get(&i) {
+                    let mut points = splits.clone();
+                    // Add endpoints
+                    points.push(line.start);
+                    points.push(line.end);
+
+                    // Sort by distance from start
+                    let start = line.start;
+                    points.sort_by(|a, b| {
+                        let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
+                        let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
+                        da.partial_cmp(&db).unwrap_or(Ordering::Equal)
+                    });
+
+                    points.dedup();
+
+                    // Create segments
+                    for w in points.windows(2) {
+                        let p0 = w[0];
+                        let p1 = w[1];
+                        if p0 != p1 {
+                            new_lines.push(Line::new(p0, p1));
+                        }
+                    }
+                } else {
+                    new_lines.push(*line);
+                }
+            }
+
+            // Deduplicate segments?
+            // Yes, duplicate segments are common in noding.
+            // Also normalize direction.
+             for segment in &mut new_lines {
+                if segment.start.x > segment.end.x ||
+                   ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
+                     let temp = segment.start;
+                     segment.start = segment.end;
+                     segment.end = temp;
+                }
+            }
+            new_lines.sort_by(|a, b| {
+                 let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
+                 let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
+                 sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+            });
+            new_lines.dedup();
+
+            lines = new_lines;
+        }
+
+        lines
+    }
+
+    fn snap(&self, c: Coord<f64>) -> Coord<f64> {
+        if self.grid_size == 0.0 { return c; }
+        Coord {
+            x: (c.x / self.grid_size).round() * self.grid_size,
+            y: (c.y / self.grid_size).round() * self.grid_size,
+        }
+    }
+
+    fn find_splits(&self, lines: &[Line<f64>]) -> std::collections::HashMap<usize, Vec<Coord<f64>>> {
+        let mut splits = std::collections::HashMap::new();
+
+        let indexed: Vec<IndexedLine> = lines.iter().enumerate()
+            .map(|(i, l)| IndexedLine { line: *l, index: i })
+            .collect();
+
+        let tree = RTree::bulk_load(indexed);
+
+        // Find intersections
+        let candidates = tree.intersection_candidates_with_other_tree(&tree);
+
+        for (idx1, idx2) in candidates {
+            let i = idx1.index;
+            let j = idx2.index;
+            if i >= j { continue; } // Handle unique pairs
+
+            let l1 = idx1.line;
+            let l2 = idx2.line;
+
+            // Fast bounding box check (handled by RTree, but good to be sure)
+
+            // Intersection
+            if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
+                 match res {
+                    LineIntersection::SinglePoint { intersection: pt, .. } => {
+                        let snapped = self.snap(pt);
+
+                        // Check if split needed for L1
+                        if snapped != l1.start && snapped != l1.end {
+                            splits.entry(i).or_insert_with(Vec::new).push(snapped);
+                        }
+                        // Check if split needed for L2
+                        if snapped != l2.start && snapped != l2.end {
+                            splits.entry(j).or_insert_with(Vec::new).push(snapped);
+                        }
+                    },
+                    LineIntersection::Collinear { intersection: overlap } => {
+                        // For collinear, we split at the overlap endpoints
+                        let p1 = self.snap(overlap.start);
+                        let p2 = self.snap(overlap.end);
+
+                        for p in [p1, p2] {
+                             if p != l1.start && p != l1.end {
+                                 splits.entry(i).or_insert_with(Vec::new).push(p);
+                             }
+                             if p != l2.start && p != l2.end {
+                                 splits.entry(j).or_insert_with(Vec::new).push(p);
+                             }
+                        }
+                    }
+                 }
+            }
+        }
+
+        splits
+    }
+}
+
+```
+
 File: src/utils/mod.rs
 ```
 use geo_types::Coord;
+use robust::{orient2d, Coord as RobustCoord};
+use std::cmp::Ordering;
+
 pub mod parallel;
+pub mod simd;
 
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
 /// This preserves locality: points close in 2D space are likely close in Z-order.
 pub fn z_order_index(c: Coord<f64>) -> u64 {
-    // Normalize? We assume inputs are in a reasonable range or we just cast bits?
-    // Using bit interleaving on integers is standard.
-    // For floats, we can map to u32 range.
-    // A simple, robust way is to interleave the bits of the normalized integer representation.
-
-    // We Map float to [0, u32::MAX].
-    // Assuming typical GIS coords, maybe just cast to u32 after scaling?
-    // Let's use a simpler sort: Interleave bits of the integer parts?
-    // Actually, `rstar` uses something similar internally.
-
-    // Let's implement a simple bit interleaving for positive integers.
-    // We map f64 to u32 by sorting logic?
-    // Just mapping the bits directly (transmuting) works if data is positive.
-    // If data can be negative, we need to handle sign.
-    // A robust way: Map min/max bounds to 0..u32::MAX.
-    // But we don't want to scan for bounds every time.
-
-    // Alternative: Just use the f64 bits, flip sign bit if negative.
-    // https://stackoverflow.com/questions/10260927/translation-of-float-to-integer-preserving-order
-    //
-    // To keep it simple and fast: We prioritize locality.
-    // We can just cast to i32 (grid coordinates) if we assume the user provides something grid-like?
-    // No, must be general.
-
-    // Let's use `rstar`'s strategy? `rstar` sorts by dimension.
-
-    // We'll implement a "good enough" Z-order for sorting.
-    // Interleave x and y bits.
-
     let x = sortable_float(c.x);
     let y = sortable_float(c.y);
     part1by1(x as u64) | (part1by1(y as u64) << 1)
@@ -2839,22 +3162,62 @@ fn part1by1(mut n: u64) -> u64 {
     n
 }
 
-/// Computes a pseudo-angle in the range [0, 4) for sorting.
-/// Faster than atan2.
+/// Robust comparator for angular sorting of edges around a center point.
+/// Replaces the need for `pseudo_angle`.
 ///
-/// The result maps the angle of the vector (dx, dy) to a value in [0, 4) monotonically.
-/// - (1, 0) -> 0.0
-/// - (0, 1) -> 1.0
-/// - (-1, 0) -> 2.0
-/// - (0, -1) -> 3.0
-pub fn pseudo_angle(dx: f64, dy: f64) -> f64 {
-    if dx == 0.0 && dy == 0.0 { return 0.0; }
-    let p = dx / (dx.abs() + dy.abs());
-    if dy < 0.0 {
-        3.0 + p
-    } else {
-        1.0 - p
+/// Sorts vectors `u` and `v` starting at `center` in counter-clockwise order
+/// starting from the positive X-axis.
+///
+/// Returns `Ordering` such that a < b if a comes before b in CCW order.
+pub fn compare_angular(center: Coord<f64>, target_a: Coord<f64>, target_b: Coord<f64>) -> Ordering {
+    if target_a == target_b {
+        return Ordering::Equal;
     }
+
+    // Determine quadrants
+    // 0: [0, 90)   (x>0, y>=0)
+    // 1: [90, 180) (x<=0, y>0)
+    // 2: [180, 270) (x<0, y<=0)
+    // 3: [270, 360) (x>=0, y<0)
+    let quad_a = quadrant(center, target_a);
+    let quad_b = quadrant(center, target_b);
+
+    if quad_a != quad_b {
+        return quad_a.cmp(&quad_b);
+    }
+
+    // Same quadrant: use robust orientation check
+    // If orient2d(center, a, b) > 0, then b is Left of a (CCW).
+    // So a < b.
+    let c = RobustCoord { x: center.x, y: center.y };
+    let a = RobustCoord { x: target_a.x, y: target_a.y };
+    let b = RobustCoord { x: target_b.x, y: target_b.y };
+
+    let orient = orient2d(c, a, b);
+
+    if orient > 0.0 {
+        Ordering::Less // a is before b (b is CCW of a)
+    } else if orient < 0.0 {
+        Ordering::Greater // b is before a (a is CCW of b)
+    } else {
+        // Collinear rays
+        // Sort by distance (shorter first? longer first?)
+        // For simple polygonization, dedup usually handles this.
+        // Let's pick: Farthest first?
+        let dist_a = (target_a.x - center.x).powi(2) + (target_a.y - center.y).powi(2);
+        let dist_b = (target_b.x - center.x).powi(2) + (target_b.y - center.y).powi(2);
+        dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
+    }
+}
+
+fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
+    let dx = t.x - c.x;
+    let dy = t.y - c.y;
+
+    if dx > 0.0 && dy >= 0.0 { 0 }
+    else if dx <= 0.0 && dy > 0.0 { 1 }
+    else if dx < 0.0 && dy <= 0.0 { 2 }
+    else { 3 }
 }
 
 ```
@@ -2906,6 +3269,91 @@ where T: Send, F: Fn(&mut T) + Sync + Send {
     #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
     {
         collection.iter_mut().for_each(f);
+    }
+}
+
+```
+
+File: src/utils/simd.rs
+```
+use wide::f64x4;
+use wide::CmpGt;
+use geo::Coord;
+
+pub struct SimdRing {
+    pub x: Vec<f64>,
+    pub y: Vec<f64>,
+    len: usize,
+}
+
+impl SimdRing {
+    pub fn new(coords: &[Coord<f64>]) -> Self {
+        let len = coords.len();
+
+        let mut x = Vec::with_capacity(len + 3);
+        let mut y = Vec::with_capacity(len + 3);
+
+        for c in coords {
+            x.push(c.x);
+            y.push(c.y);
+        }
+
+        while x.len() % 4 != 0 {
+            x.push(x.last().cloned().unwrap_or(0.0));
+            y.push(y.last().cloned().unwrap_or(0.0));
+        }
+
+        Self { x, y, len }
+    }
+
+    pub fn contains(&self, point: Coord<f64>) -> bool {
+        let px = f64x4::splat(point.x);
+        let py = f64x4::splat(point.y);
+
+        let n = self.len - 1; // Number of segments
+
+        let mut i = 0;
+        let mut crossings = 0;
+
+        while i < n {
+            let remaining = n - i;
+            if remaining >= 4 {
+                let xi = f64x4::from(&self.x[i..i+4]);
+                let yi = f64x4::from(&self.y[i..i+4]);
+
+                let xj = f64x4::from(&self.x[i+1..i+5]);
+                let yj = f64x4::from(&self.y[i+1..i+5]);
+
+                let yi_gt_py = yi.cmp_gt(py);
+                let yj_gt_py = yj.cmp_gt(py);
+                let in_range = yi_gt_py ^ yj_gt_py;
+
+                let num = (xj - xi) * (py - yi);
+                let den = yj - yi;
+
+                let intersect_x = (num / den) + xi;
+                let x_cond = intersect_x.cmp_gt(px);
+
+                let is_crossing = in_range & x_cond;
+
+                crossings += is_crossing.move_mask().count_ones();
+
+                i += 4;
+            } else {
+                let p1x = self.x[i];
+                let p1y = self.y[i];
+                let p2x = self.x[i+1];
+                let p2y = self.y[i+1];
+
+                if ((p1y > point.y) != (p2y > point.y)) &&
+                   (point.x < (p2x - p1x) * (point.y - p1y) / (p2y - p1y) + p1x) {
+                    crossings += 1;
+                }
+                i += 1;
+            }
+        }
+
+        crossings % 2 != 0
     }
 }
 
@@ -3085,44 +3533,69 @@ fn test_curved_holes() {
 
 ```
 
-File: tests/overlapping_circles_test.rs
+File: tests/robustness.rs
 ```
-#[cfg(test)]
-mod tests {
-    use geo_polygonize::Polygonizer;
-    use geo_types::{Coord, LineString, Geometry};
+use geo_types::{LineString, Coord, Polygon};
+use geo_polygonize::Polygonizer;
+use geo::Geometry;
 
-    #[test]
-    fn test_overlapping_circles_count() {
-        // Create 3 overlapping circles
-        let mut polygonizer = Polygonizer::new();
-        polygonizer.node_input = true;
+#[test]
+fn test_bowtie_noding() {
+    // A bowtie shape: (0,0) -> (10,10) -> (10,0) -> (0,10) -> (0,0)
+    // Intersection at (5,5).
+    let ls = LineString(vec![
+        Coord { x: 0.0, y: 0.0 },
+        Coord { x: 10.0, y: 10.0 },
+        Coord { x: 10.0, y: 0.0 },
+        Coord { x: 0.0, y: 10.0 },
+        Coord { x: 0.0, y: 0.0 },
+    ]);
 
-        let r = 10.0;
-        let centers = vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (5.0, 8.66),
-        ];
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+    poly.snap_grid_size = 1e-6;
+    poly.add_geometry(Geometry::LineString(ls));
 
-        for (cx, cy) in centers {
-            let mut coords = Vec::new();
-            for i in 0..60 { // Resolution
-                let angle = (i as f64) * (360.0 / 60.0f64).to_radians();
-                coords.push(Coord {
-                    x: cx + r * angle.cos(),
-                    y: cy + r * angle.sin(),
-                });
-            }
-            coords.push(coords[0]); // Close
-            polygonizer.add_geometry(Geometry::LineString(LineString::new(coords)));
-        }
+    let results = poly.polygonize().expect("Polygonization failed");
 
-        let polys = polygonizer.polygonize().unwrap();
-        // Expect 7 polygons: 1 center, 3 petals, 3 outer crescents
-        // The extra 8th polygon (Outer Face / Union) which has 0 area after hole assignment is now filtered out.
-        assert_eq!(polys.len(), 7, "Should find exactly 7 polygons for 3 overlapping circles");
+    println!("Bowtie Results: {}", results.len());
+    for (i, p) in results.iter().enumerate() {
+        println!("Poly {}: {:?}", i, p);
     }
+
+    assert_eq!(results.len(), 2, "Expected 2 polygons from bowtie");
+}
+
+#[test]
+fn test_duplicate_edge_removal() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+    poly.snap_grid_size = 1e-6;
+
+    // Triangle edge 1
+    poly.add_geometry(Geometry::LineString(LineString(vec![
+        Coord { x: 0.0, y: 0.0 },
+        Coord { x: 10.0, y: 0.0 }
+    ])));
+    // Duplicate edge 1
+    poly.add_geometry(Geometry::LineString(LineString(vec![
+        Coord { x: 0.0, y: 0.0 },
+        Coord { x: 10.0, y: 0.0 }
+    ])));
+
+    // Edge 2
+    poly.add_geometry(Geometry::LineString(LineString(vec![
+        Coord { x: 10.0, y: 0.0 },
+        Coord { x: 5.0, y: 5.0 }
+    ])));
+    // Edge 3
+    poly.add_geometry(Geometry::LineString(LineString(vec![
+        Coord { x: 5.0, y: 5.0 },
+        Coord { x: 0.0, y: 0.0 }
+    ])));
+
+    let results = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(results.len(), 1);
 }
 
 ```

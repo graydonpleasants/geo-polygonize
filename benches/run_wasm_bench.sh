@@ -13,25 +13,85 @@ wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
 node -e '
-const { run_grid_bench, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { polygonize, polygonize_robust, load_geoarrow, setup_panic_hook } = require("./pkg/wasm_bench.js");
+const { performance } = require("perf_hooks");
+
+global.window = {
+    performance: performance
+};
 
 setup_panic_hook();
 
-// Warmup
-run_grid_bench(10);
+function generateGrid(size) {
+    const lines = [];
+    for (let i = 0; i <= size; i++) {
+        lines.push({
+            type: "LineString",
+            coordinates: [[i, 0], [i, size]]
+        });
+        lines.push({
+            type: "LineString",
+            coordinates: [[0, i], [size, i]]
+        });
+    }
+    return lines;
+}
 
-const sizes = [10, 20, 50, 80];
+function generateDirtyGrid(size) {
+    const lines = [];
+    for (let i = 0; i < size; i++) {
+        for (let j = 0; j < size; j++) {
+            // Bowtie pattern (X)
+            lines.push({
+                type: "LineString",
+                coordinates: [[i, j], [i+1, j+1]]
+            });
+            lines.push({
+                type: "LineString",
+                coordinates: [[i+1, j], [i, j+1]]
+            });
+        }
+    }
+    return lines;
+}
 
-console.log("| Input Size | Time (ms) |");
-console.log("|---|---|");
+const sizes = [10, 20, 50];
+
+console.log("| Grid Size | Polygonize (ms) | GeoArrow (ms) | Robust (Dirty) (ms) |");
+console.log("|---|---|---|---|");
 
 for (const size of sizes) {
-    let total = 0;
-    const runs = 5;
-    for (let i = 0; i < runs; i++) {
-        total += run_grid_bench(size);
+    const cleanLines = generateGrid(size);
+    const dirtyLines = generateDirtyGrid(size);
+
+    // Warmup
+    try {
+        polygonize(cleanLines);
+        polygonize_robust(dirtyLines, 1e-6);
+        load_geoarrow(cleanLines);
+    } catch (e) {
+        console.error("Warmup failed:", e);
     }
-    const avg = total / runs;
-    console.log(`| ${size} | ${avg.toFixed(2)} |`);
+
+    let polyTotal = 0;
+    let arrowTotal = 0;
+    let robustTotal = 0;
+    const runs = 5;
+
+    for (let i = 0; i < runs; i++) {
+        let start = performance.now();
+        polygonize(cleanLines);
+        polyTotal += (performance.now() - start);
+
+        start = performance.now();
+        load_geoarrow(cleanLines);
+        arrowTotal += (performance.now() - start);
+
+        start = performance.now();
+        polygonize_robust(dirtyLines, 1e-6);
+        robustTotal += (performance.now() - start);
+    }
+
+    console.log(`| ${size}x${size} | ${(polyTotal / runs).toFixed(2)} | ${(arrowTotal / runs).toFixed(2)} | ${(robustTotal / runs).toFixed(2)} |`);
 }
 '

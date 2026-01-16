@@ -1,39 +1,93 @@
 use wasm_bindgen::prelude::*;
+use geo::{LineString, Geometry};
 use geo_polygonize::Polygonizer;
-use geo_types::{LineString, Geometry, GeometryCollection};
+use geoarrow::array::{GeoArrowArrayAccessor, LineStringBuilder};
+use geoarrow::datatypes::{LineStringType, Dimension};
+use std::convert::TryInto;
+
+#[cfg(target_arch = "wasm32")]
+use talc::*;
+
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: TalckWasm = unsafe { TalckWasm::new_global() };
 
 #[wasm_bindgen]
 pub fn setup_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
-#[wasm_bindgen]
-pub fn run_grid_bench(size: usize) -> f64 {
-    let mut lines = Vec::new();
-    // Generate grid
-    for i in 0..size {
-        // Vertical
-        lines.push(LineString::from(vec![
-            (i as f64, 0.0),
-            (i as f64, size as f64),
-        ]));
-        // Horizontal
-        lines.push(LineString::from(vec![
-            (0.0, i as f64),
-            (size as f64, i as f64),
-        ]));
+fn parse_input(lines: JsValue) -> Result<Vec<LineString>, JsValue> {
+    // Deserialize as Vec<geojson::Geometry>
+    let geometries: Vec<geojson::Geometry> = serde_wasm_bindgen::from_value(lines)?;
+
+    let mut geo_lines = Vec::with_capacity(geometries.len());
+    for g in geometries {
+        // Convert geojson::Geometry to geo::Geometry
+        let geo_geom: Geometry<f64> = g.try_into()
+            .map_err(|e| JsValue::from_str(&format!("GeoJSON conversion error: {}", e)))?;
+
+        match geo_geom {
+            Geometry::LineString(ls) => geo_lines.push(ls),
+            _ => return Err(JsValue::from_str("Input must be LineStrings")),
+        }
     }
+    Ok(geo_lines)
+}
 
-    let geom_coll: GeometryCollection<f64> = lines.into_iter().map(Geometry::LineString).collect();
-    let geom = Geometry::GeometryCollection(geom_coll);
+#[wasm_bindgen]
+pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
 
-    let start = js_sys::Date::now();
+    // Core Logic
+    let mut polygonizer = Polygonizer::new();
+    for line in lines {
+        polygonizer.add_geometry(Geometry::LineString(line));
+    }
+    let results = polygonizer.polygonize();
+
+    let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(JsValue::from(results_vec.len()))
+}
+
+#[wasm_bindgen]
+pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
 
     let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = true; // Force noding
-    polygonizer.add_geometry(geom);
-    let _ = polygonizer.polygonize().unwrap();
+    polygonizer.node_input = true;
+    if let Some(g) = grid_size {
+        polygonizer.snap_grid_size = g;
+    }
 
-    let end = js_sys::Date::now();
-    end - start
+    for line in lines {
+        polygonizer.add_geometry(Geometry::LineString(line));
+    }
+    let results = polygonizer.polygonize();
+
+    let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
+    Ok(JsValue::from(results_vec.len()))
+}
+
+#[wasm_bindgen]
+pub fn load_geoarrow(lines: JsValue) -> Result<JsValue, JsValue> {
+    let lines = parse_input(lines)?;
+
+    // Core Logic: Ingest
+    let mut builder = LineStringBuilder::new(LineStringType::new(Dimension::XY, Default::default()));
+    for line in &lines {
+        builder.push_line_string(Some(line))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    }
+    let array = builder.finish();
+
+    // Core Logic: Iterate
+    let mut count = 0;
+    for scalar_result in array.iter_values() {
+         if let Ok(_scalar) = scalar_result {
+             count += 1;
+         }
+    }
+
+    Ok(JsValue::from(count))
 }
