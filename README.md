@@ -5,10 +5,10 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 ## Features
 
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
-- **Efficient Noding**: Implements an optimized R-Tree based iterative noder ($O(N \log N)$) with collinear overlap handling.
+- **Robust Noding**: Implements **Iterated Snap Rounding (ISR)** to guarantee topological correctness on dirty inputs (self-intersections, overlaps).
+- **Hardware Acceleration**: Uses **SIMD** instructions (via `wide` crate) for critical geometric predicates like Point-in-Polygon checks.
+- **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and Zero-Copy data support (`geoarrow`).
 - **Performance**: Competitive with GEOS/Shapely (C++), outperforming it on random sparse inputs and scaling well on dense grids.
-- **Hole Assignment**: Correctly assigns holes to their parent shells.
-- **Planar Graph**: Uses an efficient arena-based index graph implementation (Structure of Arrays) for memory efficiency.
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
 
 ## Usage
@@ -24,6 +24,8 @@ fn main() {
 
     // Enable robust noding if lines might intersect
     poly.node_input = true;
+    // Optional: Configure snap grid (default 1e-10)
+    poly.snap_grid_size = 1e-6;
 
     // Add lines (e.g., a square with diagonals)
     poly.add_geometry(LineString::from(vec![
@@ -163,10 +165,14 @@ See [BENCHMARKS.md](BENCHMARKS.md) for detailed results and instructions on how 
 
 ## Architecture
 
-This implementation moves away from the pointer-based graph structures of JTS/GEOS to a Rust-idiomatic Index Graph (Arena) approach. This ensures memory safety and enables potential parallelization. Optimization efforts have focused on:
-1.  **Bulk Loading**: Graph nodes are built via parallel sort/deduplication to avoid `HashMap` overhead.
-2.  **Memory Layout**: Edges are stored as compact `Line` structs rather than heap-allocated `LineString`s.
-3.  **Spatial Indexing**: Noding uses `rstar` for efficient intersection detection.
+This implementation moves away from the pointer-based graph structures of JTS/GEOS to a Rust-idiomatic Index Graph (Arena) approach.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the optimization strategies.
+
+Key optimizations include:
+1.  **Robust Noding**: Iterated Snap Rounding (ISR) using `rstar` for intersection detection and grid snapping.
+2.  **Vectorization**: SIMD-accelerated Ray Casting for efficient Hole Assignment.
+3.  **Memory Layout**: Structure of Arrays (SoA) for graph nodes and `talc` allocator for Wasm.
 
 ## License
 
