@@ -73,25 +73,40 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000272 | 0.000675 | 2.48x |
-| 10 | 0.000620 | 0.002218 | 3.58x |
-| 20 | 0.001834 | 0.008199 | 4.47x |
-| 50 | 0.010433 | 0.050715 | 4.86x |
-| 100 | 0.045939 | 0.207546 | 4.52x |
+| 5 | 0.000261 | 0.000686 | 2.62x |
+| 10 | 0.000617 | 0.002246 | 3.64x |
+| 20 | 0.001839 | 0.008377 | 4.56x |
+| 50 | 0.010425 | 0.052049 | 4.99x |
+| 100 | 0.045703 | 0.217457 | 4.76x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001526 | 0.008031 | 5.26x |
-| 100 | 0.006501 | 0.025743 | 3.96x |
-| 200 | 0.025465 | 0.097653 | 3.83x |
+| 50 | 0.001519 | 0.008170 | 5.38x |
+| 100 | 0.006484 | 0.026296 | 4.06x |
+| 200 | 0.025375 | 0.101166 | 3.99x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
 - **Performance:** On constrained environments (like CI runners with few cores), the parallel overhead of `rayon` may limit speedups compared to the highly optimized single-threaded C++ GEOS backend.
 - **Tiling Strategy:** For large dense datasets (e.g., Grid 100), the **TiledPolygonizer** provides a significant speedup (~1.7x to 2.8x faster than the naive approach), bridging the gap towards GEOS performance. This validates the scalability architecture for large-scale GIS tasks.
-- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading strategy.
+- **Architecture:** The noding algorithm uses a robust parallel iterative R-Tree approach ($O(N \log N)$), and the graph construction uses a bulk-loading Z-order sort.
+
+## WebAssembly Benchmarks
+
+Benchmarks running in Node.js (V8) via `wasm-bindgen`, utilizing `talc` allocator and SIMD optimizations.
+
+| Grid Size | Polygonize (Clean) | GeoArrow Ingest | Robust Noding (Dirty) |
+|---|---|---|---|
+| 10x10 | 0.35 ms | 0.33 ms | 7.36 ms |
+| 20x20 | 0.35 ms | 0.22 ms | 21.29 ms |
+| 50x50 | 0.67 ms | 0.64 ms | 156.35 ms |
+
+*Note:*
+- **Clean Input:** Pre-noded lines (no intersection checks).
+- **Dirty Input:** Self-intersecting lines (bowtie grid) requiring Iterated Snap Rounding.
+- **GeoArrow:** Measures ingestion into Arrow columnar memory. Note that current Wasm benchmarks include JSON deserialization overhead, which dominates small-scale tests.
 
 ```
 
@@ -116,7 +131,7 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-geo = "0.28"
+geo = "0.32"
 geo-types = "0.7"
 rstar = "0.12"
 rayon = { version = "1.10", optional = true }
@@ -175,10 +190,10 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 ## Features
 
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
-- **Efficient Noding**: Implements an optimized R-Tree based iterative noder ($O(N \log N)$) with collinear overlap handling.
+- **Robust Noding**: Implements **Iterated Snap Rounding (ISR)** to guarantee topological correctness on dirty inputs (self-intersections, overlaps).
+- **Hardware Acceleration**: Uses **SIMD** instructions (via `wide` crate) for critical geometric predicates like Point-in-Polygon checks.
+- **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and Zero-Copy data support (`geoarrow`).
 - **Performance**: Competitive with GEOS/Shapely (C++), outperforming it on random sparse inputs and scaling well on dense grids.
-- **Hole Assignment**: Correctly assigns holes to their parent shells.
-- **Planar Graph**: Uses an efficient arena-based index graph implementation (Structure of Arrays) for memory efficiency.
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
 
 ## Usage
@@ -194,6 +209,8 @@ fn main() {
 
     // Enable robust noding if lines might intersect
     poly.node_input = true;
+    // Optional: Configure snap grid (default 1e-10)
+    poly.snap_grid_size = 1e-6;
 
     // Add lines (e.g., a square with diagonals)
     poly.add_geometry(LineString::from(vec![
@@ -333,10 +350,14 @@ See [BENCHMARKS.md](BENCHMARKS.md) for detailed results and instructions on how 
 
 ## Architecture
 
-This implementation moves away from the pointer-based graph structures of JTS/GEOS to a Rust-idiomatic Index Graph (Arena) approach. This ensures memory safety and enables potential parallelization. Optimization efforts have focused on:
-1.  **Bulk Loading**: Graph nodes are built via parallel sort/deduplication to avoid `HashMap` overhead.
-2.  **Memory Layout**: Edges are stored as compact `Line` structs rather than heap-allocated `LineString`s.
-3.  **Spatial Indexing**: Noding uses `rstar` for efficient intersection detection.
+This implementation moves away from the pointer-based graph structures of JTS/GEOS to a Rust-idiomatic Index Graph (Arena) approach.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the optimization strategies.
+
+Key optimizations include:
+1.  **Robust Noding**: Iterated Snap Rounding (ISR) using `rstar` for intersection detection and grid snapping.
+2.  **Vectorization**: SIMD-accelerated Ray Casting for efficient Hole Assignment.
+3.  **Memory Layout**: Structure of Arrays (SoA) for graph nodes and `talc` allocator for Wasm.
 
 ## License
 
@@ -1526,6 +1547,16 @@ pub type Result<T> = std::result::Result<T, PolygonizerError>;
 
 File: src/lib.rs
 ```
+//! A native Rust port of the JTS/GEOS polygonization algorithm.
+//!
+//! This crate allows you to reconstruct valid polygons from a set of lines,
+//! including handling of complex topologies like holes, nested shells, and disconnected components.
+//!
+//! # Features
+//! - **Robust Noding**: Uses Iterated Snap Rounding to handle dirty inputs.
+//! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
+//! - **Wasm**: Optimized for WebAssembly environments.
+
 pub mod graph;
 pub mod polygonizer;
 pub mod error;
@@ -1800,7 +1831,6 @@ impl Polygonizer {
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
             let p = Polygon::new(shell.exterior().clone(), holes);
-            // Filter out collapsed polygons (e.g. shells completely filled by holes)
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }
