@@ -537,23 +537,6 @@ dependencies = [
 
 [[package]]
 name = "geo"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f811f663912a69249fa620dcd2a005db7254529da2d8a0b23942e81f47084501"
-dependencies = [
- "earcutr",
- "float_next_after",
- "geo-types",
- "geographiclib-rs",
- "log",
- "num-traits",
- "robust",
- "rstar 0.12.2",
- "spade",
-]
-
-[[package]]
-name = "geo"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f3901269ec6d4f6068d3f09e5f02f995bd076398dcd1dfec407cd230b02d11b"
@@ -578,7 +561,7 @@ name = "geo-polygonize"
 version = "0.1.0"
 dependencies = [
  "float_next_after",
- "geo 0.28.0",
+ "geo",
  "geo-types",
  "log",
  "rayon",
@@ -1529,7 +1512,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "console_error_panic_hook",
- "geo 0.32.0",
+ "geo",
  "geo-polygonize",
  "geo-types",
  "geoarrow",

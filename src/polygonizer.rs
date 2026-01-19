@@ -252,7 +252,6 @@ impl Polygonizer {
         for (i, shell) in shells.into_iter().enumerate() {
             let holes = shell_holes[i].clone();
             let p = Polygon::new(shell.exterior().clone(), holes);
-            // Filter out collapsed polygons (e.g. shells completely filled by holes)
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }
