@@ -1,30 +1,12 @@
 use geo::{Line, Coord};
-use rstar::{RTree, RTreeObject, AABB};
 use std::cmp::Ordering;
 use geo::algorithm::line_intersection::LineIntersection;
 use crate::utils::soa::SoALines;
 use std::collections::HashMap;
+use crate::noding::grid::UniformGrid;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-
-#[derive(Clone, Copy, Debug)]
-struct IndexedLine {
-    line: Line<f64>,
-    index: usize,
-}
-
-impl RTreeObject for IndexedLine {
-    type Envelope = AABB<[f64; 2]>;
-    fn envelope(&self) -> Self::Envelope {
-        let p1 = self.line.start;
-        let p2 = self.line.end;
-        AABB::from_corners(
-            [p1.x.min(p2.x), p1.y.min(p2.y)],
-            [p1.x.max(p2.x), p1.y.max(p2.y)]
-        )
-    }
-}
 
 pub struct SnapNoder {
     pub grid_size: f64,
@@ -46,30 +28,28 @@ impl SnapNoder {
         // Remove degenerates
         lines.retain(|l| l.start != l.end);
 
-        // 2. Iterative Noding
-        for _ in 0..self.max_iter {
-            // Check for intersections
-            // If Parallel: Use SIMD for < 4096 (brute force scales well with cores)
-            // If Sequential: Use SIMD for < 128 (brute force gets slow quickly)
-            #[cfg(feature = "parallel")]
-            let threshold = 4096;
-            #[cfg(not(feature = "parallel"))]
-            let threshold = 128;
+        // Normalize and dedup initial input
+        self.normalize_and_dedup(&mut lines);
 
-            let split_map = if lines.len() < threshold {
+        // 2. Iterative Noding
+        for _iter in 0..self.max_iter {
+            let splits = if lines.len() < 256 {
+                // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
-                self.find_splits(&lines)
+                // STRATEGY B: Large Input -> Uniform Grid
+                let grid = UniformGrid::new(&lines);
+                grid.find_splits(&lines, self)
             };
 
-            if split_map.is_empty() {
+            if splits.is_empty() {
                 break;
             }
 
             // Apply splits
             let mut new_lines = Vec::with_capacity(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
-                if let Some(splits) = split_map.get(&i) {
+                if let Some(splits) = splits.get(&i) {
                     let mut points = splits.clone();
                     // Add endpoints
                     points.push(line.start);
@@ -98,62 +78,36 @@ impl SnapNoder {
                 }
             }
 
-            // Deduplicate segments and normalize direction
-             for segment in &mut new_lines {
-                if segment.start.x > segment.end.x ||
-                   ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
-                     let temp = segment.start;
-                     segment.start = segment.end;
-                     segment.end = temp;
-                }
-            }
-            new_lines.sort_by(|a, b| {
-                 let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-                 let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-                 sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
-            });
-            new_lines.dedup();
-
+            self.normalize_and_dedup(&mut new_lines);
             lines = new_lines;
         }
 
         lines
     }
 
-    fn snap(&self, c: Coord<f64>) -> Coord<f64> {
+    fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
+        for segment in lines.iter_mut() {
+            if segment.start.x > segment.end.x ||
+               ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
+                 let temp = segment.start;
+                 segment.start = segment.end;
+                 segment.end = temp;
+            }
+        }
+        lines.sort_by(|a, b| {
+             let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
+             let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
+             sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+        });
+        lines.dedup();
+    }
+
+    pub(crate) fn snap(&self, c: Coord<f64>) -> Coord<f64> {
         if self.grid_size == 0.0 { return c; }
         Coord {
             x: (c.x / self.grid_size).round() * self.grid_size,
             y: (c.y / self.grid_size).round() * self.grid_size,
         }
-    }
-
-    fn find_splits(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
-        let mut splits = HashMap::new();
-
-        let indexed: Vec<IndexedLine> = lines.iter().enumerate()
-            .map(|(i, l)| IndexedLine { line: *l, index: i })
-            .collect();
-
-        let tree = RTree::bulk_load(indexed);
-
-        // Find intersections
-        let candidates = tree.intersection_candidates_with_other_tree(&tree);
-
-        for (idx1, idx2) in candidates {
-            let i = idx1.index;
-            let j = idx2.index;
-            if i >= j { continue; } // Handle unique pairs
-
-            let l1 = idx1.line;
-            let l2 = idx2.line;
-
-            if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-                 self.handle_intersection(res, i, j, l1, l2, &mut splits);
-            }
-        }
-
-        splits
     }
 
     fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
@@ -200,6 +154,13 @@ impl SnapNoder {
         // We want `j` such that the batch covers indices > i.
         // Ideally start `j` at `(i + 1) / 4 * 4`.
         let start_block = (i + 1) / 4 * 4;
+
+        // Check unaligned start if necessary (handled by the loop if we are careful, or explicit loop)
+        // The current loop below starts at `start_block`.
+        // If `start_block` is less than `i+1`, we might re-check `i`.
+        // Example: i=5. i+1=6. start_block = 6/4*4 = 4.
+        // j=4 covers 4,5,6,7. 4<=5, 5<=5. We must skip those.
+        // The loop below has `if target_idx <= i { continue; }` which handles this.
 
         for j in (start_block..soa.len()).step_by(4) {
             let mask = soa.intersects_bbox_batch(query_line, j);
@@ -257,44 +218,6 @@ impl SnapNoder {
             }
          }
     }
-
-    fn handle_intersection(&self,
-        res: LineIntersection<f64>,
-        i: usize,
-        j: usize,
-        l1: Line<f64>,
-        l2: Line<f64>,
-        splits: &mut HashMap<usize, Vec<Coord<f64>>>
-    ) {
-         match res {
-            LineIntersection::SinglePoint { intersection: pt, .. } => {
-                let snapped = self.snap(pt);
-
-                // Check if split needed for L1
-                if snapped != l1.start && snapped != l1.end {
-                    splits.entry(i).or_insert_with(Vec::new).push(snapped);
-                }
-                // Check if split needed for L2
-                if snapped != l2.start && snapped != l2.end {
-                    splits.entry(j).or_insert_with(Vec::new).push(snapped);
-                }
-            },
-            LineIntersection::Collinear { intersection: overlap } => {
-                // For collinear, we split at the overlap endpoints
-                let p1 = self.snap(overlap.start);
-                let p2 = self.snap(overlap.end);
-
-                for p in [p1, p2] {
-                     if p != l1.start && p != l1.end {
-                         splits.entry(i).or_insert_with(Vec::new).push(p);
-                     }
-                     if p != l2.start && p != l2.end {
-                         splits.entry(j).or_insert_with(Vec::new).push(p);
-                     }
-                }
-            }
-         }
-    }
 }
 
 #[cfg(test)]
@@ -303,7 +226,7 @@ mod tests {
     use rand::Rng;
 
     #[test]
-    fn test_simd_vs_rtree_equivalence() {
+    fn test_grid_vs_simd_equivalence() {
         let mut rng = rand::thread_rng();
         let mut lines = Vec::new();
 
@@ -322,22 +245,57 @@ mod tests {
 
         let noder = SnapNoder::new(0.001);
 
-        let splits_rtree = noder.find_splits(&lines);
+        // Grid Logic (Force use by calling directly)
+        let grid = UniformGrid::new(&lines);
+        let splits_grid = grid.find_splits(&lines, &noder);
+
+        // SIMD Logic
         let splits_simd = noder.find_splits_simd(&lines);
 
-        assert_eq!(splits_rtree.len(), splits_simd.len(), "Different number of split events");
+        // Compare counts
+        // Note: splits_grid might return slightly different results if ownership logic differs slightly
+        // from what brute force would capture, BUT for "find_splits" they should be effectively same set of points per line.
+        // However, brute force finds ALL intersections. Grid finds intersections and assigns them via ownership.
+        // Wait, ownership check prevents double reporting, but for a given line index, the set of split points should be identical.
 
-        for (idx, points_rtree) in &splits_rtree {
+        // Actually, find_splits_simd (brute force) also duplicates?
+        // Let's check collect_intersection_events.
+        // It pushes to . Then  HashMap collects them.
+        // If (i, j) intersect at P.
+        // i gets P. j gets P.
+        // Grid logic:
+        // iterate cells. find (i, j). check ownership. if owned, i gets P, j gets P.
+        // if not owned, ignored (will be owned by another cell).
+        // So the result should be identical.
+
+        // One caveat: floating point differences in ownership check vs brute force?
+        // Usually shouldn't matter for "set of points".
+
+        // Let's compare lengths first.
+        assert_eq!(splits_grid.len(), splits_simd.len(), "Different number of lines with splits");
+
+        for (idx, points_grid) in &splits_grid {
             let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
 
             // Sort points to ensure order independence
-            let mut p_rtree = points_rtree.clone();
-            p_rtree.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            let mut p_grid = points_grid.clone();
+            p_grid.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_grid.dedup();
 
             let mut p_simd = points_simd.clone();
             p_simd.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_simd.dedup();
 
-            assert_eq!(p_rtree, p_simd, "Split points differ for line {}", idx);
+            // Allow small epsilon diff? Or exact?
+            // SnapNoder snaps to grid, so they should be exact if grid_size is same.
+            // SnapNoder::snap() is used in both.
+
+            assert_eq!(p_grid.len(), p_simd.len(), "Different number of points for line {}", idx);
+
+            for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
+                assert!((p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
+                        "Point mismatch: {:?} vs {:?}", p_g, p_s);
+            }
         }
     }
 }

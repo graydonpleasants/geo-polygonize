@@ -1,5 +1,5 @@
 use crate::graph::PlanarGraph;
-use geo_types::{Geometry, LineString, Polygon, Coord, Point};
+use geo_types::{Geometry, LineString, Polygon, Coord, Point, Line};
 use crate::error::Result;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 use crate::noding::snap::SnapNoder;
 use crate::utils::simd::SimdRing;
+use crate::utils::z_order_index;
 
 // Wrapper for Polygon to be indexable by rstar
 struct IndexedPolygon(Polygon<f64>, usize);
@@ -89,6 +90,17 @@ impl Polygonizer {
                     input_segments.push(line);
                 }
             }
+
+            // OPTIMIZATION: Spatial Sort (Z-Order)
+            // This improves cache locality for both the Grid and the SIMD noder.
+            let mut numbered_lines: Vec<(u64, Line<f64>)> = input_segments.iter()
+                .map(|l| (z_order_index(l.start), *l))
+                .collect();
+
+            // Unstable sort is faster and sufficient
+            numbered_lines.sort_unstable_by_key(|k| k.0);
+
+            input_segments = numbered_lines.into_iter().map(|k| k.1).collect();
 
             let noder = SnapNoder::new(self.snap_grid_size);
             segments = noder.node(input_segments);
