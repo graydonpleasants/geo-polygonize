@@ -2,6 +2,8 @@ use geo::{Line, Coord};
 use rstar::{RTree, RTreeObject, AABB};
 use std::cmp::Ordering;
 use geo::algorithm::line_intersection::LineIntersection;
+use crate::utils::soa::SoALines;
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug)]
 struct IndexedLine {
@@ -44,7 +46,12 @@ impl SnapNoder {
         // 2. Iterative Noding
         for _ in 0..self.max_iter {
             // Check for intersections
-            let split_map = self.find_splits(&lines);
+            // Use SIMD brute force for small datasets (e.g., < 2000 lines), R-Tree for large ones
+            let split_map = if lines.len() < 2000 {
+                self.find_splits_simd(&lines)
+            } else {
+                self.find_splits(&lines)
+            };
 
             if split_map.is_empty() {
                 break;
@@ -82,9 +89,7 @@ impl SnapNoder {
                 }
             }
 
-            // Deduplicate segments?
-            // Yes, duplicate segments are common in noding.
-            // Also normalize direction.
+            // Deduplicate segments and normalize direction
              for segment in &mut new_lines {
                 if segment.start.x > segment.end.x ||
                    ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
@@ -114,8 +119,8 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits(&self, lines: &[Line<f64>]) -> std::collections::HashMap<usize, Vec<Coord<f64>>> {
-        let mut splits = std::collections::HashMap::new();
+    fn find_splits(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+        let mut splits = HashMap::new();
 
         let indexed: Vec<IndexedLine> = lines.iter().enumerate()
             .map(|(i, l)| IndexedLine { line: *l, index: i })
@@ -134,41 +139,129 @@ impl SnapNoder {
             let l1 = idx1.line;
             let l2 = idx2.line;
 
-            // Fast bounding box check (handled by RTree, but good to be sure)
-
-            // Intersection
             if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-                 match res {
-                    LineIntersection::SinglePoint { intersection: pt, .. } => {
-                        let snapped = self.snap(pt);
-
-                        // Check if split needed for L1
-                        if snapped != l1.start && snapped != l1.end {
-                            splits.entry(i).or_insert_with(Vec::new).push(snapped);
-                        }
-                        // Check if split needed for L2
-                        if snapped != l2.start && snapped != l2.end {
-                            splits.entry(j).or_insert_with(Vec::new).push(snapped);
-                        }
-                    },
-                    LineIntersection::Collinear { intersection: overlap } => {
-                        // For collinear, we split at the overlap endpoints
-                        let p1 = self.snap(overlap.start);
-                        let p2 = self.snap(overlap.end);
-
-                        for p in [p1, p2] {
-                             if p != l1.start && p != l1.end {
-                                 splits.entry(i).or_insert_with(Vec::new).push(p);
-                             }
-                             if p != l2.start && p != l2.end {
-                                 splits.entry(j).or_insert_with(Vec::new).push(p);
-                             }
-                        }
-                    }
-                 }
+                 self.handle_intersection(res, i, j, l1, l2, &mut splits);
             }
         }
 
         splits
+    }
+
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+        let soa = SoALines::new(lines);
+        let mut splits = HashMap::new();
+
+        // Iterate over every line (Query)
+        for (i, &query_line) in lines.iter().enumerate() {
+            // Iterate over the SoA data in chunks of 4 (Targets)
+            // We start roughly at i + 1 to avoid self-check and duplicates
+            let start_block = (i + 1) / 4 * 4;
+
+            for j in (start_block..soa.len()).step_by(4) {
+                let mask = soa.intersects_bbox_batch(query_line, j);
+
+                if mask != 0 {
+                    // If the mask is non-zero, at least one line in this batch *might* intersect.
+                    // We check the bits to see which ones.
+                    for k in 0..4 {
+                        if (mask & (1 << k)) != 0 {
+                            let target_idx = j + k;
+                            if target_idx >= lines.len() { continue; } // Padding check
+                            if target_idx <= i { continue; } // Enforce i < j
+
+                            // Fallback to precise math for the actual intersection
+                            let target_line = lines[target_idx];
+                            if let Some(res) = geo::algorithm::line_intersection::line_intersection(query_line, target_line) {
+                                self.handle_intersection(res, i, target_idx, query_line, target_line, &mut splits);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        splits
+    }
+
+    fn handle_intersection(&self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        splits: &mut HashMap<usize, Vec<Coord<f64>>>
+    ) {
+         match res {
+            LineIntersection::SinglePoint { intersection: pt, .. } => {
+                let snapped = self.snap(pt);
+
+                // Check if split needed for L1
+                if snapped != l1.start && snapped != l1.end {
+                    splits.entry(i).or_insert_with(Vec::new).push(snapped);
+                }
+                // Check if split needed for L2
+                if snapped != l2.start && snapped != l2.end {
+                    splits.entry(j).or_insert_with(Vec::new).push(snapped);
+                }
+            },
+            LineIntersection::Collinear { intersection: overlap } => {
+                // For collinear, we split at the overlap endpoints
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+
+                for p in [p1, p2] {
+                     if p != l1.start && p != l1.end {
+                         splits.entry(i).or_insert_with(Vec::new).push(p);
+                     }
+                     if p != l2.start && p != l2.end {
+                         splits.entry(j).or_insert_with(Vec::new).push(p);
+                     }
+                }
+            }
+         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::Rng;
+
+    #[test]
+    fn test_simd_vs_rtree_equivalence() {
+        let mut rng = rand::thread_rng();
+        let mut lines = Vec::new();
+
+        // Generate 100 random lines in a 100x100 grid
+        for _ in 0..100 {
+            let x1 = rng.gen_range(0.0..100.0);
+            let y1 = rng.gen_range(0.0..100.0);
+            let x2 = rng.gen_range(0.0..100.0);
+            let y2 = rng.gen_range(0.0..100.0);
+            lines.push(Line::new(Coord{x:x1, y:y1}, Coord{x:x2, y:y2}));
+        }
+
+        // Add some guaranteed intersections
+        lines.push(Line::new(Coord{x:0.0, y:0.0}, Coord{x:10.0, y:10.0}));
+        lines.push(Line::new(Coord{x:0.0, y:10.0}, Coord{x:10.0, y:0.0}));
+
+        let noder = SnapNoder::new(0.001);
+
+        let splits_rtree = noder.find_splits(&lines);
+        let splits_simd = noder.find_splits_simd(&lines);
+
+        assert_eq!(splits_rtree.len(), splits_simd.len(), "Different number of split events");
+
+        for (idx, points_rtree) in &splits_rtree {
+            let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
+
+            // Sort points to ensure order independence
+            let mut p_rtree = points_rtree.clone();
+            p_rtree.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+
+            let mut p_simd = points_simd.clone();
+            p_simd.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+
+            assert_eq!(p_rtree, p_simd, "Split points differ for line {}", idx);
+        }
     }
 }
