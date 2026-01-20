@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 
 pub mod parallel;
 pub mod simd;
+pub mod soa;
 
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
