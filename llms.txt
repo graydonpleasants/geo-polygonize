@@ -73,19 +73,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000261 | 0.000686 | 2.62x |
-| 10 | 0.000617 | 0.002246 | 3.64x |
-| 20 | 0.001839 | 0.008377 | 4.56x |
-| 50 | 0.010425 | 0.052049 | 4.99x |
-| 100 | 0.045703 | 0.217457 | 4.76x |
+| 5 | 0.000297 | 0.000677 | 2.28x |
+| 10 | 0.000579 | 0.002233 | 3.85x |
+| 20 | 0.001690 | 0.008233 | 4.87x |
+| 50 | 0.010464 | 0.050875 | 4.86x |
+| 100 | 0.046479 | 0.209427 | 4.51x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001519 | 0.008170 | 5.38x |
-| 100 | 0.006484 | 0.026296 | 4.06x |
-| 200 | 0.025375 | 0.101166 | 3.99x |
+| 50 | 0.001364 | 0.007991 | 5.86x |
+| 100 | 0.007605 | 0.025698 | 3.38x |
+| 200 | 0.025045 | 0.098269 | 3.92x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1937,15 +1937,15 @@ mod tests {
         // Triangles are InnerCCW (25) and InnerCW (-25).
         // 4 Triangles (CW) are holes of Frame (OuterCCW).
         // Area = 100 - 4*25 = 0.
+        // The Frame has Area 0 and is filtered out by the Polygonizer (tolerance 1e-6).
         // 4 Triangles (CCW) are shells. Area 25.
         // So we get:
-        // 1. Frame (Area 0)
-        // 2. Triangle 1 (Area 25)
-        // 3. Triangle 2 (Area 25)
-        // 4. Triangle 3 (Area 25)
-        // 5. Triangle 4 (Area 25)
+        // 1. Triangle 1 (Area 25)
+        // 2. Triangle 2 (Area 25)
+        // 3. Triangle 3 (Area 25)
+        // 4. Triangle 4 (Area 25)
 
-        assert_eq!(polygons.len(), 5, "Expected 5 polygons, found {}", polygons.len());
+        assert_eq!(polygons.len(), 4, "Expected 4 polygons, found {}", polygons.len());
         let triangles_count = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
@@ -2979,6 +2979,11 @@ use geo::{Line, Coord};
 use rstar::{RTree, RTreeObject, AABB};
 use std::cmp::Ordering;
 use geo::algorithm::line_intersection::LineIntersection;
+use crate::utils::soa::SoALines;
+use std::collections::HashMap;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
 struct IndexedLine {
@@ -3021,7 +3026,18 @@ impl SnapNoder {
         // 2. Iterative Noding
         for _ in 0..self.max_iter {
             // Check for intersections
-            let split_map = self.find_splits(&lines);
+            // If Parallel: Use SIMD for < 4096 (brute force scales well with cores)
+            // If Sequential: Use SIMD for < 128 (brute force gets slow quickly)
+            #[cfg(feature = "parallel")]
+            let threshold = 4096;
+            #[cfg(not(feature = "parallel"))]
+            let threshold = 128;
+
+            let split_map = if lines.len() < threshold {
+                self.find_splits_simd(&lines)
+            } else {
+                self.find_splits(&lines)
+            };
 
             if split_map.is_empty() {
                 break;
@@ -3059,9 +3075,7 @@ impl SnapNoder {
                 }
             }
 
-            // Deduplicate segments?
-            // Yes, duplicate segments are common in noding.
-            // Also normalize direction.
+            // Deduplicate segments and normalize direction
              for segment in &mut new_lines {
                 if segment.start.x > segment.end.x ||
                    ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
@@ -3091,8 +3105,8 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits(&self, lines: &[Line<f64>]) -> std::collections::HashMap<usize, Vec<Coord<f64>>> {
-        let mut splits = std::collections::HashMap::new();
+    fn find_splits(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+        let mut splits = HashMap::new();
 
         let indexed: Vec<IndexedLine> = lines.iter().enumerate()
             .map(|(i, l)| IndexedLine { line: *l, index: i })
@@ -3111,42 +3125,197 @@ impl SnapNoder {
             let l1 = idx1.line;
             let l2 = idx2.line;
 
-            // Fast bounding box check (handled by RTree, but good to be sure)
-
-            // Intersection
             if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-                 match res {
-                    LineIntersection::SinglePoint { intersection: pt, .. } => {
-                        let snapped = self.snap(pt);
-
-                        // Check if split needed for L1
-                        if snapped != l1.start && snapped != l1.end {
-                            splits.entry(i).or_insert_with(Vec::new).push(snapped);
-                        }
-                        // Check if split needed for L2
-                        if snapped != l2.start && snapped != l2.end {
-                            splits.entry(j).or_insert_with(Vec::new).push(snapped);
-                        }
-                    },
-                    LineIntersection::Collinear { intersection: overlap } => {
-                        // For collinear, we split at the overlap endpoints
-                        let p1 = self.snap(overlap.start);
-                        let p2 = self.snap(overlap.end);
-
-                        for p in [p1, p2] {
-                             if p != l1.start && p != l1.end {
-                                 splits.entry(i).or_insert_with(Vec::new).push(p);
-                             }
-                             if p != l2.start && p != l2.end {
-                                 splits.entry(j).or_insert_with(Vec::new).push(p);
-                             }
-                        }
-                    }
-                 }
+                 self.handle_intersection(res, i, j, l1, l2, &mut splits);
             }
         }
 
         splits
+    }
+
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+        let soa = SoALines::new(lines);
+
+        #[cfg(feature = "parallel")]
+        {
+            // Parallel execution: each thread processes a subset of query lines
+            // and returns a list of split events (line_index, point).
+            let all_splits: Vec<(usize, Coord<f64>)> = lines.par_iter().enumerate()
+                .flat_map(|(i, &query_line)| {
+                    self.check_intersection_simd(query_line, i, lines, &soa)
+                })
+                .collect();
+
+            // Aggregate results into HashMap
+            let mut splits = HashMap::new();
+            for (idx, pt) in all_splits {
+                splits.entry(idx).or_insert_with(Vec::new).push(pt);
+            }
+            splits
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut splits = HashMap::new();
+            for (i, &query_line) in lines.iter().enumerate() {
+                let events = self.check_intersection_simd(query_line, i, lines, &soa);
+                for (idx, pt) in events {
+                     splits.entry(idx).or_insert_with(Vec::new).push(pt);
+                }
+            }
+            splits
+        }
+    }
+
+    // Helper to check one line against all others using SIMD SoA
+    #[inline]
+    fn check_intersection_simd(&self, query_line: Line<f64>, i: usize, lines: &[Line<f64>], soa: &SoALines) -> Vec<(usize, Coord<f64>)> {
+        let mut events = Vec::new();
+        // Start block to avoid duplicate checks (j > i)
+        // We start checking at index i+1.
+        // The SoA batching index `j` steps by 4.
+        // We want `j` such that the batch covers indices > i.
+        // Ideally start `j` at `(i + 1) / 4 * 4`.
+        let start_block = (i + 1) / 4 * 4;
+
+        for j in (start_block..soa.len()).step_by(4) {
+            let mask = soa.intersects_bbox_batch(query_line, j);
+
+            if mask != 0 {
+                for k in 0..4 {
+                    if (mask & (1 << k)) != 0 {
+                        let target_idx = j + k;
+                        if target_idx >= lines.len() { continue; }
+                        if target_idx <= i { continue; } // Enforce i < j
+
+                        let target_line = lines[target_idx];
+                        if let Some(res) = geo::algorithm::line_intersection::line_intersection(query_line, target_line) {
+                             // We can't update a shared HashMap here.
+                             // Return the intersection events for the caller to aggregate.
+                             self.collect_intersection_events(res, i, target_idx, query_line, target_line, &mut events);
+                        }
+                    }
+                }
+            }
+        }
+        events
+    }
+
+    // Helper to collect events into a local vector instead of HashMap
+    fn collect_intersection_events(&self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        events: &mut Vec<(usize, Coord<f64>)>
+    ) {
+         match res {
+            LineIntersection::SinglePoint { intersection: pt, .. } => {
+                let snapped = self.snap(pt);
+                if snapped != l1.start && snapped != l1.end {
+                    events.push((i, snapped));
+                }
+                if snapped != l2.start && snapped != l2.end {
+                    events.push((j, snapped));
+                }
+            },
+            LineIntersection::Collinear { intersection: overlap } => {
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+                for p in [p1, p2] {
+                     if p != l1.start && p != l1.end {
+                         events.push((i, p));
+                     }
+                     if p != l2.start && p != l2.end {
+                         events.push((j, p));
+                     }
+                }
+            }
+         }
+    }
+
+    fn handle_intersection(&self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        splits: &mut HashMap<usize, Vec<Coord<f64>>>
+    ) {
+         match res {
+            LineIntersection::SinglePoint { intersection: pt, .. } => {
+                let snapped = self.snap(pt);
+
+                // Check if split needed for L1
+                if snapped != l1.start && snapped != l1.end {
+                    splits.entry(i).or_insert_with(Vec::new).push(snapped);
+                }
+                // Check if split needed for L2
+                if snapped != l2.start && snapped != l2.end {
+                    splits.entry(j).or_insert_with(Vec::new).push(snapped);
+                }
+            },
+            LineIntersection::Collinear { intersection: overlap } => {
+                // For collinear, we split at the overlap endpoints
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+
+                for p in [p1, p2] {
+                     if p != l1.start && p != l1.end {
+                         splits.entry(i).or_insert_with(Vec::new).push(p);
+                     }
+                     if p != l2.start && p != l2.end {
+                         splits.entry(j).or_insert_with(Vec::new).push(p);
+                     }
+                }
+            }
+         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::Rng;
+
+    #[test]
+    fn test_simd_vs_rtree_equivalence() {
+        let mut rng = rand::thread_rng();
+        let mut lines = Vec::new();
+
+        // Generate 100 random lines in a 100x100 grid
+        for _ in 0..100 {
+            let x1 = rng.gen_range(0.0..100.0);
+            let y1 = rng.gen_range(0.0..100.0);
+            let x2 = rng.gen_range(0.0..100.0);
+            let y2 = rng.gen_range(0.0..100.0);
+            lines.push(Line::new(Coord{x:x1, y:y1}, Coord{x:x2, y:y2}));
+        }
+
+        // Add some guaranteed intersections
+        lines.push(Line::new(Coord{x:0.0, y:0.0}, Coord{x:10.0, y:10.0}));
+        lines.push(Line::new(Coord{x:0.0, y:10.0}, Coord{x:10.0, y:0.0}));
+
+        let noder = SnapNoder::new(0.001);
+
+        let splits_rtree = noder.find_splits(&lines);
+        let splits_simd = noder.find_splits_simd(&lines);
+
+        assert_eq!(splits_rtree.len(), splits_simd.len(), "Different number of split events");
+
+        for (idx, points_rtree) in &splits_rtree {
+            let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
+
+            // Sort points to ensure order independence
+            let mut p_rtree = points_rtree.clone();
+            p_rtree.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+
+            let mut p_simd = points_simd.clone();
+            p_simd.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+
+            assert_eq!(p_rtree, p_simd, "Split points differ for line {}", idx);
+        }
     }
 }
 
@@ -3160,6 +3329,7 @@ use std::cmp::Ordering;
 
 pub mod parallel;
 pub mod simd;
+pub mod soa;
 
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
@@ -3384,6 +3554,210 @@ impl SimdRing {
         }
 
         crossings % 2 != 0
+    }
+}
+
+```
+
+File: src/utils/soa.rs
+```
+use geo::Line;
+use wide::f64x4;
+use wide::CmpLe;
+use wide::CmpGe;
+
+pub struct SoALines {
+    pub start_x: Vec<f64>,
+    pub start_y: Vec<f64>,
+    pub end_x: Vec<f64>,
+    pub end_y: Vec<f64>,
+}
+
+impl SoALines {
+    pub fn new(lines: &[Line<f64>]) -> Self {
+        let len = lines.len();
+        // Reserve memory + padding
+        let mut sx = Vec::with_capacity(len + 3);
+        let mut sy = Vec::with_capacity(len + 3);
+        let mut ex = Vec::with_capacity(len + 3);
+        let mut ey = Vec::with_capacity(len + 3);
+
+        for line in lines {
+            sx.push(line.start.x);
+            sy.push(line.start.y);
+            ex.push(line.end.x);
+            ey.push(line.end.y);
+        }
+
+        // Pad with NaNs so that comparisons always fail (return false)
+        // preventing false positives at the end of the array.
+        while sx.len() % 4 != 0 {
+            sx.push(f64::NAN);
+            sy.push(f64::NAN);
+            ex.push(f64::NAN);
+            ey.push(f64::NAN);
+        }
+
+        Self { start_x: sx, start_y: sy, end_x: ex, end_y: ey }
+    }
+
+    pub fn len(&self) -> usize {
+        self.start_x.len()
+    }
+
+    /// Checks a single query line against 4 stored lines simultaneously.
+    /// Returns a bitmask (u8) where bits 0-3 represent intersection candidates.
+    ///
+    /// Bit 0 = index
+    /// Bit 1 = index + 1
+    /// ...
+    #[inline]
+    pub fn intersects_bbox_batch(&self, query: Line<f64>, index: usize) -> u8 {
+        // 1. Prepare Query BBox (Splat to all 4 lanes)
+        // We pre-calculate min/max for the query line once.
+        let q_min_x_val = query.start.x.min(query.end.x);
+        let q_max_x_val = query.start.x.max(query.end.x);
+        let q_min_y_val = query.start.y.min(query.end.y);
+        let q_max_y_val = query.start.y.max(query.end.y);
+
+        let q_min_x = f64x4::splat(q_min_x_val);
+        let q_max_x = f64x4::splat(q_max_x_val);
+        let q_min_y = f64x4::splat(q_min_y_val);
+        let q_max_y = f64x4::splat(q_max_y_val);
+
+        // 2. Load Targets (4 at a time)
+        // Ideally, ensure `index` is valid. We rely on the caller stepping by 4.
+        let t_sx = f64x4::from(&self.start_x[index..index+4]);
+        let t_sy = f64x4::from(&self.start_y[index..index+4]);
+        let t_ex = f64x4::from(&self.end_x[index..index+4]);
+        let t_ey = f64x4::from(&self.end_y[index..index+4]);
+
+        // 3. Calculate Target BBoxes (Parallel Min/Max)
+        let t_min_x = t_sx.min(t_ex);
+        let t_max_x = t_sx.max(t_ex);
+        let t_min_y = t_sy.min(t_ey);
+        let t_max_y = t_sy.max(t_ey);
+
+        // 4. Perform Intersection Check
+        // Logic: Overlap exists if (RectA.min < RectB.max) && (RectA.max > RectB.min)
+        // We check X axis AND Y axis.
+
+        // Note: wide cmp methods return a mask where all bits are 1 for true.
+        let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
+        let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
+
+        let overlap = overlap_x & overlap_y;
+
+        // 5. Pack result to u8
+        // move_mask() extracts the sign bit of each lane.
+        // For f64x4, it returns an i32 (only bottom 4 bits matter).
+        overlap.move_mask() as u8
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo::{Coord, Line};
+
+    #[test]
+    fn test_soa_bbox_batch_simd() {
+        // Setup 4 lines to test against a query
+        // Query Line: (0,0) -> (10,10). BBox: [0,0, 10,10]
+        let query = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+
+        let lines = vec![
+            // 0. Inside Query BBox (Should Match)
+            Line::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 2.0, y: 2.0 }),
+
+            // 1. Completely Outside to the Right (No Match)
+            // BBox: [12,0, 14,10] -> MinX(12) > QueryMaxX(10)
+            Line::new(Coord { x: 12.0, y: 0.0 }, Coord { x: 14.0, y: 10.0 }),
+
+            // 2. Overlapping Boundary (Touching) (Should Match)
+            // BBox: [10,5, 15,5]. MinX(10) <= QueryMaxX(10)
+            Line::new(Coord { x: 10.0, y: 5.0 }, Coord { x: 15.0, y: 5.0 }),
+
+            // 3. Diagonal Crossing (Should Match)
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
+        ];
+
+        let soa = SoALines::new(&lines);
+
+        // Run the SIMD check
+        let mask = soa.intersects_bbox_batch(query, 0);
+
+        // Expected bits:
+        // Index 0: Match -> 1
+        // Index 1: No    -> 0
+        // Index 2: Match -> 1
+        // Index 3: Match -> 1
+        // Result binary: 1101 (Little Endian order: bit0=idx0, bit3=idx3)
+        // 1 + 0 + 4 + 8 = 13
+        assert_eq!(mask, 0b1101, "Mask should match expected intersections");
+    }
+
+    #[test]
+    fn test_soa_padding_safety() {
+        // Test that the padding NaNs don't cause false positives
+        let query = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+
+        // Only 1 line provided. 3 slots will be padded with NaN.
+        let lines = vec![
+            Line::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 2.0, y: 2.0 }),
+        ];
+
+        let soa = SoALines::new(&lines);
+
+        // Ensure we allocated enough for SIMD width
+        assert!(soa.start_x.len() >= 4);
+
+        let mask = soa.intersects_bbox_batch(query, 0);
+
+        // Index 0 is a match.
+        // Index 1, 2, 3 are NaN padding.
+        // Comparisons with NaN (e.g. NaN <= 10.0) return False.
+        // So mask should be 0001 -> 1.
+        assert_eq!(mask, 1, "Padding slots should never return true");
+    }
+
+    #[test]
+    fn test_empty_soa() {
+        // Edge case: Empty input
+        let lines: Vec<Line<f64>> = vec![];
+        let soa = SoALines::new(&lines);
+
+        assert_eq!(soa.start_x.len(), 0);
+    }
+
+    #[test]
+    fn test_crossing_scenario() {
+        // Reproduction of test_noding_crossing_lines structure
+        let lines = vec![
+            Line::new(Coord{x:0.,y:0.}, Coord{x:10.,y:0.}), // 0
+            Line::new(Coord{x:10.,y:0.}, Coord{x:10.,y:10.}), // 1
+            Line::new(Coord{x:10.,y:10.}, Coord{x:0.,y:10.}), // 2
+            Line::new(Coord{x:0.,y:10.}, Coord{x:0.,y:0.}), // 3
+            Line::new(Coord{x:0.,y:0.}, Coord{x:10.,y:10.}), // 4
+            Line::new(Coord{x:0.,y:10.}, Coord{x:10.,y:0.}), // 5
+        ];
+
+        let soa = SoALines::new(&lines);
+
+        // Check 4 vs 5
+        // 5 is at index 5.
+        // Block starting at 4 covers 4, 5, 6, 7.
+        // We query line 4.
+        let mask = soa.intersects_bbox_batch(lines[4], 4);
+
+        // Expected:
+        // Index 4 (Self): Match
+        // Index 5 (Cross): Match
+        // Index 6 (NaN): No
+        // Index 7 (NaN): No
+        // Mask: 0011 -> 3
+
+        assert_eq!(mask & 2, 2, "Line 4 should intersect Line 5 (bit 1)");
     }
 }
 
