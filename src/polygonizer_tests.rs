@@ -66,15 +66,15 @@ mod tests {
         // Triangles are InnerCCW (25) and InnerCW (-25).
         // 4 Triangles (CW) are holes of Frame (OuterCCW).
         // Area = 100 - 4*25 = 0.
+        // The Frame has Area 0 and is filtered out by the Polygonizer (tolerance 1e-6).
         // 4 Triangles (CCW) are shells. Area 25.
         // So we get:
-        // 1. Frame (Area 0)
-        // 2. Triangle 1 (Area 25)
-        // 3. Triangle 2 (Area 25)
-        // 4. Triangle 3 (Area 25)
-        // 5. Triangle 4 (Area 25)
+        // 1. Triangle 1 (Area 25)
+        // 2. Triangle 2 (Area 25)
+        // 3. Triangle 3 (Area 25)
+        // 4. Triangle 4 (Area 25)
 
-        assert_eq!(polygons.len(), 5, "Expected 5 polygons, found {}", polygons.len());
+        assert_eq!(polygons.len(), 4, "Expected 4 polygons, found {}", polygons.len());
         let triangles_count = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }

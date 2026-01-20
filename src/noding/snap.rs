@@ -5,6 +5,9 @@ use geo::algorithm::line_intersection::LineIntersection;
 use crate::utils::soa::SoALines;
 use std::collections::HashMap;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 #[derive(Clone, Copy, Debug)]
 struct IndexedLine {
     line: Line<f64>,
@@ -46,8 +49,14 @@ impl SnapNoder {
         // 2. Iterative Noding
         for _ in 0..self.max_iter {
             // Check for intersections
-            // Use SIMD brute force for small datasets (e.g., < 2000 lines), R-Tree for large ones
-            let split_map = if lines.len() < 2000 {
+            // If Parallel: Use SIMD for < 4096 (brute force scales well with cores)
+            // If Sequential: Use SIMD for < 128 (brute force gets slow quickly)
+            #[cfg(feature = "parallel")]
+            let threshold = 4096;
+            #[cfg(not(feature = "parallel"))]
+            let threshold = 128;
+
+            let split_map = if lines.len() < threshold {
                 self.find_splits_simd(&lines)
             } else {
                 self.find_splits(&lines)
@@ -149,37 +158,104 @@ impl SnapNoder {
 
     fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
         let soa = SoALines::new(lines);
-        let mut splits = HashMap::new();
 
-        // Iterate over every line (Query)
-        for (i, &query_line) in lines.iter().enumerate() {
-            // Iterate over the SoA data in chunks of 4 (Targets)
-            // We start roughly at i + 1 to avoid self-check and duplicates
-            let start_block = (i + 1) / 4 * 4;
+        #[cfg(feature = "parallel")]
+        {
+            // Parallel execution: each thread processes a subset of query lines
+            // and returns a list of split events (line_index, point).
+            let all_splits: Vec<(usize, Coord<f64>)> = lines.par_iter().enumerate()
+                .flat_map(|(i, &query_line)| {
+                    self.check_intersection_simd(query_line, i, lines, &soa)
+                })
+                .collect();
 
-            for j in (start_block..soa.len()).step_by(4) {
-                let mask = soa.intersects_bbox_batch(query_line, j);
+            // Aggregate results into HashMap
+            let mut splits = HashMap::new();
+            for (idx, pt) in all_splits {
+                splits.entry(idx).or_insert_with(Vec::new).push(pt);
+            }
+            splits
+        }
 
-                if mask != 0 {
-                    // If the mask is non-zero, at least one line in this batch *might* intersect.
-                    // We check the bits to see which ones.
-                    for k in 0..4 {
-                        if (mask & (1 << k)) != 0 {
-                            let target_idx = j + k;
-                            if target_idx >= lines.len() { continue; } // Padding check
-                            if target_idx <= i { continue; } // Enforce i < j
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut splits = HashMap::new();
+            for (i, &query_line) in lines.iter().enumerate() {
+                let events = self.check_intersection_simd(query_line, i, lines, &soa);
+                for (idx, pt) in events {
+                     splits.entry(idx).or_insert_with(Vec::new).push(pt);
+                }
+            }
+            splits
+        }
+    }
 
-                            // Fallback to precise math for the actual intersection
-                            let target_line = lines[target_idx];
-                            if let Some(res) = geo::algorithm::line_intersection::line_intersection(query_line, target_line) {
-                                self.handle_intersection(res, i, target_idx, query_line, target_line, &mut splits);
-                            }
+    // Helper to check one line against all others using SIMD SoA
+    #[inline]
+    fn check_intersection_simd(&self, query_line: Line<f64>, i: usize, lines: &[Line<f64>], soa: &SoALines) -> Vec<(usize, Coord<f64>)> {
+        let mut events = Vec::new();
+        // Start block to avoid duplicate checks (j > i)
+        // We start checking at index i+1.
+        // The SoA batching index `j` steps by 4.
+        // We want `j` such that the batch covers indices > i.
+        // Ideally start `j` at `(i + 1) / 4 * 4`.
+        let start_block = (i + 1) / 4 * 4;
+
+        for j in (start_block..soa.len()).step_by(4) {
+            let mask = soa.intersects_bbox_batch(query_line, j);
+
+            if mask != 0 {
+                for k in 0..4 {
+                    if (mask & (1 << k)) != 0 {
+                        let target_idx = j + k;
+                        if target_idx >= lines.len() { continue; }
+                        if target_idx <= i { continue; } // Enforce i < j
+
+                        let target_line = lines[target_idx];
+                        if let Some(res) = geo::algorithm::line_intersection::line_intersection(query_line, target_line) {
+                             // We can't update a shared HashMap here.
+                             // Return the intersection events for the caller to aggregate.
+                             self.collect_intersection_events(res, i, target_idx, query_line, target_line, &mut events);
                         }
                     }
                 }
             }
         }
-        splits
+        events
+    }
+
+    // Helper to collect events into a local vector instead of HashMap
+    fn collect_intersection_events(&self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        events: &mut Vec<(usize, Coord<f64>)>
+    ) {
+         match res {
+            LineIntersection::SinglePoint { intersection: pt, .. } => {
+                let snapped = self.snap(pt);
+                if snapped != l1.start && snapped != l1.end {
+                    events.push((i, snapped));
+                }
+                if snapped != l2.start && snapped != l2.end {
+                    events.push((j, snapped));
+                }
+            },
+            LineIntersection::Collinear { intersection: overlap } => {
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+                for p in [p1, p2] {
+                     if p != l1.start && p != l1.end {
+                         events.push((i, p));
+                     }
+                     if p != l2.start && p != l2.end {
+                         events.push((j, p));
+                     }
+                }
+            }
+         }
     }
 
     fn handle_intersection(&self,
