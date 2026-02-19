@@ -24,11 +24,52 @@ impl RTreeObject for IndexedPolygon {
     }
 }
 
+/// A robust polygonizer that reconstructs polygons from a set of lines.
+///
+/// The `Polygonizer` takes a collection of geometries (LineStrings, Polygons, etc.),
+/// extracts all line segments, and reconstructs valid polygons from the linework.
+/// It handles complex topologies such as:
+/// - Nested holes
+/// - Disconnected components (islands)
+/// - Self-intersecting lines (if `node_input` is enabled)
+/// - Overlapping polygons
+///
+/// # Example
+///
+/// ```rust
+/// use geo_polygonize::Polygonizer;
+/// use geo_types::{LineString, Geometry};
+///
+/// let mut polygonizer = Polygonizer::new();
+///
+/// // Add a square
+/// polygonizer.add_geometry(Geometry::LineString(LineString::from(vec![
+///     (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
+/// ])));
+///
+/// let polygons = polygonizer.polygonize().expect("Polygonization failed");
+///
+/// // Should find 1 polygon with area 100.0
+/// assert_eq!(polygons.len(), 1);
+/// assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+/// ```
 pub struct Polygonizer {
     graph: PlanarGraph,
     // Configuration
+    /// Whether to check if rings are valid (closed, simple) before processing.
+    /// Default: `true`.
     pub check_valid_rings: bool,
+    /// Whether to node the input lines.
+    ///
+    /// If `true`, the polygonizer will use Iterated Snap Rounding to find and split
+    /// intersecting lines. This is required if the input lines are not already noded
+    /// (i.e., if they cross each other without a node at the intersection).
+    /// Default: `false`.
     pub node_input: bool,
+    /// The grid size used for snapping during noding.
+    ///
+    /// Points are snapped to this grid resolution to ensure robustness.
+    /// Default: `1e-10`.
     pub snap_grid_size: f64,
 
     // Buffer for inputs if noding is required
@@ -37,6 +78,7 @@ pub struct Polygonizer {
 }
 
 impl Polygonizer {
+    /// Creates a new `Polygonizer` with default configuration.
     pub fn new() -> Self {
         Self {
             graph: PlanarGraph::new(),
@@ -48,12 +90,20 @@ impl Polygonizer {
         }
     }
 
+    /// Sets the snap grid size for noding.
+    ///
+    /// # Arguments
+    ///
+    /// * `grid_size` - The size of the grid cells. Smaller values mean higher precision but potential for robustness issues if too small.
     pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
         self.snap_grid_size = grid_size;
         self
     }
 
     /// Adds a geometry to the graph.
+    ///
+    /// This method accepts any `geo_types::Geometry`. Nested collections (GeometryCollection,
+    /// MultiLineString, MultiPolygon) are flattened and all lineal components are extracted.
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
         self.inputs.push(geom);
         self.dirty = true;
@@ -77,8 +127,8 @@ impl Polygonizer {
                  // Simple sort
                  let pa = a.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
                  let pb = b.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
-                 pa.x.partial_cmp(&pb.x).unwrap_or(Ordering::Equal)
-                    .then(pa.y.partial_cmp(&pb.y).unwrap_or(Ordering::Equal))
+                 pa.x.total_cmp(&pb.x)
+                    .then(pa.y.total_cmp(&pb.y))
              });
              lines.dedup();
 
@@ -109,6 +159,8 @@ impl Polygonizer {
 
     /// Computes the polygons.
     /// This is the main entry point.
+    ///
+    /// Returns a vector of `geo_types::Polygon<f64>`.
     pub fn polygonize(&mut self) -> Result<Vec<geo_types::Polygon<f64>>> {
         self.build_graph()?;
 
