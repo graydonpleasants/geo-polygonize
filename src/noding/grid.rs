@@ -127,17 +127,6 @@ impl UniformGrid {
         }
     }
 
-    #[inline]
-    fn owner_cell_for_point(&self, pt: Coord<f64>) -> (usize, usize) {
-        let col = ((pt.x - self.bounds_min.x) / self.cell_size).floor() as isize;
-        let row = ((pt.y - self.bounds_min.y) / self.cell_size).floor() as isize;
-
-        let col = col.clamp(0, self.cols.saturating_sub(1) as isize) as usize;
-        let row = row.clamp(0, self.rows.saturating_sub(1) as isize) as usize;
-
-        (col, row)
-    }
-
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     pub fn find_splits(
         &self,
@@ -204,10 +193,13 @@ impl UniformGrid {
                                     // Collinear is rare. Just process start/end and let HashMap dedup later.
                                     let p1 = snap_noder.snap(overlap.start);
                                     let p2 = snap_noder.snap(overlap.end);
-                                    // Deterministic ownership: map p1 to a canonical owner cell.
-                                    // This avoids the non-origin fallback gap for boundary points.
-                                    let (owner_c, owner_r) = self.owner_cell_for_point(p1);
-                                    if c == owner_c && r == owner_r {
+                                    // Simplified ownership: Check if p1 is in cell
+                                    let p1_in = p1.x >= cell_min_x
+                                        && p1.x < cell_max_x
+                                        && p1.y >= cell_min_y
+                                        && p1.y < cell_max_y;
+                                    if p1_in || (c == 0 && r == 0) {
+                                        // Fallback to process at least once
                                         for p in [p1, p2] {
                                             if p != l1.start && p != l1.end {
                                                 splits.entry(idx1).or_default().push(p);

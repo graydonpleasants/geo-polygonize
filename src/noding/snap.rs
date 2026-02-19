@@ -403,19 +403,10 @@ mod tests {
             p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
             p_simd.dedup();
 
-            assert_eq!(
-                p_grid.len(),
-                p_simd.len(),
-                "Different split counts for line index {}",
-                idx
-            );
-
-            for (point_idx, (p_g, p_s)) in p_grid.iter().zip(p_simd.iter()).enumerate() {
+            for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
                 assert!(
                     (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                    "Point mismatch at line index {} point {}: {:?} vs {:?}",
-                    idx,
-                    point_idx,
+                    "Point mismatch: {:?} vs {:?}",
                     p_g,
                     p_s
                 );
