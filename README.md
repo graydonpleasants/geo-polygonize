@@ -2,6 +2,8 @@
 
 A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows you to reconstruct valid polygons from a set of lines, including handling of complex topologies like holes, nested shells, and disconnected components.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/graydonpleasants/geo-polygonize)
+
 ## Features
 
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
