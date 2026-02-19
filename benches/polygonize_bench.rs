@@ -30,14 +30,8 @@ fn generate_bowtie_grid(n: usize) -> Vec<LineString<f64>> {
             // Bowtie (X) in the cell [i, i+1] x [j, j+1]
             let x = i as f64;
             let y = j as f64;
-            lines.push(LineString::from(vec![
-                (x, y),
-                (x + 1.0, y + 1.0),
-            ]));
-            lines.push(LineString::from(vec![
-                (x + 1.0, y),
-                (x, y + 1.0),
-            ]));
+            lines.push(LineString::from(vec![(x, y), (x + 1.0, y + 1.0)]));
+            lines.push(LineString::from(vec![(x + 1.0, y), (x, y + 1.0)]));
         }
     }
     lines
