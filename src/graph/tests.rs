@@ -55,13 +55,29 @@ mod tests {
         let dst3 = get_dst(edges[3]);
 
         // Right
-        assert!(dst0.0 > 0.0 && dst0.1.abs() < 1e-6, "Expected Right (10, 0), got {:?}", dst0);
+        assert!(
+            dst0.0 > 0.0 && dst0.1.abs() < 1e-6,
+            "Expected Right (10, 0), got {:?}",
+            dst0
+        );
         // Up
-        assert!(dst1.0.abs() < 1e-6 && dst1.1 > 0.0, "Expected Up (0, 10), got {:?}", dst1);
+        assert!(
+            dst1.0.abs() < 1e-6 && dst1.1 > 0.0,
+            "Expected Up (0, 10), got {:?}",
+            dst1
+        );
         // Left
-        assert!(dst2.0 < 0.0 && dst2.1.abs() < 1e-6, "Expected Left (-10, 0), got {:?}", dst2);
+        assert!(
+            dst2.0 < 0.0 && dst2.1.abs() < 1e-6,
+            "Expected Left (-10, 0), got {:?}",
+            dst2
+        );
         // Down
-        assert!(dst3.0.abs() < 1e-6 && dst3.1 < 0.0, "Expected Down (0, -10), got {:?}", dst3);
+        assert!(
+            dst3.0.abs() < 1e-6 && dst3.1 < 0.0,
+            "Expected Down (0, -10), got {:?}",
+            dst3
+        );
     }
 
     #[test]
@@ -80,7 +96,10 @@ mod tests {
         let dangles = graph.prune_dangles();
         assert_eq!(dangles, 1);
 
-        let b_idx = graph.node_map.get(&Coord::from((10.0, 0.0)).into()).unwrap();
+        let b_idx = graph
+            .node_map
+            .get(&Coord::from((10.0, 0.0)).into())
+            .unwrap();
         assert_eq!(graph.nodes_degree[*b_idx], 2);
     }
 

@@ -1,8 +1,8 @@
-use wasm_bindgen::prelude::*;
 use crate::Polygonizer;
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
 use std::str::FromStr;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
@@ -20,31 +20,36 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         GeoJson::FeatureCollection(fc) => {
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
-                    let geo_geom: geo::Geometry<f64> = geom.try_into()
+                    let geo_geom: geo::Geometry<f64> = geom
+                        .try_into()
                         .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
                     polygonizer.add_geometry(geo_geom);
                 }
             }
-        },
+        }
         GeoJson::Feature(f) => {
-             if let Some(geom) = f.geometry {
-                let geo_geom: geo::Geometry<f64> = geom.try_into()
+            if let Some(geom) = f.geometry {
+                let geo_geom: geo::Geometry<f64> = geom
+                    .try_into()
                     .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
                 polygonizer.add_geometry(geo_geom);
             }
-        },
+        }
         GeoJson::Geometry(g) => {
-            let geo_geom: geo::Geometry<f64> = g.try_into()
+            let geo_geom: geo::Geometry<f64> = g
+                .try_into()
                 .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
             polygonizer.add_geometry(geo_geom);
         }
     }
 
-    let polygons = polygonizer.polygonize()
+    let polygons = polygonizer
+        .polygonize()
         .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
 
     // Convert back to GeoJSON
-    let geometries: Vec<Geometry> = polygons.into_iter()
+    let geometries: Vec<Geometry> = polygons
+        .into_iter()
         .map(|p| Geometry::new(Value::from(&p)))
         .collect();
 

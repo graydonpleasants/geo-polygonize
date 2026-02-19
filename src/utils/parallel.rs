@@ -1,4 +1,3 @@
-
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -12,7 +11,10 @@ pub trait MaybeParIter<T> {
 // Note: This helper runs for_each
 #[inline]
 pub fn iterate<T, F>(collection: &[T], f: F)
-where T: Sync, F: Fn(&T) + Sync + Send {
+where
+    T: Sync,
+    F: Fn(&T) + Sync + Send,
+{
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
         // Heuristic: Don't spin up Rayon for < 1000 items
@@ -31,8 +33,11 @@ where T: Sync, F: Fn(&T) + Sync + Send {
 // Helper for mutable iteration
 #[inline]
 pub fn iterate_mut<T, F>(collection: &mut [T], f: F)
-where T: Send, F: Fn(&mut T) + Sync + Send {
-     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+where
+    T: Send,
+    F: Fn(&mut T) + Sync + Send,
+{
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
         if collection.len() > 1000 {
             collection.par_iter_mut().for_each(f);

@@ -1,12 +1,12 @@
 use clap::Parser;
 use geo_polygonize::Polygonizer;
+use geo_types::Geometry as GeoGeometry;
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
+use std::convert::TryInto;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
-use std::convert::TryInto;
-use geo_types::{Geometry as GeoGeometry};
-use std::error::Error;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -53,15 +53,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-        },
+        }
         GeoJson::Geometry(geom) => {
             if let Ok(geo_geom) = geom.try_into() {
                 add_geometry(&mut polygonizer, geo_geom);
                 count += 1;
             }
-        },
+        }
         GeoJson::Feature(feature) => {
-             if let Some(geom) = feature.geometry {
+            if let Some(geom) = feature.geometry {
                 if let Ok(geo_geom) = geom.try_into() {
                     add_geometry(&mut polygonizer, geo_geom);
                     count += 1;
@@ -76,16 +76,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Found {} polygons.", polygons.len());
 
     // Convert back to GeoJSON
-    let features: Vec<Feature> = polygons.into_iter().map(|poly| {
-        let geometry = Geometry::from(&poly);
-        Feature {
-            bbox: None,
-            geometry: Some(geometry),
-            id: None,
-            properties: None,
-            foreign_members: None,
-        }
-    }).collect();
+    let features: Vec<Feature> = polygons
+        .into_iter()
+        .map(|poly| {
+            let geometry = Geometry::from(&poly);
+            Feature {
+                bbox: None,
+                geometry: Some(geometry),
+                id: None,
+                properties: None,
+                foreign_members: None,
+            }
+        })
+        .collect();
 
     let output_fc = FeatureCollection {
         bbox: None,
@@ -107,22 +110,22 @@ fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
     match geom {
         GeoGeometry::LineString(ls) => {
             polygonizer.add_geometry(GeoGeometry::LineString(ls));
-        },
+        }
         GeoGeometry::MultiLineString(mls) => {
             for ls in mls {
                 polygonizer.add_geometry(GeoGeometry::LineString(ls));
             }
-        },
+        }
         GeoGeometry::GeometryCollection(gc) => {
             for g in gc {
                 add_geometry(polygonizer, g);
             }
-        },
+        }
         _ => {
             // Ignore other types or try to add them if Polygonizer supports them?
             // Polygonizer::add_geometry takes Geometry, so we can just pass it.
             // But usually we want LineStrings.
-             polygonizer.add_geometry(geom);
+            polygonizer.add_geometry(geom);
         }
     }
 }

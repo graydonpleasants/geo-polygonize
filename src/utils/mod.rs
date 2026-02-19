@@ -12,7 +12,7 @@ pub mod soa;
 pub fn z_order_index(c: Coord<f64>) -> u64 {
     let x = sortable_float(c.x);
     let y = sortable_float(c.y);
-    part1by1(x as u64) | (part1by1(y as u64) << 1)
+    part1by1(x) | (part1by1(y) << 1)
 }
 
 #[inline]
@@ -30,10 +30,10 @@ fn sortable_float(f: f64) -> u64 {
 fn part1by1(mut n: u64) -> u64 {
     n &= 0x00000000FFFFFFFF;
     n = (n | (n << 16)) & 0x0000FFFF0000FFFF;
-    n = (n | (n << 8))  & 0x00FF00FF00FF00FF;
-    n = (n | (n << 4))  & 0x0F0F0F0F0F0F0F0F;
-    n = (n | (n << 2))  & 0x3333333333333333;
-    n = (n | (n << 1))  & 0x5555555555555555;
+    n = (n | (n << 8)) & 0x00FF00FF00FF00FF;
+    n = (n | (n << 4)) & 0x0F0F0F0F0F0F0F0F;
+    n = (n | (n << 2)) & 0x3333333333333333;
+    n = (n | (n << 1)) & 0x5555555555555555;
     n
 }
 
@@ -64,9 +64,18 @@ pub fn compare_angular(center: Coord<f64>, target_a: Coord<f64>, target_b: Coord
     // Same quadrant: use robust orientation check
     // If orient2d(center, a, b) > 0, then b is Left of a (CCW).
     // So a < b.
-    let c = RobustCoord { x: center.x, y: center.y };
-    let a = RobustCoord { x: target_a.x, y: target_a.y };
-    let b = RobustCoord { x: target_b.x, y: target_b.y };
+    let c = RobustCoord {
+        x: center.x,
+        y: center.y,
+    };
+    let a = RobustCoord {
+        x: target_a.x,
+        y: target_a.y,
+    };
+    let b = RobustCoord {
+        x: target_b.x,
+        y: target_b.y,
+    };
 
     let orient = orient2d(c, a, b);
 
@@ -89,8 +98,13 @@ fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
     let dx = t.x - c.x;
     let dy = t.y - c.y;
 
-    if dx > 0.0 && dy >= 0.0 { 0 }
-    else if dx <= 0.0 && dy > 0.0 { 1 }
-    else if dx < 0.0 && dy <= 0.0 { 2 }
-    else { 3 }
+    if dx > 0.0 && dy >= 0.0 {
+        0
+    } else if dx <= 0.0 && dy > 0.0 {
+        1
+    } else if dx < 0.0 && dy <= 0.0 {
+        2
+    } else {
+        3
+    }
 }
