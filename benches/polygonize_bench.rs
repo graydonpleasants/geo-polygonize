@@ -21,6 +21,28 @@ fn generate_grid(n: usize) -> Vec<LineString<f64>> {
     lines
 }
 
+// Generates a grid with bowtie patterns in every cell, guaranteeing intersections.
+// This specifically stresses the noding algorithm (SnapNoder).
+fn generate_bowtie_grid(n: usize) -> Vec<LineString<f64>> {
+    let mut lines = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            // Bowtie (X) in the cell [i, i+1] x [j, j+1]
+            let x = i as f64;
+            let y = j as f64;
+            lines.push(LineString::from(vec![
+                (x, y),
+                (x + 1.0, y + 1.0),
+            ]));
+            lines.push(LineString::from(vec![
+                (x + 1.0, y),
+                (x, y + 1.0),
+            ]));
+        }
+    }
+    lines
+}
+
 fn generate_random_lines(n: usize, seed: u64) -> Vec<LineString<f64>> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut lines = Vec::new();
@@ -78,6 +100,27 @@ fn bench_polygonize(c: &mut Criterion) {
                 });
             });
         }
+    }
+
+    // Stress Test: Bowtie/Dirty Grid
+    // Tests: 10x10 (200 lines), 20x20 (800 lines), 50x50 (5000 lines)
+    // The optimization switch threshold is ~256 segments.
+    // 10x10 -> 200 segments (SIMD path likely)
+    // 20x20 -> 800 segments (Grid path)
+    let dirty_sizes = [10, 20, 50];
+    for &size in dirty_sizes.iter() {
+        group.bench_with_input(BenchmarkId::new("bowtie_grid", size), &size, |b, &size| {
+            let lines = generate_bowtie_grid(size);
+            b.iter(|| {
+                let mut poly = Polygonizer::new();
+                for line in &lines {
+                    poly.add_geometry(line.clone().into());
+                }
+                // Must enable node_input for intersections to be processed
+                poly.node_input = true;
+                poly.polygonize().unwrap();
+            });
+        });
     }
 
     // Random line counts

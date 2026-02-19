@@ -63,7 +63,7 @@ This script:
 ### Benchmark Scenarios
 
 - **Grid**: A regular grid of lines. Tests the standard polygonization assembly speed.
-- **Dirty Grid**: A grid with "bowtie" patterns (crossing lines). Tests the robustness and noding performance (`SnapNoder` / `UniformGrid`).
+- **Dirty Grid (Bowtie)**: A grid where every cell contains a bowtie pattern (crossing lines). This scenario guarantees numerous intersections and is used to stress-test the robustness and performance of the `SnapNoder`.
 - **GeoArrow**: Benchmarks the ingestion of LineStrings into a GeoArrow memory layout.
 
 ## Profiling
