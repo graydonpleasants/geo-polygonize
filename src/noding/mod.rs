@@ -1,2 +1,2 @@
-pub mod snap;
 pub mod grid;
+pub mod snap;

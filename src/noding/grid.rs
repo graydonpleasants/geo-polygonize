@@ -1,7 +1,7 @@
-use geo::{Line, Coord};
-use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
-use std::collections::HashMap;
 use crate::noding::snap::SnapNoder;
+use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
+use geo::{Coord, Line};
+use std::collections::HashMap;
 
 pub struct UniformGrid {
     /// Flattened grid: cells[row * cols + col] -> List of line indices
@@ -39,7 +39,11 @@ impl UniformGrid {
         // Formula: sqrt(Area / N) * Tunable_Factor
         let area = width * height;
         // Fallback for zero area (collinear lines)
-        let area = if area < 1e-9 { lines.len() as f64 } else { area };
+        let area = if area < 1e-9 {
+            lines.len() as f64
+        } else {
+            area
+        };
 
         let target_cell_size = (area / lines.len() as f64).sqrt();
         // Clamp to avoid degenerate grids
@@ -76,7 +80,13 @@ impl UniformGrid {
     }
 
     fn empty() -> Self {
-        Self { cells: vec![], cell_size: 1.0, cols: 0, rows: 0, bounds_min: Coord::zero() }
+        Self {
+            cells: vec![],
+            cell_size: 1.0,
+            cols: 0,
+            rows: 0,
+            bounds_min: Coord::zero(),
+        }
     }
 
     #[inline]
@@ -87,10 +97,18 @@ impl UniformGrid {
         let l_min_y = line.start.y.min(line.end.y);
         let l_max_y = line.start.y.max(line.end.y);
 
-        let col_min = ((l_min_x - self.bounds_min.x) / self.cell_size).floor().max(0.0) as usize;
-        let col_max = ((l_max_x - self.bounds_min.x) / self.cell_size).floor().max(0.0) as usize;
-        let row_min = ((l_min_y - self.bounds_min.y) / self.cell_size).floor().max(0.0) as usize;
-        let row_max = ((l_max_y - self.bounds_min.y) / self.cell_size).floor().max(0.0) as usize;
+        let col_min = ((l_min_x - self.bounds_min.x) / self.cell_size)
+            .floor()
+            .max(0.0) as usize;
+        let col_max = ((l_max_x - self.bounds_min.x) / self.cell_size)
+            .floor()
+            .max(0.0) as usize;
+        let row_min = ((l_min_y - self.bounds_min.y) / self.cell_size)
+            .floor()
+            .max(0.0) as usize;
+        let row_max = ((l_max_y - self.bounds_min.y) / self.cell_size)
+            .floor()
+            .max(0.0) as usize;
 
         // Safety clamp (floating point issues)
         let col_max = col_max.min(self.cols.saturating_sub(1));
@@ -110,13 +128,19 @@ impl UniformGrid {
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
-    pub fn find_splits(&self, lines: &[Line<f64>], snap_noder: &SnapNoder) -> HashMap<usize, Vec<Coord<f64>>> {
+    pub fn find_splits(
+        &self,
+        lines: &[Line<f64>],
+        snap_noder: &SnapNoder,
+    ) -> HashMap<usize, Vec<Coord<f64>>> {
         let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
 
         for r in 0..self.rows {
             for c in 0..self.cols {
                 let cell_indices = &self.cells[r * self.cols + c];
-                if cell_indices.len() < 2 { continue; }
+                if cell_indices.len() < 2 {
+                    continue;
+                }
 
                 // Define current cell bounds
                 let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
@@ -137,14 +161,20 @@ impl UniformGrid {
                         let l2 = lines[idx2];
 
                         if let Some(res) = line_intersection(l1, l2) {
-                             match res {
-                                LineIntersection::SinglePoint { intersection: pt, .. } => {
+                            match res {
+                                LineIntersection::SinglePoint {
+                                    intersection: pt, ..
+                                } => {
                                     // OWNERSHIP CHECK:
                                     // A line pair might exist in multiple cells.
                                     // To avoid Duplicate Work: only process if the intersection point
                                     // falls strictly within THIS cell's responsibility.
-                                    let is_in_x = pt.x >= cell_min_x && (pt.x < cell_max_x || (c == self.cols - 1 && pt.x <= cell_max_x));
-                                    let is_in_y = pt.y >= cell_min_y && (pt.y < cell_max_y || (r == self.rows - 1 && pt.y <= cell_max_y));
+                                    let is_in_x = pt.x >= cell_min_x
+                                        && (pt.x < cell_max_x
+                                            || (c == self.cols - 1 && pt.x <= cell_max_x));
+                                    let is_in_y = pt.y >= cell_min_y
+                                        && (pt.y < cell_max_y
+                                            || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                                     if is_in_x && is_in_y {
                                         let snapped = snap_noder.snap(pt);
@@ -156,21 +186,31 @@ impl UniformGrid {
                                             splits.entry(idx2).or_default().push(snapped);
                                         }
                                     }
-                                },
-                                LineIntersection::Collinear { intersection: overlap } => {
+                                }
+                                LineIntersection::Collinear {
+                                    intersection: overlap,
+                                } => {
                                     // Collinear is rare. Just process start/end and let HashMap dedup later.
                                     let p1 = snap_noder.snap(overlap.start);
                                     let p2 = snap_noder.snap(overlap.end);
                                     // Simplified ownership: Check if p1 is in cell
-                                    let p1_in = p1.x >= cell_min_x && p1.x < cell_max_x && p1.y >= cell_min_y && p1.y < cell_max_y;
-                                    if p1_in || (c==0 && r==0) { // Fallback to process at least once
+                                    let p1_in = p1.x >= cell_min_x
+                                        && p1.x < cell_max_x
+                                        && p1.y >= cell_min_y
+                                        && p1.y < cell_max_y;
+                                    if p1_in || (c == 0 && r == 0) {
+                                        // Fallback to process at least once
                                         for p in [p1, p2] {
-                                            if p != l1.start && p != l1.end { splits.entry(idx1).or_default().push(p); }
-                                            if p != l2.start && p != l2.end { splits.entry(idx2).or_default().push(p); }
+                                            if p != l1.start && p != l1.end {
+                                                splits.entry(idx1).or_default().push(p);
+                                            }
+                                            if p != l2.start && p != l2.end {
+                                                splits.entry(idx2).or_default().push(p);
+                                            }
                                         }
                                     }
                                 }
-                             }
+                            }
                         }
                     }
                 }

@@ -208,7 +208,11 @@ fn test_overlapping_circles() {
     // very small artifact slivers differently. If the count is 7, it likely means one very small
     // region was (correctly or arguably) filtered out or merged.
     // For now, we accept 7 or 8 to allow progress, but ideally should inspect the area of the missing one.
-    assert!(polygons.len() == 8 || polygons.len() == 7, "Got {} polygons", polygons.len());
+    assert!(
+        polygons.len() == 8 || polygons.len() == 7,
+        "Got {} polygons",
+        polygons.len()
+    );
 }
 
 #[test]

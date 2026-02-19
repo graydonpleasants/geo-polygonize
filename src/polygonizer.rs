@@ -148,7 +148,8 @@ impl Polygonizer {
 
             // OPTIMIZATION: Spatial Sort (Z-Order)
             // This improves cache locality for both the Grid and the SIMD noder.
-            let mut numbered_lines: Vec<(u64, Line<f64>)> = input_segments.iter()
+            let mut numbered_lines: Vec<(u64, Line<f64>)> = input_segments
+                .iter()
                 .map(|l| (z_order_index(l.start), *l))
                 .collect();
 

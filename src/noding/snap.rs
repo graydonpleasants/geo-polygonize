@@ -1,9 +1,9 @@
-use geo::{Line, Coord};
-use std::cmp::Ordering;
-use geo::algorithm::line_intersection::LineIntersection;
-use crate::utils::soa::SoALines;
-use std::collections::HashMap;
 use crate::noding::grid::UniformGrid;
+use crate::utils::soa::SoALines;
+use geo::algorithm::line_intersection::LineIntersection;
+use geo::{Coord, Line};
+use std::cmp::Ordering;
+use std::collections::HashMap;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -90,23 +90,27 @@ impl SnapNoder {
 
     fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
         for segment in lines.iter_mut() {
-            if segment.start.x > segment.end.x ||
-               ((segment.start.x - segment.end.x).abs() < 1e-12 && segment.start.y > segment.end.y) {
-                 let temp = segment.start;
-                 segment.start = segment.end;
-                 segment.end = temp;
+            if segment.start.x > segment.end.x
+                || ((segment.start.x - segment.end.x).abs() < 1e-12
+                    && segment.start.y > segment.end.y)
+            {
+                let temp = segment.start;
+                segment.start = segment.end;
+                segment.end = temp;
             }
         }
         lines.sort_by(|a, b| {
-             let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-             let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-             sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+            let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
+            let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
+            sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
         });
         lines.dedup();
     }
 
     pub(crate) fn snap(&self, c: Coord<f64>) -> Coord<f64> {
-        if self.grid_size == 0.0 { return c; }
+        if self.grid_size == 0.0 {
+            return c;
+        }
         Coord {
             x: (c.x / self.grid_size).round() * self.grid_size,
             y: (c.y / self.grid_size).round() * self.grid_size,
@@ -169,23 +173,33 @@ impl SnapNoder {
 
         // Handling unaligned start to be absolutely safe and avoid self-check artifacts
         for j in (i + 1)..start_block.min(lines.len()) {
-             let target_line = lines[j];
-             // Standard BBox check
-             let q_min_x = query_line.start.x.min(query_line.end.x);
-             let q_max_x = query_line.start.x.max(query_line.end.x);
-             let q_min_y = query_line.start.y.min(query_line.end.y);
-             let q_max_y = query_line.start.y.max(query_line.end.y);
+            let target_line = lines[j];
+            // Standard BBox check
+            let q_min_x = query_line.start.x.min(query_line.end.x);
+            let q_max_x = query_line.start.x.max(query_line.end.x);
+            let q_min_y = query_line.start.y.min(query_line.end.y);
+            let q_max_y = query_line.start.y.max(query_line.end.y);
 
-             let t_min_x = target_line.start.x.min(target_line.end.x);
-             let t_max_x = target_line.start.x.max(target_line.end.x);
-             let t_min_y = target_line.start.y.min(target_line.end.y);
-             let t_max_y = target_line.start.y.max(target_line.end.y);
+            let t_min_x = target_line.start.x.min(target_line.end.x);
+            let t_max_x = target_line.start.x.max(target_line.end.x);
+            let t_min_y = target_line.start.y.min(target_line.end.y);
+            let t_max_y = target_line.start.y.max(target_line.end.y);
 
-             if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y {
-                 if let Some(res) = geo::algorithm::line_intersection::line_intersection(query_line, target_line) {
-                     self.collect_intersection_events(res, i, j, query_line, target_line, &mut events);
-                 }
-             }
+            if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
+            {
+                if let Some(res) =
+                    geo::algorithm::line_intersection::line_intersection(query_line, target_line)
+                {
+                    self.collect_intersection_events(
+                        res,
+                        i,
+                        j,
+                        query_line,
+                        target_line,
+                        &mut events,
+                    );
+                }
+            }
         }
 
         for j in (start_block..soa.len()).step_by(4) {
@@ -226,20 +240,25 @@ impl SnapNoder {
     }
 
     #[inline]
-    pub fn check_intersection(&self,
+    pub fn check_intersection(
+        &self,
         lines: &[Line<f64>],
         i: usize,
         j: usize,
-        splits: &mut HashMap<usize, Vec<Coord<f64>>>
+        splits: &mut HashMap<usize, Vec<Coord<f64>>>,
     ) {
-        if i >= lines.len() || j >= lines.len() { return; }
+        if i >= lines.len() || j >= lines.len() {
+            return;
+        }
 
         let l1 = lines[i];
         let l2 = lines[j];
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-             match res {
-                LineIntersection::SinglePoint { intersection: pt, .. } => {
+            match res {
+                LineIntersection::SinglePoint {
+                    intersection: pt, ..
+                } => {
                     let snapped = self.snap(pt);
                     if snapped != l1.start && snapped != l1.end {
                         splits.entry(i).or_default().push(snapped);
@@ -247,16 +266,22 @@ impl SnapNoder {
                     if snapped != l2.start && snapped != l2.end {
                         splits.entry(j).or_default().push(snapped);
                     }
-                },
-                LineIntersection::Collinear { intersection: overlap } => {
+                }
+                LineIntersection::Collinear {
+                    intersection: overlap,
+                } => {
                     let p1 = self.snap(overlap.start);
                     let p2 = self.snap(overlap.end);
                     for p in [p1, p2] {
-                        if p != l1.start && p != l1.end { splits.entry(i).or_default().push(p); }
-                        if p != l2.start && p != l2.end { splits.entry(j).or_default().push(p); }
+                        if p != l1.start && p != l1.end {
+                            splits.entry(i).or_default().push(p);
+                        }
+                        if p != l2.start && p != l2.end {
+                            splits.entry(j).or_default().push(p);
+                        }
                     }
                 }
-             }
+            }
         }
     }
 
@@ -338,23 +363,31 @@ mod tests {
         // SIMD Logic
         let splits_simd = noder.find_splits_simd(&lines);
 
-        assert_eq!(splits_grid.len(), splits_simd.len(), "Different number of lines with splits");
+        assert_eq!(
+            splits_grid.len(),
+            splits_simd.len(),
+            "Different number of lines with splits"
+        );
 
         for (idx, points_grid) in &splits_grid {
             let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
 
             // Sort points to ensure order independence
             let mut p_grid = points_grid.clone();
-            p_grid.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_grid.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
             p_grid.dedup();
 
             let mut p_simd = points_simd.clone();
-            p_simd.sort_by(|a,b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
             p_simd.dedup();
 
             for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
-                assert!((p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                        "Point mismatch: {:?} vs {:?}", p_g, p_s);
+                assert!(
+                    (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
+                    "Point mismatch: {:?} vs {:?}",
+                    p_g,
+                    p_s
+                );
             }
         }
     }
