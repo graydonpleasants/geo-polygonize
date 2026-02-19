@@ -94,9 +94,7 @@ impl SnapNoder {
                 || ((segment.start.x - segment.end.x).abs() < 1e-12
                     && segment.start.y > segment.end.y)
             {
-                let temp = segment.start;
-                segment.start = segment.end;
-                segment.end = temp;
+                std::mem::swap(&mut segment.start, &mut segment.end);
             }
         }
         lines.sort_by(|a, b| {
@@ -154,6 +152,7 @@ impl SnapNoder {
     }
 
     // Helper to check one line against all others using SIMD SoA
+    #[allow(clippy::manual_div_ceil)]
     #[inline]
     fn check_intersection_simd(
         &self,
@@ -172,6 +171,7 @@ impl SnapNoder {
         let start_block = (i + 1 + 3) / 4 * 4;
 
         // Handling unaligned start to be absolutely safe and avoid self-check artifacts
+        #[allow(clippy::needless_range_loop)]
         for j in (i + 1)..start_block.min(lines.len()) {
             let target_line = lines[j];
             // Standard BBox check
