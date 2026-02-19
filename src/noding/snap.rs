@@ -8,9 +8,18 @@ use std::collections::HashMap;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NodingStrategy {
+    Auto,
+    Scalar, // Deprecated/Fallback (Mapped to SIMD/Grid depending on impl)
+    Simd,
+    Grid,
+}
+
 pub struct SnapNoder {
     pub grid_size: f64,
     pub max_iter: usize,
+    pub strategy: NodingStrategy,
 }
 
 impl SnapNoder {
@@ -18,7 +27,13 @@ impl SnapNoder {
         Self {
             grid_size,
             max_iter: 10,
+            strategy: NodingStrategy::Auto,
         }
+    }
+
+    pub fn with_strategy(mut self, strategy: NodingStrategy) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     pub fn node(&self, mut lines: Vec<Line<f64>>) -> Vec<Line<f64>> {
@@ -36,7 +51,14 @@ impl SnapNoder {
 
         // 2. Iterative Noding
         for _iter in 0..self.max_iter {
-            let splits = if lines.len() < 256 {
+            let use_grid = match self.strategy {
+                NodingStrategy::Auto => lines.len() >= 256,
+                NodingStrategy::Grid => true,
+                NodingStrategy::Simd => false,
+                NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
+            };
+
+            let splits = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {

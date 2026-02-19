@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
 use geo_polygonize::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
@@ -97,24 +98,71 @@ fn bench_polygonize(c: &mut Criterion) {
     }
 
     // Stress Test: Bowtie/Dirty Grid
-    // Tests: 10x10 (200 lines), 20x20 (800 lines), 50x50 (5000 lines)
-    // The optimization switch threshold is ~256 segments.
-    // 10x10 -> 200 segments (SIMD path likely)
-    // 20x20 -> 800 segments (Grid path)
+    // Compare Strategies
     let dirty_sizes = [10, 20, 50];
     for &size in dirty_sizes.iter() {
-        group.bench_with_input(BenchmarkId::new("bowtie_grid", size), &size, |b, &size| {
-            let lines = generate_bowtie_grid(size);
-            b.iter(|| {
-                let mut poly = Polygonizer::new();
-                for line in &lines {
-                    poly.add_geometry(line.clone().into());
-                }
-                // Must enable node_input for intersections to be processed
-                poly.node_input = true;
-                poly.polygonize().unwrap();
-            });
-        });
+        let lines = generate_bowtie_grid(size);
+
+        // Auto Strategy (Default)
+        group.bench_with_input(
+            BenchmarkId::new("bowtie_grid_auto", size),
+            &size,
+            |b, &_size| {
+                b.iter(|| {
+                    // Manual noding to inject strategy?
+                    // Polygonizer doesn't expose strategy directly, so we must node manually
+                    // or trust the auto behavior.
+                    // For explicit comparison, we will use SnapNoder directly here.
+                    let mut input_segments = Vec::new();
+                    for ls in &lines {
+                        for line in ls.lines() {
+                            input_segments.push(line);
+                        }
+                    }
+                    let noder = SnapNoder::new(1e-10); // Auto
+                    noder.node(input_segments);
+                });
+            },
+        );
+
+        // Force Grid
+        group.bench_with_input(
+            BenchmarkId::new("bowtie_grid_force_grid", size),
+            &size,
+            |b, &_size| {
+                b.iter(|| {
+                    let mut input_segments = Vec::new();
+                    for ls in &lines {
+                        for line in ls.lines() {
+                            input_segments.push(line);
+                        }
+                    }
+                    let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
+                    noder.node(input_segments);
+                });
+            },
+        );
+
+        // Force SIMD (Brute Force) - CAUTION: O(N^2)
+        // Only run for smaller sizes to avoid timeout
+        if size <= 20 {
+            group.bench_with_input(
+                BenchmarkId::new("bowtie_grid_force_simd", size),
+                &size,
+                |b, &_size| {
+                    b.iter(|| {
+                        let mut input_segments = Vec::new();
+                        for ls in &lines {
+                            for line in ls.lines() {
+                                input_segments.push(line);
+                            }
+                        }
+                        let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Simd);
+                        noder.node(input_segments);
+                    });
+                },
+            );
+        }
     }
 
     // Random line counts
