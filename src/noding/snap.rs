@@ -410,10 +410,12 @@ mod tests {
                 idx
             );
 
-            for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
+            for (point_idx, (p_g, p_s)) in p_grid.iter().zip(p_simd.iter()).enumerate() {
                 assert!(
                     (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                    "Point mismatch: {:?} vs {:?}",
+                    "Point mismatch at line index {} point {}: {:?} vs {:?}",
+                    idx,
+                    point_idx,
                     p_g,
                     p_s
                 );
