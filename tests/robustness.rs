@@ -1,6 +1,6 @@
-use geo_types::{LineString, Coord, Polygon};
-use geo_polygonize::Polygonizer;
 use geo::Geometry;
+use geo_polygonize::Polygonizer;
+use geo_types::{Coord, LineString};
 
 #[test]
 fn test_bowtie_noding() {
@@ -38,23 +38,23 @@ fn test_duplicate_edge_removal() {
     // Triangle edge 1
     poly.add_geometry(Geometry::LineString(LineString(vec![
         Coord { x: 0.0, y: 0.0 },
-        Coord { x: 10.0, y: 0.0 }
+        Coord { x: 10.0, y: 0.0 },
     ])));
     // Duplicate edge 1
     poly.add_geometry(Geometry::LineString(LineString(vec![
         Coord { x: 0.0, y: 0.0 },
-        Coord { x: 10.0, y: 0.0 }
+        Coord { x: 10.0, y: 0.0 },
     ])));
 
     // Edge 2
     poly.add_geometry(Geometry::LineString(LineString(vec![
         Coord { x: 10.0, y: 0.0 },
-        Coord { x: 5.0, y: 5.0 }
+        Coord { x: 5.0, y: 5.0 },
     ])));
     // Edge 3
     poly.add_geometry(Geometry::LineString(LineString(vec![
         Coord { x: 5.0, y: 5.0 },
-        Coord { x: 0.0, y: 0.0 }
+        Coord { x: 0.0, y: 0.0 },
     ])));
 
     let results = poly.polygonize().expect("Polygonization failed");

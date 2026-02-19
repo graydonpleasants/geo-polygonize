@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::Polygonizer;
-    use geo_types::LineString;
     use geo::Area;
+    use geo_types::LineString;
 
     #[test]
     fn test_polygonize_simple_triangle() {
@@ -13,7 +13,9 @@ mod tests {
 
         let polygons = poly.polygonize().unwrap();
         assert!(polygons.len() >= 1);
-        let triangle = polygons.iter().find(|p| p.unsigned_area() > 49.0 && p.unsigned_area() < 51.0);
+        let triangle = polygons
+            .iter()
+            .find(|p| p.unsigned_area() > 49.0 && p.unsigned_area() < 51.0);
         assert!(triangle.is_some());
     }
 
@@ -21,23 +23,46 @@ mod tests {
     fn test_polygonize_hole() {
         let mut poly = Polygonizer::new();
         // Outer square
-        poly.add_geometry(LineString::from(vec![
-            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
-        ]).into());
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
 
         // Inner square
-        poly.add_geometry(LineString::from(vec![
-            (2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0), (2.0, 2.0)
-        ]).into());
+        poly.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (2.0, 8.0),
+                (8.0, 8.0),
+                (8.0, 2.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
 
         let polygons = poly.polygonize().unwrap();
-        assert_eq!(polygons.len(), 2, "Expected 2 polygons, found {}", polygons.len());
+        assert_eq!(
+            polygons.len(),
+            2,
+            "Expected 2 polygons, found {}",
+            polygons.len()
+        );
 
-        let donut = polygons.iter().find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
+        let donut = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
         assert!(donut.is_some(), "Donut polygon not found");
         assert_eq!(donut.unwrap().interiors().len(), 1);
 
-        let island = polygons.iter().find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
+        let island = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
     }
 
@@ -47,17 +72,20 @@ mod tests {
         poly.node_input = true;
 
         // Frame
-        poly.add_geometry(LineString::from(vec![
-            (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
-        ]).into());
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
 
         // Diagonals
-        poly.add_geometry(LineString::from(vec![
-            (0.0, 0.0), (10.0, 10.0)
-        ]).into());
-        poly.add_geometry(LineString::from(vec![
-            (0.0, 10.0), (10.0, 0.0)
-        ]).into());
+        poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
+        poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
         let polygons = poly.polygonize().expect("Polygonization failed");
         // Frame (empty because triangles are holes) + 4 Triangles
@@ -74,8 +102,16 @@ mod tests {
         // 3. Triangle 3 (Area 25)
         // 4. Triangle 4 (Area 25)
 
-        assert_eq!(polygons.len(), 4, "Expected 4 polygons, found {}", polygons.len());
-        let triangles_count = polygons.iter().filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6).count();
+        assert_eq!(
+            polygons.len(),
+            4,
+            "Expected 4 polygons, found {}",
+            polygons.len()
+        );
+        let triangles_count = polygons
+            .iter()
+            .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
+            .count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
 
@@ -97,20 +133,21 @@ mod tests {
 
         // We expect a rectangle (5,0)-(10,0)-(10,10)-(5,10)-(5,0). Area 50.
 
-        poly.add_geometry(LineString::from(vec![
-            (0.0, 0.0), (10.0, 0.0)
-        ]).into());
-        poly.add_geometry(LineString::from(vec![
-            (5.0, 0.0), (15.0, 0.0)
-        ]).into());
-        poly.add_geometry(LineString::from(vec![
-            (10.0, 0.0), (10.0, 10.0), (5.0, 10.0), (5.0, 0.0)
-        ]).into());
+        poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]).into());
+        poly.add_geometry(LineString::from(vec![(5.0, 0.0), (15.0, 0.0)]).into());
+        poly.add_geometry(
+            LineString::from(vec![(10.0, 0.0), (10.0, 10.0), (5.0, 10.0), (5.0, 0.0)]).into(),
+        );
 
         let polygons = poly.polygonize().expect("Polygonization failed");
 
         // Should find the rectangle of area 50.
-        let rect = polygons.iter().find(|p| (p.unsigned_area() - 50.0).abs() < 1e-6);
-        assert!(rect.is_some(), "Expected rectangle of area 50 from collinear overlap");
+        let rect = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 50.0).abs() < 1e-6);
+        assert!(
+            rect.is_some(),
+            "Expected rectangle of area 50 from collinear overlap"
+        );
     }
 }

@@ -1,16 +1,15 @@
-use crate::graph::PlanarGraph;
-use geo_types::{Geometry, LineString, Polygon, Coord, Point};
 use crate::error::Result;
+use crate::graph::PlanarGraph;
+use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
-use geo::algorithm::centroid::Centroid;
-use rstar::{RTree, AABB, RTreeObject};
+use geo_types::{Coord, Geometry, LineString, Point, Polygon};
+use rstar::{RTree, RTreeObject, AABB};
 
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
-use std::cmp::Ordering;
 use crate::noding::snap::SnapNoder;
 use crate::utils::simd::SimdRing;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 // Wrapper for Polygon to be indexable by rstar
 struct IndexedPolygon(Polygon<f64>, usize);
@@ -39,6 +38,7 @@ impl RTreeObject for IndexedPolygon {
 /// ```rust
 /// use geo_polygonize::Polygonizer;
 /// use geo_types::{LineString, Geometry};
+/// use geo::Area;
 ///
 /// let mut polygonizer = Polygonizer::new();
 ///
@@ -75,6 +75,12 @@ pub struct Polygonizer {
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
     dirty: bool,
+}
+
+impl Default for Polygonizer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Polygonizer {
@@ -122,15 +128,14 @@ impl Polygonizer {
 
         let mut segments = Vec::new();
         if self.node_input {
-             // Deduplicate identical inputs before expensive noding
-             lines.sort_by(|a, b| {
-                 // Simple sort
-                 let pa = a.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
-                 let pb = b.0.first().cloned().unwrap_or(Coord{x:0.,y:0.});
-                 pa.x.total_cmp(&pb.x)
-                    .then(pa.y.total_cmp(&pb.y))
-             });
-             lines.dedup();
+            // Deduplicate identical inputs before expensive noding
+            lines.sort_by(|a, b| {
+                // Simple sort
+                let pa = a.0.first().cloned().unwrap_or(Coord { x: 0., y: 0. });
+                let pb = b.0.first().cloned().unwrap_or(Coord { x: 0., y: 0. });
+                pa.x.total_cmp(&pb.x).then(pa.y.total_cmp(&pb.y))
+            });
+            lines.dedup();
 
             // Convert LineStrings to Lines
             let mut input_segments = Vec::new();
@@ -204,12 +209,8 @@ impl Polygonizer {
         let process_holes = |hole: &Polygon<f64>| -> Option<Polygon<f64>> {
             let hole_area = hole.unsigned_area();
             let has_twin = shells.iter().any(|shell| {
-                if (shell.unsigned_area() - hole_area).abs() < 1e-6 {
-                    if shell.bounding_rect() == hole.bounding_rect() {
-                        return true;
-                    }
-                }
-                false
+                (shell.unsigned_area() - hole_area).abs() < 1e-6
+                    && shell.bounding_rect() == hole.bounding_rect()
             });
 
             if !has_twin {
@@ -237,7 +238,8 @@ impl Polygonizer {
         shells.extend(promoted_shells);
 
         // Precompute SIMD shells
-        let simd_shells: Vec<SimdRing> = shells.iter()
+        let simd_shells: Vec<SimdRing> = shells
+            .iter()
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
 
@@ -249,46 +251,51 @@ impl Polygonizer {
         let tree = RTree::bulk_load(indexed_shells);
 
         // Process holes
-        let process_hole_assignment = |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
-            let hole_ring = hole_poly.exterior();
-            let bbox = hole_poly.bounding_rect().unwrap();
-            let hole_aabb = AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+        let process_hole_assignment =
+            |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
+                let hole_ring = hole_poly.exterior();
+                let bbox = hole_poly.bounding_rect().unwrap();
+                let hole_aabb =
+                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-            let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
+                let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
 
-            let mut best_shell_idx = None;
-            let mut min_area = f64::MAX;
+                let mut best_shell_idx = None;
+                let mut min_area = f64::MAX;
 
-            // Use centroid for inclusion check to avoid boundary issues
-            let probe_point = hole_poly.centroid().unwrap_or_else(|| {
-                // Fallback to first point if centroid fails (e.g. degenerate)
-                Point(hole_ring.0[0])
-            });
+                // Use centroid for inclusion check to avoid boundary issues
+                let probe_point = hole_poly.centroid().unwrap_or_else(|| {
+                    // Fallback to first point if centroid fails (e.g. degenerate)
+                    Point(hole_ring.0[0])
+                });
 
-            for cand in candidates {
-                let idx = cand.1;
-                // Use SIMD check first
-                let simd_shell = &simd_shells[idx];
+                for cand in candidates {
+                    let idx = cand.1;
+                    // Use SIMD check first
+                    let simd_shell = &simd_shells[idx];
 
-                if simd_shell.contains(probe_point.0) {
-                   let shell = &shells[idx];
-                   let area = shell.unsigned_area();
-                   let hole_area = hole_poly.unsigned_area();
+                    if simd_shell.contains(probe_point.0) {
+                        let shell = &shells[idx];
+                        let area = shell.unsigned_area();
+                        let hole_area = hole_poly.unsigned_area();
 
-                   if area > hole_area + 1e-6 && area < min_area {
-                       min_area = area;
-                       best_shell_idx = Some(idx);
-                   }
+                        if area > hole_area + 1e-6 && area < min_area {
+                            min_area = area;
+                            best_shell_idx = Some(idx);
+                        }
+                    }
                 }
-            }
 
-            best_shell_idx.map(|idx| (idx, hole_ring.clone()))
-        };
+                best_shell_idx.map(|idx| (idx, hole_ring.clone()))
+            };
 
         let assignments: Vec<_>;
         #[cfg(feature = "parallel")]
         {
-            assignments = holes.par_iter().filter_map(process_hole_assignment).collect();
+            assignments = holes
+                .par_iter()
+                .filter_map(process_hole_assignment)
+                .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
@@ -318,22 +325,22 @@ fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
         Geometry::LineString(ls) => out.push(ls.clone()),
         Geometry::MultiLineString(mls) => {
             out.extend(mls.0.clone());
-        },
+        }
         Geometry::Polygon(poly) => {
             out.push(poly.exterior().clone());
             out.extend(poly.interiors().iter().cloned());
-        },
+        }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
                 out.push(poly.exterior().clone());
                 out.extend(poly.interiors().iter().cloned());
             }
-        },
+        }
         Geometry::GeometryCollection(gc) => {
             for g in gc {
                 extract_lines(g, out);
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
 }

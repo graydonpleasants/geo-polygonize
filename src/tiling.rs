@@ -1,10 +1,10 @@
 use crate::Polygonizer;
-use geo_types::{Geometry, Polygon, Rect, Coord};
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
+use geo::Area;
+use geo_types::{Coord, Geometry, Polygon, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use geo::Area;
 
 pub struct TiledPolygonizer {
     bbox: Rect<f64>,
@@ -50,10 +50,7 @@ impl TiledPolygonizer {
                 let x1 = (x0 + self.tile_size).min(max.x);
                 let y1 = (y0 + self.tile_size).min(max.y);
 
-                tiles.push(Rect::new(
-                    Coord { x: x0, y: y0 },
-                    Coord { x: x1, y: y1 },
-                ));
+                tiles.push(Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 }));
             }
         }
 
@@ -64,14 +61,24 @@ impl TiledPolygonizer {
 
             // Define buffered bbox
             let buffered_bbox = Rect::new(
-                Coord { x: tile_bbox.min().x - self.buffer, y: tile_bbox.min().y - self.buffer },
-                Coord { x: tile_bbox.max().x + self.buffer, y: tile_bbox.max().y + self.buffer },
+                Coord {
+                    x: tile_bbox.min().x - self.buffer,
+                    y: tile_bbox.min().y - self.buffer,
+                },
+                Coord {
+                    x: tile_bbox.max().x + self.buffer,
+                    y: tile_bbox.max().y + self.buffer,
+                },
             );
 
             // Filter geometries intersecting the BUFFERED tile
             let mut relevant_lines = 0;
             for geom in &self.geometries {
-                if geom.bounding_rect().map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
+                if geom
+                    .bounding_rect()
+                    .map(|b| b.intersects(&buffered_bbox))
+                    .unwrap_or(false)
+                {
                     local_poly.add_geometry(geom.clone());
                     relevant_lines += 1;
                 }

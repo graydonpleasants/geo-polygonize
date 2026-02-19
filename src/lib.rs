@@ -8,12 +8,12 @@
 //! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
 //! - **Wasm**: Optimized for WebAssembly environments.
 
-pub mod graph;
-pub mod polygonizer;
 pub mod error;
-pub mod utils;
-pub mod tiling;
+pub mod graph;
 pub mod noding;
+pub mod polygonizer;
+pub mod tiling;
+pub mod utils;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

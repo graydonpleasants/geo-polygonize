@@ -1,15 +1,19 @@
 //! Simple example of polygonizing a set of lines.
 
-use geo_polygonize::Polygonizer;
-use geo_types::{LineString, Geometry};
 use geo::Area;
+use geo_polygonize::Polygonizer;
+use geo_types::{Geometry, LineString};
 
 fn main() {
     let mut polygonizer = Polygonizer::new();
 
     // Create a simple square
     let square_lines = LineString::from(vec![
-        (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+        (0.0, 0.0),
     ]);
 
     // Add geometry to the polygonizer

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Rect, Coord, LineString, Geometry};
+    use geo::{Coord, Geometry, LineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -15,14 +15,32 @@ mod tests {
         let mut geoms = Vec::new();
 
         // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 0.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 10.0 }, Coord { x: 20.0, y: 10.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 20.0 }, Coord { x: 20.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 20.0, y: 0.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 20.0, y: 10.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 20.0 },
+            Coord { x: 20.0, y: 20.0 },
+        ])));
 
         // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 20.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 20.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 20.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 0.0, y: 20.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 20.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 20.0, y: 0.0 },
+            Coord { x: 20.0, y: 20.0 },
+        ])));
 
         // BBox covers 0,0 to 20,20
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
@@ -54,15 +72,33 @@ mod tests {
         // This tests the "ownership" logic at boundaries.
 
         let mut geoms = Vec::new();
-         // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 0.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 10.0 }, Coord { x: 20.0, y: 10.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 20.0 }, Coord { x: 20.0, y: 20.0 }])));
+        // Horizontals
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 20.0, y: 0.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 20.0, y: 10.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 20.0 },
+            Coord { x: 20.0, y: 20.0 },
+        ])));
 
         // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 20.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 20.0 }])));
-        geoms.push(Geometry::LineString(LineString::new(vec![Coord { x: 20.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 }])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 0.0, y: 20.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 20.0 },
+        ])));
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 20.0, y: 0.0 },
+            Coord { x: 20.0, y: 20.0 },
+        ])));
 
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
 

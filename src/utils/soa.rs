@@ -1,7 +1,7 @@
 use geo::Line;
 use wide::f64x4;
-use wide::CmpLe;
 use wide::CmpGe;
+use wide::CmpLe;
 
 pub struct SoALines {
     pub start_x: Vec<f64>,
@@ -35,11 +35,20 @@ impl SoALines {
             ey.push(f64::NAN);
         }
 
-        Self { start_x: sx, start_y: sy, end_x: ex, end_y: ey }
+        Self {
+            start_x: sx,
+            start_y: sy,
+            end_x: ex,
+            end_y: ey,
+        }
     }
 
     pub fn len(&self) -> usize {
         self.start_x.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start_x.is_empty()
     }
 
     /// Checks a single query line against 4 stored lines simultaneously.
@@ -64,10 +73,10 @@ impl SoALines {
 
         // 2. Load Targets (4 at a time)
         // Ideally, ensure `index` is valid. We rely on the caller stepping by 4.
-        let t_sx = f64x4::from(&self.start_x[index..index+4]);
-        let t_sy = f64x4::from(&self.start_y[index..index+4]);
-        let t_ex = f64x4::from(&self.end_x[index..index+4]);
-        let t_ey = f64x4::from(&self.end_y[index..index+4]);
+        let t_sx = f64x4::from(&self.start_x[index..index + 4]);
+        let t_sy = f64x4::from(&self.start_y[index..index + 4]);
+        let t_ex = f64x4::from(&self.end_x[index..index + 4]);
+        let t_ey = f64x4::from(&self.end_y[index..index + 4]);
 
         // 3. Calculate Target BBoxes (Parallel Min/Max)
         let t_min_x = t_sx.min(t_ex);
@@ -106,15 +115,12 @@ mod tests {
         let lines = vec![
             // 0. Inside Query BBox (Should Match)
             Line::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 2.0, y: 2.0 }),
-
             // 1. Completely Outside to the Right (No Match)
             // BBox: [12,0, 14,10] -> MinX(12) > QueryMaxX(10)
             Line::new(Coord { x: 12.0, y: 0.0 }, Coord { x: 14.0, y: 10.0 }),
-
             // 2. Overlapping Boundary (Touching) (Should Match)
             // BBox: [10,5, 15,5]. MinX(10) <= QueryMaxX(10)
             Line::new(Coord { x: 10.0, y: 5.0 }, Coord { x: 15.0, y: 5.0 }),
-
             // 3. Diagonal Crossing (Should Match)
             Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
         ];
@@ -140,9 +146,10 @@ mod tests {
         let query = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
 
         // Only 1 line provided. 3 slots will be padded with NaN.
-        let lines = vec![
-            Line::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 2.0, y: 2.0 }),
-        ];
+        let lines = vec![Line::new(
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 2.0, y: 2.0 },
+        )];
 
         let soa = SoALines::new(&lines);
 
@@ -171,12 +178,12 @@ mod tests {
     fn test_crossing_scenario() {
         // Reproduction of test_noding_crossing_lines structure
         let lines = vec![
-            Line::new(Coord{x:0.,y:0.}, Coord{x:10.,y:0.}), // 0
-            Line::new(Coord{x:10.,y:0.}, Coord{x:10.,y:10.}), // 1
-            Line::new(Coord{x:10.,y:10.}, Coord{x:0.,y:10.}), // 2
-            Line::new(Coord{x:0.,y:10.}, Coord{x:0.,y:0.}), // 3
-            Line::new(Coord{x:0.,y:0.}, Coord{x:10.,y:10.}), // 4
-            Line::new(Coord{x:0.,y:10.}, Coord{x:10.,y:0.}), // 5
+            Line::new(Coord { x: 0., y: 0. }, Coord { x: 10., y: 0. }), // 0
+            Line::new(Coord { x: 10., y: 0. }, Coord { x: 10., y: 10. }), // 1
+            Line::new(Coord { x: 10., y: 10. }, Coord { x: 0., y: 10. }), // 2
+            Line::new(Coord { x: 0., y: 10. }, Coord { x: 0., y: 0. }), // 3
+            Line::new(Coord { x: 0., y: 0. }, Coord { x: 10., y: 10. }), // 4
+            Line::new(Coord { x: 0., y: 10. }, Coord { x: 10., y: 0. }), // 5
         ];
 
         let soa = SoALines::new(&lines);

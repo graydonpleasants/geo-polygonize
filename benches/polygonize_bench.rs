@@ -1,8 +1,8 @@
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use geo_polygonize::{Polygonizer, TiledPolygonizer};
-use geo_types::{LineString, Rect, Coord};
-use rand::{Rng, SeedableRng};
+use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 fn generate_grid(n: usize) -> Vec<LineString<f64>> {
     let mut lines = Vec::new();
@@ -10,12 +10,12 @@ fn generate_grid(n: usize) -> Vec<LineString<f64>> {
         // Horizontal
         lines.push(LineString::from(vec![
             (0.0, i as f64),
-            (n as f64, i as f64)
+            (n as f64, i as f64),
         ]));
         // Vertical
         lines.push(LineString::from(vec![
             (i as f64, 0.0),
-            (i as f64, n as f64)
+            (i as f64, n as f64),
         ]));
     }
     lines
@@ -29,10 +29,7 @@ fn generate_random_lines(n: usize, seed: u64) -> Vec<LineString<f64>> {
         let y1 = rng.gen_range(0.0..100.0);
         let x2 = rng.gen_range(0.0..100.0);
         let y2 = rng.gen_range(0.0..100.0);
-        lines.push(LineString::from(vec![
-            (x1, y1),
-            (x2, y2)
-        ]));
+        lines.push(LineString::from(vec![(x1, y1), (x2, y2)]));
     }
     lines
 }
@@ -59,10 +56,16 @@ fn bench_polygonize(c: &mut Criterion) {
 
         // Benchmark Tiled version for larger sizes
         if size >= 50 {
-             group.bench_with_input(BenchmarkId::new("grid_tiled", size), &size, |b, &size| {
+            group.bench_with_input(BenchmarkId::new("grid_tiled", size), &size, |b, &size| {
                 let lines = generate_grid(size);
                 // BBox is roughly 0,0 to size,size
-                let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: size as f64, y: size as f64 });
+                let bbox = Rect::new(
+                    Coord { x: 0.0, y: 0.0 },
+                    Coord {
+                        x: size as f64,
+                        y: size as f64,
+                    },
+                );
                 // Tile size roughly size/2 to get 4 tiles?
                 let tile_size = (size as f64) / 2.0;
 
