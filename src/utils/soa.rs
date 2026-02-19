@@ -4,51 +4,51 @@ use wide::CmpGe;
 use wide::CmpLe;
 
 pub struct SoALines {
-    pub start_x: Vec<f64>,
-    pub start_y: Vec<f64>,
-    pub end_x: Vec<f64>,
-    pub end_y: Vec<f64>,
+    pub min_x: Vec<f64>,
+    pub min_y: Vec<f64>,
+    pub max_x: Vec<f64>,
+    pub max_y: Vec<f64>,
 }
 
 impl SoALines {
     pub fn new(lines: &[Line<f64>]) -> Self {
         let len = lines.len();
         // Reserve memory + padding
-        let mut sx = Vec::with_capacity(len + 3);
-        let mut sy = Vec::with_capacity(len + 3);
-        let mut ex = Vec::with_capacity(len + 3);
-        let mut ey = Vec::with_capacity(len + 3);
+        let mut min_x = Vec::with_capacity(len + 3);
+        let mut min_y = Vec::with_capacity(len + 3);
+        let mut max_x = Vec::with_capacity(len + 3);
+        let mut max_y = Vec::with_capacity(len + 3);
 
         for line in lines {
-            sx.push(line.start.x);
-            sy.push(line.start.y);
-            ex.push(line.end.x);
-            ey.push(line.end.y);
+            min_x.push(line.start.x.min(line.end.x));
+            min_y.push(line.start.y.min(line.end.y));
+            max_x.push(line.start.x.max(line.end.x));
+            max_y.push(line.start.y.max(line.end.y));
         }
 
         // Pad with NaNs so that comparisons always fail (return false)
         // preventing false positives at the end of the array.
-        while sx.len() % 4 != 0 {
-            sx.push(f64::NAN);
-            sy.push(f64::NAN);
-            ex.push(f64::NAN);
-            ey.push(f64::NAN);
+        while min_x.len() % 4 != 0 {
+            min_x.push(f64::NAN);
+            min_y.push(f64::NAN);
+            max_x.push(f64::NAN);
+            max_y.push(f64::NAN);
         }
 
         Self {
-            start_x: sx,
-            start_y: sy,
-            end_x: ex,
-            end_y: ey,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.start_x.len()
+        self.min_x.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.start_x.is_empty()
+        self.min_x.is_empty()
     }
 
     /// Checks a single query line against 4 stored lines simultaneously.
@@ -60,7 +60,6 @@ impl SoALines {
     #[inline]
     pub fn intersects_bbox_batch(&self, query: Line<f64>, index: usize) -> u8 {
         // 1. Prepare Query BBox (Splat to all 4 lanes)
-        // We pre-calculate min/max for the query line once.
         let q_min_x_val = query.start.x.min(query.end.x);
         let q_max_x_val = query.start.x.max(query.end.x);
         let q_min_y_val = query.start.y.min(query.end.y);
@@ -71,32 +70,33 @@ impl SoALines {
         let q_min_y = f64x4::splat(q_min_y_val);
         let q_max_y = f64x4::splat(q_max_y_val);
 
-        // 2. Load Targets (4 at a time)
-        // Ideally, ensure `index` is valid. We rely on the caller stepping by 4.
-        let t_sx = f64x4::from(&self.start_x[index..index + 4]);
-        let t_sy = f64x4::from(&self.start_y[index..index + 4]);
-        let t_ex = f64x4::from(&self.end_x[index..index + 4]);
-        let t_ey = f64x4::from(&self.end_y[index..index + 4]);
+        self.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, index)
+    }
 
-        // 3. Calculate Target BBoxes (Parallel Min/Max)
-        let t_min_x = t_sx.min(t_ex);
-        let t_max_x = t_sx.max(t_ex);
-        let t_min_y = t_sy.min(t_ey);
-        let t_max_y = t_sy.max(t_ey);
+    /// Optimized version that accepts pre-splatted query bounding box.
+    #[inline]
+    pub fn intersects_bbox_batch_splatted(
+        &self,
+        q_min_x: f64x4,
+        q_max_x: f64x4,
+        q_min_y: f64x4,
+        q_max_y: f64x4,
+        index: usize,
+    ) -> u8 {
+        // 2. Load Targets (4 at a time) using pre-calculated Min/Max
+        let t_min_x = f64x4::from(&self.min_x[index..index + 4]);
+        let t_min_y = f64x4::from(&self.min_y[index..index + 4]);
+        let t_max_x = f64x4::from(&self.max_x[index..index + 4]);
+        let t_max_y = f64x4::from(&self.max_y[index..index + 4]);
 
-        // 4. Perform Intersection Check
-        // Logic: Overlap exists if (RectA.min < RectB.max) && (RectA.max > RectB.min)
-        // We check X axis AND Y axis.
-
-        // Note: wide cmp methods return a mask where all bits are 1 for true.
+        // 3. Perform Intersection Check
+        // Logic: Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
         let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
         let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
 
         let overlap = overlap_x & overlap_y;
 
-        // 5. Pack result to u8
-        // move_mask() extracts the sign bit of each lane.
-        // For f64x4, it returns an i32 (only bottom 4 bits matter).
+        // 4. Pack result to u8
         overlap.move_mask() as u8
     }
 }
@@ -154,7 +154,7 @@ mod tests {
         let soa = SoALines::new(&lines);
 
         // Ensure we allocated enough for SIMD width
-        assert!(soa.start_x.len() >= 4);
+        assert!(soa.min_x.len() >= 4);
 
         let mask = soa.intersects_bbox_batch(query, 0);
 
@@ -171,7 +171,7 @@ mod tests {
         let lines: Vec<Line<f64>> = vec![];
         let soa = SoALines::new(&lines);
 
-        assert_eq!(soa.start_x.len(), 0);
+        assert_eq!(soa.min_x.len(), 0);
     }
 
     #[test]

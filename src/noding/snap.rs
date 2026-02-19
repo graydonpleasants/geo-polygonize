@@ -2,6 +2,7 @@ use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
 use rstar::{RTree, RTreeObject, AABB};
+use wide::f64x4;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -218,8 +219,14 @@ impl SnapNoder {
         // Ideally start `j` at `(i + 1) / 4 * 4`.
         let start_block = (i + 1) / 4 * 4;
 
+        // Pre-calculate query BBox splats
+        let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
+        let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
+        let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
+        let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
+
         for j in (start_block..soa.len()).step_by(4) {
-            let mask = soa.intersects_bbox_batch(query_line, j);
+            let mask = soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
 
             if mask != 0 {
                 for k in 0..4 {
