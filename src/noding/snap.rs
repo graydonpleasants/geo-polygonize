@@ -2,9 +2,9 @@ use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
 use rstar::{RTree, RTreeObject, AABB};
-use wide::f64x4;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use wide::f64x4;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
