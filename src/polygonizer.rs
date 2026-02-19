@@ -3,11 +3,12 @@ use crate::graph::PlanarGraph;
 use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
-use geo_types::{Coord, Geometry, LineString, Point, Polygon};
+use geo_types::{Coord, Geometry, Line, LineString, Point, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 
 use crate::noding::snap::SnapNoder;
 use crate::utils::simd::SimdRing;
+use crate::utils::z_order_index;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -144,6 +145,17 @@ impl Polygonizer {
                     input_segments.push(line);
                 }
             }
+
+            // OPTIMIZATION: Spatial Sort (Z-Order)
+            // This improves cache locality for both the Grid and the SIMD noder.
+            let mut numbered_lines: Vec<(u64, Line<f64>)> = input_segments.iter()
+                .map(|l| (z_order_index(l.start), *l))
+                .collect();
+
+            // Unstable sort is faster and sufficient
+            numbered_lines.sort_unstable_by_key(|k| k.0);
+
+            input_segments = numbered_lines.into_iter().map(|k| k.1).collect();
 
             let noder = SnapNoder::new(self.snap_grid_size);
             segments = noder.node(input_segments);
