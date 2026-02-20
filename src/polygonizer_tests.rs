@@ -5,22 +5,23 @@ mod tests {
     use geo_types::LineString;
 
     #[test]
-    fn test_polygonize_simple_triangle() {
+    fn test_polygonize_simple_triangle() -> Result<(), Box<dyn std::error::Error>> {
         let mut poly = Polygonizer::new();
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]).into());
         poly.add_geometry(LineString::from(vec![(10.0, 0.0), (0.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]).into());
 
-        let polygons = poly.polygonize().unwrap();
+        let polygons = poly.polygonize()?;
         assert!(polygons.len() >= 1);
         let triangle = polygons
             .iter()
             .find(|p| p.unsigned_area() > 49.0 && p.unsigned_area() < 51.0);
         assert!(triangle.is_some());
+        Ok(())
     }
 
     #[test]
-    fn test_polygonize_hole() {
+    fn test_polygonize_hole() -> Result<(), Box<dyn std::error::Error>> {
         let mut poly = Polygonizer::new();
         // Outer square
         poly.add_geometry(
@@ -46,7 +47,7 @@ mod tests {
             .into(),
         );
 
-        let polygons = poly.polygonize().unwrap();
+        let polygons = poly.polygonize()?;
         assert_eq!(
             polygons.len(),
             2,
@@ -56,18 +57,19 @@ mod tests {
 
         let donut = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
-        assert!(donut.is_some(), "Donut polygon not found");
-        assert_eq!(donut.unwrap().interiors().len(), 1);
+            .find(|p| (p.unsigned_area() - 64.0).abs() < 1.0)
+            .ok_or("Donut polygon not found")?;
+        assert_eq!(donut.interiors().len(), 1);
 
         let island = polygons
             .iter()
             .find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
+        Ok(())
     }
 
     #[test]
-    fn test_noding_crossing_lines() {
+    fn test_noding_crossing_lines() -> Result<(), Box<dyn std::error::Error>> {
         let mut poly = Polygonizer::new();
         poly.node_input = true;
 
@@ -87,7 +89,7 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize()?;
         // Frame (empty because triangles are holes) + 4 Triangles
         // Wait, the logic assigns holes to shells.
         // Frame is OuterCCW (100) and OuterCW (-100).
@@ -113,10 +115,11 @@ mod tests {
             .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
             .count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
+        Ok(())
     }
 
     #[test]
-    fn test_noding_collinear_lines() {
+    fn test_noding_collinear_lines() -> Result<(), Box<dyn std::error::Error>> {
         let mut poly = Polygonizer::new();
         poly.node_input = true;
 
@@ -139,7 +142,7 @@ mod tests {
             LineString::from(vec![(10.0, 0.0), (10.0, 10.0), (5.0, 10.0), (5.0, 0.0)]).into(),
         );
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize()?;
 
         // Should find the rectangle of area 50.
         let rect = polygons
@@ -149,5 +152,6 @@ mod tests {
             rect.is_some(),
             "Expected rectangle of area 50 from collinear overlap"
         );
+        Ok(())
     }
 }

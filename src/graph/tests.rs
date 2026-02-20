@@ -4,7 +4,7 @@ mod tests {
     use geo_types::{Coord, LineString};
 
     #[test]
-    fn test_graph_construction() {
+    fn test_graph_construction() -> Result<(), Box<dyn std::error::Error>> {
         let mut graph = PlanarGraph::new();
         let l1 = LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]);
         let l2 = LineString::from(vec![(0.0, 0.0), (0.0, 10.0)]);
@@ -17,12 +17,16 @@ mod tests {
         assert_eq!(graph.directed_edges.len(), 4);
 
         // Node at (0,0) should have 2 outgoing edges
-        let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
+        let center_node_idx = graph
+            .node_map
+            .get(&Coord::from((0.0, 0.0)).into())
+            .ok_or("Node not found")?;
         assert_eq!(graph.nodes_outgoing[*center_node_idx].len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn test_edge_sorting() {
+    fn test_edge_sorting() -> Result<(), Box<dyn std::error::Error>> {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
         // 1. Right (0 degrees) -> dx=10, dy=0
@@ -36,7 +40,10 @@ mod tests {
 
         graph.sort_edges();
 
-        let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
+        let center_node_idx = graph
+            .node_map
+            .get(&Coord::from((0.0, 0.0)).into())
+            .ok_or("Node not found")?;
 
         let edges = &graph.nodes_outgoing[*center_node_idx];
         assert_eq!(edges.len(), 4);
@@ -78,10 +85,11 @@ mod tests {
             "Expected Down (0, -10), got {:?}",
             dst3
         );
+        Ok(())
     }
 
     #[test]
-    fn test_dangle_pruning() {
+    fn test_dangle_pruning() -> Result<(), Box<dyn std::error::Error>> {
         let mut graph = PlanarGraph::new();
         // Triangle with a dangle
         graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
@@ -99,8 +107,9 @@ mod tests {
         let b_idx = graph
             .node_map
             .get(&Coord::from((10.0, 0.0)).into())
-            .unwrap();
+            .ok_or("Node not found")?;
         assert_eq!(graph.nodes_degree[*b_idx], 2);
+        Ok(())
     }
 
     #[test]

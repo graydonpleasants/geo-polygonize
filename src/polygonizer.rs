@@ -3,7 +3,7 @@ use crate::graph::PlanarGraph;
 use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
-use geo_types::{Coord, Geometry, LineString, Point, Polygon};
+use geo_types::{Coord, Geometry, LineString, Point, Polygon, Rect};
 use rstar::{RTree, RTreeObject, AABB};
 
 use crate::noding::snap::SnapNoder;
@@ -18,7 +18,10 @@ impl RTreeObject for IndexedPolygon {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
-        let bbox = self.0.bounding_rect().unwrap();
+        let bbox = self
+            .0
+            .bounding_rect()
+            .unwrap_or(Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }));
         AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y])
     }
 }
@@ -254,7 +257,9 @@ impl Polygonizer {
         let process_hole_assignment =
             |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let hole_ring = hole_poly.exterior();
-                let bbox = hole_poly.bounding_rect().unwrap();
+                let bbox = hole_poly
+                    .bounding_rect()
+                    .unwrap_or(Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 0.0, y: 0.0 }));
                 let hole_aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 

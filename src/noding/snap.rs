@@ -379,14 +379,19 @@ mod tests {
         );
 
         for (idx, points_rtree) in &splits_rtree {
-            let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
+            // Check existence first to avoid panic if missing (though indexing would panic too)
+            assert!(
+                splits_simd.contains_key(idx),
+                "Index missing in SIMD splits"
+            );
+            let points_simd = &splits_simd[idx];
 
             // Sort points to ensure order independence
             let mut p_rtree = points_rtree.clone();
-            p_rtree.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_rtree.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
 
             let mut p_simd = points_simd.clone();
-            p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
+            p_simd.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
 
             assert_eq!(p_rtree, p_simd, "Split points differ for line {}", idx);
         }

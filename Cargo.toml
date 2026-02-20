@@ -52,3 +52,14 @@ strip = true    # Removes symbols
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[lints.clippy]
+# pedantic = { level = "warn", priority = -1 } # Uncomment to enable pedantic lints
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+allow_attributes = "deny"
+dbg_macro = "deny"
+todo = "deny"
+print_stdout = "deny"
+print_stderr = "deny"

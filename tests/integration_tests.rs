@@ -4,7 +4,7 @@ use geo_types::{Coord, LineString};
 use std::f64::consts::PI;
 
 #[test]
-fn test_nested_holes() {
+fn test_nested_holes() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
 
     // Outer Box (0,0) - (100,100)
@@ -43,7 +43,7 @@ fn test_nested_holes() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
 
     // The polygonizer produces a full mesh:
     // 1. The Donut (Outer - Hole). Area = 10000 - 3600 = 6400.
@@ -69,11 +69,12 @@ fn test_nested_holes() {
         .iter()
         .find(|p| (p.unsigned_area() - 400.0).abs() < 1e-6);
     assert!(island.is_some(), "Island polygon with area 400 not found");
+    Ok(())
 }
 
 #[test]
 #[ignore]
-fn test_touching_polygons() {
+fn test_touching_polygons() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     poly.node_input = true; // Required to deduplicate the shared edge
 
@@ -102,7 +103,7 @@ fn test_touching_polygons() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
 
     // Should find 3 polygons (Mesh behavior):
     // 1. Square 1 (Area 2500)
@@ -116,10 +117,11 @@ fn test_touching_polygons() {
         .filter(|p| (p.unsigned_area() - 2500.0).abs() < 1e-6)
         .count();
     assert_eq!(squares_count, 2, "Expected 2 squares of area 2500");
+    Ok(())
 }
 
 #[test]
-fn test_dangles() {
+fn test_dangles() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     // A square with a tail
     poly.add_geometry(
@@ -136,13 +138,14 @@ fn test_dangles() {
     // Tail
     poly.add_geometry(LineString::from(vec![(10.0, 10.0), (20.0, 20.0)]).into());
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
     assert_eq!(polygons.len(), 1);
     assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+    Ok(())
 }
 
 #[test]
-fn test_bowtie() {
+fn test_bowtie() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     poly.node_input = true;
 
@@ -159,7 +162,7 @@ fn test_bowtie() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
 
     // Produces:
     // 1. Triangle 1 (Shell). Area 25.
@@ -173,6 +176,7 @@ fn test_bowtie() {
         .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
         .count();
     assert_eq!(triangles, 2);
+    Ok(())
 }
 
 fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
@@ -189,7 +193,7 @@ fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
 }
 
 #[test]
-fn test_overlapping_circles() {
+fn test_overlapping_circles() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     poly.node_input = true;
 
@@ -202,13 +206,14 @@ fn test_overlapping_circles() {
     poly.add_geometry(c2.into());
     poly.add_geometry(c3.into());
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
     // Expect 8 (7 regions + 1 union).
     assert!(polygons.len() >= 7 && polygons.len() <= 8);
+    Ok(())
 }
 
 #[test]
-fn test_curved_holes() {
+fn test_curved_holes() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     poly.node_input = true;
 
@@ -225,8 +230,9 @@ fn test_curved_holes() {
     poly.add_geometry(h3.into());
     poly.add_geometry(h4.into());
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize()?;
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
+    Ok(())
 }

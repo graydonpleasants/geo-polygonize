@@ -3,7 +3,7 @@ use geo_polygonize::Polygonizer;
 use geo_types::{Coord, LineString};
 
 #[test]
-fn test_bowtie_noding() {
+fn test_bowtie_noding() -> Result<(), Box<dyn std::error::Error>> {
     // A bowtie shape: (0,0) -> (10,10) -> (10,0) -> (0,10) -> (0,0)
     // Intersection at (5,5).
     let ls = LineString(vec![
@@ -19,18 +19,14 @@ fn test_bowtie_noding() {
     poly.snap_grid_size = 1e-6;
     poly.add_geometry(Geometry::LineString(ls));
 
-    let results = poly.polygonize().expect("Polygonization failed");
-
-    println!("Bowtie Results: {}", results.len());
-    for (i, p) in results.iter().enumerate() {
-        println!("Poly {}: {:?}", i, p);
-    }
+    let results = poly.polygonize()?;
 
     assert_eq!(results.len(), 2, "Expected 2 polygons from bowtie");
+    Ok(())
 }
 
 #[test]
-fn test_duplicate_edge_removal() {
+fn test_duplicate_edge_removal() -> Result<(), Box<dyn std::error::Error>> {
     let mut poly = Polygonizer::new();
     poly.node_input = true;
     poly.snap_grid_size = 1e-6;
@@ -57,6 +53,7 @@ fn test_duplicate_edge_removal() {
         Coord { x: 0.0, y: 0.0 },
     ])));
 
-    let results = poly.polygonize().expect("Polygonization failed");
+    let results = poly.polygonize()?;
     assert_eq!(results.len(), 1);
+    Ok(())
 }
