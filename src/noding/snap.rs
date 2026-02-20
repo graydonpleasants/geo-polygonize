@@ -43,8 +43,14 @@ impl SnapNoder {
             line.end = self.snap(line.end);
         }
 
-        // Remove degenerates
-        lines.retain(|l| l.start != l.end);
+        // Remove degenerates and invalid lines
+        lines.retain(|l| {
+            l.start != l.end
+                && l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
 
         // Normalize and dedup initial input
         self.normalize_and_dedup(&mut lines);
@@ -76,10 +82,14 @@ impl SnapNoder {
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
+                // Use remove to avoid cloning the vector
                 if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
+
+                    // Filter out invalid points (NaN/Inf)
+                    points.retain(|p| p.x.is_finite() && p.y.is_finite());
 
                     // Sort by distance from start
                     let start = line.start;
@@ -129,12 +139,12 @@ impl SnapNoder {
             }
         }
         lines.sort_by(|a, b| {
-            let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-            let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-            sa.0.total_cmp(&sb.0)
-                .then(sa.1.total_cmp(&sb.1))
-                .then(sa.2.total_cmp(&sb.2))
-                .then(sa.3.total_cmp(&sb.3))
+            a.start
+                .x
+                .total_cmp(&b.start.x)
+                .then(a.start.y.total_cmp(&b.start.y))
+                .then(a.end.x.total_cmp(&b.end.x))
+                .then(a.end.y.total_cmp(&b.end.y))
         });
         lines.dedup();
     }
@@ -423,5 +433,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_scalar_strategy_simple() {
+        let mut lines = Vec::new();
+        // Intersection at (5, 5)
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+        ));
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 10.0, y: 0.0 },
+        ));
+
+        let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
+        let noded = noder.node(lines);
+
+        // Should result in 4 segments meeting at (5,5)
+        // (0,0)->(5,5)
+        // (5,5)->(10,10)
+        // (0,10)->(5,5)
+        // (5,5)->(10,0)
+        assert_eq!(noded.len(), 4, "Expected 4 lines from simple intersection");
+
+        let center = Coord { x: 5.0, y: 5.0 };
+        // Check if any line endpoint is close to center
+        let center_hits = noded
+            .iter()
+            .filter(|l| {
+                (l.start.x - center.x).abs() < 1e-6 && (l.start.y - center.y).abs() < 1e-6
+                    || (l.end.x - center.x).abs() < 1e-6 && (l.end.y - center.y).abs() < 1e-6
+            })
+            .count();
+
+        assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
     }
 }

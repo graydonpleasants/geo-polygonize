@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000276 | 0.000693 | 2.51x |
-| 10 | 0.000571 | 0.002259 | 3.96x |
-| 20 | 0.001514 | 0.008357 | 5.52x |
-| 50 | 0.008302 | 0.051762 | 6.23x |
-| 100 | 0.037492 | 0.213437 | 5.69x |
+| 5 | 0.000280 | 0.000614 | 2.19x |
+| 10 | 0.000582 | 0.002086 | 3.58x |
+| 20 | 0.001527 | 0.007960 | 5.21x |
+| 50 | 0.008120 | 0.053436 | 6.58x |
+| 100 | 0.039013 | 0.256009 | 6.56x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001369 | 0.008173 | 5.97x |
-| 100 | 0.005569 | 0.026102 | 4.69x |
-| 200 | 0.021757 | 0.100611 | 4.62x |
+| 50 | 0.001401 | 0.008507 | 6.07x |
+| 100 | 0.005631 | 0.025920 | 4.60x |
+| 200 | 0.021783 | 0.112047 | 5.14x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1607,6 +1607,44 @@ fn main() {
 
 ```
 
+File: scripts/benchmark_circle.py
+```
+
+import timeit
+import numpy as np
+from shapely.geometry import LineString
+
+def create_circle_original(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    coords = []
+    for a in angles:
+        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
+    return LineString(coords)
+
+def create_circle_optimized(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    # Vectorized calculation
+    xs = x + r * np.cos(angles)
+    ys = y + r * np.sin(angles)
+    coords = np.column_stack((xs, ys))
+    return LineString(coords)
+
+def benchmark():
+    points = 10000
+    loops = 100
+
+    t_orig = timeit.timeit(lambda: create_circle_original(0, 0, 10, points), number=loops)
+    t_opt = timeit.timeit(lambda: create_circle_optimized(0, 0, 10, points), number=loops)
+
+    print(f"Original: {t_orig:.4f} s")
+    print(f"Optimized: {t_opt:.4f} s")
+    print(f"Speedup: {t_orig / t_opt:.2f}x")
+
+if __name__ == "__main__":
+    benchmark()
+
+```
+
 File: scripts/build_wasm.sh
 ```
 #!/bin/bash
@@ -1724,9 +1762,7 @@ import os
 
 def create_circle(x, y, r, points=100):
     angles = np.linspace(0, 2*np.pi, points)
-    coords = []
-    for a in angles:
-        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
+    coords = np.column_stack((x + r * np.cos(angles), y + r * np.sin(angles)))
     return LineString(coords)
 
 def main():
@@ -2225,7 +2261,7 @@ impl Polygonizer {
         let process_hole_assignment =
             |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let hole_ring = hole_poly.exterior();
-                let bbox = hole_poly.bounding_rect().unwrap();
+                let bbox = hole_poly.bounding_rect()?;
                 let hole_aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
@@ -2279,8 +2315,7 @@ impl Polygonizer {
         }
 
         let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
-            let holes = shell_holes[i].clone();
+        for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
             let p = Polygon::new(shell.exterior().clone(), holes);
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
@@ -2512,6 +2547,7 @@ mod tests {
 File: src/tiling.rs
 ```
 use crate::Polygonizer;
+use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
 use geo::Area;
@@ -2545,6 +2581,68 @@ impl TiledPolygonizer {
         self.geometries.push(geom);
     }
 
+    fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon<f64>> {
+        let mut local_poly = Polygonizer::new();
+        local_poly.node_input = true;
+
+        // Define buffered bbox
+        let buffered_bbox = Rect::new(
+            Coord {
+                x: tile_bbox.min().x - self.buffer,
+                y: tile_bbox.min().y - self.buffer,
+            },
+            Coord {
+                x: tile_bbox.max().x + self.buffer,
+                y: tile_bbox.max().y + self.buffer,
+            },
+        );
+
+        // Filter geometries intersecting the BUFFERED tile
+        let mut relevant_lines = 0;
+        for geom in &self.geometries {
+            if geom
+                .bounding_rect()
+                .map(|b| b.intersects(&buffered_bbox))
+                .unwrap_or(false)
+            {
+                local_poly.add_geometry(geom.clone());
+                relevant_lines += 1;
+            }
+        }
+
+        if relevant_lines == 0 {
+            return Vec::new();
+        }
+
+        // Run polygonization
+        if let Ok(polys) = local_poly.polygonize() {
+            // Ownership check:
+            let mut valid_polys = Vec::new();
+            for poly in polys {
+                if let Some(pt) = poly.centroid() {
+                    let c = pt;
+                    let area = poly.unsigned_area();
+
+                    // Filter slivers
+                    if area < 1e-6 {
+                        continue;
+                    }
+
+                    // Check inclusion [min, max)
+                    let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
+                    let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
+
+                    if in_x && in_y {
+                        valid_polys.push(poly);
+                    }
+                }
+            }
+            valid_polys
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn polygonize(&self) -> Vec<Polygon<f64>> {
         // 1. Generate tiles
         let min = self.bbox.min();
@@ -2568,77 +2666,20 @@ impl TiledPolygonizer {
         }
 
         // 2. Process tiles in parallel or sequential
-        let process_tile = |tile_bbox: Rect<f64>| -> Vec<Polygon<f64>> {
-            let mut local_poly = Polygonizer::new();
-            local_poly.node_input = true;
-
-            // Define buffered bbox
-            let buffered_bbox = Rect::new(
-                Coord {
-                    x: tile_bbox.min().x - self.buffer,
-                    y: tile_bbox.min().y - self.buffer,
-                },
-                Coord {
-                    x: tile_bbox.max().x + self.buffer,
-                    y: tile_bbox.max().y + self.buffer,
-                },
-            );
-
-            // Filter geometries intersecting the BUFFERED tile
-            let mut relevant_lines = 0;
-            for geom in &self.geometries {
-                if geom
-                    .bounding_rect()
-                    .map(|b| b.intersects(&buffered_bbox))
-                    .unwrap_or(false)
-                {
-                    local_poly.add_geometry(geom.clone());
-                    relevant_lines += 1;
-                }
-            }
-
-            if relevant_lines == 0 {
-                return Vec::new();
-            }
-
-            // Run polygonization
-            if let Ok(polys) = local_poly.polygonize() {
-                // Ownership check:
-                let mut valid_polys = Vec::new();
-                for poly in polys {
-                    use geo::algorithm::centroid::Centroid;
-                    if let Some(pt) = poly.centroid() {
-                        let c = pt;
-                        let area = poly.unsigned_area();
-
-                        // Filter slivers
-                        if area < 1e-6 {
-                            continue;
-                        }
-
-                        // Check inclusion [min, max)
-                        let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
-                        let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
-
-                        if in_x && in_y {
-                            valid_polys.push(poly);
-                        }
-                    }
-                }
-                valid_polys
-            } else {
-                Vec::new()
-            }
-        };
-
         let result_polygons: Vec<Polygon<f64>>;
         #[cfg(feature = "parallel")]
         {
-            result_polygons = tiles.into_par_iter().flat_map(process_tile).collect();
+            result_polygons = tiles
+                .into_par_iter()
+                .flat_map(|tile| self.process_tile(tile))
+                .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            result_polygons = tiles.into_iter().flat_map(process_tile).collect();
+            result_polygons = tiles
+                .into_iter()
+                .flat_map(|tile| self.process_tile(tile))
+                .collect();
         }
 
         result_polygons
@@ -3444,17 +3485,20 @@ impl PlanarGraph {
         // edge after the incoming edge (sym) in CCW order at the node.
         let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
 
+        let mut valid_edges = Vec::new();
         for (i, degree) in self.nodes_degree.iter().enumerate() {
             if *degree == 0 {
                 continue;
             }
 
             // Filter out marked edges from the adjacency list
-            let valid_edges: Vec<usize> = self.nodes_outgoing[i]
-                .iter()
-                .cloned()
-                .filter(|&idx| !self.directed_edges[idx].is_marked)
-                .collect();
+            valid_edges.clear();
+            valid_edges.extend(
+                self.nodes_outgoing[i]
+                    .iter()
+                    .cloned()
+                    .filter(|&idx| !self.directed_edges[idx].is_marked),
+            );
 
             if valid_edges.is_empty() {
                 continue;
@@ -3843,14 +3887,16 @@ impl UniformGrid {
                                             || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                                     if is_in_x && is_in_y {
-                                        let snapped = snap_noder.snap(pt);
-                                        // Record splits
-                                        if snapped != l1.start && snapped != l1.end {
-                                            splits.entry(idx1).or_default().push(snapped);
-                                        }
-                                        if snapped != l2.start && snapped != l2.end {
-                                            splits.entry(idx2).or_default().push(snapped);
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                                 LineIntersection::Collinear {
@@ -3858,22 +3904,22 @@ impl UniformGrid {
                                 } => {
                                     // Collinear is rare. Just process start/end and let HashMap dedup later.
                                     let p1 = snap_noder.snap(overlap.start);
-                                    let p2 = snap_noder.snap(overlap.end);
                                     // Simplified ownership: Check if p1 is in cell
                                     let p1_in = p1.x >= cell_min_x
                                         && p1.x < cell_max_x
                                         && p1.y >= cell_min_y
                                         && p1.y < cell_max_y;
                                     if p1_in || (c == 0 && r == 0) {
-                                        // Fallback to process at least once
-                                        for p in [p1, p2] {
-                                            if p != l1.start && p != l1.end {
-                                                splits.entry(idx1).or_default().push(p);
-                                            }
-                                            if p != l2.start && p != l2.end {
-                                                splits.entry(idx2).or_default().push(p);
-                                            }
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -3883,6 +3929,146 @@ impl UniformGrid {
             }
         }
         splits
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::noding::snap::SnapNoder;
+    use approx::assert_relative_eq;
+    use geo::{Coord, Line};
+
+    #[test]
+    fn test_empty_grid() {
+        let grid = UniformGrid::new(&[]);
+        assert_eq!(grid.rows, 0);
+        assert_eq!(grid.cols, 0);
+        assert!(grid.cells.is_empty());
+    }
+
+    #[test]
+    fn test_grid_dimensions() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
+            Line::new(Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+            Line::new(Coord { x: 10.0, y: 10.0 }, Coord { x: 0.0, y: 10.0 }),
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 0.0, y: 0.0 }),
+        ];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Check bounds
+        assert_relative_eq!(grid.bounds_min.x, 0.0);
+        assert_relative_eq!(grid.bounds_min.y, 0.0);
+
+        // Dimensions should be non-zero
+        assert!(grid.rows > 0);
+        assert!(grid.cols > 0);
+        assert!(grid.cell_size > 0.0);
+
+        // Verify total cells
+        assert_eq!(grid.cells.len(), grid.rows * grid.cols);
+    }
+
+    #[test]
+    fn test_cell_population() {
+        // Create 2 disjoint lines far apart
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }), // Bottom-left
+            Line::new(Coord { x: 9.0, y: 9.0 }, Coord { x: 10.0, y: 10.0 }), // Top-right
+        ];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Find cells containing line 0
+        let mut cells_with_0 = 0;
+        let mut cells_with_1 = 0;
+
+        for cell in &grid.cells {
+            if cell.contains(&0) {
+                cells_with_0 += 1;
+            }
+            if cell.contains(&1) {
+                cells_with_1 += 1;
+            }
+        }
+
+        assert!(cells_with_0 > 0, "Line 0 should be in at least one cell");
+        assert!(cells_with_1 > 0, "Line 1 should be in at least one cell");
+
+        // Verify they don't share any cells (given the distance and reasonable grid size)
+        for cell in &grid.cells {
+            assert!(
+                !(cell.contains(&0) && cell.contains(&1)),
+                "Lines far apart should not share a cell"
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_splits_intersection() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }), // Diagonal /
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }), // Diagonal \
+        ];
+
+        let grid = UniformGrid::new(&lines);
+        let noder = SnapNoder::new(0.0); // Exact noding
+
+        let splits = grid.find_splits(&lines, &noder);
+
+        // Both lines should be split at (5, 5)
+        assert!(splits.contains_key(&0));
+        assert!(splits.contains_key(&1));
+
+        let p0 = splits[&0][0];
+        let p1 = splits[&1][0];
+
+        assert_relative_eq!(p0.x, 5.0);
+        assert_relative_eq!(p0.y, 5.0);
+        assert_relative_eq!(p1.x, 5.0);
+        assert_relative_eq!(p1.y, 5.0);
+    }
+
+    #[test]
+    fn test_find_splits_no_intersection() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
+            Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 10.0, y: 1.0 }),
+        ];
+
+        let grid = UniformGrid::new(&lines);
+        let noder = SnapNoder::new(0.0);
+
+        let splits = grid.find_splits(&lines, &noder);
+        assert!(splits.is_empty());
+    }
+
+    #[test]
+    fn test_boundary_handling() {
+        // Line crossing multiple cells horizontally
+        let lines = vec![Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 100.0, y: 0.0 },
+        )];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Ensure we have enough columns to test boundary crossing
+        assert!(
+            grid.cols > 1,
+            "Grid should have multiple columns for this test case"
+        );
+
+        let mut cells_with_line = 0;
+        for cell in &grid.cells {
+            if cell.contains(&0) {
+                cells_with_line += 1;
+            }
+        }
+
+        assert!(cells_with_line > 1, "Long line should span multiple cells");
     }
 }
 
@@ -3950,6 +4136,7 @@ impl SnapNoder {
         self.normalize_and_dedup(&mut lines);
 
         // 2. Iterative Noding
+        let mut new_lines = Vec::new();
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -3958,7 +4145,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let splits = if !use_grid {
+            let mut splits = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -3972,10 +4159,10 @@ impl SnapNoder {
             }
 
             // Apply splits
-            let mut new_lines = Vec::with_capacity(lines.len() * 2);
+            new_lines.clear();
+            new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
-                if let Some(splits) = splits.get(&i) {
-                    let mut points = splits.clone();
+                if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -4004,7 +4191,7 @@ impl SnapNoder {
             }
 
             self.normalize_and_dedup(&mut new_lines);
-            lines = new_lines;
+            std::mem::swap(&mut lines, &mut new_lines);
         }
 
         lines
@@ -4034,6 +4221,47 @@ impl SnapNoder {
         Coord {
             x: (c.x / self.grid_size).round() * self.grid_size,
             y: (c.y / self.grid_size).round() * self.grid_size,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn handle_intersection<F>(
+        &self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        mut handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        match res {
+            LineIntersection::SinglePoint {
+                intersection: pt, ..
+            } => {
+                let snapped = self.snap(pt);
+                if snapped != l1.start && snapped != l1.end {
+                    handler(i, snapped);
+                }
+                if snapped != l2.start && snapped != l2.end {
+                    handler(j, snapped);
+                }
+            }
+            LineIntersection::Collinear {
+                intersection: overlap,
+            } => {
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+                for p in [p1, p2] {
+                    if p != l1.start && p != l1.end {
+                        handler(i, p);
+                    }
+                    if p != l2.start && p != l2.end {
+                        handler(j, p);
+                    }
+                }
+            }
         }
     }
 
@@ -4183,33 +4411,9 @@ impl SnapNoder {
         let l2 = lines[j];
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            match res {
-                LineIntersection::SinglePoint {
-                    intersection: pt, ..
-                } => {
-                    let snapped = self.snap(pt);
-                    if snapped != l1.start && snapped != l1.end {
-                        splits.entry(i).or_default().push(snapped);
-                    }
-                    if snapped != l2.start && snapped != l2.end {
-                        splits.entry(j).or_default().push(snapped);
-                    }
-                }
-                LineIntersection::Collinear {
-                    intersection: overlap,
-                } => {
-                    let p1 = self.snap(overlap.start);
-                    let p2 = self.snap(overlap.end);
-                    for p in [p1, p2] {
-                        if p != l1.start && p != l1.end {
-                            splits.entry(i).or_default().push(p);
-                        }
-                        if p != l2.start && p != l2.end {
-                            splits.entry(j).or_default().push(p);
-                        }
-                    }
-                }
-            }
+            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+                splits.entry(idx).or_default().push(pt);
+            });
         }
     }
 
@@ -4223,33 +4427,9 @@ impl SnapNoder {
         l2: Line<f64>,
         events: &mut Vec<(usize, Coord<f64>)>,
     ) {
-        match res {
-            LineIntersection::SinglePoint {
-                intersection: pt, ..
-            } => {
-                let snapped = self.snap(pt);
-                if snapped != l1.start && snapped != l1.end {
-                    events.push((i, snapped));
-                }
-                if snapped != l2.start && snapped != l2.end {
-                    events.push((j, snapped));
-                }
-            }
-            LineIntersection::Collinear {
-                intersection: overlap,
-            } => {
-                let p1 = self.snap(overlap.start);
-                let p2 = self.snap(overlap.end);
-                for p in [p1, p2] {
-                    if p != l1.start && p != l1.end {
-                        events.push((i, p));
-                    }
-                    if p != l2.start && p != l2.end {
-                        events.push((j, p));
-                    }
-                }
-            }
-        }
+        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+            events.push((idx, pt));
+        });
     }
 }
 
@@ -4318,6 +4498,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_scalar_strategy_simple() {
+        let mut lines = Vec::new();
+        // Intersection at (5, 5)
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+        ));
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 10.0, y: 0.0 },
+        ));
+
+        let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
+        let noded = noder.node(lines);
+
+        // Should result in 4 segments meeting at (5,5)
+        // (0,0)->(5,5)
+        // (5,5)->(10,10)
+        // (0,10)->(5,5)
+        // (5,5)->(10,0)
+        assert_eq!(noded.len(), 4, "Expected 4 lines from simple intersection");
+
+        let center = Coord { x: 5.0, y: 5.0 };
+        // Check if any line endpoint is close to center
+        let center_hits = noded
+            .iter()
+            .filter(|l| {
+                (l.start.x - center.x).abs() < 1e-6 && (l.start.y - center.y).abs() < 1e-6
+                    || (l.end.x - center.x).abs() < 1e-6 && (l.end.y - center.y).abs() < 1e-6
+            })
+            .count();
+
+        assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
     }
 }
 
@@ -4528,6 +4744,10 @@ impl SimdRing {
     }
 
     pub fn contains(&self, point: Coord<f64>) -> bool {
+        if self.len == 0 {
+            return false;
+        }
+
         let px = f64x4::splat(point.x);
         let py = f64x4::splat(point.y);
 
@@ -4576,6 +4796,92 @@ impl SimdRing {
         }
 
         crossings % 2 != 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo::Coord;
+
+    #[test]
+    fn test_simd_ring_square() {
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside
+        assert!(ring.contains(Coord { x: 5.0, y: 5.0 }));
+
+        // Outside
+        assert!(!ring.contains(Coord { x: 15.0, y: 5.0 }));
+        assert!(!ring.contains(Coord { x: 5.0, y: 15.0 }));
+        assert!(!ring.contains(Coord { x: -5.0, y: 5.0 }));
+        assert!(!ring.contains(Coord { x: 5.0, y: -5.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_triangle() {
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside
+        assert!(ring.contains(Coord { x: 2.0, y: 2.0 }));
+        // Outside
+        assert!(!ring.contains(Coord { x: 10.0, y: 10.0 })); // Outside bounding box corner
+        assert!(!ring.contains(Coord { x: 5.0, y: 6.0 })); // Outside hypotenuse
+    }
+
+    #[test]
+    fn test_simd_ring_complex() {
+        // A "U" shape polygon
+        // 0,0 -> 10,0 -> 10,10 -> 8,10 -> 8,2 -> 2,2 -> 2,10 -> 0,10 -> 0,0
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 8.0, y: 10.0 },
+            Coord { x: 8.0, y: 2.0 },
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 2.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside the U base
+        assert!(ring.contains(Coord { x: 5.0, y: 1.0 }));
+        // Inside the U arms
+        assert!(ring.contains(Coord { x: 1.0, y: 5.0 }));
+        assert!(ring.contains(Coord { x: 9.0, y: 5.0 }));
+
+        // Inside the "hole" of the U (concave part)
+        // x=5, y=5 is in the empty space between arms
+        assert!(!ring.contains(Coord { x: 5.0, y: 5.0 }));
+
+        // Outside bounding box
+        assert!(!ring.contains(Coord { x: 12.0, y: 5.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_empty() {
+        let coords: Vec<Coord<f64>> = vec![];
+        let ring = SimdRing::new(&coords);
+        assert!(!ring.contains(Coord { x: 0.0, y: 0.0 }));
+
+        let coords_single = vec![Coord { x: 0.0, y: 0.0 }];
+        let ring_single = SimdRing::new(&coords_single);
+        assert!(!ring_single.contains(Coord { x: 0.0, y: 0.0 }));
     }
 }
 
