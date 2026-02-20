@@ -264,18 +264,9 @@ impl SnapNoder {
 
             if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
             {
-                if let Some(res) =
-                    geo::algorithm::line_intersection::line_intersection(query_line, target_line)
-                {
-                    self.collect_intersection_events(
-                        res,
-                        i,
-                        j,
-                        query_line,
-                        target_line,
-                        &mut events,
-                    );
-                }
+                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
+                    events.push((idx, pt));
+                });
             }
         }
 
@@ -300,26 +291,36 @@ impl SnapNoder {
                         } // Enforce i < j
 
                         let target_line = lines[target_idx];
-                        if let Some(res) = geo::algorithm::line_intersection::line_intersection(
+                        self.process_intersection(
                             query_line,
                             target_line,
-                        ) {
-                            // We can't update a shared HashMap here.
-                            // Return the intersection events for the caller to aggregate.
-                            self.collect_intersection_events(
-                                res,
-                                i,
-                                target_idx,
-                                query_line,
-                                target_line,
-                                &mut events,
-                            );
-                        }
+                            i,
+                            target_idx,
+                            |idx, pt| {
+                                events.push((idx, pt));
+                            },
+                        );
                     }
                 }
             }
         }
         events
+    }
+
+    #[inline]
+    fn process_intersection<F>(
+        &self,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        i: usize,
+        j: usize,
+        handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
+            self.handle_intersection(res, i, j, l1, l2, handler);
+        }
     }
 
     #[inline]
@@ -337,27 +338,11 @@ impl SnapNoder {
         let l1 = lines[i];
         let l2 = lines[j];
 
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-                splits.entry(idx).or_default().push(pt);
-            });
-        }
-    }
-
-    // Helper to collect events into a local vector instead of HashMap
-    fn collect_intersection_events(
-        &self,
-        res: LineIntersection<f64>,
-        i: usize,
-        j: usize,
-        l1: Line<f64>,
-        l2: Line<f64>,
-        events: &mut Vec<(usize, Coord<f64>)>,
-    ) {
-        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-            events.push((idx, pt));
+        self.process_intersection(l1, l2, i, j, |idx, pt| {
+            splits.entry(idx).or_default().push(pt);
         });
     }
+
 }
 
 #[cfg(test)]
@@ -461,5 +446,23 @@ mod tests {
             .count();
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
+    }
+
+    #[test]
+    fn test_check_intersection_public_api() {
+        use approx::assert_relative_eq;
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
+        ];
+        let noder = SnapNoder::new(0.0);
+        let mut splits = HashMap::new();
+
+        noder.check_intersection(&lines, 0, 1, &mut splits);
+
+        assert!(splits.contains_key(&0));
+        assert!(splits.contains_key(&1));
+        assert_relative_eq!(splits[&0][0].x, 5.0);
+        assert_relative_eq!(splits[&0][0].y, 5.0);
     }
 }
