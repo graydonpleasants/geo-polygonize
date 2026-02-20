@@ -51,6 +51,7 @@ pub struct DirectedEdge {
 /// Instead of pointer-based structures, it uses `Vec` arenas for Nodes, Edges, and DirectedEdges,
 /// referencing them via integer indices (`NodeId`, `EdgeId`, `DirEdgeId`).
 /// This layout is cache-friendly and plays well with Rust's ownership model.
+#[derive(Clone)]
 pub struct PlanarGraph {
     /// Node coordinates (X). Index is `NodeId`.
     pub nodes_x: Vec<f64>,
