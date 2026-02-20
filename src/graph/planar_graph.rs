@@ -3,6 +3,7 @@ use geo::Line;
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// Index of a node in the graph.
@@ -83,6 +84,84 @@ impl From<Coord<f64>> for NodeKey {
     }
 }
 
+struct NodeEntry {
+    z: u64,
+    c: Coord<f64>,
+}
+
+impl PartialEq for NodeEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.z == other.z && self.c == other.c
+    }
+}
+impl Eq for NodeEntry {}
+
+impl PartialOrd for NodeEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NodeEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.z.cmp(&other.z).then_with(|| {
+            self.c
+                .x
+                .total_cmp(&other.c.x)
+                .then(self.c.y.total_cmp(&other.c.y))
+        })
+    }
+}
+
+fn create_edge_components(
+    i: usize,
+    u: NodeId,
+    v: NodeId,
+    line: Line<f64>,
+    edges_start_len: usize,
+    dir_edges_start_len: usize,
+) -> (
+    NodeId,
+    NodeId,
+    DirEdgeId,
+    DirEdgeId,
+    DirectedEdge,
+    DirectedEdge,
+    Edge,
+) {
+    let edge_idx = edges_start_len + i;
+    let de_u_v_idx = dir_edges_start_len + 2 * i;
+    let de_v_u_idx = dir_edges_start_len + 2 * i + 1;
+
+    let de_u_v = DirectedEdge {
+        src: u,
+        dst: v,
+        edge_idx,
+        sym_idx: de_v_u_idx,
+        is_visited: false,
+        is_marked: false,
+        edge_direction: true,
+    };
+
+    let de_v_u = DirectedEdge {
+        src: v,
+        dst: u,
+        edge_idx,
+        sym_idx: de_u_v_idx,
+        is_visited: false,
+        is_marked: false,
+        edge_direction: false,
+    };
+
+    let edge = Edge {
+        line,
+        dir_edges: [de_u_v_idx, de_v_u_idx],
+        is_marked: false,
+    };
+
+    (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+}
+
 impl Default for PlanarGraph {
     fn default() -> Self {
         Self::new()
@@ -130,74 +209,31 @@ impl PlanarGraph {
         }
 
         // 1. Collect all coordinates and precompute Z-order
-        struct NodeEntry {
-            z: u64,
-            c: Coord<f64>,
-        }
-
-        // Parallelize Z-order calculation
-        #[cfg(feature = "parallel")]
-        let mut entries: Vec<NodeEntry> = lines
-            .par_iter()
-            .flat_map_iter(|line| {
-                let z1 = z_order_index(line.start);
-                let z2 = z_order_index(line.end);
-                [
-                    NodeEntry {
-                        z: z1,
-                        c: line.start,
-                    },
-                    NodeEntry { z: z2, c: line.end },
-                ]
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut entries: Vec<NodeEntry> = {
-            let mut v = Vec::with_capacity(lines.len() * 2);
-            for line in &lines {
-                v.push(NodeEntry {
+        let to_entries = |line: &Line<f64>| {
+            [
+                NodeEntry {
                     z: z_order_index(line.start),
                     c: line.start,
-                });
-                v.push(NodeEntry {
+                },
+                NodeEntry {
                     z: z_order_index(line.end),
                     c: line.end,
-                });
-            }
-            v
+                },
+            ]
         };
+
+        #[cfg(feature = "parallel")]
+        let mut entries: Vec<NodeEntry> = lines.par_iter().flat_map_iter(to_entries).collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut entries: Vec<NodeEntry> = lines.iter().flat_map(to_entries).collect();
 
         // 2. Sort using precomputed Z-order
         #[cfg(feature = "parallel")]
-        entries.par_sort_unstable_by(|a, b| {
-            a.z.cmp(&b.z).then_with(|| {
-                // Tie-break with exact coords for determinism/dedup
-                a.c.x
-                    .partial_cmp(&b.c.x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(
-                        a.c.y
-                            .partial_cmp(&b.c.y)
-                            .unwrap_or(std::cmp::Ordering::Equal),
-                    )
-            })
-        });
+        entries.par_sort_unstable();
 
         #[cfg(not(feature = "parallel"))]
-        entries.sort_unstable_by(|a, b| {
-            a.z.cmp(&b.z).then_with(|| {
-                // Tie-break with exact coords
-                a.c.x
-                    .partial_cmp(&b.c.x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(
-                        a.c.y
-                            .partial_cmp(&b.c.y)
-                            .unwrap_or(std::cmp::Ordering::Equal),
-                    )
-            })
-        });
+        entries.sort_unstable();
 
         // Dedup using exact equality.
         entries.dedup_by(|a, b| {
@@ -228,20 +264,10 @@ impl PlanarGraph {
 
             // Binary search on the sorted entries
             let idx_res = entries.binary_search_by(|probe| {
-                probe.z.cmp(&z_pt).then_with(|| {
-                    probe
-                        .c
-                        .x
-                        .partial_cmp(&pt.x)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(
-                            probe
-                                .c
-                                .y
-                                .partial_cmp(&pt.y)
-                                .unwrap_or(std::cmp::Ordering::Equal),
-                        )
-                })
+                probe
+                    .z
+                    .cmp(&z_pt)
+                    .then_with(|| probe.c.x.total_cmp(&pt.x).then(probe.c.y.total_cmp(&pt.y)))
             });
 
             match idx_res {
@@ -298,82 +324,22 @@ impl PlanarGraph {
         self.edges.reserve(valid_edges.len());
         self.directed_edges.reserve(valid_edges.len() * 2);
 
+        let edges_start_len = self.edges.len();
+        let directed_edges_start_len = self.directed_edges.len();
+
+        let mapper = |(i, (u, v, line)): (usize, (NodeId, NodeId, Line<f64>))| {
+            create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
+        };
+
         #[cfg(feature = "parallel")]
         let new_edges_data: Vec<_> = valid_edges
             .into_par_iter()
             .enumerate()
-            .map(|(i, (u, v, line))| {
-                let edge_idx = self.edges.len() + i;
-                let de_u_v_idx = self.directed_edges.len() + 2 * i;
-                let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
-
-                let de_u_v = DirectedEdge {
-                    src: u,
-                    dst: v,
-                    edge_idx,
-                    sym_idx: de_v_u_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: true,
-                };
-
-                let de_v_u = DirectedEdge {
-                    src: v,
-                    dst: u,
-                    edge_idx,
-                    sym_idx: de_u_v_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: false,
-                };
-
-                let edge = Edge {
-                    line,
-                    dir_edges: [de_u_v_idx, de_v_u_idx],
-                    is_marked: false,
-                };
-
-                (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
-            })
+            .map(mapper)
             .collect();
 
         #[cfg(not(feature = "parallel"))]
-        let new_edges_data: Vec<_> = valid_edges
-            .into_iter()
-            .enumerate()
-            .map(|(i, (u, v, line))| {
-                let edge_idx = self.edges.len() + i;
-                let de_u_v_idx = self.directed_edges.len() + 2 * i;
-                let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
-
-                let de_u_v = DirectedEdge {
-                    src: u,
-                    dst: v,
-                    edge_idx,
-                    sym_idx: de_v_u_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: true,
-                };
-
-                let de_v_u = DirectedEdge {
-                    src: v,
-                    dst: u,
-                    edge_idx,
-                    sym_idx: de_u_v_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: false,
-                };
-
-                let edge = Edge {
-                    line,
-                    dir_edges: [de_u_v_idx, de_v_u_idx],
-                    is_marked: false,
-                };
-                (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
-            })
-            .collect();
+        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(mapper).collect();
 
         for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
             self.directed_edges.push(de_u_v);
