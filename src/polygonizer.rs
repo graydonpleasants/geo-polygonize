@@ -270,10 +270,7 @@ impl Polygonizer {
         let process_hole_assignment =
             |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let hole_ring = hole_poly.exterior();
-                let bbox = hole_poly.bounding_rect().unwrap_or(Rect::new(
-                    Coord { x: 0.0, y: 0.0 },
-                    Coord { x: 0.0, y: 0.0 },
-                ));
+                let bbox = hole_poly.bounding_rect()?;
                 let hole_aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
@@ -328,7 +325,8 @@ impl Polygonizer {
 
         let mut result = Vec::new();
         for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
-            let p = Polygon::new(shell.exterior().clone(), holes);
+            let (exterior, _) = shell.into_inner();
+            let p = Polygon::new(exterior, holes);
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }

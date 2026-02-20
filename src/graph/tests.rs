@@ -116,4 +116,111 @@ mod tests {
 
         assert_eq!(rings.len(), 2);
     }
+
+    #[test]
+    fn test_bulk_load() {
+        use geo::Line;
+
+        // Define segments: Square with a diagonal + disconnected segment
+        let segments = vec![
+            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 0.0))),
+            Line::new(Coord::from((10.0, 0.0)), Coord::from((10.0, 10.0))),
+            Line::new(Coord::from((10.0, 10.0)), Coord::from((0.0, 10.0))),
+            Line::new(Coord::from((0.0, 10.0)), Coord::from((0.0, 0.0))),
+            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 10.0))), // Diagonal
+            Line::new(Coord::from((20.0, 20.0)), Coord::from((30.0, 30.0))), // Disconnected
+        ];
+
+        // 1. Incremental graph
+        let mut graph_incremental = PlanarGraph::new();
+        for segment in &segments {
+            graph_incremental.add_line_string(LineString::from(vec![segment.start, segment.end]));
+        }
+
+        // 2. Bulk graph
+        let mut graph_bulk = PlanarGraph::new();
+        graph_bulk.bulk_load(segments.clone());
+
+        // 3. Comparisons
+
+        // Check counts
+        assert_eq!(
+            graph_bulk.nodes_x.len(),
+            graph_incremental.nodes_x.len(),
+            "Node count mismatch"
+        );
+        assert_eq!(
+            graph_bulk.edges.len(),
+            graph_incremental.edges.len(),
+            "Edge count mismatch"
+        );
+        // Directed edges count should match edges * 2
+        assert_eq!(
+            graph_bulk.directed_edges.len(),
+            graph_incremental.directed_edges.len(),
+            "Directed edge count mismatch"
+        );
+
+        // Helper to get sorted neighbors (by coordinate) for a given node coordinate
+        let get_neighbors = |graph: &PlanarGraph, coord: Coord<f64>| -> Vec<Coord<f64>> {
+            // Try node_map first
+            let mut node_idx = graph.node_map.get(&coord.into()).copied();
+
+            // If not found (e.g. bulk loaded graph does not populate node_map), linear scan
+            if node_idx.is_none() {
+                for (i, (&x, &y)) in graph.nodes_x.iter().zip(graph.nodes_y.iter()).enumerate() {
+                    // Use exact equality as in bulk_load logic
+                    if x == coord.x && y == coord.y {
+                        node_idx = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(idx) = node_idx {
+                let mut neighbors: Vec<Coord<f64>> = graph.nodes_outgoing[idx]
+                    .iter()
+                    .map(|&de_idx| {
+                        let dst_idx = graph.directed_edges[de_idx].dst;
+                        Coord {
+                            x: graph.nodes_x[dst_idx],
+                            y: graph.nodes_y[dst_idx],
+                        }
+                    })
+                    .collect();
+                // Sort for stable comparison
+                neighbors.sort_by(|a, b| {
+                    a.x.partial_cmp(&b.x)
+                        .unwrap()
+                        .then(a.y.partial_cmp(&b.y).unwrap())
+                });
+                neighbors
+            } else {
+                vec![]
+            }
+        };
+
+        // Collect all unique points from input
+        let mut unique_points: Vec<Coord<f64>> = segments
+            .iter()
+            .flat_map(|line| vec![line.start, line.end])
+            .collect();
+        unique_points.sort_by(|a, b| {
+            a.x.partial_cmp(&b.x)
+                .unwrap()
+                .then(a.y.partial_cmp(&b.y).unwrap())
+        });
+        unique_points.dedup();
+
+        for point in unique_points {
+            let neighbors_inc = get_neighbors(&graph_incremental, point);
+            let neighbors_bulk = get_neighbors(&graph_bulk, point);
+
+            assert_eq!(
+                neighbors_inc, neighbors_bulk,
+                "Neighbors mismatch for point {:?}",
+                point
+            );
+        }
+    }
 }

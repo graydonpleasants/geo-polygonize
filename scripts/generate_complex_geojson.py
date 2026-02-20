@@ -5,9 +5,7 @@ import os
 
 def create_circle(x, y, r, points=100):
     angles = np.linspace(0, 2*np.pi, points)
-    coords = []
-    for a in angles:
-        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
+    coords = np.column_stack((x + r * np.cos(angles), y + r * np.sin(angles)))
     return LineString(coords)
 
 def main():

@@ -40,4 +40,10 @@ describe('WASM Polygonizer', () => {
         const result = JSON.parse(resultJson);
         expect(result.features).toHaveLength(0);
     });
+
+    it('should throw error on invalid JSON', async () => {
+        await init();
+        const input = "{ invalid json }";
+        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+    });
 });
