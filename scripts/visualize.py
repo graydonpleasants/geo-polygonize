@@ -1,9 +1,43 @@
 import json
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection, PatchCollection
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path
 from shapely.geometry import shape
-from shapely.plotting import plot_line, plot_polygon
 import sys
 import argparse
+import numpy as np
+
+def polygon_to_patch(polygon):
+    """Converts a Shapely Polygon to a matplotlib PathPatch."""
+    if polygon.is_empty:
+        return None
+
+    vertices = []
+    codes = []
+
+    # Exterior ring
+    ext = np.array(polygon.exterior.coords)
+    if len(ext) > 0:
+        vertices.extend(ext)
+        codes.append(Path.MOVETO)
+        codes.extend([Path.LINETO] * (len(ext) - 2))
+        codes.append(Path.CLOSEPOLY)
+
+    # Interior rings (holes)
+    for interior in polygon.interiors:
+        inte = np.array(interior.coords)
+        if len(inte) > 0:
+            vertices.extend(inte)
+            codes.append(Path.MOVETO)
+            codes.extend([Path.LINETO] * (len(inte) - 2))
+            codes.append(Path.CLOSEPOLY)
+
+    if not vertices:
+        return None
+
+    path = Path(vertices, codes)
+    return PathPatch(path)
 
 def plot_geojson(filepath, ax, color, title, is_polygon=False):
     with open(filepath, 'r') as f:
@@ -25,18 +59,44 @@ def plot_geojson(filepath, ax, color, title, is_polygon=False):
             geoms.append(shape(data))
 
     count = 0
-    for geom in geoms:
-        if is_polygon:
-            if geom.geom_type in ['Polygon', 'MultiPolygon']:
-                plot_polygon(geom, ax=ax, facecolor=color, edgecolor='black', alpha=0.5)
+    if is_polygon:
+        patches = []
+        for geom in geoms:
+            if geom.geom_type == 'Polygon':
+                patch = polygon_to_patch(geom)
+                if patch:
+                    patches.append(patch)
                 count += 1
-        else:
-            if geom.geom_type in ['LineString', 'MultiLineString']:
-                plot_line(geom, ax=ax, color=color, linewidth=1, alpha=0.7)
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    patch = polygon_to_patch(poly)
+                    if patch:
+                        patches.append(patch)
                 count += 1
 
+        if patches:
+            p = PatchCollection(patches, facecolor=color, edgecolor='black', alpha=0.5)
+            ax.add_collection(p)
+            ax.autoscale()
+    else:
+        lines = []
+        for geom in geoms:
+            if geom.geom_type == 'LineString':
+                if not geom.is_empty:
+                    lines.append(np.array(geom.coords))
+                count += 1
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    if not line.is_empty:
+                        lines.append(np.array(line.coords))
+                count += 1
+
+        if lines:
+            lc = LineCollection(lines, colors=color, linewidths=1, alpha=0.7)
+            ax.add_collection(lc)
+            ax.autoscale()
+
     ax.set_title(f"{title} ({count} items)")
-    ax.autoscale()
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize Polygonization Results")

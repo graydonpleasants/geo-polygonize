@@ -72,7 +72,7 @@ fn test_nested_holes() {
 }
 
 #[test]
-#[ignore]
+
 fn test_touching_polygons() {
     let mut poly = Polygonizer::new();
     poly.node_input = true; // Required to deduplicate the shared edge
@@ -104,12 +104,12 @@ fn test_touching_polygons() {
 
     let polygons = poly.polygonize().unwrap();
 
-    // Should find 3 polygons (Mesh behavior):
+    // Should find 2 polygons (Mesh behavior):
     // 1. Square 1 (Area 2500)
     // 2. Square 2 (Area 2500)
-    // 3. Union / Outer Shell (Area 5000) or similar.
+    // The "Union" or Outer Face is implicitly the infinite face and not returned.
 
-    assert!(polygons.len() >= 2);
+    assert_eq!(polygons.len(), 2);
 
     let squares_count = polygons
         .iter()
