@@ -29,6 +29,10 @@ impl SimdRing {
     }
 
     pub fn contains(&self, point: Coord<f64>) -> bool {
+        if self.len == 0 {
+            return false;
+        }
+
         let px = f64x4::splat(point.x);
         let py = f64x4::splat(point.y);
 
@@ -77,5 +81,91 @@ impl SimdRing {
         }
 
         crossings % 2 != 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo::Coord;
+
+    #[test]
+    fn test_simd_ring_square() {
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside
+        assert!(ring.contains(Coord { x: 5.0, y: 5.0 }));
+
+        // Outside
+        assert!(!ring.contains(Coord { x: 15.0, y: 5.0 }));
+        assert!(!ring.contains(Coord { x: 5.0, y: 15.0 }));
+        assert!(!ring.contains(Coord { x: -5.0, y: 5.0 }));
+        assert!(!ring.contains(Coord { x: 5.0, y: -5.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_triangle() {
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside
+        assert!(ring.contains(Coord { x: 2.0, y: 2.0 }));
+        // Outside
+        assert!(!ring.contains(Coord { x: 10.0, y: 10.0 })); // Outside bounding box corner
+        assert!(!ring.contains(Coord { x: 5.0, y: 6.0 })); // Outside hypotenuse
+    }
+
+    #[test]
+    fn test_simd_ring_complex() {
+        // A "U" shape polygon
+        // 0,0 -> 10,0 -> 10,10 -> 8,10 -> 8,2 -> 2,2 -> 2,10 -> 0,10 -> 0,0
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 8.0, y: 10.0 },
+            Coord { x: 8.0, y: 2.0 },
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 2.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside the U base
+        assert!(ring.contains(Coord { x: 5.0, y: 1.0 }));
+        // Inside the U arms
+        assert!(ring.contains(Coord { x: 1.0, y: 5.0 }));
+        assert!(ring.contains(Coord { x: 9.0, y: 5.0 }));
+
+        // Inside the "hole" of the U (concave part)
+        // x=5, y=5 is in the empty space between arms
+        assert!(!ring.contains(Coord { x: 5.0, y: 5.0 }));
+
+        // Outside bounding box
+        assert!(!ring.contains(Coord { x: 12.0, y: 5.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_empty() {
+        let coords: Vec<Coord<f64>> = vec![];
+        let ring = SimdRing::new(&coords);
+        assert!(!ring.contains(Coord { x: 0.0, y: 0.0 }));
+
+        let coords_single = vec![Coord { x: 0.0, y: 0.0 }];
+        let ring_single = SimdRing::new(&coords_single);
+        assert!(!ring_single.contains(Coord { x: 0.0, y: 0.0 }));
     }
 }
