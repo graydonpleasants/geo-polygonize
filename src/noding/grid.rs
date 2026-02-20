@@ -221,3 +221,143 @@ impl UniformGrid {
         splits
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::noding::snap::SnapNoder;
+    use approx::assert_relative_eq;
+    use geo::{Coord, Line};
+
+    #[test]
+    fn test_empty_grid() {
+        let grid = UniformGrid::new(&[]);
+        assert_eq!(grid.rows, 0);
+        assert_eq!(grid.cols, 0);
+        assert!(grid.cells.is_empty());
+    }
+
+    #[test]
+    fn test_grid_dimensions() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
+            Line::new(Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+            Line::new(Coord { x: 10.0, y: 10.0 }, Coord { x: 0.0, y: 10.0 }),
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 0.0, y: 0.0 }),
+        ];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Check bounds
+        assert_relative_eq!(grid.bounds_min.x, 0.0);
+        assert_relative_eq!(grid.bounds_min.y, 0.0);
+
+        // Dimensions should be non-zero
+        assert!(grid.rows > 0);
+        assert!(grid.cols > 0);
+        assert!(grid.cell_size > 0.0);
+
+        // Verify total cells
+        assert_eq!(grid.cells.len(), grid.rows * grid.cols);
+    }
+
+    #[test]
+    fn test_cell_population() {
+        // Create 2 disjoint lines far apart
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }), // Bottom-left
+            Line::new(Coord { x: 9.0, y: 9.0 }, Coord { x: 10.0, y: 10.0 }), // Top-right
+        ];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Find cells containing line 0
+        let mut cells_with_0 = 0;
+        let mut cells_with_1 = 0;
+
+        for cell in &grid.cells {
+            if cell.contains(&0) {
+                cells_with_0 += 1;
+            }
+            if cell.contains(&1) {
+                cells_with_1 += 1;
+            }
+        }
+
+        assert!(cells_with_0 > 0, "Line 0 should be in at least one cell");
+        assert!(cells_with_1 > 0, "Line 1 should be in at least one cell");
+
+        // Verify they don't share any cells (given the distance and reasonable grid size)
+        for cell in &grid.cells {
+            assert!(
+                !(cell.contains(&0) && cell.contains(&1)),
+                "Lines far apart should not share a cell"
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_splits_intersection() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }), // Diagonal /
+            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }), // Diagonal \
+        ];
+
+        let grid = UniformGrid::new(&lines);
+        let noder = SnapNoder::new(0.0); // Exact noding
+
+        let splits = grid.find_splits(&lines, &noder);
+
+        // Both lines should be split at (5, 5)
+        assert!(splits.contains_key(&0));
+        assert!(splits.contains_key(&1));
+
+        let p0 = splits[&0][0];
+        let p1 = splits[&1][0];
+
+        assert_relative_eq!(p0.x, 5.0);
+        assert_relative_eq!(p0.y, 5.0);
+        assert_relative_eq!(p1.x, 5.0);
+        assert_relative_eq!(p1.y, 5.0);
+    }
+
+    #[test]
+    fn test_find_splits_no_intersection() {
+        let lines = vec![
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
+            Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 10.0, y: 1.0 }),
+        ];
+
+        let grid = UniformGrid::new(&lines);
+        let noder = SnapNoder::new(0.0);
+
+        let splits = grid.find_splits(&lines, &noder);
+        assert!(splits.is_empty());
+    }
+
+    #[test]
+    fn test_boundary_handling() {
+        // Line crossing multiple cells horizontally
+        let lines = vec![Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 100.0, y: 0.0 },
+        )];
+
+        let grid = UniformGrid::new(&lines);
+
+        // Ensure we have enough columns to test boundary crossing
+        assert!(
+            grid.cols > 1,
+            "Grid should have multiple columns for this test case"
+        );
+
+        let mut cells_with_line = 0;
+        for cell in &grid.cells {
+            if cell.contains(&0) {
+                cells_with_line += 1;
+            }
+        }
+
+        assert!(cells_with_line > 1, "Long line should span multiple cells");
+    }
+}
