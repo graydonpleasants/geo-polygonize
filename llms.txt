@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000280 | 0.000614 | 2.19x |
-| 10 | 0.000582 | 0.002086 | 3.58x |
-| 20 | 0.001527 | 0.007960 | 5.21x |
-| 50 | 0.008120 | 0.053436 | 6.58x |
-| 100 | 0.039013 | 0.256009 | 6.56x |
+| 5 | 0.000271 | 0.000681 | 2.52x |
+| 10 | 0.000552 | 0.002217 | 4.02x |
+| 20 | 0.001351 | 0.008239 | 6.10x |
+| 50 | 0.007288 | 0.051627 | 7.08x |
+| 100 | 0.033141 | 0.217712 | 6.57x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001401 | 0.008507 | 6.07x |
-| 100 | 0.005631 | 0.025920 | 4.60x |
-| 200 | 0.021783 | 0.112047 | 5.14x |
+| 50 | 0.001321 | 0.008107 | 6.14x |
+| 100 | 0.005400 | 0.026044 | 4.82x |
+| 200 | 0.021159 | 0.099959 | 4.72x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -2362,7 +2362,8 @@ impl Polygonizer {
 
         let mut result = Vec::new();
         for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
-            let p = Polygon::new(shell.exterior().clone(), holes);
+            let (exterior, _) = shell.into_inner();
+            let p = Polygon::new(exterior, holes);
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }
@@ -4286,6 +4287,7 @@ impl SnapNoder {
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
+                // Use remove to avoid cloning the vector
                 if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
@@ -4325,6 +4327,14 @@ impl SnapNoder {
     }
 
     fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
+        // Filter out invalid lines (NaN or infinite coordinates)
+        lines.retain(|l| {
+            l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
+
         for segment in lines.iter_mut() {
             if segment.start.x > segment.end.x
                 || ((segment.start.x - segment.end.x).abs() < 1e-12
@@ -5469,6 +5479,48 @@ fn test_curved_holes() {
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
+}
+
+```
+
+File: tests/reproduce_nan.rs
+```
+use geo::{Coord, Line};
+use geo_polygonize::noding::snap::SnapNoder;
+
+#[test]
+fn test_nan_deduplication_failure() {
+    let noder = SnapNoder::new(0.001);
+    let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+    let l_nan = Line::new(
+        Coord {
+            x: f64::NAN,
+            y: 0.0,
+        },
+        Coord { x: 10.0, y: 10.0 },
+    );
+    let l_inf = Line::new(
+        Coord {
+            x: f64::INFINITY,
+            y: 0.0,
+        },
+        Coord { x: 10.0, y: 10.0 },
+    );
+
+    // We pass 3 lines: l1, l_nan, l_inf.
+    // If noding works correctly (deduplication + filtering), we expect 1 line (l1).
+    let lines = vec![l1, l_nan, l_inf];
+
+    let result = noder.node(lines);
+
+    // NaNs and Infs should be filtered out.
+    assert_eq!(
+        result.len(),
+        1,
+        "Expected 1 line after filtering NaNs and Infs, found {}",
+        result.len()
+    );
+    assert_eq!(result[0], l1, "Remaining line should be the valid one");
 }
 
 ```
