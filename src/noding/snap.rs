@@ -308,14 +308,8 @@ impl SnapNoder {
     }
 
     #[inline]
-    fn process_intersection<F>(
-        &self,
-        l1: Line<f64>,
-        l2: Line<f64>,
-        i: usize,
-        j: usize,
-        handler: F,
-    ) where
+    fn process_intersection<F>(&self, l1: Line<f64>, l2: Line<f64>, i: usize, j: usize, handler: F)
+    where
         F: FnMut(usize, Coord<f64>),
     {
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
@@ -342,7 +336,6 @@ impl SnapNoder {
             splits.entry(idx).or_default().push(pt);
         });
     }
-
 }
 
 #[cfg(test)]
