@@ -122,6 +122,14 @@ impl SnapNoder {
     }
 
     fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
+        // Filter out invalid lines (NaN or infinite coordinates)
+        lines.retain(|l| {
+            l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
+
         for segment in lines.iter_mut() {
             if segment.start.x > segment.end.x
                 || ((segment.start.x - segment.end.x).abs() < 1e-12
