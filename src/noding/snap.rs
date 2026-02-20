@@ -419,8 +419,14 @@ mod tests {
     fn test_scalar_strategy_simple() {
         let mut lines = Vec::new();
         // Intersection at (5, 5)
-        lines.push(Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }));
-        lines.push(Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }));
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+        ));
+        lines.push(Line::new(
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 10.0, y: 0.0 },
+        ));
 
         let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
         let noded = noder.node(lines);
@@ -444,5 +450,4 @@ mod tests {
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
     }
-
 }
