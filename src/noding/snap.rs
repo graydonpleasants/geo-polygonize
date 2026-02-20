@@ -77,6 +77,7 @@ impl SnapNoder {
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
+                // Use remove to avoid cloning the vector
                 if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
