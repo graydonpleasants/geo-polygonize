@@ -41,9 +41,33 @@ describe('WASM Polygonizer', () => {
         expect(result.features).toHaveLength(0);
     });
 
-    it('should throw error on invalid JSON', async () => {
+    it('should throw error on invalid JSON syntax', async () => {
         await init();
         const input = "{ invalid json }";
         expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+    });
+
+    it('should throw error on empty string input', async () => {
+        await init();
+        const input = "";
+        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+        expect(() => polygonize(input)).toThrow(/EOF while parsing a value/);
+    });
+
+    it('should throw error on valid JSON but invalid GeoJSON structure', async () => {
+        await init();
+        // Missing "type" field
+        const input = JSON.stringify({ "foo": "bar" });
+        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+
+        // Invalid geometry type
+        const input2 = JSON.stringify({
+            "type": "Feature",
+            "geometry": {
+                "type": "InvalidType",
+                "coordinates": []
+            }
+        });
+        expect(() => polygonize(input2)).toThrow(/Invalid GeoJSON/);
     });
 });
