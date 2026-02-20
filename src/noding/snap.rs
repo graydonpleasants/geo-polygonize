@@ -2,7 +2,6 @@ use crate::noding::grid::UniformGrid;
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use wide::f64x4;
 
@@ -44,8 +43,14 @@ impl SnapNoder {
             line.end = self.snap(line.end);
         }
 
-        // Remove degenerates
-        lines.retain(|l| l.start != l.end);
+        // Remove degenerates and invalid lines
+        lines.retain(|l| {
+            l.start != l.end
+                && l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
 
         // Normalize and dedup initial input
         self.normalize_and_dedup(&mut lines);
@@ -82,12 +87,15 @@ impl SnapNoder {
                     points.push(line.start);
                     points.push(line.end);
 
+                    // Filter out invalid points (NaN/Inf)
+                    points.retain(|p| p.x.is_finite() && p.y.is_finite());
+
                     // Sort by distance from start
                     let start = line.start;
                     points.sort_by(|a, b| {
                         let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
                         let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                        da.partial_cmp(&db).unwrap_or(Ordering::Equal)
+                        da.total_cmp(&db)
                     });
 
                     points.dedup();
@@ -122,9 +130,12 @@ impl SnapNoder {
             }
         }
         lines.sort_by(|a, b| {
-            let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-            let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-            sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+            a.start
+                .x
+                .total_cmp(&b.start.x)
+                .then(a.start.y.total_cmp(&b.start.y))
+                .then(a.end.x.total_cmp(&b.end.x))
+                .then(a.end.y.total_cmp(&b.end.y))
         });
         lines.dedup();
     }

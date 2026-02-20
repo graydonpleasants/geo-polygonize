@@ -60,3 +60,38 @@ fn test_duplicate_edge_removal() {
     let results = poly.polygonize().expect("Polygonization failed");
     assert_eq!(results.len(), 1);
 }
+
+#[test]
+fn test_nan_handling_in_snap_noder() {
+    use geo_polygonize::noding::snap::{SnapNoder, NodingStrategy};
+    use geo::Line;
+
+    let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
+
+    // Create lines with NaN coordinates
+    let lines = vec![
+        Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+        Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
+        // Line with NaN
+        Line::new(Coord { x: f64::NAN, y: 0.0 }, Coord { x: 5.0, y: 5.0 }),
+    ];
+
+    // This should not panic or hang
+    let result = std::panic::catch_unwind(|| {
+        noder.node(lines)
+    });
+
+    match result {
+        Ok(processed_lines) => {
+             println!("Processed {} lines", processed_lines.len());
+             for line in processed_lines {
+                 if line.start.x.is_nan() || line.start.y.is_nan() || line.end.x.is_nan() || line.end.y.is_nan() {
+                     panic!("Output contains NaN coordinates");
+                 }
+             }
+        },
+        Err(_) => {
+            panic!("SnapNoder panicked on NaN input");
+        }
+    }
+}
