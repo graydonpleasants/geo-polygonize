@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000271 | 0.000681 | 2.52x |
-| 10 | 0.000552 | 0.002217 | 4.02x |
-| 20 | 0.001351 | 0.008239 | 6.10x |
-| 50 | 0.007288 | 0.051627 | 7.08x |
-| 100 | 0.033141 | 0.217712 | 6.57x |
+| 5 | 0.000298 | 0.000678 | 2.28x |
+| 10 | 0.000544 | 0.002212 | 4.06x |
+| 20 | 0.001337 | 0.008223 | 6.15x |
+| 50 | 0.007052 | 0.050842 | 7.21x |
+| 100 | 0.032874 | 0.206437 | 6.28x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001321 | 0.008107 | 6.14x |
-| 100 | 0.005400 | 0.026044 | 4.82x |
-| 200 | 0.021159 | 0.099959 | 4.72x |
+| 50 | 0.001324 | 0.007678 | 5.80x |
+| 100 | 0.005402 | 0.025396 | 4.70x |
+| 200 | 0.021108 | 0.096864 | 4.59x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1101,7 +1101,28 @@ fn bench_polygonize(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_polygonize);
+fn bench_get_edge_rings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("planar_graph");
+    let size = 50;
+    let lines = generate_grid(size);
+
+    group.bench_function("get_edge_rings", |b| {
+        b.iter_with_setup(
+            || {
+                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                for line in &lines {
+                    graph.add_line_string(line.clone());
+                }
+                graph.sort_edges();
+                graph
+            },
+            |mut graph| graph.get_edge_rings(),
+        );
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_polygonize, bench_get_edge_rings);
 criterion_main!(benches);
 
 ```
@@ -3007,6 +3028,7 @@ pub struct DirectedEdge {
 /// Instead of pointer-based structures, it uses `Vec` arenas for Nodes, Edges, and DirectedEdges,
 /// referencing them via integer indices (`NodeId`, `EdgeId`, `DirEdgeId`).
 /// This layout is cache-friendly and plays well with Rust's ownership model.
+#[derive(Clone)]
 pub struct PlanarGraph {
     /// Node coordinates (X). Index is `NodeId`.
     pub nodes_x: Vec<f64>,
@@ -4068,6 +4090,14 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_grid_find_splits() {
+        let grid = UniformGrid::new(&[]);
+        let noder = SnapNoder::new(1e-6);
+        let splits = grid.find_splits(&[], &noder);
+        assert!(splits.is_empty());
+    }
+
+    #[test]
     fn test_grid_dimensions() {
         let lines = vec![
             Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
@@ -4286,9 +4316,17 @@ impl SnapNoder {
             // Apply splits
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
+
+            // Convert HashMap to dense Vec for O(1) lookup and deterministic order
+            let mut split_lookup = Vec::with_capacity(lines.len());
+            split_lookup.resize_with(lines.len(), || None);
+
+            for (i, pts) in splits.drain() {
+                split_lookup[i] = Some(pts);
+            }
+
             for (i, line) in lines.iter().enumerate() {
-                // Use remove to avoid cloning the vector
-                if let Some(mut points) = splits.remove(&i) {
+                if let Some(mut points) = split_lookup[i].take() {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -4298,7 +4336,7 @@ impl SnapNoder {
 
                     // Sort by distance from start
                     let start = line.start;
-                    points.sort_by(|a, b| {
+                    points.sort_unstable_by(|a, b| {
                         let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
                         let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
                         da.total_cmp(&db)
