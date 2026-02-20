@@ -51,6 +51,7 @@ impl SnapNoder {
         self.normalize_and_dedup(&mut lines);
 
         // 2. Iterative Noding
+        let mut new_lines = Vec::new();
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -59,7 +60,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let splits = if !use_grid {
+            let mut splits = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -73,10 +74,10 @@ impl SnapNoder {
             }
 
             // Apply splits
-            let mut new_lines = Vec::with_capacity(lines.len() * 2);
+            new_lines.clear();
+            new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
-                if let Some(splits) = splits.get(&i) {
-                    let mut points = splits.clone();
+                if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -105,7 +106,7 @@ impl SnapNoder {
             }
 
             self.normalize_and_dedup(&mut new_lines);
-            lines = new_lines;
+            std::mem::swap(&mut lines, &mut new_lines);
         }
 
         lines

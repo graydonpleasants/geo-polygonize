@@ -576,17 +576,20 @@ impl PlanarGraph {
         // edge after the incoming edge (sym) in CCW order at the node.
         let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
 
+        let mut valid_edges = Vec::new();
         for (i, degree) in self.nodes_degree.iter().enumerate() {
             if *degree == 0 {
                 continue;
             }
 
             // Filter out marked edges from the adjacency list
-            let valid_edges: Vec<usize> = self.nodes_outgoing[i]
-                .iter()
-                .cloned()
-                .filter(|&idx| !self.directed_edges[idx].is_marked)
-                .collect();
+            valid_edges.clear();
+            valid_edges.extend(
+                self.nodes_outgoing[i]
+                    .iter()
+                    .cloned()
+                    .filter(|&idx| !self.directed_edges[idx].is_marked),
+            );
 
             if valid_edges.is_empty() {
                 continue;
