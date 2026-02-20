@@ -267,7 +267,7 @@ impl Polygonizer {
         let process_hole_assignment =
             |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let hole_ring = hole_poly.exterior();
-                let bbox = hole_poly.bounding_rect().unwrap();
+                let bbox = hole_poly.bounding_rect()?;
                 let hole_aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
