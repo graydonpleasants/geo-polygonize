@@ -81,9 +81,17 @@ impl SnapNoder {
             // Apply splits
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
+
+            // Convert HashMap to dense Vec for O(1) lookup and deterministic order
+            let mut split_lookup = Vec::with_capacity(lines.len());
+            split_lookup.resize_with(lines.len(), || None);
+
+            for (i, pts) in splits.drain() {
+                split_lookup[i] = Some(pts);
+            }
+
             for (i, line) in lines.iter().enumerate() {
-                // Use remove to avoid cloning the vector
-                if let Some(mut points) = splits.remove(&i) {
+                if let Some(mut points) = split_lookup[i].take() {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -93,7 +101,7 @@ impl SnapNoder {
 
                     // Sort by distance from start
                     let start = line.start;
-                    points.sort_by(|a, b| {
+                    points.sort_unstable_by(|a, b| {
                         let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
                         let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
                         da.total_cmp(&db)
