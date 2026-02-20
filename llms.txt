@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000276 | 0.000693 | 2.51x |
-| 10 | 0.000571 | 0.002259 | 3.96x |
-| 20 | 0.001514 | 0.008357 | 5.52x |
-| 50 | 0.008302 | 0.051762 | 6.23x |
-| 100 | 0.037492 | 0.213437 | 5.69x |
+| 5 | 0.000283 | 0.000686 | 2.43x |
+| 10 | 0.000580 | 0.002200 | 3.80x |
+| 20 | 0.001511 | 0.008198 | 5.42x |
+| 50 | 0.007659 | 0.050731 | 6.62x |
+| 100 | 0.035241 | 0.212878 | 6.04x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001369 | 0.008173 | 5.97x |
-| 100 | 0.005569 | 0.026102 | 4.69x |
-| 200 | 0.021757 | 0.100611 | 4.62x |
+| 50 | 0.001366 | 0.007803 | 5.71x |
+| 100 | 0.005480 | 0.025665 | 4.68x |
+| 200 | 0.021318 | 0.097943 | 4.59x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -2279,8 +2279,7 @@ impl Polygonizer {
         }
 
         let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
-            let holes = shell_holes[i].clone();
+        for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
             let p = Polygon::new(shell.exterior().clone(), holes);
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
@@ -3444,17 +3443,20 @@ impl PlanarGraph {
         // edge after the incoming edge (sym) in CCW order at the node.
         let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
 
+        let mut valid_edges = Vec::new();
         for (i, degree) in self.nodes_degree.iter().enumerate() {
             if *degree == 0 {
                 continue;
             }
 
             // Filter out marked edges from the adjacency list
-            let valid_edges: Vec<usize> = self.nodes_outgoing[i]
-                .iter()
-                .cloned()
-                .filter(|&idx| !self.directed_edges[idx].is_marked)
-                .collect();
+            valid_edges.clear();
+            valid_edges.extend(
+                self.nodes_outgoing[i]
+                    .iter()
+                    .cloned()
+                    .filter(|&idx| !self.directed_edges[idx].is_marked),
+            );
 
             if valid_edges.is_empty() {
                 continue;
@@ -3843,14 +3845,16 @@ impl UniformGrid {
                                             || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                                     if is_in_x && is_in_y {
-                                        let snapped = snap_noder.snap(pt);
-                                        // Record splits
-                                        if snapped != l1.start && snapped != l1.end {
-                                            splits.entry(idx1).or_default().push(snapped);
-                                        }
-                                        if snapped != l2.start && snapped != l2.end {
-                                            splits.entry(idx2).or_default().push(snapped);
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                                 LineIntersection::Collinear {
@@ -3858,22 +3862,22 @@ impl UniformGrid {
                                 } => {
                                     // Collinear is rare. Just process start/end and let HashMap dedup later.
                                     let p1 = snap_noder.snap(overlap.start);
-                                    let p2 = snap_noder.snap(overlap.end);
                                     // Simplified ownership: Check if p1 is in cell
                                     let p1_in = p1.x >= cell_min_x
                                         && p1.x < cell_max_x
                                         && p1.y >= cell_min_y
                                         && p1.y < cell_max_y;
                                     if p1_in || (c == 0 && r == 0) {
-                                        // Fallback to process at least once
-                                        for p in [p1, p2] {
-                                            if p != l1.start && p != l1.end {
-                                                splits.entry(idx1).or_default().push(p);
-                                            }
-                                            if p != l2.start && p != l2.end {
-                                                splits.entry(idx2).or_default().push(p);
-                                            }
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -3950,6 +3954,7 @@ impl SnapNoder {
         self.normalize_and_dedup(&mut lines);
 
         // 2. Iterative Noding
+        let mut new_lines = Vec::new();
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -3958,7 +3963,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let splits = if !use_grid {
+            let mut splits = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -3972,10 +3977,10 @@ impl SnapNoder {
             }
 
             // Apply splits
-            let mut new_lines = Vec::with_capacity(lines.len() * 2);
+            new_lines.clear();
+            new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
-                if let Some(splits) = splits.get(&i) {
-                    let mut points = splits.clone();
+                if let Some(mut points) = splits.remove(&i) {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -4004,7 +4009,7 @@ impl SnapNoder {
             }
 
             self.normalize_and_dedup(&mut new_lines);
-            lines = new_lines;
+            std::mem::swap(&mut lines, &mut new_lines);
         }
 
         lines
@@ -4034,6 +4039,47 @@ impl SnapNoder {
         Coord {
             x: (c.x / self.grid_size).round() * self.grid_size,
             y: (c.y / self.grid_size).round() * self.grid_size,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn handle_intersection<F>(
+        &self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        mut handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        match res {
+            LineIntersection::SinglePoint {
+                intersection: pt, ..
+            } => {
+                let snapped = self.snap(pt);
+                if snapped != l1.start && snapped != l1.end {
+                    handler(i, snapped);
+                }
+                if snapped != l2.start && snapped != l2.end {
+                    handler(j, snapped);
+                }
+            }
+            LineIntersection::Collinear {
+                intersection: overlap,
+            } => {
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+                for p in [p1, p2] {
+                    if p != l1.start && p != l1.end {
+                        handler(i, p);
+                    }
+                    if p != l2.start && p != l2.end {
+                        handler(j, p);
+                    }
+                }
+            }
         }
     }
 
@@ -4183,33 +4229,9 @@ impl SnapNoder {
         let l2 = lines[j];
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            match res {
-                LineIntersection::SinglePoint {
-                    intersection: pt, ..
-                } => {
-                    let snapped = self.snap(pt);
-                    if snapped != l1.start && snapped != l1.end {
-                        splits.entry(i).or_default().push(snapped);
-                    }
-                    if snapped != l2.start && snapped != l2.end {
-                        splits.entry(j).or_default().push(snapped);
-                    }
-                }
-                LineIntersection::Collinear {
-                    intersection: overlap,
-                } => {
-                    let p1 = self.snap(overlap.start);
-                    let p2 = self.snap(overlap.end);
-                    for p in [p1, p2] {
-                        if p != l1.start && p != l1.end {
-                            splits.entry(i).or_default().push(p);
-                        }
-                        if p != l2.start && p != l2.end {
-                            splits.entry(j).or_default().push(p);
-                        }
-                    }
-                }
-            }
+            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+                splits.entry(idx).or_default().push(pt);
+            });
         }
     }
 
@@ -4223,33 +4245,9 @@ impl SnapNoder {
         l2: Line<f64>,
         events: &mut Vec<(usize, Coord<f64>)>,
     ) {
-        match res {
-            LineIntersection::SinglePoint {
-                intersection: pt, ..
-            } => {
-                let snapped = self.snap(pt);
-                if snapped != l1.start && snapped != l1.end {
-                    events.push((i, snapped));
-                }
-                if snapped != l2.start && snapped != l2.end {
-                    events.push((j, snapped));
-                }
-            }
-            LineIntersection::Collinear {
-                intersection: overlap,
-            } => {
-                let p1 = self.snap(overlap.start);
-                let p2 = self.snap(overlap.end);
-                for p in [p1, p2] {
-                    if p != l1.start && p != l1.end {
-                        events.push((i, p));
-                    }
-                    if p != l2.start && p != l2.end {
-                        events.push((j, p));
-                    }
-                }
-            }
-        }
+        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+            events.push((idx, pt));
+        });
     }
 }
 
