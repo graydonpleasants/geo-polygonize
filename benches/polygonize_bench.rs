@@ -185,5 +185,26 @@ fn bench_polygonize(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_polygonize);
+fn bench_get_edge_rings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("planar_graph");
+    let size = 50;
+    let lines = generate_grid(size);
+
+    group.bench_function("get_edge_rings", |b| {
+        b.iter_with_setup(
+            || {
+                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                for line in &lines {
+                    graph.add_line_string(line.clone());
+                }
+                graph.sort_edges();
+                graph
+            },
+            |mut graph| graph.get_edge_rings(),
+        );
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_polygonize, bench_get_edge_rings);
 criterion_main!(benches);
