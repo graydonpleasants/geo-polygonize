@@ -2,7 +2,6 @@ use crate::noding::grid::UniformGrid;
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use wide::f64x4;
 
@@ -87,7 +86,7 @@ impl SnapNoder {
                     points.sort_by(|a, b| {
                         let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
                         let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                        da.partial_cmp(&db).unwrap_or(Ordering::Equal)
+                        da.total_cmp(&db)
                     });
 
                     points.dedup();
@@ -113,6 +112,14 @@ impl SnapNoder {
     }
 
     fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
+        // Filter out invalid lines (NaN or infinite coordinates)
+        lines.retain(|l| {
+            l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
+
         for segment in lines.iter_mut() {
             if segment.start.x > segment.end.x
                 || ((segment.start.x - segment.end.x).abs() < 1e-12
@@ -124,7 +131,10 @@ impl SnapNoder {
         lines.sort_by(|a, b| {
             let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
             let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-            sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+            sa.0.total_cmp(&sb.0)
+                .then(sa.1.total_cmp(&sb.1))
+                .then(sa.2.total_cmp(&sb.2))
+                .then(sa.3.total_cmp(&sb.3))
         });
         lines.dedup();
     }
