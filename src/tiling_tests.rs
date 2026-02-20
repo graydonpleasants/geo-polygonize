@@ -114,4 +114,31 @@ mod tests {
 
         assert_eq!(polys.len(), 4);
     }
+
+    #[test]
+    fn test_tiled_polygonization_boundary_handling() {
+        // Create a polygon whose centroid lies exactly on the max boundary of the bbox
+        let geom = Geometry::LineString(LineString::new(vec![
+            Coord { x: 19.0, y: 4.0 },
+            Coord { x: 21.0, y: 4.0 },
+            Coord { x: 21.0, y: 6.0 },
+            Coord { x: 19.0, y: 6.0 },
+            Coord { x: 19.0, y: 4.0 },
+        ]));
+
+        // BBox: 0..20 in X, 0..10 in Y
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+
+        // Tile size 10. Tiles: [0,10), [10,20] in X.
+        // Y: [0,10].
+        // Centroid of geom is at (20.0, 5.0).
+        // 20.0 is exactly at bbox.max.x.
+
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(2.0); // buffer needed to capture full polygon
+        tiler.add_geometry(geom);
+
+        let polys = tiler.polygonize();
+
+        assert_eq!(polys.len(), 1, "Should include polygon on boundary");
+    }
 }

@@ -104,8 +104,16 @@ impl TiledPolygonizer {
                         }
 
                         // Check inclusion [min, max)
-                        let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
-                        let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
+                        // For the global boundary, we include the max edge to avoid dropping polygons exactly on the edge.
+                        let is_last_col = tile_bbox.max().x == self.bbox.max().x;
+                        let is_last_row = tile_bbox.max().y == self.bbox.max().y;
+
+                        let in_x = c.x() >= tile_bbox.min().x
+                            && (c.x() < tile_bbox.max().x
+                                || (is_last_col && c.x() <= tile_bbox.max().x));
+                        let in_y = c.y() >= tile_bbox.min().y
+                            && (c.y() < tile_bbox.max().y
+                                || (is_last_row && c.y() <= tile_bbox.max().y));
 
                         if in_x && in_y {
                             valid_polys.push(poly);
