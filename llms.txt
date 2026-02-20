@@ -611,20 +611,6 @@ This document outlines future improvements and optimization ideas for the `geo-p
 
 ```
 
-File: check_geo_area.rs
-```
-use geo_types::LineString;
-use geo::Area;
-
-fn main() {
-    let ls = LineString::from(vec![
-        (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
-    ]);
-    println!("Area: {}", ls.signed_area());
-}
-
-```
-
 File: rustfmt.toml
 ```
 edition = "2021"
@@ -1872,10 +1858,44 @@ File: scripts/visualize.py
 ```
 import json
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection, PatchCollection
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path
 from shapely.geometry import shape
-from shapely.plotting import plot_line, plot_polygon
 import sys
 import argparse
+import numpy as np
+
+def polygon_to_patch(polygon):
+    """Converts a Shapely Polygon to a matplotlib PathPatch."""
+    if polygon.is_empty:
+        return None
+
+    vertices = []
+    codes = []
+
+    # Exterior ring
+    ext = np.array(polygon.exterior.coords)
+    if len(ext) > 0:
+        vertices.extend(ext)
+        codes.append(Path.MOVETO)
+        codes.extend([Path.LINETO] * (len(ext) - 2))
+        codes.append(Path.CLOSEPOLY)
+
+    # Interior rings (holes)
+    for interior in polygon.interiors:
+        inte = np.array(interior.coords)
+        if len(inte) > 0:
+            vertices.extend(inte)
+            codes.append(Path.MOVETO)
+            codes.extend([Path.LINETO] * (len(inte) - 2))
+            codes.append(Path.CLOSEPOLY)
+
+    if not vertices:
+        return None
+
+    path = Path(vertices, codes)
+    return PathPatch(path)
 
 def plot_geojson(filepath, ax, color, title, is_polygon=False):
     with open(filepath, 'r') as f:
@@ -1897,18 +1917,44 @@ def plot_geojson(filepath, ax, color, title, is_polygon=False):
             geoms.append(shape(data))
 
     count = 0
-    for geom in geoms:
-        if is_polygon:
-            if geom.geom_type in ['Polygon', 'MultiPolygon']:
-                plot_polygon(geom, ax=ax, facecolor=color, edgecolor='black', alpha=0.5)
+    if is_polygon:
+        patches = []
+        for geom in geoms:
+            if geom.geom_type == 'Polygon':
+                patch = polygon_to_patch(geom)
+                if patch:
+                    patches.append(patch)
                 count += 1
-        else:
-            if geom.geom_type in ['LineString', 'MultiLineString']:
-                plot_line(geom, ax=ax, color=color, linewidth=1, alpha=0.7)
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    patch = polygon_to_patch(poly)
+                    if patch:
+                        patches.append(patch)
                 count += 1
 
+        if patches:
+            p = PatchCollection(patches, facecolor=color, edgecolor='black', alpha=0.5)
+            ax.add_collection(p)
+            ax.autoscale()
+    else:
+        lines = []
+        for geom in geoms:
+            if geom.geom_type == 'LineString':
+                if not geom.is_empty:
+                    lines.append(np.array(geom.coords))
+                count += 1
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    if not line.is_empty:
+                        lines.append(np.array(line.coords))
+                count += 1
+
+        if lines:
+            lc = LineCollection(lines, colors=color, linewidths=1, alpha=0.7)
+            ax.add_collection(lc)
+            ax.autoscale()
+
     ax.set_title(f"{title} ({count} items)")
-    ax.autoscale()
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize Polygonization Results")
@@ -2912,6 +2958,7 @@ use geo::Line;
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// Index of a node in the graph.
@@ -2992,6 +3039,84 @@ impl From<Coord<f64>> for NodeKey {
     }
 }
 
+struct NodeEntry {
+    z: u64,
+    c: Coord<f64>,
+}
+
+impl PartialEq for NodeEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.z == other.z && self.c == other.c
+    }
+}
+impl Eq for NodeEntry {}
+
+impl PartialOrd for NodeEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NodeEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.z.cmp(&other.z).then_with(|| {
+            self.c
+                .x
+                .total_cmp(&other.c.x)
+                .then(self.c.y.total_cmp(&other.c.y))
+        })
+    }
+}
+
+fn create_edge_components(
+    i: usize,
+    u: NodeId,
+    v: NodeId,
+    line: Line<f64>,
+    edges_start_len: usize,
+    dir_edges_start_len: usize,
+) -> (
+    NodeId,
+    NodeId,
+    DirEdgeId,
+    DirEdgeId,
+    DirectedEdge,
+    DirectedEdge,
+    Edge,
+) {
+    let edge_idx = edges_start_len + i;
+    let de_u_v_idx = dir_edges_start_len + 2 * i;
+    let de_v_u_idx = dir_edges_start_len + 2 * i + 1;
+
+    let de_u_v = DirectedEdge {
+        src: u,
+        dst: v,
+        edge_idx,
+        sym_idx: de_v_u_idx,
+        is_visited: false,
+        is_marked: false,
+        edge_direction: true,
+    };
+
+    let de_v_u = DirectedEdge {
+        src: v,
+        dst: u,
+        edge_idx,
+        sym_idx: de_u_v_idx,
+        is_visited: false,
+        is_marked: false,
+        edge_direction: false,
+    };
+
+    let edge = Edge {
+        line,
+        dir_edges: [de_u_v_idx, de_v_u_idx],
+        is_marked: false,
+    };
+
+    (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
+}
+
 impl Default for PlanarGraph {
     fn default() -> Self {
         Self::new()
@@ -3039,74 +3164,31 @@ impl PlanarGraph {
         }
 
         // 1. Collect all coordinates and precompute Z-order
-        struct NodeEntry {
-            z: u64,
-            c: Coord<f64>,
-        }
-
-        // Parallelize Z-order calculation
-        #[cfg(feature = "parallel")]
-        let mut entries: Vec<NodeEntry> = lines
-            .par_iter()
-            .flat_map_iter(|line| {
-                let z1 = z_order_index(line.start);
-                let z2 = z_order_index(line.end);
-                [
-                    NodeEntry {
-                        z: z1,
-                        c: line.start,
-                    },
-                    NodeEntry { z: z2, c: line.end },
-                ]
-            })
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut entries: Vec<NodeEntry> = {
-            let mut v = Vec::with_capacity(lines.len() * 2);
-            for line in &lines {
-                v.push(NodeEntry {
+        let to_entries = |line: &Line<f64>| {
+            [
+                NodeEntry {
                     z: z_order_index(line.start),
                     c: line.start,
-                });
-                v.push(NodeEntry {
+                },
+                NodeEntry {
                     z: z_order_index(line.end),
                     c: line.end,
-                });
-            }
-            v
+                },
+            ]
         };
+
+        #[cfg(feature = "parallel")]
+        let mut entries: Vec<NodeEntry> = lines.par_iter().flat_map_iter(to_entries).collect();
+
+        #[cfg(not(feature = "parallel"))]
+        let mut entries: Vec<NodeEntry> = lines.iter().flat_map(to_entries).collect();
 
         // 2. Sort using precomputed Z-order
         #[cfg(feature = "parallel")]
-        entries.par_sort_unstable_by(|a, b| {
-            a.z.cmp(&b.z).then_with(|| {
-                // Tie-break with exact coords for determinism/dedup
-                a.c.x
-                    .partial_cmp(&b.c.x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(
-                        a.c.y
-                            .partial_cmp(&b.c.y)
-                            .unwrap_or(std::cmp::Ordering::Equal),
-                    )
-            })
-        });
+        entries.par_sort_unstable();
 
         #[cfg(not(feature = "parallel"))]
-        entries.sort_unstable_by(|a, b| {
-            a.z.cmp(&b.z).then_with(|| {
-                // Tie-break with exact coords
-                a.c.x
-                    .partial_cmp(&b.c.x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(
-                        a.c.y
-                            .partial_cmp(&b.c.y)
-                            .unwrap_or(std::cmp::Ordering::Equal),
-                    )
-            })
-        });
+        entries.sort_unstable();
 
         // Dedup using exact equality.
         entries.dedup_by(|a, b| {
@@ -3137,20 +3219,10 @@ impl PlanarGraph {
 
             // Binary search on the sorted entries
             let idx_res = entries.binary_search_by(|probe| {
-                probe.z.cmp(&z_pt).then_with(|| {
-                    probe
-                        .c
-                        .x
-                        .partial_cmp(&pt.x)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(
-                            probe
-                                .c
-                                .y
-                                .partial_cmp(&pt.y)
-                                .unwrap_or(std::cmp::Ordering::Equal),
-                        )
-                })
+                probe
+                    .z
+                    .cmp(&z_pt)
+                    .then_with(|| probe.c.x.total_cmp(&pt.x).then(probe.c.y.total_cmp(&pt.y)))
             });
 
             match idx_res {
@@ -3207,82 +3279,22 @@ impl PlanarGraph {
         self.edges.reserve(valid_edges.len());
         self.directed_edges.reserve(valid_edges.len() * 2);
 
+        let edges_start_len = self.edges.len();
+        let directed_edges_start_len = self.directed_edges.len();
+
+        let mapper = |(i, (u, v, line)): (usize, (NodeId, NodeId, Line<f64>))| {
+            create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
+        };
+
         #[cfg(feature = "parallel")]
         let new_edges_data: Vec<_> = valid_edges
             .into_par_iter()
             .enumerate()
-            .map(|(i, (u, v, line))| {
-                let edge_idx = self.edges.len() + i;
-                let de_u_v_idx = self.directed_edges.len() + 2 * i;
-                let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
-
-                let de_u_v = DirectedEdge {
-                    src: u,
-                    dst: v,
-                    edge_idx,
-                    sym_idx: de_v_u_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: true,
-                };
-
-                let de_v_u = DirectedEdge {
-                    src: v,
-                    dst: u,
-                    edge_idx,
-                    sym_idx: de_u_v_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: false,
-                };
-
-                let edge = Edge {
-                    line,
-                    dir_edges: [de_u_v_idx, de_v_u_idx],
-                    is_marked: false,
-                };
-
-                (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
-            })
+            .map(mapper)
             .collect();
 
         #[cfg(not(feature = "parallel"))]
-        let new_edges_data: Vec<_> = valid_edges
-            .into_iter()
-            .enumerate()
-            .map(|(i, (u, v, line))| {
-                let edge_idx = self.edges.len() + i;
-                let de_u_v_idx = self.directed_edges.len() + 2 * i;
-                let de_v_u_idx = self.directed_edges.len() + 2 * i + 1;
-
-                let de_u_v = DirectedEdge {
-                    src: u,
-                    dst: v,
-                    edge_idx,
-                    sym_idx: de_v_u_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: true,
-                };
-
-                let de_v_u = DirectedEdge {
-                    src: v,
-                    dst: u,
-                    edge_idx,
-                    sym_idx: de_u_v_idx,
-                    is_visited: false,
-                    is_marked: false,
-                    edge_direction: false,
-                };
-
-                let edge = Edge {
-                    line,
-                    dir_edges: [de_u_v_idx, de_v_u_idx],
-                    is_marked: false,
-                };
-                (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
-            })
-            .collect();
+        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(mapper).collect();
 
         for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
             self.directed_edges.push(de_u_v);
@@ -3702,6 +3714,113 @@ mod tests {
 
         assert_eq!(rings.len(), 2);
     }
+
+    #[test]
+    fn test_bulk_load() {
+        use geo::Line;
+
+        // Define segments: Square with a diagonal + disconnected segment
+        let segments = vec![
+            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 0.0))),
+            Line::new(Coord::from((10.0, 0.0)), Coord::from((10.0, 10.0))),
+            Line::new(Coord::from((10.0, 10.0)), Coord::from((0.0, 10.0))),
+            Line::new(Coord::from((0.0, 10.0)), Coord::from((0.0, 0.0))),
+            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 10.0))), // Diagonal
+            Line::new(Coord::from((20.0, 20.0)), Coord::from((30.0, 30.0))), // Disconnected
+        ];
+
+        // 1. Incremental graph
+        let mut graph_incremental = PlanarGraph::new();
+        for segment in &segments {
+            graph_incremental.add_line_string(LineString::from(vec![segment.start, segment.end]));
+        }
+
+        // 2. Bulk graph
+        let mut graph_bulk = PlanarGraph::new();
+        graph_bulk.bulk_load(segments.clone());
+
+        // 3. Comparisons
+
+        // Check counts
+        assert_eq!(
+            graph_bulk.nodes_x.len(),
+            graph_incremental.nodes_x.len(),
+            "Node count mismatch"
+        );
+        assert_eq!(
+            graph_bulk.edges.len(),
+            graph_incremental.edges.len(),
+            "Edge count mismatch"
+        );
+        // Directed edges count should match edges * 2
+        assert_eq!(
+            graph_bulk.directed_edges.len(),
+            graph_incremental.directed_edges.len(),
+            "Directed edge count mismatch"
+        );
+
+        // Helper to get sorted neighbors (by coordinate) for a given node coordinate
+        let get_neighbors = |graph: &PlanarGraph, coord: Coord<f64>| -> Vec<Coord<f64>> {
+            // Try node_map first
+            let mut node_idx = graph.node_map.get(&coord.into()).copied();
+
+            // If not found (e.g. bulk loaded graph does not populate node_map), linear scan
+            if node_idx.is_none() {
+                for (i, (&x, &y)) in graph.nodes_x.iter().zip(graph.nodes_y.iter()).enumerate() {
+                    // Use exact equality as in bulk_load logic
+                    if x == coord.x && y == coord.y {
+                        node_idx = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(idx) = node_idx {
+                let mut neighbors: Vec<Coord<f64>> = graph.nodes_outgoing[idx]
+                    .iter()
+                    .map(|&de_idx| {
+                        let dst_idx = graph.directed_edges[de_idx].dst;
+                        Coord {
+                            x: graph.nodes_x[dst_idx],
+                            y: graph.nodes_y[dst_idx],
+                        }
+                    })
+                    .collect();
+                // Sort for stable comparison
+                neighbors.sort_by(|a, b| {
+                    a.x.partial_cmp(&b.x)
+                        .unwrap()
+                        .then(a.y.partial_cmp(&b.y).unwrap())
+                });
+                neighbors
+            } else {
+                vec![]
+            }
+        };
+
+        // Collect all unique points from input
+        let mut unique_points: Vec<Coord<f64>> = segments
+            .iter()
+            .flat_map(|line| vec![line.start, line.end])
+            .collect();
+        unique_points.sort_by(|a, b| {
+            a.x.partial_cmp(&b.x)
+                .unwrap()
+                .then(a.y.partial_cmp(&b.y).unwrap())
+        });
+        unique_points.dedup();
+
+        for point in unique_points {
+            let neighbors_inc = get_neighbors(&graph_incremental, point);
+            let neighbors_bulk = get_neighbors(&graph_bulk, point);
+
+            assert_eq!(
+                neighbors_inc, neighbors_bulk,
+                "Neighbors mismatch for point {:?}",
+                point
+            );
+        }
+    }
 }
 
 ```
@@ -4087,7 +4206,6 @@ use crate::noding::grid::UniformGrid;
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use wide::f64x4;
 
@@ -4129,8 +4247,14 @@ impl SnapNoder {
             line.end = self.snap(line.end);
         }
 
-        // Remove degenerates
-        lines.retain(|l| l.start != l.end);
+        // Remove degenerates and invalid lines
+        lines.retain(|l| {
+            l.start != l.end
+                && l.start.x.is_finite()
+                && l.start.y.is_finite()
+                && l.end.x.is_finite()
+                && l.end.y.is_finite()
+        });
 
         // Normalize and dedup initial input
         self.normalize_and_dedup(&mut lines);
@@ -4167,12 +4291,15 @@ impl SnapNoder {
                     points.push(line.start);
                     points.push(line.end);
 
+                    // Filter out invalid points (NaN/Inf)
+                    points.retain(|p| p.x.is_finite() && p.y.is_finite());
+
                     // Sort by distance from start
                     let start = line.start;
                     points.sort_by(|a, b| {
                         let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
                         let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                        da.partial_cmp(&db).unwrap_or(Ordering::Equal)
+                        da.total_cmp(&db)
                     });
 
                     points.dedup();
@@ -4207,9 +4334,12 @@ impl SnapNoder {
             }
         }
         lines.sort_by(|a, b| {
-            let sa = (a.start.x, a.start.y, a.end.x, a.end.y);
-            let sb = (b.start.x, b.start.y, b.end.x, b.end.y);
-            sa.partial_cmp(&sb).unwrap_or(Ordering::Equal)
+            a.start
+                .x
+                .total_cmp(&b.start.x)
+                .then(a.start.y.total_cmp(&b.start.y))
+                .then(a.end.x.total_cmp(&b.end.x))
+                .then(a.end.y.total_cmp(&b.end.y))
         });
         lines.dedup();
     }
@@ -5174,7 +5304,7 @@ fn test_nested_holes() {
 }
 
 #[test]
-#[ignore]
+
 fn test_touching_polygons() {
     let mut poly = Polygonizer::new();
     poly.node_input = true; // Required to deduplicate the shared edge
@@ -5206,12 +5336,12 @@ fn test_touching_polygons() {
 
     let polygons = poly.polygonize().unwrap();
 
-    // Should find 3 polygons (Mesh behavior):
+    // Should find 2 polygons (Mesh behavior):
     // 1. Square 1 (Area 2500)
     // 2. Square 2 (Area 2500)
-    // 3. Union / Outer Shell (Area 5000) or similar.
+    // The "Union" or Outer Face is implicitly the infinite face and not returned.
 
-    assert!(polygons.len() >= 2);
+    assert_eq!(polygons.len(), 2);
 
     let squares_count = polygons
         .iter()
@@ -5406,6 +5536,49 @@ fn test_duplicate_edge_removal() {
 
     let results = poly.polygonize().expect("Polygonization failed");
     assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn test_nan_handling_in_snap_noder() {
+    use geo::Line;
+    use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
+
+    let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
+
+    // Create lines with NaN coordinates
+    let lines = vec![
+        Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+        Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
+        // Line with NaN
+        Line::new(
+            Coord {
+                x: f64::NAN,
+                y: 0.0,
+            },
+            Coord { x: 5.0, y: 5.0 },
+        ),
+    ];
+
+    // This should not panic or hang
+    let result = std::panic::catch_unwind(|| noder.node(lines));
+
+    match result {
+        Ok(processed_lines) => {
+            println!("Processed {} lines", processed_lines.len());
+            for line in processed_lines {
+                if line.start.x.is_nan()
+                    || line.start.y.is_nan()
+                    || line.end.x.is_nan()
+                    || line.end.y.is_nan()
+                {
+                    panic!("Output contains NaN coordinates");
+                }
+            }
+        }
+        Err(_) => {
+            panic!("SnapNoder panicked on NaN input");
+        }
+    }
 }
 
 ```
