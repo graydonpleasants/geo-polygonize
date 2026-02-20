@@ -238,6 +238,14 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_grid_find_splits() {
+        let grid = UniformGrid::new(&[]);
+        let noder = SnapNoder::new(1e-6);
+        let splits = grid.find_splits(&[], &noder);
+        assert!(splits.is_empty());
+    }
+
+    #[test]
     fn test_grid_dimensions() {
         let lines = vec![
             Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
