@@ -177,14 +177,16 @@ impl UniformGrid {
                                             || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                                     if is_in_x && is_in_y {
-                                        let snapped = snap_noder.snap(pt);
-                                        // Record splits
-                                        if snapped != l1.start && snapped != l1.end {
-                                            splits.entry(idx1).or_default().push(snapped);
-                                        }
-                                        if snapped != l2.start && snapped != l2.end {
-                                            splits.entry(idx2).or_default().push(snapped);
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                                 LineIntersection::Collinear {
@@ -192,22 +194,22 @@ impl UniformGrid {
                                 } => {
                                     // Collinear is rare. Just process start/end and let HashMap dedup later.
                                     let p1 = snap_noder.snap(overlap.start);
-                                    let p2 = snap_noder.snap(overlap.end);
                                     // Simplified ownership: Check if p1 is in cell
                                     let p1_in = p1.x >= cell_min_x
                                         && p1.x < cell_max_x
                                         && p1.y >= cell_min_y
                                         && p1.y < cell_max_y;
                                     if p1_in || (c == 0 && r == 0) {
-                                        // Fallback to process at least once
-                                        for p in [p1, p2] {
-                                            if p != l1.start && p != l1.end {
-                                                splits.entry(idx1).or_default().push(p);
-                                            }
-                                            if p != l2.start && p != l2.end {
-                                                splits.entry(idx2).or_default().push(p);
-                                            }
-                                        }
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits.entry(idx).or_default().push(pt);
+                                            },
+                                        );
                                     }
                                 }
                             }
