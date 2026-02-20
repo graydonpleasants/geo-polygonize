@@ -150,4 +150,37 @@ mod tests {
             "Expected rectangle of area 50 from collinear overlap"
         );
     }
+
+    #[test]
+    fn test_polygonize_empty_input() {
+        let mut poly = Polygonizer::new();
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on empty input");
+        assert_eq!(polygons.len(), 0);
+    }
+
+    #[test]
+    fn test_polygonize_empty_linestring() {
+        let mut poly = Polygonizer::new();
+        // Add an empty LineString
+        poly.add_geometry(geo_types::Geometry::LineString(geo_types::LineString::new(
+            vec![],
+        )));
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on empty LineString");
+        assert_eq!(polygons.len(), 0);
+    }
+
+    #[test]
+    fn test_polygonize_point() {
+        let mut poly = Polygonizer::new();
+        // Add a single point (should be ignored by extract_lines)
+        poly.add_geometry(geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0)));
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on Point input");
+        assert_eq!(polygons.len(), 0);
+    }
 }
