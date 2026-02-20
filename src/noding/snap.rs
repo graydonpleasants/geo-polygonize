@@ -138,6 +138,47 @@ impl SnapNoder {
         }
     }
 
+    #[inline]
+    pub(crate) fn handle_intersection<F>(
+        &self,
+        res: LineIntersection<f64>,
+        i: usize,
+        j: usize,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        mut handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        match res {
+            LineIntersection::SinglePoint {
+                intersection: pt, ..
+            } => {
+                let snapped = self.snap(pt);
+                if snapped != l1.start && snapped != l1.end {
+                    handler(i, snapped);
+                }
+                if snapped != l2.start && snapped != l2.end {
+                    handler(j, snapped);
+                }
+            }
+            LineIntersection::Collinear {
+                intersection: overlap,
+            } => {
+                let p1 = self.snap(overlap.start);
+                let p2 = self.snap(overlap.end);
+                for p in [p1, p2] {
+                    if p != l1.start && p != l1.end {
+                        handler(i, p);
+                    }
+                    if p != l2.start && p != l2.end {
+                        handler(j, p);
+                    }
+                }
+            }
+        }
+    }
+
     fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
         let soa = SoALines::new(lines);
 
@@ -284,33 +325,9 @@ impl SnapNoder {
         let l2 = lines[j];
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            match res {
-                LineIntersection::SinglePoint {
-                    intersection: pt, ..
-                } => {
-                    let snapped = self.snap(pt);
-                    if snapped != l1.start && snapped != l1.end {
-                        splits.entry(i).or_default().push(snapped);
-                    }
-                    if snapped != l2.start && snapped != l2.end {
-                        splits.entry(j).or_default().push(snapped);
-                    }
-                }
-                LineIntersection::Collinear {
-                    intersection: overlap,
-                } => {
-                    let p1 = self.snap(overlap.start);
-                    let p2 = self.snap(overlap.end);
-                    for p in [p1, p2] {
-                        if p != l1.start && p != l1.end {
-                            splits.entry(i).or_default().push(p);
-                        }
-                        if p != l2.start && p != l2.end {
-                            splits.entry(j).or_default().push(p);
-                        }
-                    }
-                }
-            }
+            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+                splits.entry(idx).or_default().push(pt);
+            });
         }
     }
 
@@ -324,33 +341,9 @@ impl SnapNoder {
         l2: Line<f64>,
         events: &mut Vec<(usize, Coord<f64>)>,
     ) {
-        match res {
-            LineIntersection::SinglePoint {
-                intersection: pt, ..
-            } => {
-                let snapped = self.snap(pt);
-                if snapped != l1.start && snapped != l1.end {
-                    events.push((i, snapped));
-                }
-                if snapped != l2.start && snapped != l2.end {
-                    events.push((j, snapped));
-                }
-            }
-            LineIntersection::Collinear {
-                intersection: overlap,
-            } => {
-                let p1 = self.snap(overlap.start);
-                let p2 = self.snap(overlap.end);
-                for p in [p1, p2] {
-                    if p != l1.start && p != l1.end {
-                        events.push((i, p));
-                    }
-                    if p != l2.start && p != l2.end {
-                        events.push((j, p));
-                    }
-                }
-            }
-        }
+        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
+            events.push((idx, pt));
+        });
     }
 }
 
