@@ -321,8 +321,7 @@ impl Polygonizer {
         }
 
         let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
-            let holes = shell_holes[i].clone();
+        for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
             let p = Polygon::new(shell.exterior().clone(), holes);
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
