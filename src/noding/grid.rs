@@ -265,7 +265,7 @@ mod tests {
     fn test_cell_population() {
         // Create 2 disjoint lines far apart
         let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),   // Bottom-left
+            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }), // Bottom-left
             Line::new(Coord { x: 9.0, y: 9.0 }, Coord { x: 10.0, y: 10.0 }), // Top-right
         ];
 
@@ -276,8 +276,12 @@ mod tests {
         let mut cells_with_1 = 0;
 
         for cell in &grid.cells {
-            if cell.contains(&0) { cells_with_0 += 1; }
-            if cell.contains(&1) { cells_with_1 += 1; }
+            if cell.contains(&0) {
+                cells_with_0 += 1;
+            }
+            if cell.contains(&1) {
+                cells_with_1 += 1;
+            }
         }
 
         assert!(cells_with_0 > 0, "Line 0 should be in at least one cell");
@@ -285,7 +289,10 @@ mod tests {
 
         // Verify they don't share any cells (given the distance and reasonable grid size)
         for cell in &grid.cells {
-            assert!(!(cell.contains(&0) && cell.contains(&1)), "Lines far apart should not share a cell");
+            assert!(
+                !(cell.contains(&0) && cell.contains(&1)),
+                "Lines far apart should not share a cell"
+            );
         }
     }
 
@@ -331,14 +338,18 @@ mod tests {
     #[test]
     fn test_boundary_handling() {
         // Line crossing multiple cells horizontally
-        let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 100.0, y: 0.0 }),
-        ];
+        let lines = vec![Line::new(
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 100.0, y: 0.0 },
+        )];
 
         let grid = UniformGrid::new(&lines);
 
         // Ensure we have enough columns to test boundary crossing
-        assert!(grid.cols > 1, "Grid should have multiple columns for this test case");
+        assert!(
+            grid.cols > 1,
+            "Grid should have multiple columns for this test case"
+        );
 
         let mut cells_with_line = 0;
         for cell in &grid.cells {
