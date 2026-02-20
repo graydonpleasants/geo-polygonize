@@ -219,33 +219,20 @@ impl Polygonizer {
         }
 
         // Promote CW rings to Shells if they don't have a corresponding CCW Twin.
-        let process_holes = |hole: &Polygon<f64>| -> Option<Polygon<f64>> {
-            let hole_area = hole.unsigned_area();
-            let has_twin = shells.iter().any(|shell| {
-                (shell.unsigned_area() - hole_area).abs() < 1e-6
-                    && shell.bounding_rect() == hole.bounding_rect()
-            });
-
-            if !has_twin {
-                let mut shell_copy = hole.clone();
-                shell_copy.exterior_mut(|ext| {
-                    use geo::algorithm::winding_order::Winding;
-                    ext.make_ccw_winding();
-                });
-                Some(shell_copy)
-            } else {
-                None
-            }
-        };
-
         let promoted_shells: Vec<_>;
         #[cfg(feature = "parallel")]
         {
-            promoted_shells = holes.par_iter().filter_map(process_holes).collect();
+            promoted_shells = holes
+                .par_iter()
+                .filter_map(|hole| Self::promote_hole_to_shell(hole, &shells))
+                .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            promoted_shells = holes.iter().filter_map(process_holes).collect();
+            promoted_shells = holes
+                .iter()
+                .filter_map(|hole| Self::promote_hole_to_shell(hole, &shells))
+                .collect();
         }
 
         shells.extend(promoted_shells);
@@ -264,55 +251,24 @@ impl Polygonizer {
         let tree = RTree::bulk_load(indexed_shells);
 
         // Process holes
-        let process_hole_assignment =
-            |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
-                let hole_ring = hole_poly.exterior();
-                let bbox = hole_poly.bounding_rect()?;
-                let hole_aabb =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-
-                let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
-
-                let mut best_shell_idx = None;
-                let mut min_area = f64::MAX;
-
-                // Use centroid for inclusion check to avoid boundary issues
-                let probe_point = hole_poly.centroid().unwrap_or_else(|| {
-                    // Fallback to first point if centroid fails (e.g. degenerate)
-                    Point(hole_ring.0[0])
-                });
-
-                for cand in candidates {
-                    let idx = cand.1;
-                    // Use SIMD check first
-                    let simd_shell = &simd_shells[idx];
-
-                    if simd_shell.contains(probe_point.0) {
-                        let shell = &shells[idx];
-                        let area = shell.unsigned_area();
-                        let hole_area = hole_poly.unsigned_area();
-
-                        if area > hole_area + 1e-6 && area < min_area {
-                            min_area = area;
-                            best_shell_idx = Some(idx);
-                        }
-                    }
-                }
-
-                best_shell_idx.map(|idx| (idx, hole_ring.clone()))
-            };
-
         let assignments: Vec<_>;
         #[cfg(feature = "parallel")]
         {
             assignments = holes
                 .par_iter()
-                .filter_map(process_hole_assignment)
+                .filter_map(|hole_poly| {
+                    Self::assign_hole_to_shell(hole_poly, &tree, &simd_shells, &shells)
+                })
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = holes.iter().filter_map(process_hole_assignment).collect();
+            assignments = holes
+                .iter()
+                .filter_map(|hole_poly| {
+                    Self::assign_hole_to_shell(hole_poly, &tree, &simd_shells, &shells)
+                })
+                .collect();
         }
 
         let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
@@ -330,6 +286,67 @@ impl Polygonizer {
         }
 
         Ok(result)
+    }
+
+    fn promote_hole_to_shell(hole: &Polygon<f64>, shells: &[Polygon<f64>]) -> Option<Polygon<f64>> {
+        let hole_area = hole.unsigned_area();
+        let has_twin = shells.iter().any(|shell| {
+            (shell.unsigned_area() - hole_area).abs() < 1e-6
+                && shell.bounding_rect() == hole.bounding_rect()
+        });
+
+        if !has_twin {
+            let mut shell_copy = hole.clone();
+            shell_copy.exterior_mut(|ext| {
+                use geo::algorithm::winding_order::Winding;
+                ext.make_ccw_winding();
+            });
+            Some(shell_copy)
+        } else {
+            None
+        }
+    }
+
+    fn assign_hole_to_shell(
+        hole_poly: &Polygon<f64>,
+        tree: &RTree<IndexedPolygon>,
+        simd_shells: &[SimdRing],
+        shells: &[Polygon<f64>],
+    ) -> Option<(usize, LineString<f64>)> {
+        let hole_ring = hole_poly.exterior();
+        let bbox = hole_poly.bounding_rect()?;
+        let hole_aabb =
+            AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+
+        let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
+
+        let mut best_shell_idx = None;
+        let mut min_area = f64::MAX;
+
+        // Use centroid for inclusion check to avoid boundary issues
+        let probe_point = hole_poly.centroid().unwrap_or_else(|| {
+            // Fallback to first point if centroid fails (e.g. degenerate)
+            Point(hole_ring.0[0])
+        });
+
+        for cand in candidates {
+            let idx = cand.1;
+            // Use SIMD check first
+            let simd_shell = &simd_shells[idx];
+
+            if simd_shell.contains(probe_point.0) {
+                let shell = &shells[idx];
+                let area = shell.unsigned_area();
+                let hole_area = hole_poly.unsigned_area();
+
+                if area > hole_area + 1e-6 && area < min_area {
+                    min_area = area;
+                    best_shell_idx = Some(idx);
+                }
+            }
+        }
+
+        best_shell_idx.map(|idx| (idx, hole_ring.clone()))
     }
 }
 
