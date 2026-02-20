@@ -127,15 +127,14 @@ mod tests {
             Line::new(Coord::from((10.0, 0.0)), Coord::from((10.0, 10.0))),
             Line::new(Coord::from((10.0, 10.0)), Coord::from((0.0, 10.0))),
             Line::new(Coord::from((0.0, 10.0)), Coord::from((0.0, 0.0))),
-            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 10.0))),   // Diagonal
+            Line::new(Coord::from((0.0, 0.0)), Coord::from((10.0, 10.0))), // Diagonal
             Line::new(Coord::from((20.0, 20.0)), Coord::from((30.0, 30.0))), // Disconnected
         ];
 
         // 1. Incremental graph
         let mut graph_incremental = PlanarGraph::new();
         for segment in &segments {
-            graph_incremental
-                .add_line_string(LineString::from(vec![segment.start, segment.end]));
+            graph_incremental.add_line_string(LineString::from(vec![segment.start, segment.end]));
         }
 
         // 2. Bulk graph
