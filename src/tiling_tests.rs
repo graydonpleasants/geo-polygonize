@@ -114,4 +114,36 @@ mod tests {
 
         assert_eq!(polys.len(), 4);
     }
+
+    #[test]
+    fn test_tiled_polygonization_centroid_on_max_boundary() {
+        // A square centered at (20, 5).
+        // 19,0 -> 21,0 -> 21,10 -> 19,10 -> 19,0.
+        // Centroid is x=20, y=5.
+        // BBox passed is 0,0 -> 20,20.
+        // This simulates a polygon on the edge of the world.
+
+        let mut geoms = Vec::new();
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 19.0, y: 0.0 },
+            Coord { x: 21.0, y: 0.0 },
+            Coord { x: 21.0, y: 10.0 },
+            Coord { x: 19.0, y: 10.0 },
+            Coord { x: 19.0, y: 0.0 },
+        ])));
+
+        // BBox 0,0 -> 20,20.
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+
+        // Tile size 10.
+        // Tiles: [0,10) and [10,20).
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(5.0);
+
+        for g in geoms {
+            tiler.add_geometry(g);
+        }
+
+        let polys = tiler.polygonize();
+        assert_eq!(polys.len(), 1, "Should identify polygon with centroid on the boundary");
+    }
 }
