@@ -95,8 +95,7 @@ impl TiledPolygonizer {
         }
     }
 
-    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
-        // 1. Generate tiles
+    fn generate_tiles(&self) -> Vec<Rect<f64>> {
         let min = self.bbox.min();
         let max = self.bbox.max();
         let width = max.x - min.x;
@@ -116,8 +115,13 @@ impl TiledPolygonizer {
                 tiles.push(Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 }));
             }
         }
+        tiles
+    }
 
-        // 2. Process tiles in parallel or sequential
+    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
+        let tiles = self.generate_tiles();
+
+        // Process tiles in parallel or sequential
         let result_polygons: Vec<Polygon<f64>>;
         #[cfg(feature = "parallel")]
         {
