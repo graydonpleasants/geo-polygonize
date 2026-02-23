@@ -236,6 +236,22 @@ impl SnapNoder {
         }
     }
 
+    #[inline]
+    pub(crate) fn process_intersection<F>(
+        &self,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        i: usize,
+        j: usize,
+        handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
+            self.handle_intersection(res, i, j, l1, l2, handler);
+        }
+    }
+
     // Helper to check one line against all others using SIMD SoA
     #[allow(clippy::manual_div_ceil)]
     #[inline]
@@ -272,18 +288,9 @@ impl SnapNoder {
 
             if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
             {
-                if let Some(res) =
-                    geo::algorithm::line_intersection::line_intersection(query_line, target_line)
-                {
-                    self.collect_intersection_events(
-                        res,
-                        i,
-                        j,
-                        query_line,
-                        target_line,
-                        &mut events,
-                    );
-                }
+                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
+                    events.push((idx, pt))
+                });
             }
         }
 
@@ -308,21 +315,13 @@ impl SnapNoder {
                         } // Enforce i < j
 
                         let target_line = lines[target_idx];
-                        if let Some(res) = geo::algorithm::line_intersection::line_intersection(
+                        self.process_intersection(
                             query_line,
                             target_line,
-                        ) {
-                            // We can't update a shared HashMap here.
-                            // Return the intersection events for the caller to aggregate.
-                            self.collect_intersection_events(
-                                res,
-                                i,
-                                target_idx,
-                                query_line,
-                                target_line,
-                                &mut events,
-                            );
-                        }
+                            i,
+                            target_idx,
+                            |idx, pt| events.push((idx, pt)),
+                        );
                     }
                 }
             }
@@ -345,27 +344,11 @@ impl SnapNoder {
         let l1 = lines[i];
         let l2 = lines[j];
 
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-                splits[idx].push(pt);
-            });
-        }
-    }
-
-    // Helper to collect events into a local vector instead of HashMap
-    fn collect_intersection_events(
-        &self,
-        res: LineIntersection<f64>,
-        i: usize,
-        j: usize,
-        l1: Line<f64>,
-        l2: Line<f64>,
-        events: &mut Vec<(usize, Coord<f64>)>,
-    ) {
-        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-            events.push((idx, pt));
+        self.process_intersection(l1, l2, i, j, |idx, pt| {
+            splits[idx].push(pt);
         });
     }
+
 }
 
 #[cfg(test)]
@@ -481,5 +464,23 @@ mod tests {
             .count();
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
+    }
+
+    #[test]
+    fn test_check_intersection_direct() {
+        let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let l2 = Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 });
+        let lines = vec![l1, l2];
+        let mut splits = vec![Vec::new(); 2];
+
+        let noder = SnapNoder::new(0.0);
+        noder.check_intersection(&lines, 0, 1, &mut splits);
+
+        assert!(!splits[0].is_empty());
+        assert!(!splits[1].is_empty());
+
+        let p = splits[0][0];
+        assert!((p.x - 5.0).abs() < 1e-10);
+        assert!((p.y - 5.0).abs() < 1e-10);
     }
 }
