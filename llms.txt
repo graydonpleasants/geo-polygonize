@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000240 | 0.000683 | 2.84x |
-| 10 | 0.000489 | 0.002211 | 4.53x |
-| 20 | 0.001160 | 0.008310 | 7.17x |
-| 50 | 0.005331 | 0.050540 | 9.48x |
-| 100 | 0.022866 | 0.214558 | 9.38x |
+| 5 | 0.000224 | 0.000609 | 2.72x |
+| 10 | 0.000490 | 0.002071 | 4.23x |
+| 20 | 0.001177 | 0.007817 | 6.64x |
+| 50 | 0.005593 | 0.050211 | 8.98x |
+| 100 | 0.025462 | 0.220029 | 8.64x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001068 | 0.007918 | 7.42x |
-| 100 | 0.003707 | 0.025562 | 6.90x |
-| 200 | 0.013283 | 0.099293 | 7.48x |
+| 50 | 0.001090 | 0.007702 | 7.06x |
+| 100 | 0.003806 | 0.024858 | 6.53x |
+| 200 | 0.013716 | 0.100616 | 7.34x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -2268,8 +2268,8 @@ impl Polygonizer {
             let poly = Polygon::new(ring, vec![]);
             let area = poly.signed_area();
 
-            if area.abs() < 1e-9 {
-                continue; // Degenerate
+            if !area.is_finite() || area.abs() < 1e-9 {
+                continue; // Degenerate or invalid
             }
 
             if area > 0.0 {
@@ -2703,8 +2703,21 @@ impl TiledPolygonizer {
                     }
 
                     // Check inclusion [min, max)
-                    let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
-                    let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
+                    // For the last tile in a row/col, we include the max boundary to cover the full bbox.
+                    let max_x_inclusive = tile_bbox.max().x >= self.bbox.max().x;
+                    let max_y_inclusive = tile_bbox.max().y >= self.bbox.max().y;
+
+                    let in_x = if max_x_inclusive {
+                        c.x() >= tile_bbox.min().x && c.x() <= tile_bbox.max().x
+                    } else {
+                        c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x
+                    };
+
+                    let in_y = if max_y_inclusive {
+                        c.y() >= tile_bbox.min().y && c.y() <= tile_bbox.max().y
+                    } else {
+                        c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y
+                    };
 
                     if in_x && in_y {
                         valid_polys.push(poly);
@@ -2717,8 +2730,7 @@ impl TiledPolygonizer {
         }
     }
 
-    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
-        // 1. Generate tiles
+    fn generate_tiles(&self) -> Vec<Rect<f64>> {
         let min = self.bbox.min();
         let max = self.bbox.max();
         let width = max.x - min.x;
@@ -2738,8 +2750,13 @@ impl TiledPolygonizer {
                 tiles.push(Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 }));
             }
         }
+        tiles
+    }
 
-        // 2. Process tiles in parallel or sequential
+    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
+        let tiles = self.generate_tiles();
+
+        // Process tiles in parallel or sequential
         let result_polygons: Vec<Polygon<f64>>;
         #[cfg(feature = "parallel")]
         {
@@ -2883,6 +2900,42 @@ mod tests {
         let polys = tiler.polygonize();
 
         assert_eq!(polys.len(), 4);
+    }
+
+    #[test]
+    fn test_tiled_polygonization_centroid_on_max_boundary() {
+        // A square centered at (20, 5).
+        // 19,0 -> 21,0 -> 21,10 -> 19,10 -> 19,0.
+        // Centroid is x=20, y=5.
+        // BBox passed is 0,0 -> 20,20.
+        // This simulates a polygon on the edge of the world.
+
+        let mut geoms = Vec::new();
+        geoms.push(Geometry::LineString(LineString::new(vec![
+            Coord { x: 19.0, y: 0.0 },
+            Coord { x: 21.0, y: 0.0 },
+            Coord { x: 21.0, y: 10.0 },
+            Coord { x: 19.0, y: 10.0 },
+            Coord { x: 19.0, y: 0.0 },
+        ])));
+
+        // BBox 0,0 -> 20,20.
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+
+        // Tile size 10.
+        // Tiles: [0,10) and [10,20).
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(5.0);
+
+        for g in geoms {
+            tiler.add_geometry(g);
+        }
+
+        let polys = tiler.polygonize();
+        assert_eq!(
+            polys.len(),
+            1,
+            "Should identify polygon with centroid on the boundary"
+        );
     }
 }
 
@@ -4490,6 +4543,22 @@ impl SnapNoder {
         }
     }
 
+    #[inline]
+    pub(crate) fn process_intersection<F>(
+        &self,
+        l1: Line<f64>,
+        l2: Line<f64>,
+        i: usize,
+        j: usize,
+        handler: F,
+    ) where
+        F: FnMut(usize, Coord<f64>),
+    {
+        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
+            self.handle_intersection(res, i, j, l1, l2, handler);
+        }
+    }
+
     // Helper to check one line against all others using SIMD SoA
     #[allow(clippy::manual_div_ceil)]
     #[inline]
@@ -4526,18 +4595,9 @@ impl SnapNoder {
 
             if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
             {
-                if let Some(res) =
-                    geo::algorithm::line_intersection::line_intersection(query_line, target_line)
-                {
-                    self.collect_intersection_events(
-                        res,
-                        i,
-                        j,
-                        query_line,
-                        target_line,
-                        &mut events,
-                    );
-                }
+                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
+                    events.push((idx, pt))
+                });
             }
         }
 
@@ -4562,21 +4622,13 @@ impl SnapNoder {
                         } // Enforce i < j
 
                         let target_line = lines[target_idx];
-                        if let Some(res) = geo::algorithm::line_intersection::line_intersection(
+                        self.process_intersection(
                             query_line,
                             target_line,
-                        ) {
-                            // We can't update a shared HashMap here.
-                            // Return the intersection events for the caller to aggregate.
-                            self.collect_intersection_events(
-                                res,
-                                i,
-                                target_idx,
-                                query_line,
-                                target_line,
-                                &mut events,
-                            );
-                        }
+                            i,
+                            target_idx,
+                            |idx, pt| events.push((idx, pt)),
+                        );
                     }
                 }
             }
@@ -4599,25 +4651,8 @@ impl SnapNoder {
         let l1 = lines[i];
         let l2 = lines[j];
 
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
-            self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-                splits[idx].push(pt);
-            });
-        }
-    }
-
-    // Helper to collect events into a local vector instead of HashMap
-    fn collect_intersection_events(
-        &self,
-        res: LineIntersection<f64>,
-        i: usize,
-        j: usize,
-        l1: Line<f64>,
-        l2: Line<f64>,
-        events: &mut Vec<(usize, Coord<f64>)>,
-    ) {
-        self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-            events.push((idx, pt));
+        self.process_intersection(l1, l2, i, j, |idx, pt| {
+            splits[idx].push(pt);
         });
     }
 }
@@ -4735,6 +4770,24 @@ mod tests {
             .count();
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
+    }
+
+    #[test]
+    fn test_check_intersection_direct() {
+        let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let l2 = Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 });
+        let lines = vec![l1, l2];
+        let mut splits = vec![Vec::new(); 2];
+
+        let noder = SnapNoder::new(0.0);
+        noder.check_intersection(&lines, 0, 1, &mut splits);
+
+        assert!(!splits[0].is_empty());
+        assert!(!splits[1].is_empty());
+
+        let p = splits[0][0];
+        assert!((p.x - 5.0).abs() < 1e-10);
+        assert!((p.y - 5.0).abs() < 1e-10);
     }
 }
 
@@ -5540,6 +5593,26 @@ fn test_curved_holes() {
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
+}
+
+```
+
+File: tests/regression_nan_panic.rs
+```
+use geo::LineString;
+use geo_polygonize::Polygonizer;
+
+#[test]
+fn test_nan_polygon_panic() {
+    let mut polygonizer = Polygonizer::new();
+    // Add geometry with NaN
+    // This previously caused a panic in process_holes due to assuming valid geometry
+    polygonizer.add_geometry(
+        LineString::from(vec![(0.0, 0.0), (f64::NAN, 0.0), (0.0, 10.0), (0.0, 0.0)]).into(),
+    );
+
+    // This should handle it gracefully or return Err, but NOT panic.
+    let _result = polygonizer.polygonize();
 }
 
 ```
