@@ -127,8 +127,13 @@ impl UniformGrid {
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
-    pub fn find_splits(&self, lines: &[Line<f64>], snap_noder: &SnapNoder) -> Vec<Vec<Coord<f64>>> {
-        let mut splits = vec![Vec::new(); lines.len()];
+    /// Returns a flat list of (line_index, split_point) events.
+    pub fn find_splits(
+        &self,
+        lines: &[Line<f64>],
+        snap_noder: &SnapNoder,
+    ) -> Vec<(usize, Coord<f64>)> {
+        let mut splits = Vec::new();
 
         for r in 0..self.rows {
             for c in 0..self.cols {
@@ -179,7 +184,7 @@ impl UniformGrid {
                                             l1,
                                             l2,
                                             |idx, pt| {
-                                                splits[idx].push(pt);
+                                                splits.push((idx, pt));
                                             },
                                         );
                                     }
@@ -202,7 +207,7 @@ impl UniformGrid {
                                             l1,
                                             l2,
                                             |idx, pt| {
-                                                splits[idx].push(pt);
+                                                splits.push((idx, pt));
                                             },
                                         );
                                     }
@@ -312,11 +317,13 @@ mod tests {
         let splits = grid.find_splits(&lines, &noder);
 
         // Both lines should be split at (5, 5)
-        assert!(!splits[0].is_empty());
-        assert!(!splits[1].is_empty());
+        let count_0 = splits.iter().filter(|(i, _)| *i == 0).count();
+        let count_1 = splits.iter().filter(|(i, _)| *i == 1).count();
+        assert!(count_0 > 0);
+        assert!(count_1 > 0);
 
-        let p0 = splits[0][0];
-        let p1 = splits[1][0];
+        let p0 = splits.iter().find(|(i, _)| *i == 0).unwrap().1;
+        let p1 = splits.iter().find(|(i, _)| *i == 1).unwrap().1;
 
         assert_relative_eq!(p0.x, 5.0);
         assert_relative_eq!(p0.y, 5.0);
@@ -335,7 +342,7 @@ mod tests {
         let noder = SnapNoder::new(0.0);
 
         let splits = grid.find_splits(&lines, &noder);
-        assert!(splits.iter().all(|v| v.is_empty()));
+        assert!(splits.is_empty());
     }
 
     #[test]
