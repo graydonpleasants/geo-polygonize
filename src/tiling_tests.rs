@@ -144,6 +144,10 @@ mod tests {
         }
 
         let polys = tiler.polygonize();
-        assert_eq!(polys.len(), 1, "Should identify polygon with centroid on the boundary");
+        assert_eq!(
+            polys.len(),
+            1,
+            "Should identify polygon with centroid on the boundary"
+        );
     }
 }
