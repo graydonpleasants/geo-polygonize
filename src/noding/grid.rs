@@ -1,7 +1,6 @@
 use crate::noding::snap::SnapNoder;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::{Coord, Line};
-use std::collections::HashMap;
 
 pub struct UniformGrid {
     /// Flattened grid: cells[row * cols + col] -> List of line indices
@@ -132,8 +131,8 @@ impl UniformGrid {
         &self,
         lines: &[Line<f64>],
         snap_noder: &SnapNoder,
-    ) -> HashMap<usize, Vec<Coord<f64>>> {
-        let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
+    ) -> Vec<Vec<Coord<f64>>> {
+        let mut splits = vec![Vec::new(); lines.len()];
 
         for r in 0..self.rows {
             for c in 0..self.cols {
@@ -184,7 +183,7 @@ impl UniformGrid {
                                             l1,
                                             l2,
                                             |idx, pt| {
-                                                splits.entry(idx).or_default().push(pt);
+                                                splits[idx].push(pt);
                                             },
                                         );
                                     }
@@ -207,7 +206,7 @@ impl UniformGrid {
                                             l1,
                                             l2,
                                             |idx, pt| {
-                                                splits.entry(idx).or_default().push(pt);
+                                                splits[idx].push(pt);
                                             },
                                         );
                                     }
@@ -317,11 +316,11 @@ mod tests {
         let splits = grid.find_splits(&lines, &noder);
 
         // Both lines should be split at (5, 5)
-        assert!(splits.contains_key(&0));
-        assert!(splits.contains_key(&1));
+        assert!(!splits[0].is_empty());
+        assert!(!splits[1].is_empty());
 
-        let p0 = splits[&0][0];
-        let p1 = splits[&1][0];
+        let p0 = splits[0][0];
+        let p1 = splits[1][0];
 
         assert_relative_eq!(p0.x, 5.0);
         assert_relative_eq!(p0.y, 5.0);
@@ -340,7 +339,7 @@ mod tests {
         let noder = SnapNoder::new(0.0);
 
         let splits = grid.find_splits(&lines, &noder);
-        assert!(splits.is_empty());
+        assert!(splits.iter().all(|v| v.is_empty()));
     }
 
     #[test]
