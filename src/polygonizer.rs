@@ -207,8 +207,8 @@ impl Polygonizer {
             let poly = Polygon::new(ring, vec![]);
             let area = poly.signed_area();
 
-            if area.abs() < 1e-9 {
-                continue; // Degenerate
+            if !area.is_finite() || area.abs() < 1e-9 {
+                continue; // Degenerate or invalid
             }
 
             if area > 0.0 {
