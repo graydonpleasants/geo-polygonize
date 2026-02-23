@@ -81,8 +81,21 @@ impl TiledPolygonizer {
                     }
 
                     // Check inclusion [min, max)
-                    let in_x = c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x;
-                    let in_y = c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y;
+                    // For the last tile in a row/col, we include the max boundary to cover the full bbox.
+                    let max_x_inclusive = tile_bbox.max().x >= self.bbox.max().x;
+                    let max_y_inclusive = tile_bbox.max().y >= self.bbox.max().y;
+
+                    let in_x = if max_x_inclusive {
+                        c.x() >= tile_bbox.min().x && c.x() <= tile_bbox.max().x
+                    } else {
+                        c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x
+                    };
+
+                    let in_y = if max_y_inclusive {
+                        c.y() >= tile_bbox.min().y && c.y() <= tile_bbox.max().y
+                    } else {
+                        c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y
+                    };
 
                     if in_x && in_y {
                         valid_polys.push(poly);
