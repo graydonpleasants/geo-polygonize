@@ -3,8 +3,13 @@ use geo::Line;
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+
+thread_local! {
+    static NEXT_POINTERS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Index of a node in the graph.
 pub type NodeId = usize;
@@ -534,106 +539,119 @@ impl PlanarGraph {
 
     /// Extracts rings from the graph using the Next-CCW rule.
     pub fn get_edge_rings(&mut self) -> Vec<LineString<f64>> {
-        let mut rings = Vec::new();
+        NEXT_POINTERS.with(|cell| {
+            let mut next_pointers = cell.borrow_mut();
+            next_pointers.clear();
+            // Ensure next_pointers is large enough and initialized with MAX.
+            // We use resize to fill with MAX, ensuring safety if we encounter a marked edge.
+            next_pointers.resize(self.directed_edges.len(), usize::MAX);
 
-        // Build "next unmarked" pointers
-        // next_pointers[de_idx] = the index of the next valid (unmarked) edge
-        // in the CCW list of the node that de_idx originates from.
-        // During traversal, we look at next_pointers[sym_idx], which gives us the
-        // edge after the incoming edge (sym) in CCW order at the node.
-        let mut next_pointers = vec![usize::MAX; self.directed_edges.len()];
-
-        let mut valid_edges = Vec::new();
-        for (i, degree) in self.nodes_degree.iter().enumerate() {
-            if *degree == 0 {
-                continue;
-            }
-
-            // Filter out marked edges from the adjacency list
-            valid_edges.clear();
-            valid_edges.extend(
-                self.nodes_outgoing[i]
-                    .iter()
-                    .cloned()
-                    .filter(|&idx| !self.directed_edges[idx].is_marked),
-            );
-
-            if valid_edges.is_empty() {
-                continue;
-            }
-
-            // Link them circular
-            for k in 0..valid_edges.len() {
-                let curr = valid_edges[k];
-                let next = valid_edges[(k + 1) % valid_edges.len()];
-                next_pointers[curr] = next;
-            }
-        }
-
-        for de in &mut self.directed_edges {
-            de.is_visited = false;
-        }
-
-        // Reuse vector to avoid allocations
-        let mut ring_edges = Vec::new();
-
-        for start_de_idx in 0..self.directed_edges.len() {
-            if self.directed_edges[start_de_idx].is_visited
-                || self.directed_edges[start_de_idx].is_marked
-            {
-                continue;
-            }
-
-            ring_edges.clear();
-            let mut curr_de_idx = start_de_idx;
-            let mut is_valid_ring = true;
-
-            loop {
-                let curr_de = &mut self.directed_edges[curr_de_idx];
-                curr_de.is_visited = true;
-                ring_edges.push(curr_de_idx);
-
-                let sym_idx = curr_de.sym_idx;
-                let next_de_idx = next_pointers[sym_idx];
-
-                if next_de_idx == usize::MAX {
-                    is_valid_ring = false;
-                    break;
+            let mut valid_edges = Vec::new();
+            for (i, degree) in self.nodes_degree.iter().enumerate() {
+                if *degree == 0 {
+                    continue;
                 }
 
-                curr_de_idx = next_de_idx;
+                let outgoing = &self.nodes_outgoing[i];
 
-                if curr_de_idx == start_de_idx {
-                    break;
+                // OPTIMIZATION: If no edges are marked (common case), skip filtering/allocation.
+                // This avoids verifying `is_marked` for every edge, which saves a random memory access.
+                if *degree == outgoing.len() {
+                    let len = outgoing.len();
+                    for k in 0..len {
+                        let curr = outgoing[k];
+                        let next = outgoing[(k + 1) % len];
+                        next_pointers[curr] = next;
+                    }
+                    continue;
                 }
 
-                if self.directed_edges[curr_de_idx].is_visited {
-                    is_valid_ring = false;
-                    break;
+                // Filter out marked edges from the adjacency list
+                valid_edges.clear();
+                valid_edges.extend(
+                    outgoing
+                        .iter()
+                        .cloned()
+                        .filter(|&idx| !self.directed_edges[idx].is_marked),
+                );
+
+                if valid_edges.is_empty() {
+                    continue;
+                }
+
+                // Link them circular
+                for k in 0..valid_edges.len() {
+                    let curr = valid_edges[k];
+                    let next = valid_edges[(k + 1) % valid_edges.len()];
+                    next_pointers[curr] = next;
                 }
             }
 
-            if is_valid_ring && !ring_edges.is_empty() {
-                let mut coords = Vec::with_capacity(ring_edges.len() + 1);
-                let start_node_idx = self.directed_edges[ring_edges[0]].src;
-                coords.push(Coord {
-                    x: self.nodes_x[start_node_idx],
-                    y: self.nodes_y[start_node_idx],
-                });
+            for de in &mut self.directed_edges {
+                de.is_visited = false;
+            }
 
-                for &de_idx in &ring_edges {
-                    let de = &self.directed_edges[de_idx];
-                    let dst_idx = de.dst;
+            // Reuse vector to avoid allocations
+            let mut ring_edges = Vec::new();
+            let mut rings = Vec::new();
+
+            for start_de_idx in 0..self.directed_edges.len() {
+                if self.directed_edges[start_de_idx].is_visited
+                    || self.directed_edges[start_de_idx].is_marked
+                {
+                    continue;
+                }
+
+                ring_edges.clear();
+                let mut curr_de_idx = start_de_idx;
+                let mut is_valid_ring = true;
+
+                loop {
+                    let curr_de = &mut self.directed_edges[curr_de_idx];
+                    curr_de.is_visited = true;
+                    ring_edges.push(curr_de_idx);
+
+                    let sym_idx = curr_de.sym_idx;
+                    let next_de_idx = next_pointers[sym_idx];
+
+                    if next_de_idx == usize::MAX {
+                        is_valid_ring = false;
+                        break;
+                    }
+
+                    curr_de_idx = next_de_idx;
+
+                    if curr_de_idx == start_de_idx {
+                        break;
+                    }
+
+                    if self.directed_edges[curr_de_idx].is_visited {
+                        is_valid_ring = false;
+                        break;
+                    }
+                }
+
+                if is_valid_ring && !ring_edges.is_empty() {
+                    let mut coords = Vec::with_capacity(ring_edges.len() + 1);
+                    let start_node_idx = self.directed_edges[ring_edges[0]].src;
                     coords.push(Coord {
-                        x: self.nodes_x[dst_idx],
-                        y: self.nodes_y[dst_idx],
+                        x: self.nodes_x[start_node_idx],
+                        y: self.nodes_y[start_node_idx],
                     });
+
+                    for &de_idx in &ring_edges {
+                        let de = &self.directed_edges[de_idx];
+                        let dst_idx = de.dst;
+                        coords.push(Coord {
+                            x: self.nodes_x[dst_idx],
+                            y: self.nodes_y[dst_idx],
+                        });
+                    }
+
+                    rings.push(LineString::new(coords));
                 }
-
-                rings.push(LineString::new(coords));
             }
-        }
-
-        rings
+            rings
+        })
     }
 }
