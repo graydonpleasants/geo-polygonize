@@ -348,7 +348,6 @@ impl SnapNoder {
             splits[idx].push(pt);
         });
     }
-
 }
 
 #[cfg(test)]
