@@ -127,11 +127,7 @@ impl UniformGrid {
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
-    pub fn find_splits(
-        &self,
-        lines: &[Line<f64>],
-        snap_noder: &SnapNoder,
-    ) -> Vec<Vec<Coord<f64>>> {
+    pub fn find_splits(&self, lines: &[Line<f64>], snap_noder: &SnapNoder) -> Vec<Vec<Coord<f64>>> {
         let mut splits = vec![Vec::new(); lines.len()];
 
         for r in 0..self.rows {
