@@ -183,4 +183,38 @@ mod tests {
             .expect("Polygonization should not fail on Point input");
         assert_eq!(polygons.len(), 0);
     }
+
+    #[test]
+    fn test_polygonize_empty_input_with_noding() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on empty input with noding");
+        assert_eq!(polygons.len(), 0);
+    }
+
+    #[test]
+    fn test_polygonize_empty_linestring_with_noding() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.add_geometry(geo_types::Geometry::LineString(geo_types::LineString::new(
+            vec![],
+        )));
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on empty LineString with noding");
+        assert_eq!(polygons.len(), 0);
+    }
+
+    #[test]
+    fn test_polygonize_point_with_noding() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.add_geometry(geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0)));
+        let polygons = poly
+            .polygonize()
+            .expect("Polygonization should not fail on Point input with noding");
+        assert_eq!(polygons.len(), 0);
+    }
 }
