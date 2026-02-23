@@ -107,7 +107,7 @@ fn bench_polygonize(c: &mut Criterion) {
 
     // Stress Test: Bowtie/Dirty Grid
     // Compare Strategies
-    let dirty_sizes = [10, 20, 50];
+    let dirty_sizes = [10, 20, 50, 100];
     for &size in dirty_sizes.iter() {
         let lines = generate_bowtie_grid(size);
 
