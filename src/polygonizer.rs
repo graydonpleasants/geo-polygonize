@@ -262,10 +262,8 @@ impl Polygonizer {
         let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = shell.bounding_rect() {
-                let aabb = AABB::from_corners(
-                    [bbox.min().x, bbox.min().y],
-                    [bbox.max().x, bbox.max().y],
-                );
+                let aabb =
+                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
             }
         }
