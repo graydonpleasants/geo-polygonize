@@ -2,7 +2,6 @@ use crate::noding::grid::UniformGrid;
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::LineIntersection;
 use geo::{Coord, Line};
-use std::collections::HashMap;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -74,7 +73,7 @@ impl SnapNoder {
                 grid.find_splits(&lines, self)
             };
 
-            if splits.is_empty() {
+            if splits.iter().all(|v| v.is_empty()) {
                 break;
             }
 
@@ -82,16 +81,9 @@ impl SnapNoder {
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
 
-            // Convert HashMap to dense Vec for O(1) lookup and deterministic order
-            let mut split_lookup = Vec::with_capacity(lines.len());
-            split_lookup.resize_with(lines.len(), || None);
-
-            for (i, pts) in splits.drain() {
-                split_lookup[i] = Some(pts);
-            }
-
             for (i, line) in lines.iter().enumerate() {
-                if let Some(mut points) = split_lookup[i].take() {
+                let mut points = std::mem::take(&mut splits[i]);
+                if !points.is_empty() {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -208,7 +200,7 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<Vec<Coord<f64>>> {
         let soa = SoALines::new(lines);
 
         #[cfg(feature = "parallel")]
@@ -223,21 +215,21 @@ impl SnapNoder {
                 })
                 .collect();
 
-            // Aggregate results into HashMap
-            let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
+            // Aggregate results into dense Vec
+            let mut splits = vec![Vec::new(); lines.len()];
             for (idx, pt) in all_splits {
-                splits.entry(idx).or_default().push(pt);
+                splits[idx].push(pt);
             }
             splits
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
+            let mut splits = vec![Vec::new(); lines.len()];
             for (i, &query_line) in lines.iter().enumerate() {
                 let events = self.check_intersection_simd(query_line, i, lines, &soa);
                 for (idx, pt) in events {
-                    splits.entry(idx).or_default().push(pt);
+                    splits[idx].push(pt);
                 }
             }
             splits
@@ -344,7 +336,7 @@ impl SnapNoder {
         lines: &[Line<f64>],
         i: usize,
         j: usize,
-        splits: &mut HashMap<usize, Vec<Coord<f64>>>,
+        splits: &mut [Vec<Coord<f64>>],
     ) {
         if i >= lines.len() || j >= lines.len() {
             return;
@@ -355,7 +347,7 @@ impl SnapNoder {
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
             self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-                splits.entry(idx).or_default().push(pt);
+                splits[idx].push(pt);
             });
         }
     }
@@ -417,11 +409,15 @@ mod tests {
         assert_eq!(
             splits_grid.len(),
             splits_simd.len(),
-            "Different number of lines with splits"
+            "Different vector lengths"
         );
 
-        for (idx, points_grid) in &splits_grid {
-            let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
+        for (idx, points_grid) in splits_grid.iter().enumerate() {
+            let points_simd = &splits_simd[idx];
+
+            if points_grid.is_empty() && points_simd.is_empty() {
+                continue;
+            }
 
             // Sort points to ensure order independence
             let mut p_grid = points_grid.clone();
@@ -432,10 +428,18 @@ mod tests {
             p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
             p_simd.dedup();
 
+            assert_eq!(
+                p_grid.len(),
+                p_simd.len(),
+                "Mismatch point count at index {}",
+                idx
+            );
+
             for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
                 assert!(
                     (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                    "Point mismatch: {:?} vs {:?}",
+                    "Point mismatch at index {}: {:?} vs {:?}",
+                    idx,
                     p_g,
                     p_s
                 );
