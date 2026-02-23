@@ -64,7 +64,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let mut splits = if !use_grid {
+            let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -73,16 +73,30 @@ impl SnapNoder {
                 grid.find_splits(&lines, self)
             };
 
-            if splits.iter().all(|v| v.is_empty()) {
+            if events.is_empty() {
                 break;
             }
+
+            // Sort events by line index to allow linear scan
+            events.sort_unstable_by_key(|e| e.0);
 
             // Apply splits
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
 
+            let mut event_idx = 0;
+            // Buffer to reuse for collecting points
+            let mut points = Vec::new();
+
             for (i, line) in lines.iter().enumerate() {
-                let mut points = std::mem::take(&mut splits[i]);
+                points.clear();
+
+                // Collect all split points for line i
+                while event_idx < events.len() && events[event_idx].0 == i {
+                    points.push(events[event_idx].1);
+                    event_idx += 1;
+                }
+
                 if !points.is_empty() {
                     // Add endpoints
                     points.push(line.start);
@@ -200,37 +214,28 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<Vec<Coord<f64>>> {
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<(usize, Coord<f64>)> {
         let soa = SoALines::new(lines);
 
         #[cfg(feature = "parallel")]
         {
             // Parallel execution: each thread processes a subset of query lines
             // and returns a list of split events (line_index, point).
-            let all_splits: Vec<(usize, Coord<f64>)> = lines
+            lines
                 .par_iter()
                 .enumerate()
                 .flat_map(|(i, &query_line)| {
                     self.check_intersection_simd(query_line, i, lines, &soa)
                 })
-                .collect();
-
-            // Aggregate results into dense Vec
-            let mut splits = vec![Vec::new(); lines.len()];
-            for (idx, pt) in all_splits {
-                splits[idx].push(pt);
-            }
-            splits
+                .collect()
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            let mut splits = vec![Vec::new(); lines.len()];
+            let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
                 let events = self.check_intersection_simd(query_line, i, lines, &soa);
-                for (idx, pt) in events {
-                    splits[idx].push(pt);
-                }
+                splits.extend(events);
             }
             splits
         }
@@ -336,7 +341,7 @@ impl SnapNoder {
         lines: &[Line<f64>],
         i: usize,
         j: usize,
-        splits: &mut [Vec<Coord<f64>>],
+        events: &mut Vec<(usize, Coord<f64>)>,
     ) {
         if i >= lines.len() || j >= lines.len() {
             return;
@@ -347,7 +352,7 @@ impl SnapNoder {
 
         if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
             self.handle_intersection(res, i, j, l1, l2, |idx, pt| {
-                splits[idx].push(pt);
+                events.push((idx, pt));
             });
         }
     }
@@ -401,49 +406,40 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let splits_grid = grid.find_splits(&lines, &noder);
+        let mut splits_grid = grid.find_splits(&lines, &noder);
 
         // SIMD Logic
-        let splits_simd = noder.find_splits_simd(&lines);
+        let mut splits_simd = noder.find_splits_simd(&lines);
+
+        // Both return Vec<(usize, Coord)>
+        // Sort both by index, then coordinate
+        splits_grid.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+        });
+        splits_grid.dedup(); // Remove duplicate events if any
+
+        splits_simd.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+        });
+        splits_simd.dedup();
 
         assert_eq!(
             splits_grid.len(),
             splits_simd.len(),
-            "Different vector lengths"
+            "Different event counts"
         );
 
-        for (idx, points_grid) in splits_grid.iter().enumerate() {
-            let points_simd = &splits_simd[idx];
-
-            if points_grid.is_empty() && points_simd.is_empty() {
-                continue;
-            }
-
-            // Sort points to ensure order independence
-            let mut p_grid = points_grid.clone();
-            p_grid.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
-            p_grid.dedup();
-
-            let mut p_simd = points_simd.clone();
-            p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
-            p_simd.dedup();
-
-            assert_eq!(
-                p_grid.len(),
-                p_simd.len(),
-                "Mismatch point count at index {}",
-                idx
+        for (e_g, e_s) in splits_grid.iter().zip(splits_simd.iter()) {
+            assert_eq!(e_g.0, e_s.0, "Index mismatch");
+            assert!(
+                (e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10,
+                "Point mismatch at index {}: {:?} vs {:?}",
+                e_g.0,
+                e_g.1,
+                e_s.1
             );
-
-            for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
-                assert!(
-                    (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                    "Point mismatch at index {}: {:?} vs {:?}",
-                    idx,
-                    p_g,
-                    p_s
-                );
-            }
         }
     }
 
