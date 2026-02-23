@@ -13,14 +13,16 @@ use crate::utils::z_order_index;
 use rayon::prelude::*;
 
 // Wrapper for Polygon to be indexable by rstar
-struct IndexedPolygon(Polygon<f64>, usize);
+struct IndexedEnvelope {
+    aabb: AABB<[f64; 2]>,
+    index: usize,
+}
 
-impl RTreeObject for IndexedPolygon {
+impl RTreeObject for IndexedEnvelope {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
-        let bbox = self.0.bounding_rect().unwrap();
-        AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y])
+        self.aabb
     }
 }
 
@@ -259,7 +261,13 @@ impl Polygonizer {
         // Assign holes to shells using RTree (Dynamic, but robust)
         let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
-            indexed_shells.push(IndexedPolygon(shell.clone(), i));
+            if let Some(bbox) = shell.bounding_rect() {
+                let aabb = AABB::from_corners(
+                    [bbox.min().x, bbox.min().y],
+                    [bbox.max().x, bbox.max().y],
+                );
+                indexed_shells.push(IndexedEnvelope { aabb, index: i });
+            }
         }
         let tree = RTree::bulk_load(indexed_shells);
 
@@ -283,7 +291,7 @@ impl Polygonizer {
                 });
 
                 for cand in candidates {
-                    let idx = cand.1;
+                    let idx = cand.index;
                     // Use SIMD check first
                     let simd_shell = &simd_shells[idx];
 
