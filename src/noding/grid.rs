@@ -127,6 +127,96 @@ impl UniformGrid {
         }
     }
 
+    /// Finds all intersections (Dense Version).
+    /// Returns (splits, has_intersections)
+    pub fn find_splits_dense(
+        &self,
+        lines: &[Line<f64>],
+        snap_noder: &SnapNoder,
+    ) -> (Vec<Vec<Coord<f64>>>, bool) {
+        let mut splits = vec![Vec::new(); lines.len()];
+        let mut has_intersections = false;
+
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let cell_indices = &self.cells[r * self.cols + c];
+                if cell_indices.len() < 2 {
+                    continue;
+                }
+
+                // Define current cell bounds
+                let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
+                let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
+                let cell_max_x = cell_min_x + self.cell_size;
+                let cell_max_y = cell_min_y + self.cell_size;
+
+                // Brute force pairs within the cell
+                for i in 0..cell_indices.len() {
+                    for j in (i + 1)..cell_indices.len() {
+                        let idx1 = cell_indices[i];
+                        let idx2 = cell_indices[j];
+
+                        let l1 = lines[idx1];
+                        let l2 = lines[idx2];
+
+                        if let Some(res) = line_intersection(l1, l2) {
+                            match res {
+                                LineIntersection::SinglePoint {
+                                    intersection: pt, ..
+                                } => {
+                                    // OWNERSHIP CHECK
+                                    let is_in_x = pt.x >= cell_min_x
+                                        && (pt.x < cell_max_x
+                                            || (c == self.cols - 1 && pt.x <= cell_max_x));
+                                    let is_in_y = pt.y >= cell_min_y
+                                        && (pt.y < cell_max_y
+                                            || (r == self.rows - 1 && pt.y <= cell_max_y));
+
+                                    if is_in_x && is_in_y {
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits[idx].push(pt);
+                                                has_intersections = true;
+                                            },
+                                        );
+                                    }
+                                }
+                                LineIntersection::Collinear {
+                                    intersection: overlap,
+                                } => {
+                                    let p1 = snap_noder.snap(overlap.start);
+                                    let p1_in = p1.x >= cell_min_x
+                                        && p1.x < cell_max_x
+                                        && p1.y >= cell_min_y
+                                        && p1.y < cell_max_y;
+                                    if p1_in || (c == 0 && r == 0) {
+                                        snap_noder.handle_intersection(
+                                            res,
+                                            idx1,
+                                            idx2,
+                                            l1,
+                                            l2,
+                                            |idx, pt| {
+                                                splits[idx].push(pt);
+                                                has_intersections = true;
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        (splits, has_intersections)
+    }
+
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     pub fn find_splits(
         &self,

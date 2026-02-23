@@ -65,16 +65,16 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let mut splits = if !use_grid {
+            let (mut splits, has_intersections) = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                grid.find_splits(&lines, self)
+                grid.find_splits_dense(&lines, self)
             };
 
-            if splits.is_empty() {
+            if !has_intersections {
                 break;
             }
 
@@ -82,8 +82,8 @@ impl SnapNoder {
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
             for (i, line) in lines.iter().enumerate() {
-                // Use remove to avoid cloning the vector
-                if let Some(mut points) = splits.remove(&i) {
+                let points = &mut splits[i];
+                if !points.is_empty() {
                     // Add endpoints
                     points.push(line.start);
                     points.push(line.end);
@@ -200,8 +200,10 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits_simd(&self, lines: &[Line<f64>]) -> HashMap<usize, Vec<Coord<f64>>> {
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> (Vec<Vec<Coord<f64>>>, bool) {
         let soa = SoALines::new(lines);
+        let mut splits = vec![Vec::new(); lines.len()];
+        let mut has_intersections = false;
 
         #[cfg(feature = "parallel")]
         {
@@ -215,25 +217,28 @@ impl SnapNoder {
                 })
                 .collect();
 
-            // Aggregate results into HashMap
-            let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
-            for (idx, pt) in all_splits {
-                splits.entry(idx).or_default().push(pt);
+            // Aggregate results into Vec
+            if !all_splits.is_empty() {
+                has_intersections = true;
+                for (idx, pt) in all_splits {
+                    splits[idx].push(pt);
+                }
             }
-            splits
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            let mut splits: HashMap<usize, Vec<Coord<f64>>> = HashMap::new();
             for (i, &query_line) in lines.iter().enumerate() {
                 let events = self.check_intersection_simd(query_line, i, lines, &soa);
-                for (idx, pt) in events {
-                    splits.entry(idx).or_default().push(pt);
+                if !events.is_empty() {
+                    has_intersections = true;
+                    for (idx, pt) in events {
+                        splits[idx].push(pt);
+                    }
                 }
             }
-            splits
         }
+        (splits, has_intersections)
     }
 
     // Helper to check one line against all others using SIMD SoA
@@ -401,19 +406,19 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let splits_grid = grid.find_splits(&lines, &noder);
+        let (splits_grid, _) = grid.find_splits_dense(&lines, &noder);
 
         // SIMD Logic
-        let splits_simd = noder.find_splits_simd(&lines);
+        let (splits_simd, _) = noder.find_splits_simd(&lines);
 
-        assert_eq!(
-            splits_grid.len(),
-            splits_simd.len(),
-            "Different number of lines with splits"
-        );
+        assert_eq!(splits_grid.len(), splits_simd.len());
 
-        for (idx, points_grid) in &splits_grid {
-            let points_simd = splits_simd.get(idx).expect("Index missing in SIMD splits");
+        for (i, points_grid) in splits_grid.iter().enumerate() {
+            let points_simd = &splits_simd[i];
+
+            if points_grid.is_empty() && points_simd.is_empty() {
+                continue;
+            }
 
             // Sort points to ensure order independence
             let mut p_grid = points_grid.clone();
@@ -423,6 +428,8 @@ mod tests {
             let mut p_simd = points_simd.clone();
             p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
             p_simd.dedup();
+
+            assert_eq!(p_grid.len(), p_simd.len(), "Mismatch count for line {}", i);
 
             for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
                 assert!(
