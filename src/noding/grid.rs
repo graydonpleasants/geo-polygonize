@@ -202,7 +202,9 @@ impl UniformGrid {
 
                 if let Some(res) = line_intersection(l1, l2) {
                     match res {
-                        LineIntersection::SinglePoint { intersection: pt, .. } => {
+                        LineIntersection::SinglePoint {
+                            intersection: pt, ..
+                        } => {
                             // OWNERSHIP CHECK:
                             // A line pair might exist in multiple cells.
                             // To avoid Duplicate Work: only process if the intersection point
@@ -215,9 +217,16 @@ impl UniformGrid {
                                     || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                             if is_in_x && is_in_y {
-                                snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
-                                    splits.push((idx, pt));
-                                });
+                                snap_noder.handle_intersection(
+                                    res,
+                                    idx1,
+                                    idx2,
+                                    l1,
+                                    l2,
+                                    |idx, pt| {
+                                        splits.push((idx, pt));
+                                    },
+                                );
                             }
                         }
                         LineIntersection::Collinear {
@@ -231,9 +240,16 @@ impl UniformGrid {
                                 && p1.y >= cell_min_y
                                 && p1.y < cell_max_y;
                             if p1_in || (c == 0 && r == 0) {
-                                snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
-                                    splits.push((idx, pt));
-                                });
+                                snap_noder.handle_intersection(
+                                    res,
+                                    idx1,
+                                    idx2,
+                                    l1,
+                                    l2,
+                                    |idx, pt| {
+                                        splits.push((idx, pt));
+                                    },
+                                );
                             }
                         }
                     }
