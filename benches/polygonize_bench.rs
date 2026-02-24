@@ -235,5 +235,10 @@ fn bench_get_edge_rings_dangles(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_polygonize, bench_get_edge_rings, bench_get_edge_rings_dangles);
+criterion_group!(
+    benches,
+    bench_polygonize,
+    bench_get_edge_rings,
+    bench_get_edge_rings_dangles
+);
 criterion_main!(benches);
