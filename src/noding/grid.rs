@@ -2,6 +2,9 @@ use crate::noding::snap::SnapNoder;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::{Coord, Line};
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 pub struct UniformGrid {
     /// Flattened grid: cells[row * cols + col] -> List of line indices
     cells: Vec<Vec<usize>>,
@@ -133,92 +136,126 @@ impl UniformGrid {
         lines: &[Line<f64>],
         snap_noder: &SnapNoder,
     ) -> Vec<(usize, Coord<f64>)> {
-        let mut splits = Vec::new();
+        #[cfg(feature = "parallel")]
+        {
+            self.cells
+                .par_iter()
+                .enumerate()
+                .fold(Vec::new, |mut acc, (idx, cell_indices)| {
+                    if cell_indices.len() >= 2 {
+                        let r = idx / self.cols;
+                        let c = idx % self.cols;
+                        self.process_cell(r, c, cell_indices, lines, snap_noder, &mut acc);
+                    }
+                    acc
+                })
+                .reduce(Vec::new, |mut a, mut b| {
+                    a.append(&mut b);
+                    a
+                })
+        }
 
-        for r in 0..self.rows {
-            for c in 0..self.cols {
-                let cell_indices = &self.cells[r * self.cols + c];
-                if cell_indices.len() < 2 {
-                    continue;
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut splits = Vec::new();
+            for r in 0..self.rows {
+                for c in 0..self.cols {
+                    let cell_indices = &self.cells[r * self.cols + c];
+                    self.process_cell(r, c, cell_indices, lines, snap_noder, &mut splits);
                 }
+            }
+            splits
+        }
+    }
 
-                // Define current cell bounds
-                let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
-                let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
-                let cell_max_x = cell_min_x + self.cell_size;
-                let cell_max_y = cell_min_y + self.cell_size;
+    #[inline]
+    fn process_cell(
+        &self,
+        r: usize,
+        c: usize,
+        cell_indices: &[usize],
+        lines: &[Line<f64>],
+        snap_noder: &SnapNoder,
+        splits: &mut Vec<(usize, Coord<f64>)>,
+    ) {
+        if cell_indices.len() < 2 {
+            return;
+        }
 
-                // Brute force pairs within the cell
-                for i in 0..cell_indices.len() {
-                    for j in (i + 1)..cell_indices.len() {
-                        let idx1 = cell_indices[i];
-                        let idx2 = cell_indices[j];
+        // Define current cell bounds
+        let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
+        let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
+        let cell_max_x = cell_min_x + self.cell_size;
+        let cell_max_y = cell_min_y + self.cell_size;
 
-                        // NOTE: If you implemented SoALines, you could insert the SoA check here!
-                        // if !soa.intersects(idx1, idx2) { continue; }
+        // Brute force pairs within the cell
+        for i in 0..cell_indices.len() {
+            for j in (i + 1)..cell_indices.len() {
+                let idx1 = cell_indices[i];
+                let idx2 = cell_indices[j];
 
-                        let l1 = lines[idx1];
-                        let l2 = lines[idx2];
+                // NOTE: If you implemented SoALines, you could insert the SoA check here!
+                // if !soa.intersects(idx1, idx2) { continue; }
 
-                        if let Some(res) = line_intersection(l1, l2) {
-                            match res {
-                                LineIntersection::SinglePoint {
-                                    intersection: pt, ..
-                                } => {
-                                    // OWNERSHIP CHECK:
-                                    // A line pair might exist in multiple cells.
-                                    // To avoid Duplicate Work: only process if the intersection point
-                                    // falls strictly within THIS cell's responsibility.
-                                    let is_in_x = pt.x >= cell_min_x
-                                        && (pt.x < cell_max_x
-                                            || (c == self.cols - 1 && pt.x <= cell_max_x));
-                                    let is_in_y = pt.y >= cell_min_y
-                                        && (pt.y < cell_max_y
-                                            || (r == self.rows - 1 && pt.y <= cell_max_y));
+                let l1 = lines[idx1];
+                let l2 = lines[idx2];
 
-                                    if is_in_x && is_in_y {
-                                        snap_noder.handle_intersection(
-                                            res,
-                                            idx1,
-                                            idx2,
-                                            l1,
-                                            l2,
-                                            |idx, pt| {
-                                                splits.push((idx, pt));
-                                            },
-                                        );
-                                    }
-                                }
-                                LineIntersection::Collinear {
-                                    intersection: overlap,
-                                } => {
-                                    // Collinear is rare. Just process start/end and let HashMap dedup later.
-                                    let p1 = snap_noder.snap(overlap.start);
-                                    // Simplified ownership: Check if p1 is in cell
-                                    let p1_in = p1.x >= cell_min_x
-                                        && p1.x < cell_max_x
-                                        && p1.y >= cell_min_y
-                                        && p1.y < cell_max_y;
-                                    if p1_in || (c == 0 && r == 0) {
-                                        snap_noder.handle_intersection(
-                                            res,
-                                            idx1,
-                                            idx2,
-                                            l1,
-                                            l2,
-                                            |idx, pt| {
-                                                splits.push((idx, pt));
-                                            },
-                                        );
-                                    }
-                                }
+                if let Some(res) = line_intersection(l1, l2) {
+                    match res {
+                        LineIntersection::SinglePoint {
+                            intersection: pt, ..
+                        } => {
+                            // OWNERSHIP CHECK:
+                            // A line pair might exist in multiple cells.
+                            // To avoid Duplicate Work: only process if the intersection point
+                            // falls strictly within THIS cell's responsibility.
+                            let is_in_x = pt.x >= cell_min_x
+                                && (pt.x < cell_max_x
+                                    || (c == self.cols - 1 && pt.x <= cell_max_x));
+                            let is_in_y = pt.y >= cell_min_y
+                                && (pt.y < cell_max_y
+                                    || (r == self.rows - 1 && pt.y <= cell_max_y));
+
+                            if is_in_x && is_in_y {
+                                snap_noder.handle_intersection(
+                                    res,
+                                    idx1,
+                                    idx2,
+                                    l1,
+                                    l2,
+                                    |idx, pt| {
+                                        splits.push((idx, pt));
+                                    },
+                                );
+                            }
+                        }
+                        LineIntersection::Collinear {
+                            intersection: overlap,
+                        } => {
+                            // Collinear is rare. Just process start/end and let HashMap dedup later.
+                            let p1 = snap_noder.snap(overlap.start);
+                            // Simplified ownership: Check if p1 is in cell
+                            let p1_in = p1.x >= cell_min_x
+                                && p1.x < cell_max_x
+                                && p1.y >= cell_min_y
+                                && p1.y < cell_max_y;
+                            if p1_in || (c == 0 && r == 0) {
+                                snap_noder.handle_intersection(
+                                    res,
+                                    idx1,
+                                    idx2,
+                                    l1,
+                                    l2,
+                                    |idx, pt| {
+                                        splits.push((idx, pt));
+                                    },
+                                );
                             }
                         }
                     }
                 }
             }
         }
-        splits
     }
 }
 

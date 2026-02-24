@@ -238,3 +238,232 @@ fn test_curved_holes() {
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
 }
+
+#[test]
+fn test_touching_full_edge() {
+    // Two squares sharing a full edge
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2: (10,0)-(20,0)-(20,10)-(10,10)-(10,0)
+    // Shared edge: (10,0)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 0.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2, "Expected 2 squares");
+
+    for p in &polygons {
+        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn test_touching_partial_edge() {
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2 (smaller, touching top half of right edge of Square 1):
+    // (10,5)-(20,5)-(20,15)-(10,15)-(10,5)
+    // Shared segment: (10,5)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 5.0),
+            (20.0, 5.0),
+            (20.0, 15.0),
+            (10.0, 15.0),
+            (10.0, 5.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    // Should result in Square 1 (area 100) and Square 2 (area 100)
+    // The noder should split the edge of Square 1 at (10,5) and edge of Square 2 at (10,10) (if needed)
+    assert_eq!(polygons.len(), 2);
+
+    let area_100 = polygons
+        .iter()
+        .filter(|p| (p.unsigned_area() - 100.0).abs() < 1e-6)
+        .count();
+    assert_eq!(area_100, 2);
+}
+
+#[test]
+fn test_touching_vertex() {
+    // Two squares touching at (10,10)
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2: (10,10)-(20,10)-(20,20)-(10,20)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 10.0),
+            (20.0, 10.0),
+            (20.0, 20.0),
+            (10.0, 20.0),
+            (10.0, 10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2);
+}
+
+#[test]
+fn test_touching_t_junction() {
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2 touching mid-bottom edge of S1
+    // (2, -10)-(8, -10)-(8, 0)-(2, 0)-(2, -10)
+    // Touches at segment (2,0)-(8,0) which is part of S1's bottom edge (0,0)-(10,0)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (2.0, -10.0),
+            (8.0, -10.0),
+            (8.0, 0.0),
+            (2.0, 0.0),
+            (2.0, -10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2);
+
+    // Check areas: S1 is 100, S2 is 6*10 = 60
+    let s1 = polygons
+        .iter()
+        .find(|p| (p.unsigned_area() - 100.0).abs() < 1e-6);
+    assert!(s1.is_some(), "Square 1 not found");
+
+    let s2 = polygons
+        .iter()
+        .find(|p| (p.unsigned_area() - 60.0).abs() < 1e-6);
+    assert!(s2.is_some(), "Square 2 not found");
+}
+
+#[test]
+fn test_grid_2x2() {
+    // 2x2 Grid of 10x10 squares
+    // (0,0) to (20,20)
+    // Split at x=10, y=10
+    // Lines provided as 4 separate squares to force deduplication/noding
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // Bottom-Left
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+    // Bottom-Right
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 0.0),
+        ])
+        .into(),
+    );
+    // Top-Left
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 20.0),
+            (0.0, 10.0),
+        ])
+        .into(),
+    );
+    // Top-Right
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 10.0),
+            (20.0, 10.0),
+            (20.0, 20.0),
+            (10.0, 20.0),
+            (10.0, 10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 4);
+
+    for p in &polygons {
+        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+    }
+}
