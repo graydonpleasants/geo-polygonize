@@ -1,15 +1,14 @@
 import json
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection, PatchCollection
-from matplotlib.patches import PathPatch
+from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.path import Path
 from shapely.geometry import shape
 import sys
 import argparse
 import numpy as np
 
-def polygon_to_patch(polygon):
-    """Converts a Shapely Polygon to a matplotlib PathPatch."""
+def polygon_to_path(polygon):
+    """Converts a Shapely Polygon to a matplotlib Path."""
     if polygon.is_empty:
         return None
 
@@ -36,8 +35,7 @@ def polygon_to_patch(polygon):
     if not vertices:
         return None
 
-    path = Path(vertices, codes)
-    return PathPatch(path)
+    return Path(vertices, codes)
 
 def plot_geojson(filepath, ax, color, title, is_polygon=False):
     with open(filepath, 'r') as f:
@@ -60,22 +58,23 @@ def plot_geojson(filepath, ax, color, title, is_polygon=False):
 
     count = 0
     if is_polygon:
-        patches = []
+        paths = []
         for geom in geoms:
             if geom.geom_type == 'Polygon':
-                patch = polygon_to_patch(geom)
-                if patch:
-                    patches.append(patch)
+                path = polygon_to_path(geom)
+                if path:
+                    paths.append(path)
                 count += 1
             elif geom.geom_type == 'MultiPolygon':
                 for poly in geom.geoms:
-                    patch = polygon_to_patch(poly)
-                    if patch:
-                        patches.append(patch)
+                    path = polygon_to_path(poly)
+                    if path:
+                        paths.append(path)
                 count += 1
 
-        if patches:
-            p = PatchCollection(patches, facecolor=color, edgecolor='black', alpha=0.5)
+        if paths:
+            # Optimized: Use PathCollection with Paths directly
+            p = PathCollection(paths, facecolors=color, edgecolors='black', alpha=0.5)
             ax.add_collection(p)
             ax.autoscale()
     else:
