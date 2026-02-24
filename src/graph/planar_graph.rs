@@ -546,6 +546,7 @@ impl PlanarGraph {
                 }
 
                 // Filter out marked edges from the adjacency list
+                // Hoisted allocation to reduce memory overhead
                 valid_edges.clear();
                 valid_edges.extend(
                     outgoing

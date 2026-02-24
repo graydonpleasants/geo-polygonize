@@ -206,5 +206,34 @@ fn bench_get_edge_rings(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_polygonize, bench_get_edge_rings);
+fn bench_get_edge_rings_dangles(c: &mut Criterion) {
+    let mut group = c.benchmark_group("planar_graph_dangles");
+    // Use a large enough count to trigger allocations
+    let count = 500;
+    let lines = generate_random_lines(count, 12345);
+
+    group.bench_function("get_edge_rings_with_dangles", |b| {
+        b.iter_with_setup(
+            || {
+                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                for line in &lines {
+                    graph.add_line_string(line.clone());
+                }
+                // Pruning dangles will mark some edges, causing nodes to have
+                // valid degree < outgoing.len(), forcing the slow path.
+                loop {
+                    if graph.prune_dangles() == 0 {
+                        break;
+                    }
+                }
+                graph.sort_edges();
+                graph
+            },
+            |mut graph| graph.get_edge_rings(),
+        );
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_polygonize, bench_get_edge_rings, bench_get_edge_rings_dangles);
 criterion_main!(benches);
