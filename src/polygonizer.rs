@@ -320,7 +320,10 @@ impl Polygonizer {
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = holes.into_iter().filter_map(process_hole_assignment).collect();
+            assignments = holes
+                .into_iter()
+                .filter_map(process_hole_assignment)
+                .collect();
         }
 
         let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
