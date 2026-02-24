@@ -87,10 +87,10 @@ impl SimdRing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::{Coord, LineString, Polygon};
     use geo::Contains;
-    use rand::{Rng, SeedableRng};
+    use geo::{Coord, LineString, Polygon};
     use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     #[test]
     fn test_simd_ring_square() {
@@ -213,16 +213,37 @@ mod tests {
         // Test with large coordinates to check numerical stability
         let offset = 1_000_000.0;
         let coords = vec![
-            Coord { x: offset, y: offset },
-            Coord { x: offset + 10.0, y: offset },
-            Coord { x: offset + 10.0, y: offset + 10.0 },
-            Coord { x: offset, y: offset + 10.0 },
-            Coord { x: offset, y: offset },
+            Coord {
+                x: offset,
+                y: offset,
+            },
+            Coord {
+                x: offset + 10.0,
+                y: offset,
+            },
+            Coord {
+                x: offset + 10.0,
+                y: offset + 10.0,
+            },
+            Coord {
+                x: offset,
+                y: offset + 10.0,
+            },
+            Coord {
+                x: offset,
+                y: offset,
+            },
         ];
         let ring = SimdRing::new(&coords);
 
-        assert!(ring.contains(Coord { x: offset + 5.0, y: offset + 5.0 }));
-        assert!(!ring.contains(Coord { x: offset + 15.0, y: offset + 5.0 }));
+        assert!(ring.contains(Coord {
+            x: offset + 5.0,
+            y: offset + 5.0
+        }));
+        assert!(!ring.contains(Coord {
+            x: offset + 15.0,
+            y: offset + 5.0
+        }));
     }
 
     #[test]
@@ -231,9 +252,18 @@ mod tests {
 
         for _ in 0..100 {
             // Generate a random triangle
-            let p1 = Coord { x: rng.gen_range(0.0..100.0), y: rng.gen_range(0.0..100.0) };
-            let p2 = Coord { x: rng.gen_range(0.0..100.0), y: rng.gen_range(0.0..100.0) };
-            let p3 = Coord { x: rng.gen_range(0.0..100.0), y: rng.gen_range(0.0..100.0) };
+            let p1 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
+            let p2 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
+            let p3 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
 
             let coords = vec![p1, p2, p3, p1];
             let ring = SimdRing::new(&coords);
@@ -241,28 +271,32 @@ mod tests {
 
             // Test random points
             for _ in 0..10 {
-                let test_point = Coord { x: rng.gen_range(0.0..100.0), y: rng.gen_range(0.0..100.0) };
+                let test_point = Coord {
+                    x: rng.gen_range(0.0..100.0),
+                    y: rng.gen_range(0.0..100.0),
+                };
 
                 // Geo's contains is strict (false for boundary).
                 // SimdRing is strict-ish (false for most boundary, true for some vertices).
                 // We skip points too close to boundary to avoid flaky tests on undefined behavior.
-                use geo::Euclidean;
-                use geo::Distance;
+                use geo::EuclideanDistance;
                 // Convert test_point to Point for distance check
                 let point_geo = geo::Point(test_point);
                 // Check distance to boundary
                 let boundary = poly.exterior();
                 // Check distance using Euclidean distance
-                if Euclidean.distance(boundary, &point_geo) < 1e-5 {
+                if boundary.euclidean_distance(&point_geo) < 1e-5 {
                     continue;
                 }
 
                 let simd_contains = ring.contains(test_point);
                 let geo_contains = poly.contains(&test_point);
 
-                assert_eq!(simd_contains, geo_contains,
+                assert_eq!(
+                    simd_contains, geo_contains,
                     "Mismatch for point {:?} in triangle {:?}, {:?}, {:?}",
-                    test_point, p1, p2, p3);
+                    test_point, p1, p2, p3
+                );
             }
         }
     }
