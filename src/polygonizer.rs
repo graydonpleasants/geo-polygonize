@@ -271,8 +271,7 @@ impl Polygonizer {
 
         // Process holes
         let process_hole_assignment =
-            |hole_poly: &Polygon<f64>| -> Option<(usize, LineString<f64>)> {
-                let hole_ring = hole_poly.exterior();
+            |hole_poly: Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let bbox = hole_poly.bounding_rect()?;
                 let hole_aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
@@ -285,7 +284,7 @@ impl Polygonizer {
                 // Use centroid for inclusion check to avoid boundary issues
                 let probe_point = hole_poly.centroid().unwrap_or_else(|| {
                     // Fallback to first point if centroid fails (e.g. degenerate)
-                    Point(hole_ring.0[0])
+                    Point(hole_poly.exterior().0[0])
                 });
 
                 for cand in candidates {
@@ -305,20 +304,23 @@ impl Polygonizer {
                     }
                 }
 
-                best_shell_idx.map(|idx| (idx, hole_ring.clone()))
+                best_shell_idx.map(|idx| {
+                    let (ext, _) = hole_poly.into_inner();
+                    (idx, ext)
+                })
             };
 
         let assignments: Vec<_>;
         #[cfg(feature = "parallel")]
         {
             assignments = holes
-                .par_iter()
+                .into_par_iter()
                 .filter_map(process_hole_assignment)
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = holes.iter().filter_map(process_hole_assignment).collect();
+            assignments = holes.into_iter().filter_map(process_hole_assignment).collect();
         }
 
         let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
