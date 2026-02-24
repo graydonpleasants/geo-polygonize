@@ -1,3 +1,6 @@
+use crate::utils::parallel::{
+    par_flat_map, par_into_enumerate_map, par_sort_unstable, par_zip_for_each,
+};
 use crate::utils::{compare_angular, z_order_index};
 use geo::Line;
 use geo_types::{Coord, LineString};
@@ -228,18 +231,10 @@ impl PlanarGraph {
             ]
         };
 
-        #[cfg(feature = "parallel")]
-        let mut entries: Vec<NodeEntry> = lines.par_iter().flat_map_iter(to_entries).collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut entries: Vec<NodeEntry> = lines.iter().flat_map(to_entries).collect();
+        let mut entries: Vec<NodeEntry> = par_flat_map(&lines, to_entries);
 
         // 2. Sort using precomputed Z-order
-        #[cfg(feature = "parallel")]
-        entries.par_sort_unstable();
-
-        #[cfg(not(feature = "parallel"))]
-        entries.sort_unstable();
+        par_sort_unstable(&mut entries);
 
         // Dedup using exact equality.
         entries.dedup_by(|a, b| {
@@ -310,21 +305,13 @@ impl PlanarGraph {
         }
 
         // Reserve exact capacity
-        #[cfg(feature = "parallel")]
-        self.nodes_outgoing
-            .par_iter_mut()
-            .zip(degrees.par_iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
-
-        #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing
-            .iter_mut()
-            .zip(degrees.iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
+        par_zip_for_each(
+            &mut self.nodes_outgoing,
+            &degrees,
+            |adj: &mut Vec<usize>, deg: &usize| {
+                adj.reserve(*deg);
+            },
+        );
 
         // 5. Build Edges
         self.edges.reserve(valid_edges.len());
@@ -337,15 +324,7 @@ impl PlanarGraph {
             create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
         };
 
-        #[cfg(feature = "parallel")]
-        let new_edges_data: Vec<_> = valid_edges
-            .into_par_iter()
-            .enumerate()
-            .map(mapper)
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(mapper).collect();
+        let new_edges_data: Vec<_> = par_into_enumerate_map(valid_edges, mapper);
 
         for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
             self.directed_edges.push(de_u_v);
