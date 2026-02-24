@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000249 | 0.000702 | 2.82x |
-| 10 | 0.000494 | 0.002206 | 4.47x |
-| 20 | 0.001151 | 0.008242 | 7.16x |
-| 50 | 0.005296 | 0.050564 | 9.55x |
-| 100 | 0.023176 | 0.207597 | 8.96x |
+| 5 | 0.000247 | 0.000698 | 2.83x |
+| 10 | 0.000499 | 0.002254 | 4.52x |
+| 20 | 0.001199 | 0.008350 | 6.96x |
+| 50 | 0.005417 | 0.053151 | 9.81x |
+| 100 | 0.022994 | 0.222461 | 9.67x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.001072 | 0.007954 | 7.42x |
-| 100 | 0.003679 | 0.026531 | 7.21x |
-| 200 | 0.013167 | 0.098896 | 7.51x |
+| 50 | 0.001080 | 0.008192 | 7.59x |
+| 100 | 0.003730 | 0.026491 | 7.10x |
+| 200 | 0.013263 | 0.104363 | 7.87x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1122,7 +1122,41 @@ fn bench_get_edge_rings(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_polygonize, bench_get_edge_rings);
+fn bench_get_edge_rings_dangles(c: &mut Criterion) {
+    let mut group = c.benchmark_group("planar_graph_dangles");
+    // Use a large enough count to trigger allocations
+    let count = 500;
+    let lines = generate_random_lines(count, 12345);
+
+    group.bench_function("get_edge_rings_with_dangles", |b| {
+        b.iter_with_setup(
+            || {
+                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                for line in &lines {
+                    graph.add_line_string(line.clone());
+                }
+                // Pruning dangles will mark some edges, causing nodes to have
+                // valid degree < outgoing.len(), forcing the slow path.
+                loop {
+                    if graph.prune_dangles() == 0 {
+                        break;
+                    }
+                }
+                graph.sort_edges();
+                graph
+            },
+            |mut graph| graph.get_edge_rings(),
+        );
+    });
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_polygonize,
+    bench_get_edge_rings,
+    bench_get_edge_rings_dangles
+);
 criterion_main!(benches);
 
 ```
@@ -3068,6 +3102,9 @@ mod tests;
 
 File: src/graph/planar_graph.rs
 ```
+use crate::utils::parallel::{
+    par_flat_map, par_into_enumerate_map, par_sort_unstable, par_zip_for_each,
+};
 use crate::utils::{compare_angular, z_order_index};
 use geo::Line;
 use geo_types::{Coord, LineString};
@@ -3298,18 +3335,10 @@ impl PlanarGraph {
             ]
         };
 
-        #[cfg(feature = "parallel")]
-        let mut entries: Vec<NodeEntry> = lines.par_iter().flat_map_iter(to_entries).collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut entries: Vec<NodeEntry> = lines.iter().flat_map(to_entries).collect();
+        let mut entries: Vec<NodeEntry> = par_flat_map(&lines, to_entries);
 
         // 2. Sort using precomputed Z-order
-        #[cfg(feature = "parallel")]
-        entries.par_sort_unstable();
-
-        #[cfg(not(feature = "parallel"))]
-        entries.sort_unstable();
+        par_sort_unstable(&mut entries);
 
         // Dedup using exact equality.
         entries.dedup_by(|a, b| {
@@ -3380,21 +3409,13 @@ impl PlanarGraph {
         }
 
         // Reserve exact capacity
-        #[cfg(feature = "parallel")]
-        self.nodes_outgoing
-            .par_iter_mut()
-            .zip(degrees.par_iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
-
-        #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing
-            .iter_mut()
-            .zip(degrees.iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
+        par_zip_for_each(
+            &mut self.nodes_outgoing,
+            &degrees,
+            |adj: &mut Vec<usize>, deg: &usize| {
+                adj.reserve(*deg);
+            },
+        );
 
         // 5. Build Edges
         self.edges.reserve(valid_edges.len());
@@ -3407,15 +3428,7 @@ impl PlanarGraph {
             create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
         };
 
-        #[cfg(feature = "parallel")]
-        let new_edges_data: Vec<_> = valid_edges
-            .into_par_iter()
-            .enumerate()
-            .map(mapper)
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(mapper).collect();
+        let new_edges_data: Vec<_> = par_into_enumerate_map(valid_edges, mapper);
 
         for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
             self.directed_edges.push(de_u_v);
@@ -3637,6 +3650,7 @@ impl PlanarGraph {
                 }
 
                 // Filter out marked edges from the adjacency list
+                // Hoisted allocation to reduce memory overhead
                 valid_edges.clear();
                 valid_edges.extend(
                     outgoing
@@ -5011,6 +5025,76 @@ where
     }
 }
 
+/// Helper for parallel flat_map
+#[inline]
+pub fn par_flat_map<T, F, U, R>(slice: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    F: Fn(&T) -> U + Sync + Send,
+    U: IntoIterator<Item = R>,
+    R: Send,
+{
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        slice.par_iter().flat_map_iter(f).collect()
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        slice.iter().flat_map(f).collect()
+    }
+}
+
+/// Helper for parallel unstable sort
+#[inline]
+pub fn par_sort_unstable<T: Ord + Send>(slice: &mut [T]) {
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        slice.par_sort_unstable();
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        slice.sort_unstable();
+    }
+}
+
+/// Helper for parallel zip and for_each
+#[inline]
+pub fn par_zip_for_each<A, B, F>(a: &mut [A], b: &[B], f: F)
+where
+    A: Send,
+    B: Sync,
+    F: Fn(&mut A, &B) + Sync + Send,
+{
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        a.par_iter_mut()
+            .zip(b.par_iter())
+            .for_each(|(x, y)| f(x, y));
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        a.iter_mut().zip(b.iter()).for_each(|(x, y)| f(x, y));
+    }
+}
+
+/// Helper for parallel consume, enumerate, map and collect
+#[inline]
+pub fn par_into_enumerate_map<T, F, U>(vec: Vec<T>, f: F) -> Vec<U>
+where
+    T: Send,
+    F: Fn((usize, T)) -> U + Sync + Send,
+    U: Send,
+{
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        vec.into_par_iter().enumerate().map(f).collect()
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        vec.into_iter().enumerate().map(f).collect()
+    }
+}
+
 ```
 
 File: src/utils/simd.rs
@@ -5104,7 +5188,10 @@ impl SimdRing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::Coord;
+    use geo::Contains;
+    use geo::{Coord, LineString, Polygon};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     #[test]
     fn test_simd_ring_square() {
@@ -5184,6 +5271,200 @@ mod tests {
         let coords_single = vec![Coord { x: 0.0, y: 0.0 }];
         let ring_single = SimdRing::new(&coords_single);
         assert!(!ring_single.contains(Coord { x: 0.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_alignment_fallback() {
+        // Test varying sizes to exercise SIMD + scalar tail logic
+        // A square 0,0 to 10,10.
+        // 5 points: 0,0 -> 10,0 -> 10,10 -> 0,10 -> 0,0.
+        // len=5. n=4. 1 iteration of SIMD (4). No scalar tail.
+
+        // Let's create a polygon with more points on the edges to force scalar tail.
+        // 0,0 -> 5,0 -> 10,0 -> 10,5 -> 10,10 -> 5,10 -> 0,10 -> 0,5 -> 0,0.
+        // 9 points. len=9. n=8.
+        // 2 iterations of SIMD. No scalar tail.
+
+        // Add one more point: 0,0 -> ... -> 0,2 -> 0,0.
+        // 10 points. len=10. n=9.
+        // 2 iterations of SIMD (8). 1 scalar tail (9th segment).
+
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 5.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 5.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 5.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 5.0 },
+            Coord { x: 0.0, y: 2.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // Inside
+        assert!(ring.contains(Coord { x: 5.0, y: 5.0 }));
+        // Outside
+        assert!(!ring.contains(Coord { x: 15.0, y: 5.0 }));
+    }
+
+    #[test]
+    fn test_simd_ring_large_coords() {
+        // Test with large coordinates to check numerical stability
+        let offset = 1_000_000.0;
+        let coords = vec![
+            Coord {
+                x: offset,
+                y: offset,
+            },
+            Coord {
+                x: offset + 10.0,
+                y: offset,
+            },
+            Coord {
+                x: offset + 10.0,
+                y: offset + 10.0,
+            },
+            Coord {
+                x: offset,
+                y: offset + 10.0,
+            },
+            Coord {
+                x: offset,
+                y: offset,
+            },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        assert!(ring.contains(Coord {
+            x: offset + 5.0,
+            y: offset + 5.0
+        }));
+        assert!(!ring.contains(Coord {
+            x: offset + 15.0,
+            y: offset + 5.0
+        }));
+    }
+
+    #[test]
+    fn test_simd_ring_vs_geo_random() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..100 {
+            // Generate a random triangle
+            let p1 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
+            let p2 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
+            let p3 = Coord {
+                x: rng.gen_range(0.0..100.0),
+                y: rng.gen_range(0.0..100.0),
+            };
+
+            let coords = vec![p1, p2, p3, p1];
+            let ring = SimdRing::new(&coords);
+            let poly = Polygon::new(LineString::new(coords), vec![]);
+
+            // Test random points
+            for _ in 0..10 {
+                let test_point = Coord {
+                    x: rng.gen_range(0.0..100.0),
+                    y: rng.gen_range(0.0..100.0),
+                };
+
+                // Geo's contains is strict (false for boundary).
+                // SimdRing is strict-ish (false for most boundary, true for some vertices).
+                // We skip points too close to boundary to avoid flaky tests on undefined behavior.
+                use geo::EuclideanDistance;
+                // Convert test_point to Point for distance check
+                let point_geo = geo::Point(test_point);
+                // Check distance to boundary
+                let boundary = poly.exterior();
+                // Check distance using Euclidean distance
+                if boundary.euclidean_distance(&point_geo) < 1e-5 {
+                    continue;
+                }
+
+                let simd_contains = ring.contains(test_point);
+                let geo_contains = poly.contains(&test_point);
+
+                assert_eq!(
+                    simd_contains, geo_contains,
+                    "Mismatch for point {:?} in triangle {:?}, {:?}, {:?}",
+                    test_point, p1, p2, p3
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_simd_ring_boundary_documented_behavior() {
+        // Documenting the specific behavior of the current implementation for boundary points.
+        // Logic: Ray casting to +infinity X.
+        // Vertical edges: Ignored if x != px. If x == px, ray runs along edge (degenerate).
+        // If ray passes through a vertex:
+        //  - If edges go Up-Up or Down-Down: 2 crossings (even) -> Outside.
+        //  - If edges go Up-Down or Down-Up: 1 crossing (odd) -> Inside.
+        //  - Vertices with y == py are treated as "below" the ray (strict > check).
+
+        let coords = vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 10.0, y: 0.0 },
+            Coord { x: 10.0, y: 10.0 },
+            Coord { x: 0.0, y: 10.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ];
+        let ring = SimdRing::new(&coords);
+
+        // (0,0): Vertex.
+        // Edge (0,10)->(0,0) comes down to y=0. (10 > 0 is True).
+        // Edge (0,0)->(10,0) goes right at y=0. (0 > 0 is False).
+        // Crossing check: `true != false` -> 1 crossing. Inside.
+        assert!(ring.contains(Coord { x: 0.0, y: 0.0 }));
+
+        // (10,0): Vertex.
+        // Edge (0,0)->(10,0) comes to y=0.
+        // Edge (10,0)->(10,10) goes up from y=0.
+        // Crossing check: `false != true`. 1 crossing.
+        // BUT point.x < intersect_x.
+        // Ray starts at x=10. Intersect is at x=10.
+        // 10 < 10 is False. No crossing counted. Outside.
+        assert!(!ring.contains(Coord { x: 10.0, y: 0.0 }));
+
+        // (10,10): Vertex.
+        // Edge (10,0)->(10,10) comes up to y=10. (10 > 10 is False).
+        // Edge (10,10)->(0,10) goes left at y=10. (10 > 10 is False).
+        // Crossing check: `false != false`. 0 crossings. Outside.
+        assert!(!ring.contains(Coord { x: 10.0, y: 10.0 }));
+
+        // (0,10): Vertex.
+        // Edge (10,10)->(0,10) comes to y=10.
+        // Edge (0,10)->(0,0) goes down from y=10.
+        // Crossing check: `false != true`. 1 crossing.
+        // intersect_x = 0. 0 < 0 False. Outside.
+        assert!(!ring.contains(Coord { x: 0.0, y: 10.0 }));
+
+        // Midpoint of bottom edge (5,0).
+        // Ray hits (10,0)-(10,10) at x=10. 5 < 10. 1 crossing. Inside.
+        assert!(ring.contains(Coord { x: 5.0, y: 0.0 }));
+
+        // Midpoint of top edge (5,10).
+        // Ray hits nothing to the right (except parallel edge (10,10)-(0,10) which is ignored).
+        // Outside.
+        assert!(!ring.contains(Coord { x: 5.0, y: 10.0 }));
+
+        // Midpoint of left edge (0,5).
+        // Ray hits right edge at x=10. 0 < 10. Inside.
+        assert!(ring.contains(Coord { x: 0.0, y: 5.0 }));
+
+        // Midpoint of right edge (10,5).
+        // Ray starts at x=10. Hits right edge at x=10. 10 < 10 False. Outside.
+        assert!(!ring.contains(Coord { x: 10.0, y: 5.0 }));
     }
 }
 
@@ -5641,6 +5922,235 @@ fn test_curved_holes() {
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
+}
+
+#[test]
+fn test_touching_full_edge() {
+    // Two squares sharing a full edge
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2: (10,0)-(20,0)-(20,10)-(10,10)-(10,0)
+    // Shared edge: (10,0)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 0.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2, "Expected 2 squares");
+
+    for p in &polygons {
+        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn test_touching_partial_edge() {
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2 (smaller, touching top half of right edge of Square 1):
+    // (10,5)-(20,5)-(20,15)-(10,15)-(10,5)
+    // Shared segment: (10,5)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 5.0),
+            (20.0, 5.0),
+            (20.0, 15.0),
+            (10.0, 15.0),
+            (10.0, 5.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    // Should result in Square 1 (area 100) and Square 2 (area 100)
+    // The noder should split the edge of Square 1 at (10,5) and edge of Square 2 at (10,10) (if needed)
+    assert_eq!(polygons.len(), 2);
+
+    let area_100 = polygons
+        .iter()
+        .filter(|p| (p.unsigned_area() - 100.0).abs() < 1e-6)
+        .count();
+    assert_eq!(area_100, 2);
+}
+
+#[test]
+fn test_touching_vertex() {
+    // Two squares touching at (10,10)
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2: (10,10)-(20,10)-(20,20)-(10,20)-(10,10)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 10.0),
+            (20.0, 10.0),
+            (20.0, 20.0),
+            (10.0, 20.0),
+            (10.0, 10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2);
+}
+
+#[test]
+fn test_touching_t_junction() {
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2 touching mid-bottom edge of S1
+    // (2, -10)-(8, -10)-(8, 0)-(2, 0)-(2, -10)
+    // Touches at segment (2,0)-(8,0) which is part of S1's bottom edge (0,0)-(10,0)
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+
+    poly.add_geometry(
+        LineString::from(vec![
+            (2.0, -10.0),
+            (8.0, -10.0),
+            (8.0, 0.0),
+            (2.0, 0.0),
+            (2.0, -10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 2);
+
+    // Check areas: S1 is 100, S2 is 6*10 = 60
+    let s1 = polygons
+        .iter()
+        .find(|p| (p.unsigned_area() - 100.0).abs() < 1e-6);
+    assert!(s1.is_some(), "Square 1 not found");
+
+    let s2 = polygons
+        .iter()
+        .find(|p| (p.unsigned_area() - 60.0).abs() < 1e-6);
+    assert!(s2.is_some(), "Square 2 not found");
+}
+
+#[test]
+fn test_grid_2x2() {
+    // 2x2 Grid of 10x10 squares
+    // (0,0) to (20,20)
+    // Split at x=10, y=10
+    // Lines provided as 4 separate squares to force deduplication/noding
+
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+
+    // Bottom-Left
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ])
+        .into(),
+    );
+    // Bottom-Right
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 0.0),
+        ])
+        .into(),
+    );
+    // Top-Left
+    poly.add_geometry(
+        LineString::from(vec![
+            (0.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 20.0),
+            (0.0, 10.0),
+        ])
+        .into(),
+    );
+    // Top-Right
+    poly.add_geometry(
+        LineString::from(vec![
+            (10.0, 10.0),
+            (20.0, 10.0),
+            (20.0, 20.0),
+            (10.0, 20.0),
+            (10.0, 10.0),
+        ])
+        .into(),
+    );
+
+    let polygons = poly.polygonize().expect("Polygonization failed");
+    assert_eq!(polygons.len(), 4);
+
+    for p in &polygons {
+        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+    }
 }
 
 ```
