@@ -6,6 +6,7 @@ use std::slice;
 pub struct PolygonizerOptions {
     pub node_input: bool,
     pub snap_grid_size: f64,
+    pub extract_only_polygonal: bool,
 }
 
 #[repr(i32)]
@@ -126,6 +127,7 @@ pub unsafe extern "C" fn polygonize_ffi(
     let mut polygonizer = Polygonizer::new();
     polygonizer.node_input = options.node_input;
     polygonizer.snap_grid_size = options.snap_grid_size;
+    polygonizer.extract_only_polygonal = options.extract_only_polygonal;
     polygonizer.add_lines(lines);
 
     match polygonizer.polygonize() {

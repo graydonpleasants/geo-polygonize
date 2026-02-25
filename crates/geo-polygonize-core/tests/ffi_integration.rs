@@ -16,6 +16,7 @@ fn test_ffi_simple_square() {
     let options = PolygonizerOptions {
         node_input: false,
         snap_grid_size: 1e-10,
+        extract_only_polygonal: false,
     };
 
     let result_ptr = unsafe {
@@ -46,6 +47,7 @@ fn test_ffi_invalid_bounds() {
     let options = PolygonizerOptions {
         node_input: false,
         snap_grid_size: 1e-10,
+        extract_only_polygonal: false,
     };
 
     let result_ptr = unsafe {
@@ -88,6 +90,7 @@ fn test_ffi_two_squares_touching() {
     let options = PolygonizerOptions {
         node_input: true, // Should dedup shared edge
         snap_grid_size: 1e-10,
+        extract_only_polygonal: false,
     };
 
     let result_ptr = unsafe {
@@ -114,6 +117,7 @@ fn test_ffi_accepts_null_empty_buffers() {
     let options = PolygonizerOptions {
         node_input: false,
         snap_grid_size: 1e-10,
+        extract_only_polygonal: false,
     };
 
     let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, options) };
@@ -133,6 +137,7 @@ fn test_ffi_rejects_out_of_bounds_offsets() {
     let options = PolygonizerOptions {
         node_input: false,
         snap_grid_size: 1e-10,
+        extract_only_polygonal: false,
     };
 
     let result_ptr = unsafe {

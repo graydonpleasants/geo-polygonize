@@ -6,7 +6,7 @@ try:
 except ImportError:
     from .cffi_wrapper import polygonize as _polygonize_impl
 
-def polygonize(coords, offsets, node=False, snap=1e-10):
+def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=False):
     """
     Polygonize a set of lines.
 
@@ -15,6 +15,7 @@ def polygonize(coords, offsets, node=False, snap=1e-10):
         offsets: uint32 array of start indices in coords.
         node: whether to node the input.
         snap: snap grid size.
+        extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
 
     Returns:
         Dict with keys 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
@@ -35,4 +36,4 @@ def polygonize(coords, offsets, node=False, snap=1e-10):
     if coords.size % 2 != 0:
         raise ValueError("Coordinates array must have an even number of elements (XY pairs).")
 
-    return _polygonize_impl(coords, offsets, node=node, snap=snap)
+    return _polygonize_impl(coords, offsets, node=node, snap=snap, extract_only_polygonal=extract_only_polygonal)
