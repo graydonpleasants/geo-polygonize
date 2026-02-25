@@ -13,6 +13,13 @@ pub struct CPolygonResult {
 }
 
 /// Helper to free result
+///
+/// # Safety
+///
+/// This function is unsafe because it takes a raw pointer to a `CPolygonResult`.
+/// The caller must ensure that:
+/// - `res` was allocated by `polygonize_ffi` (or compatible allocation).
+/// - `res` has not already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
     if !res.is_null() {
@@ -21,6 +28,14 @@ pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
 }
 
 /// Main entry point
+///
+/// # Safety
+///
+/// This function is unsafe because it takes raw pointers.
+/// The caller must ensure that:
+/// - `coords` points to a valid array of `f64` with length `coords_len`.
+/// - `offsets` points to a valid array of `u32` with length `offsets_len`.
+/// - The memory ranges do not overlap in a way that violates Rust's aliasing rules (though they are const here).
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     coords: *const f64,
@@ -50,6 +65,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         };
 
         // Ensure valid range and even length (x, y pairs)
+        #[allow(clippy::manual_is_multiple_of)]
         if start > coords_len || end > coords_len || start >= end || (end - start) % 2 != 0 {
             continue;
         }
@@ -69,14 +85,16 @@ pub unsafe extern "C" fn polygonize_ffi(
         }
     }
 
-    let result = match polygonizer.polygonize() {
-        Ok(polys) => polys,
-        Err(_) => Vec::new(), // Should probably log or handle error
-    };
+    let result = polygonizer.polygonize().unwrap_or_default();
 
     Box::into_raw(Box::new(CPolygonResult { polygons: result }))
 }
 
+/// Get polygon count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
     if res.is_null() {
@@ -86,6 +104,11 @@ pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult)
     }
 }
 
+/// Get shell point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_shell_point_count(
     res: *const CPolygonResult,
@@ -101,6 +124,12 @@ pub unsafe extern "C" fn polygonize_result_get_shell_point_count(
     polys[poly_idx].exterior().0.len()
 }
 
+/// Get shell points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_shell_points(
     res: *const CPolygonResult,
@@ -123,6 +152,11 @@ pub unsafe extern "C" fn polygonize_result_get_shell_points(
     }
 }
 
+/// Get hole count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_hole_count(
     res: *const CPolygonResult,
@@ -138,6 +172,11 @@ pub unsafe extern "C" fn polygonize_result_get_hole_count(
     polys[poly_idx].interiors().len()
 }
 
+/// Get hole point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_hole_point_count(
     res: *const CPolygonResult,
@@ -158,6 +197,12 @@ pub unsafe extern "C" fn polygonize_result_get_hole_point_count(
     holes[hole_idx].0.len()
 }
 
+/// Get hole points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_hole_points(
     res: *const CPolygonResult,
