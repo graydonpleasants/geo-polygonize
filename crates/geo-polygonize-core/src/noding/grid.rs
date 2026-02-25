@@ -202,6 +202,7 @@ impl UniformGrid {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn process_cell(
         &self,
         r: usize,
