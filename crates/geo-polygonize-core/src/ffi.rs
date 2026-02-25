@@ -56,11 +56,16 @@ pub unsafe extern "C" fn polygonize_ffi(
 
         let line_coords: Vec<Coord<f64>> = coords_slice[start..end]
             .chunks(2)
-            .map(|chunk| Coord { x: chunk[0], y: chunk[1] })
+            .map(|chunk| Coord {
+                x: chunk[0],
+                y: chunk[1],
+            })
             .collect();
 
         if line_coords.len() >= 2 {
-            polygonizer.add_geometry(geo_types::Geometry::LineString(LineString::new(line_coords)));
+            polygonizer.add_geometry(geo_types::Geometry::LineString(LineString::new(
+                line_coords,
+            )));
         }
     }
 
@@ -74,22 +79,41 @@ pub unsafe extern "C" fn polygonize_ffi(
 
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
-    if res.is_null() { 0 } else { (*res).polygons.len() }
+    if res.is_null() {
+        0
+    } else {
+        (*res).polygons.len()
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polygonize_result_get_shell_point_count(res: *const CPolygonResult, poly_idx: usize) -> usize {
-    if res.is_null() { return 0; }
+pub unsafe extern "C" fn polygonize_result_get_shell_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
     let polys = &(*res).polygons;
-    if poly_idx >= polys.len() { return 0; }
+    if poly_idx >= polys.len() {
+        return 0;
+    }
     polys[poly_idx].exterior().0.len()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polygonize_result_get_shell_points(res: *const CPolygonResult, poly_idx: usize, buffer: *mut f64) {
-    if res.is_null() || buffer.is_null() { return; }
+pub unsafe extern "C" fn polygonize_result_get_shell_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
     let polys = &(*res).polygons;
-    if poly_idx >= polys.len() { return; }
+    if poly_idx >= polys.len() {
+        return;
+    }
 
     let shell = polys[poly_idx].exterior();
     let buffer_slice = slice::from_raw_parts_mut(buffer, shell.0.len() * 2);
@@ -100,30 +124,58 @@ pub unsafe extern "C" fn polygonize_result_get_shell_points(res: *const CPolygon
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polygonize_result_get_hole_count(res: *const CPolygonResult, poly_idx: usize) -> usize {
-    if res.is_null() { return 0; }
+pub unsafe extern "C" fn polygonize_result_get_hole_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
     let polys = &(*res).polygons;
-    if poly_idx >= polys.len() { return 0; }
+    if poly_idx >= polys.len() {
+        return 0;
+    }
     polys[poly_idx].interiors().len()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polygonize_result_get_hole_point_count(res: *const CPolygonResult, poly_idx: usize, hole_idx: usize) -> usize {
-    if res.is_null() { return 0; }
+pub unsafe extern "C" fn polygonize_result_get_hole_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
     let polys = &(*res).polygons;
-    if poly_idx >= polys.len() { return 0; }
+    if poly_idx >= polys.len() {
+        return 0;
+    }
     let holes = polys[poly_idx].interiors();
-    if hole_idx >= holes.len() { return 0; }
+    if hole_idx >= holes.len() {
+        return 0;
+    }
     holes[hole_idx].0.len()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn polygonize_result_get_hole_points(res: *const CPolygonResult, poly_idx: usize, hole_idx: usize, buffer: *mut f64) {
-    if res.is_null() || buffer.is_null() { return; }
+pub unsafe extern "C" fn polygonize_result_get_hole_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
     let polys = &(*res).polygons;
-    if poly_idx >= polys.len() { return; }
+    if poly_idx >= polys.len() {
+        return;
+    }
     let holes = polys[poly_idx].interiors();
-    if hole_idx >= holes.len() { return; }
+    if hole_idx >= holes.len() {
+        return;
+    }
 
     let hole = &holes[hole_idx];
     let buffer_slice = slice::from_raw_parts_mut(buffer, hole.0.len() * 2);
