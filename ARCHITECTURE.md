@@ -2,7 +2,7 @@
 
 ## 1. Robustness: Iterated Snap Rounding (ISR)
 To handle "dirty" input geometries (self-intersections, overlaps, floating-point inconsistencies), the engine implements **Iterated Snap Rounding**.
--   **Module:** `src/noding/snap.rs`
+-   **Module:** `crates/geo-polygonize-core/src/noding/snap.rs`
 -   **Algorithm:**
     1.  Snap all vertices to a configurable grid (default `1e-10`).
     2.  Find intersections using an R-Tree (`rstar`).
@@ -16,7 +16,7 @@ To handle "dirty" input geometries (self-intersections, overlaps, floating-point
 
 ## 3. Hardware Acceleration: SIMD
 Critical geometric predicates are accelerated using Single Instruction, Multiple Data (SIMD) instructions via the `wide` crate (targeting `wasm32` SIMD128 and native AVX/SSE).
--   **Ray Casting:** The `SimdRing` struct (`src/utils/simd.rs`) processes 4 segments in parallel to determine Point-in-Polygon inclusion.
+-   **Ray Casting:** The `SimdRing` struct (`crates/geo-polygonize-core/src/utils/simd.rs`) processes 4 segments in parallel to determine Point-in-Polygon inclusion.
 -   **Impact:** Significantly reduces the cost of the "Hole Assignment" phase, which is O(N*M) in the worst case (checking every hole against every shell candidate).
 
 ## 4. Memory Management
