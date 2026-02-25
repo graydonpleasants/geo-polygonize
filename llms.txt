@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000191 | 0.000689 | 3.61x |
-| 10 | 0.000330 | 0.002237 | 6.79x |
-| 20 | 0.000849 | 0.008305 | 9.78x |
-| 50 | 0.003631 | 0.052454 | 14.45x |
-| 100 | 0.016261 | 0.221501 | 13.62x |
+| 5 | 0.000157 | 0.000685 | 4.37x |
+| 10 | 0.000380 | 0.002405 | 6.32x |
+| 20 | 0.000903 | 0.008761 | 9.71x |
+| 50 | 0.005044 | 0.058118 | 11.52x |
+| 100 | 0.016756 | 0.256026 | 15.28x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000742 | 0.008120 | 10.94x |
-| 100 | 0.002523 | 0.026325 | 10.44x |
-| 200 | 0.008612 | 0.106735 | 12.39x |
+| 50 | 0.000807 | 0.008522 | 10.56x |
+| 100 | 0.002797 | 0.028615 | 10.23x |
+| 200 | 0.009498 | 0.114545 | 12.06x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -1502,7 +1502,8 @@ pub unsafe extern "C" fn polygonize_ffi(
         return std::ptr::null_mut();
     }
 
-    if !coords_len.is_multiple_of(2) {
+    #[allow(clippy::manual_is_multiple_of)]
+    if coords_len % 2 != 0 {
         return std::ptr::null_mut();
     }
 
@@ -1531,24 +1532,37 @@ pub unsafe extern "C" fn polygonize_ffi(
 
     // Iterate through linestrings defined by offsets
     for i in 0..offsets_len - 1 {
-        let start_idx = offsets[i] as usize;
-        let end_idx = offsets[i + 1] as usize;
+        // Offsets are indices of POINTS (pairs of f64), so multiply by 2 to get float index
+        // Use saturating_mul to avoid overflow panics
+        let start_point_idx = offsets[i] as usize;
+        let end_point_idx = offsets[i + 1] as usize;
 
-        if start_idx > end_idx {
-            return std::ptr::null_mut();
+        let _start_idx = start_point_idx.saturating_mul(2);
+        let end_idx = end_point_idx.saturating_mul(2);
+
+        if start_point_idx > end_point_idx {
+            // Invalid offset range
+            return Box::into_raw(Box::new(CPolygonResult {
+                polygons: Vec::new(),
+                status: CPolygonStatus::InvalidInput,
+            }));
         }
 
-        if start_idx == end_idx {
+        if start_point_idx == end_point_idx {
             continue;
         }
 
         // Check bounds: indices refer to points, each point is 2 f64s
-        if end_idx * 2 > coords_len {
-            return std::ptr::null_mut();
+        if end_idx > coords_len {
+            return Box::into_raw(Box::new(CPolygonResult {
+                polygons: Vec::new(),
+                status: CPolygonStatus::InvalidInput,
+            }));
         }
 
-        // Create segments for this linestring
-        for j in start_idx..end_idx - 1 {
+        // Iterate through POINTS in the linestring
+        for j in start_point_idx..end_point_idx - 1 {
+            // j is point index. Access coords at 2*j and 2*j+1
             let p1 = Coord {
                 x: coords[2 * j],
                 y: coords[2 * j + 1],
@@ -1613,6 +1627,132 @@ pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult
 pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
     if !res.is_null() {
         unsafe { drop(Box::from_raw(res)) };
+    }
+}
+
+/// Get shell point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_shell_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    polys[poly_idx].exterior().0.len()
+}
+
+/// Get shell points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_shell_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return;
+    }
+
+    let shell = polys[poly_idx].exterior();
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, shell.0.len() * 2) };
+    for (i, coord) in shell.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
+    }
+}
+
+/// Get hole count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    polys[poly_idx].interiors().len()
+}
+
+/// Get hole point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    let holes = polys[poly_idx].interiors();
+    if hole_idx >= holes.len() {
+        return 0;
+    }
+    holes[hole_idx].0.len()
+}
+
+/// Get hole points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return;
+    }
+    let holes = polys[poly_idx].interiors();
+    if hole_idx >= holes.len() {
+        return;
+    }
+
+    let hole = &holes[hole_idx];
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, hole.0.len() * 2) };
+    for (i, coord) in hole.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
     }
 }
 
@@ -5202,7 +5342,12 @@ use geo_polygonize_core::ffi::{
 fn test_ffi_simple_square() {
     // Square: (0,0), (10,0), (10,10), (0,10), (0,0)
     let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
-    let offsets: Vec<u32> = vec![0, 5]; // One linestring with 5 points
+    // Offsets claims 5 points (index 0 to 5)
+    // IMPORTANT: Offsets are indices of POINTS (2 doubles).
+    // Square has 5 points (10 doubles).
+    // Offsets should be [0, 5] if offsets are point indices.
+    // If implementation expects point indices, this is correct.
+    let offsets: Vec<u32> = vec![0, 5];
 
     let options = PolygonizerOptions {
         node_input: false,
@@ -5249,7 +5394,13 @@ fn test_ffi_invalid_bounds() {
         )
     };
 
-    assert!(result_ptr.is_null());
+    // My new implementation returns a status struct, not null, on error
+    assert!(!result_ptr.is_null());
+    unsafe {
+        use geo_polygonize_core::ffi::polygonize_result_get_status;
+        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
+        polygonize_result_free(result_ptr)
+    };
 }
 
 #[test]
@@ -5264,7 +5415,11 @@ fn test_ffi_two_squares_touching() {
         0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Square 2
         10.0, 0.0, 20.0, 0.0, 20.0, 10.0, 10.0, 10.0, 10.0, 0.0,
     ];
-    let offsets: Vec<u32> = vec![0, 5, 10]; // 2 linestrings, each 5 points
+    // Offsets are point indices.
+    // Square 1: 5 points (10 floats). Start 0.
+    // Square 2: 5 points (10 floats). Start 5.
+    // End: 10 points.
+    let offsets: Vec<u32> = vec![0, 5, 10];
 
     let options = PolygonizerOptions {
         node_input: true, // Should dedup shared edge
@@ -5326,7 +5481,13 @@ fn test_ffi_rejects_out_of_bounds_offsets() {
         )
     };
 
-    assert!(result_ptr.is_null());
+    // My new implementation returns a status struct, not null, on error
+    assert!(!result_ptr.is_null());
+    unsafe {
+        use geo_polygonize_core::ffi::polygonize_result_get_status;
+        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
+        polygonize_result_free(result_ptr)
+    };
 }
 
 ```
@@ -6441,6 +6602,266 @@ fn main() {
         println!("Polygon {}: Area = {}", i, poly.unsigned_area());
     }
 }
+
+```
+
+File: python/test_wrapper.py
+```
+import sys
+import os
+import numpy as np
+import shapely
+from shapely.geometry import shape
+
+# Add python directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__)))
+
+from geo_polygonize import polygonize
+
+def test_square():
+    print("Testing square polygonization...")
+    coords = np.array([
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0
+    ], dtype=np.float64)
+    # Offsets in POINTS (pairs of doubles)
+    # Fix: Added 8 to close the last segment
+    offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
+
+    polys = polygonize(coords, offsets)
+    print(f"Result count: {len(polys)}")
+    assert len(polys) == 1
+
+    poly = polys[0]
+    shapely_poly = shape(poly.__geo_interface__)
+    print(f"Shapely area: {shapely_poly.area}")
+    assert abs(shapely_poly.area - 100.0) < 1e-6
+    print("Square test passed!")
+
+def test_two_squares():
+    print("\nTesting two disjoint squares...")
+    coords = np.array([
+        # Square 1
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0,
+        # Square 2
+        20.0, 0.0, 30.0, 0.0,
+        30.0, 0.0, 30.0, 10.0,
+        30.0, 10.0, 20.0, 10.0,
+        20.0, 10.0, 20.0, 0.0
+    ], dtype=np.float64)
+
+    # Fix: Added 16 to close the last segment
+    offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16], dtype=np.uint32)
+
+    polys = polygonize(coords, offsets)
+    print(f"Result count: {len(polys)}")
+    assert len(polys) == 2
+    print("Two squares test passed!")
+
+def test_square_with_hole():
+    print("\nTesting square with hole...")
+    coords = np.array([
+        # Outer
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0,
+        # Hole
+        2.0, 2.0, 2.0, 8.0,
+        2.0, 8.0, 8.0, 8.0,
+        8.0, 8.0, 8.0, 2.0,
+        8.0, 2.0, 2.0, 2.0
+    ], dtype=np.float64)
+
+    # 32 floats = 16 points
+    # Fix: Added 16 (range to 18) to close the last segment
+    offsets = np.arange(0, 18, 2, dtype=np.uint32)
+
+    polys = polygonize(coords, offsets)
+    print(f"Result count: {len(polys)}")
+
+    # Polygonizer returns all possible polygons.
+    # 1. The outer donut (100 - 36 = 64)
+    # 2. The inner hole filled (36)
+    assert len(polys) == 2
+
+    areas = []
+    for p in polys:
+        sp = shape(p.__geo_interface__)
+        areas.append(sp.area)
+
+    areas.sort()
+    print(f"Areas: {areas}")
+
+    assert abs(areas[0] - 36.0) < 1e-6
+    assert abs(areas[1] - 64.0) < 1e-6
+    print("Square with hole test passed!")
+
+if __name__ == "__main__":
+    test_square()
+    test_two_squares()
+    test_square_with_hole()
+
+```
+
+File: python/geo_polygonize/__init__.py
+```
+import os
+import cffi
+import numpy as np
+
+ffi = cffi.FFI()
+ffi.cdef("""
+    typedef struct { bool node_input; double snap_grid_size; } PolygonizerOptions;
+    typedef struct CPolygonResult CPolygonResult;
+
+    void polygonize_result_free(CPolygonResult* res);
+
+    CPolygonResult* polygonize_ffi(
+        const double* coords, size_t coords_len,
+        const uint32_t* offsets, size_t offsets_len,
+        PolygonizerOptions options
+    );
+
+    int polygonize_result_get_status(const CPolygonResult* res);
+    size_t polygonize_result_get_count(const CPolygonResult* res);
+
+    size_t polygonize_result_get_shell_point_count(const CPolygonResult* res, size_t poly_idx);
+    void polygonize_result_get_shell_points(const CPolygonResult* res, size_t poly_idx, double* buffer);
+
+    size_t polygonize_result_get_hole_count(const CPolygonResult* res, size_t poly_idx);
+    size_t polygonize_result_get_hole_point_count(const CPolygonResult* res, size_t poly_idx, size_t hole_idx);
+    void polygonize_result_get_hole_points(const CPolygonResult* res, size_t poly_idx, size_t hole_idx, double* buffer);
+""")
+
+# Locate the library
+def find_library():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    possible_names = [
+        "libgeo_polygonize_core.so",
+        "geo_polygonize_core.dll",
+        "libgeo_polygonize_core.dylib",
+    ]
+
+    # 1. Check in the package directory (for installed wheel)
+    for name in possible_names:
+        path = os.path.join(base_dir, name)
+        if os.path.exists(path):
+            return path
+
+    # 2. Check in development build directory
+    # Path: ../../target/release/
+    for name in possible_names:
+        path = os.path.join(base_dir, "../../target/release", name)
+        if os.path.exists(path):
+            return path
+
+    raise FileNotFoundError("Could not find geo_polygonize_core shared library")
+
+lib_path = find_library()
+lib = ffi.dlopen(lib_path)
+
+class SimplePolygon:
+    def __init__(self, shell, holes):
+        self.shell = shell
+        self.holes = holes
+
+    @property
+    def __geo_interface__(self):
+        return {
+            'type': 'Polygon',
+            'coordinates': tuple([self.shell] + self.holes)
+        }
+
+    def __repr__(self):
+        return f"<SimplePolygon shell_pts={len(self.shell)} holes={len(self.holes)}>"
+
+def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10):
+    """
+    Polygonize a set of lines.
+
+    Args:
+        coords_array: contiguous float64 array of shape (N, 2) or flattened (2*N,).
+        offsets_array: contiguous uint32 array of start indices in coords_array.
+                       Indices refer to points (pairs of doubles), NOT individual doubles.
+                       E.g., if coords_array has 4 points (8 doubles), offsets=[0, 2]
+                       means first line starts at point 0, second at point 2.
+        node: whether to node the input.
+        snap: snap grid size.
+
+    Returns:
+        List of SimplePolygon objects.
+    """
+    # Ensure contiguous C-order arrays
+    coords = np.ascontiguousarray(coords_array, dtype=np.float64)
+    offsets = np.ascontiguousarray(offsets_array, dtype=np.uint32)
+
+    if coords.ndim == 2:
+        coords = coords.ravel()
+
+    coords_ptr = ffi.cast("double*", coords.ctypes.data)
+    offsets_ptr = ffi.cast("uint32_t*", offsets.ctypes.data)
+
+    options = {'node_input': node, 'snap_grid_size': snap}
+
+    res_ptr = lib.polygonize_ffi(
+        coords_ptr, coords.size,
+        offsets_ptr, offsets.size,
+        options
+    )
+
+    if res_ptr == ffi.NULL:
+        raise RuntimeError("Polygonization failed (returned NULL)")
+
+    try:
+        status = lib.polygonize_result_get_status(res_ptr)
+        if status != 0:
+             # 0 = Success, 1 = InvalidInput, 2 = InternalError
+             if status == 1:
+                 raise ValueError("Invalid input provided to polygonize")
+             elif status == 2:
+                 raise RuntimeError("Internal error during polygonization")
+             else:
+                 raise RuntimeError(f"Unknown error status: {status}")
+
+        count = lib.polygonize_result_get_count(res_ptr)
+        polygons = []
+
+        for i in range(count):
+            # Shell
+            shell_pts_count = lib.polygonize_result_get_shell_point_count(res_ptr, i)
+            shell_buffer = np.zeros(shell_pts_count * 2, dtype=np.float64)
+            lib.polygonize_result_get_shell_points(
+                res_ptr, i,
+                ffi.cast("double*", shell_buffer.ctypes.data)
+            )
+            shell_coords = tuple(map(tuple, shell_buffer.reshape(-1, 2).tolist()))
+
+            # Holes
+            hole_count = lib.polygonize_result_get_hole_count(res_ptr, i)
+            holes = []
+            for j in range(hole_count):
+                hole_pts_count = lib.polygonize_result_get_hole_point_count(res_ptr, i, j)
+                hole_buffer = np.zeros(hole_pts_count * 2, dtype=np.float64)
+                lib.polygonize_result_get_hole_points(
+                    res_ptr, i, j,
+                    ffi.cast("double*", hole_buffer.ctypes.data)
+                )
+                hole_coords = tuple(map(tuple, hole_buffer.reshape(-1, 2).tolist()))
+                holes.append(hole_coords)
+
+            polygons.append(SimplePolygon(shell_coords, holes))
+
+        return polygons
+
+    finally:
+        lib.polygonize_result_free(res_ptr)
 
 ```
 
