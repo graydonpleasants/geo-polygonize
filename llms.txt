@@ -10,7 +10,7 @@ File: ARCHITECTURE.md
 
 ## 1. Robustness: Iterated Snap Rounding (ISR)
 To handle "dirty" input geometries (self-intersections, overlaps, floating-point inconsistencies), the engine implements **Iterated Snap Rounding**.
--   **Module:** `src/noding/snap.rs`
+-   **Module:** `crates/geo-polygonize-core/src/noding/snap.rs`
 -   **Algorithm:**
     1.  Snap all vertices to a configurable grid (default `1e-10`).
     2.  Find intersections using an R-Tree (`rstar`).
@@ -24,7 +24,7 @@ To handle "dirty" input geometries (self-intersections, overlaps, floating-point
 
 ## 3. Hardware Acceleration: SIMD
 Critical geometric predicates are accelerated using Single Instruction, Multiple Data (SIMD) instructions via the `wide` crate (targeting `wasm32` SIMD128 and native AVX/SSE).
--   **Ray Casting:** The `SimdRing` struct (`src/utils/simd.rs`) processes 4 segments in parallel to determine Point-in-Polygon inclusion.
+-   **Ray Casting:** The `SimdRing` struct (`crates/geo-polygonize-core/src/utils/simd.rs`) processes 4 segments in parallel to determine Point-in-Polygon inclusion.
 -   **Impact:** Significantly reduces the cost of the "Hole Assignment" phase, which is O(N*M) in the worst case (checking every hole against every shell candidate).
 
 ## 4. Memory Management
@@ -133,7 +133,7 @@ This repository contains benchmarks to compare the performance of `geo-polygoniz
 Run the provided script to build and run both benchmarks and generate a comparison table:
 
 ```bash
-bash benches/run_comparison.sh
+bash crates/geo-polygonize-core/benches/run_comparison.sh
 ```
 
 ### Manual Execution
@@ -141,13 +141,13 @@ bash benches/run_comparison.sh
 **Rust Benchmarks:**
 
 ```bash
-cargo bench --bench polygonize_bench
+cargo bench -p geo-polygonize-core --bench polygonize_bench
 ```
 
 **Python Benchmarks:**
 
 ```bash
-python3 benches/bench_shapely.py
+python3 crates/geo-polygonize-core/benches/bench_shapely.py
 ```
 
 ## Comparative Results
@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000169 | 0.000677 | 4.02x |
-| 10 | 0.000375 | 0.002221 | 5.92x |
-| 20 | 0.000888 | 0.008250 | 9.29x |
-| 50 | 0.003841 | 0.051578 | 13.43x |
-| 100 | 0.015010 | 0.212160 | 14.13x |
+| 5 | 0.000170 | 0.000688 | 4.04x |
+| 10 | 0.000377 | 0.002251 | 5.97x |
+| 20 | 0.000892 | 0.008408 | 9.42x |
+| 50 | 0.003767 | 0.052105 | 13.83x |
+| 100 | 0.014380 | 0.227429 | 15.82x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000789 | 0.007977 | 10.11x |
-| 100 | 0.002569 | 0.025764 | 10.03x |
-| 200 | 0.008638 | 0.100657 | 11.65x |
+| 50 | 0.000800 | 0.008135 | 10.17x |
+| 100 | 0.002581 | 0.026211 | 10.16x |
+| 200 | 0.008610 | 0.101799 | 11.82x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -334,7 +334,7 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 ### Library
 
 ```rust
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::LineString;
 
 fn main() {
@@ -421,10 +421,10 @@ The repository includes a CLI tool to polygonize GeoJSON files.
 
 ```bash
 # Build the example
-cargo build --example polygonize --release
+cargo build -p geo-polygonize-core --example polygonize --release
 
 # Run on input lines
-cargo run --release --example polygonize -- --input lines.geojson --output polygons.geojson --node
+cargo run -p geo-polygonize-core --release --example polygonize -- --input lines.geojson --output polygons.geojson --node
 ```
 
 ### Visualization
