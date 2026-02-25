@@ -142,7 +142,7 @@ pub fn polygonize_buffers(
         }
 
         let len = end - start;
-        if len % 2 != 0 {
+        if !len.is_multiple_of(2) {
             return Err(JsValue::from_str(&format!(
                 "Odd number of coordinates at index {}: len={}",
                 i, len
