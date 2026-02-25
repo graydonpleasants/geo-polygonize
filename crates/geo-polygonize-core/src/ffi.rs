@@ -33,13 +33,26 @@ pub unsafe extern "C" fn polygonize_ffi(
     offsets_len: usize,
     options: PolygonizerOptions,
 ) -> *mut CPolygonResult {
-    if coords_ptr.is_null() || offsets_ptr.is_null() {
+    if (coords_ptr.is_null() && coords_len > 0) || (offsets_ptr.is_null() && offsets_len > 0) {
         return std::ptr::null_mut();
     }
 
-    // Safety: The caller must ensure pointers are valid for the given lengths
-    let coords = unsafe { slice::from_raw_parts(coords_ptr, coords_len) };
-    let offsets = unsafe { slice::from_raw_parts(offsets_ptr, offsets_len) };
+    if coords_len % 2 != 0 {
+        return std::ptr::null_mut();
+    }
+
+    // Safety: The caller must ensure pointers are valid for the given lengths.
+    // For empty buffers, allow null pointers (common FFI convention).
+    let coords = if coords_len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(coords_ptr, coords_len) }
+    };
+    let offsets = if offsets_len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(offsets_ptr, offsets_len) }
+    };
 
     if offsets_len < 2 {
         // No lines can be defined with < 2 offsets
@@ -55,15 +68,17 @@ pub unsafe extern "C" fn polygonize_ffi(
         let start_idx = offsets[i] as usize;
         let end_idx = offsets[i + 1] as usize;
 
-        if start_idx >= end_idx {
+        if start_idx > end_idx {
+            return std::ptr::null_mut();
+        }
+
+        if start_idx == end_idx {
             continue;
         }
 
         // Check bounds: indices refer to points, each point is 2 f64s
         if end_idx * 2 > coords_len {
-            // Should handle error more gracefully?
-            // For now, stop processing to avoid panic or reading garbage
-            break;
+            return std::ptr::null_mut();
         }
 
         // Create segments for this linestring
