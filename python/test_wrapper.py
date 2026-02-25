@@ -17,7 +17,8 @@ def test_square():
         10.0, 10.0, 0.0, 10.0,
         0.0, 10.0, 0.0, 0.0
     ], dtype=np.float64)
-    offsets = np.array([0, 4, 8, 12], dtype=np.uint32)
+    # Offsets in POINTS (pairs of doubles)
+    offsets = np.array([0, 2, 4, 6], dtype=np.uint32)
 
     polys = polygonize(coords, offsets)
     print(f"Result count: {len(polys)}")
@@ -44,7 +45,7 @@ def test_two_squares():
         20.0, 10.0, 20.0, 0.0
     ], dtype=np.float64)
 
-    offsets = np.array([0, 4, 8, 12, 16, 20, 24, 28], dtype=np.uint32)
+    offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14], dtype=np.uint32)
 
     polys = polygonize(coords, offsets)
     print(f"Result count: {len(polys)}")
@@ -66,7 +67,8 @@ def test_square_with_hole():
         8.0, 2.0, 2.0, 2.0
     ], dtype=np.float64)
 
-    offsets = np.arange(0, 32, 4, dtype=np.uint32)
+    # 32 floats = 16 points
+    offsets = np.arange(0, 16, 2, dtype=np.uint32)
 
     polys = polygonize(coords, offsets)
     print(f"Result count: {len(polys)}")

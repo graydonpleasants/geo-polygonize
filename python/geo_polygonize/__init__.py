@@ -27,21 +27,27 @@ ffi.cdef("""
 
 # Locate the library
 def find_library():
-    # Try relative path from this file
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Assuming we are in python/geo_polygonize/
-    # Library is in target/release/
-    # Path: ../../target/release/libgeo_polygonize_core.so
-    possible_paths = [
-        os.path.join(base_dir, "../../target/release/libgeo_polygonize_core.so"),
-        os.path.join(base_dir, "../../target/release/geo_polygonize_core.dll"),
-        os.path.join(base_dir, "../../target/release/libgeo_polygonize_core.dylib"),
-        # Also check current directory or build directory if packaged
+
+    possible_names = [
+        "libgeo_polygonize_core.so",
+        "geo_polygonize_core.dll",
+        "libgeo_polygonize_core.dylib",
     ]
 
-    for path in possible_paths:
+    # 1. Check in the package directory (for installed wheel)
+    for name in possible_names:
+        path = os.path.join(base_dir, name)
         if os.path.exists(path):
             return path
+
+    # 2. Check in development build directory
+    # Path: ../../target/release/
+    for name in possible_names:
+        path = os.path.join(base_dir, "../../target/release", name)
+        if os.path.exists(path):
+            return path
+
     raise FileNotFoundError("Could not find geo_polygonize_core shared library")
 
 lib_path = find_library()
@@ -69,6 +75,9 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     Args:
         coords_array: contiguous float64 array of shape (N, 2) or flattened (2*N,).
         offsets_array: contiguous uint32 array of start indices in coords_array.
+                       Indices refer to points (pairs of doubles), NOT individual doubles.
+                       E.g., if coords_array has 4 points (8 doubles), offsets=[0, 2]
+                       means first line starts at point 0, second at point 2.
         node: whether to node the input.
         snap: snap grid size.
 

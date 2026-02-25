@@ -48,6 +48,12 @@ pub unsafe extern "C" fn polygonize_ffi(
         return std::ptr::null_mut();
     }
 
+    // Ensure coords length is even (pairs of x,y)
+    #[allow(clippy::manual_is_multiple_of)]
+    if coords_len % 2 != 0 {
+        return std::ptr::null_mut();
+    }
+
     let coords_slice = slice::from_raw_parts(coords, coords_len);
     let offsets_slice = slice::from_raw_parts(offsets, offsets_len);
 
@@ -57,16 +63,17 @@ pub unsafe extern "C" fn polygonize_ffi(
 
     // Parse lines
     for i in 0..offsets_len {
-        let start = offsets_slice[i] as usize;
+        // Offsets are indices of POINTS (pairs of f64), so multiply by 2 to get float index
+        let start = (offsets_slice[i] as usize).saturating_mul(2);
+
         let end = if i + 1 < offsets_len {
-            offsets_slice[i + 1] as usize
+            (offsets_slice[i + 1] as usize).saturating_mul(2)
         } else {
             coords_len
         };
 
-        // Ensure valid range and even length (x, y pairs)
-        #[allow(clippy::manual_is_multiple_of)]
-        if start > coords_len || end > coords_len || start >= end || (end - start) % 2 != 0 {
+        // Ensure valid range
+        if start > coords_len || end > coords_len || start >= end {
             continue;
         }
 
