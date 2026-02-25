@@ -290,10 +290,8 @@ impl Polygonizer {
             let mut discarded_edges = HashSet::new();
 
             // Precompute probe points
-            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
-                .iter()
-                .map(guaranteed_interior_probe)
-                .collect();
+            let probe_points: Vec<Option<geo_types::Point<f64>>> =
+                shells.iter().map(guaranteed_interior_probe).collect();
 
             // We can iterate indices because the tree uses indices into the original `shells` vector
             for (i, shell) in shells.iter().enumerate() {
