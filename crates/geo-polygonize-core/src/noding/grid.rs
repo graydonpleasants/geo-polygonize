@@ -372,7 +372,7 @@ mod tests {
 
         for i in 0..(grid.rows * grid.cols) {
             let start = grid.cell_offsets[i];
-            let end = grid.cell_offsets[i+1];
+            let end = grid.cell_offsets[i + 1];
             let cell = &grid.cell_items[start..end];
 
             if cell.contains(&(0u32)) {
@@ -389,7 +389,7 @@ mod tests {
         // Verify they don't share any cells (given the distance and reasonable grid size)
         for i in 0..(grid.rows * grid.cols) {
             let start = grid.cell_offsets[i];
-            let end = grid.cell_offsets[i+1];
+            let end = grid.cell_offsets[i + 1];
             let cell = &grid.cell_items[start..end];
             assert!(
                 !(cell.contains(&(0u32)) && cell.contains(&(1u32))),
@@ -462,7 +462,7 @@ mod tests {
         let mut cells_with_line = 0;
         for i in 0..(grid.rows * grid.cols) {
             let start = grid.cell_offsets[i];
-            let end = grid.cell_offsets[i+1];
+            let end = grid.cell_offsets[i + 1];
             let cell = &grid.cell_items[start..end];
             if cell.contains(&(0u32)) {
                 cells_with_line += 1;
