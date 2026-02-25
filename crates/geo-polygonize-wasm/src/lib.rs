@@ -51,12 +51,12 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         }
     }
 
-    let polygons = polygonizer
+    let result = polygonizer
         .polygonize()
         .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
 
     // Convert back to GeoJSON
-    let geometries: Vec<Geometry> = polygons
+    let geometries: Vec<Geometry> = result.polygons
         .into_iter()
         .map(|p| Geometry::new(Value::from(&p)))
         .collect();
@@ -218,7 +218,7 @@ pub fn polygonize_geoarrow(
 }
 
 fn polygonize_and_flatten(mut polygonizer: Polygonizer) -> Result<WasmPolygonResult, JsValue> {
-    let polygons = polygonizer
+    let result = polygonizer
         .polygonize()
         .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
 
@@ -226,7 +226,7 @@ fn polygonize_and_flatten(mut polygonizer: Polygonizer) -> Result<WasmPolygonRes
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
 
-    for poly in polygons {
+    for poly in result.polygons {
         polygon_offsets.push(ring_offsets.len() as u32);
         let (exterior, interiors) = poly.into_inner();
 
