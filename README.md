@@ -18,7 +18,7 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 ### Library
 
 ```rust
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::LineString;
 
 fn main() {
@@ -105,10 +105,10 @@ The repository includes a CLI tool to polygonize GeoJSON files.
 
 ```bash
 # Build the example
-cargo build --example polygonize --release
+cargo build -p geo-polygonize-core --example polygonize --release
 
 # Run on input lines
-cargo run --release --example polygonize -- --input lines.geojson --output polygons.geojson --node
+cargo run -p geo-polygonize-core --release --example polygonize -- --input lines.geojson --output polygons.geojson --node
 ```
 
 ### Visualization

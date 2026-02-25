@@ -18,12 +18,12 @@
     },
     {
       "title": "Polygonizer",
-      "purpose": "Deep dive into `src/polygonizer.rs`, explaining how it orchestrates the noding, graph building, and polygon extraction phases.",
+      "purpose": "Deep dive into `crates/geo-polygonize-core/src/polygonizer.rs`, explaining how it orchestrates the noding, graph building, and polygon extraction phases.",
       "parent": "Core Logic"
     },
     {
       "title": "PlanarGraph",
-      "purpose": "Explain the `PlanarGraph` data structure in `src/graph/planar_graph.rs`. Highlight the use of arena allocation (index-based graph) and Structure of Arrays (SoA) for performance.",
+      "purpose": "Explain the `PlanarGraph` data structure in `crates/geo-polygonize-core/src/graph/planar_graph.rs`. Highlight the use of arena allocation (index-based graph) and Structure of Arrays (SoA) for performance.",
       "parent": "Core Logic"
     },
     {
@@ -33,12 +33,12 @@
     },
     {
       "title": "Iterated Snap Rounding",
-      "purpose": "Explain the ISR algorithm implemented in `src/noding/snap.rs`, including how it resolves self-intersections and overlaps.",
+      "purpose": "Explain the ISR algorithm implemented in `crates/geo-polygonize-core/src/noding/snap.rs`, including how it resolves self-intersections and overlaps.",
       "parent": "Robustness & Noding"
     },
     {
       "title": "Grid Indexing",
-      "purpose": "Describe the spatial grid used in `src/noding/grid.rs` to accelerate intersection detection during noding.",
+      "purpose": "Describe the spatial grid used in `crates/geo-polygonize-core/src/noding/grid.rs` to accelerate intersection detection during noding.",
       "parent": "Robustness & Noding"
     },
     {
@@ -48,17 +48,17 @@
     },
     {
       "title": "SIMD Acceleration",
-      "purpose": "Explain how SIMD is used in `src/utils/simd.rs` for geometric predicates like Point-in-Polygon checks.",
+      "purpose": "Explain how SIMD is used in `crates/geo-polygonize-core/src/utils/simd.rs` for geometric predicates like Point-in-Polygon checks.",
       "parent": "Optimizations"
     },
     {
       "title": "Memory Layout",
-      "purpose": "Detail the memory layout strategies, such as SoA in `src/utils/soa.rs` and the use of the `talc` allocator for WASM.",
+      "purpose": "Detail the memory layout strategies, such as SoA in `crates/geo-polygonize-core/src/utils/soa.rs` and the use of the `talc` allocator for WASM.",
       "parent": "Optimizations"
     },
     {
       "title": "WASM & Integration",
-      "purpose": "Explain how the library is compiled to WebAssembly and exposed to JavaScript via `src/wasm.rs`.",
+      "purpose": "Explain how the library is compiled to WebAssembly and exposed to JavaScript via `crates/geo-polygonize-wasm/src/lib.rs`.",
       "parent": "Home"
     }
   ]

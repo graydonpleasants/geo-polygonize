@@ -15,7 +15,7 @@ This repository contains benchmarks to compare the performance of `geo-polygoniz
 Run the provided script to build and run both benchmarks and generate a comparison table:
 
 ```bash
-bash benches/run_comparison.sh
+bash crates/geo-polygonize-core/benches/run_comparison.sh
 ```
 
 ### Manual Execution
@@ -23,13 +23,13 @@ bash benches/run_comparison.sh
 **Rust Benchmarks:**
 
 ```bash
-cargo bench --bench polygonize_bench
+cargo bench -p geo-polygonize-core --bench polygonize_bench
 ```
 
 **Python Benchmarks:**
 
 ```bash
-python3 benches/bench_shapely.py
+python3 crates/geo-polygonize-core/benches/bench_shapely.py
 ```
 
 ## Comparative Results
