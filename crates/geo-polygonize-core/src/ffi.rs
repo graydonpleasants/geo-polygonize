@@ -21,8 +21,12 @@ pub struct CPolygonResult {
 ///
 /// This assumes Arrow-like offsets: `offsets` has length `N+1` for `N` linestrings.
 /// The `i`-th linestring consists of points from index `offsets[i]` to `offsets[i+1]`.
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+/// The caller must ensure that `coords_ptr` and `offsets_ptr` are valid for the given lengths.
 #[no_mangle]
-pub extern "C" fn polygonize_ffi(
+pub unsafe extern "C" fn polygonize_ffi(
     coords_ptr: *const f64,
     coords_len: usize,
     offsets_ptr: *const u32,
@@ -90,16 +94,24 @@ pub extern "C" fn polygonize_ffi(
     }
 }
 
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that `res` is a valid pointer to a `CPolygonResult`.
 #[no_mangle]
-pub extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
+pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
     if res.is_null() {
         return 0;
     }
     unsafe { (*res).polygons.len() }
 }
 
+/// # Safety
+///
+/// This function is unsafe because it dereferences and drops a raw pointer.
+/// The caller must ensure that `res` is a valid pointer obtained from `polygonize_ffi`.
 #[no_mangle]
-pub extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
+pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
     if !res.is_null() {
         unsafe { drop(Box::from_raw(res)) };
     }

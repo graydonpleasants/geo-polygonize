@@ -13,20 +13,22 @@ fn test_ffi_simple_square() {
         snap_grid_size: 1e-10,
     };
 
-    let result_ptr = polygonize_ffi(
-        coords.as_ptr(),
-        coords.len(),
-        offsets.as_ptr(),
-        offsets.len(),
-        options,
-    );
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
 
     assert!(!result_ptr.is_null());
 
-    let count = polygonize_result_get_count(result_ptr);
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
     assert_eq!(count, 1);
 
-    polygonize_result_free(result_ptr);
+    unsafe { polygonize_result_free(result_ptr) };
 }
 
 #[test]
@@ -48,19 +50,21 @@ fn test_ffi_two_squares_touching() {
         snap_grid_size: 1e-10,
     };
 
-    let result_ptr = polygonize_ffi(
-        coords.as_ptr(),
-        coords.len(),
-        offsets.as_ptr(),
-        offsets.len(),
-        options,
-    );
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
 
     assert!(!result_ptr.is_null());
 
-    let count = polygonize_result_get_count(result_ptr);
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
     // Should result in 2 polygons (squares)
     assert_eq!(count, 2);
 
-    polygonize_result_free(result_ptr);
+    unsafe { polygonize_result_free(result_ptr) };
 }
