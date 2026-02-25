@@ -73,6 +73,58 @@ build_variant "scalar" ""
 # Build SIMD
 build_variant "simd" "-C target-feature=+simd128"
 
+# Build Threads
+build_variant_threads() {
+    local OUT_DIR="pkg-threads"
+    # Enable atomics and shared memory
+    local FLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+
+    echo "Building Threads version..."
+
+    # Check for nightly
+    if ! rustup toolchain list | grep -q "nightly"; then
+        echo "Installing nightly toolchain..."
+        rustup toolchain install nightly
+    fi
+
+    # Ensure rust-src component is installed (required for build-std)
+    echo "Installing rust-src for nightly..."
+    rustup component add rust-src --toolchain nightly
+
+    # 1. Cargo Build with Nightly and build-std
+    RUSTFLAGS="$FLAGS" cargo +nightly build -p geo-polygonize-wasm \
+        --target $TARGET \
+        --release \
+        --features "console_error_panic_hook threads" \
+        --lib \
+        -Z build-std=std,panic_abort
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for threads..."
+    CRATE_NAME="geo_polygonize_wasm"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        exit 1
+    fi
+
+    rm -rf $OUT_DIR
+    # Use --target web to ensure correct loading behavior for threads
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+
+    # 3. Optimization
+    if command -v wasm-opt &> /dev/null; then
+        echo "Optimizing Threads..."
+        # wasm-opt generally supports atomics if present in the binary
+        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+    fi
+
+    rm -f $OUT_DIR/.gitignore
+}
+
+build_variant_threads
+
 # Ensure wrapper exists
 if [ ! -d "pkg-wrapper" ]; then
     echo "pkg-wrapper directory missing!"
