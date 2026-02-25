@@ -1,4 +1,4 @@
-use crate::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
 use std::str::FromStr;

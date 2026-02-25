@@ -1,5 +1,5 @@
 use geo::LineString;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 
 #[test]
 fn test_nan_polygon_panic() {

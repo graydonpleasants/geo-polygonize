@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
-use geo_polygonize::{Polygonizer, TiledPolygonizer};
+use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
+use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -219,7 +219,7 @@ fn bench_get_edge_rings(c: &mut Criterion) {
     group.bench_function("get_edge_rings", |b| {
         b.iter_with_setup(
             || {
-                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                let mut graph = geo_polygonize_core::graph::PlanarGraph::new();
                 for line in &lines {
                     graph.add_line_string(line.clone());
                 }
@@ -241,7 +241,7 @@ fn bench_get_edge_rings_dangles(c: &mut Criterion) {
     group.bench_function("get_edge_rings_with_dangles", |b| {
         b.iter_with_setup(
             || {
-                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                let mut graph = geo_polygonize_core::graph::PlanarGraph::new();
                 for line in &lines {
                     graph.add_line_string(line.clone());
                 }

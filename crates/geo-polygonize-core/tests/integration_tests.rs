@@ -1,5 +1,5 @@
 use geo::Area;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::{Coord, LineString};
 use std::f64::consts::PI;
 

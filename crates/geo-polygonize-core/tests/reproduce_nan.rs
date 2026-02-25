@@ -1,5 +1,5 @@
 use geo::{Coord, Line};
-use geo_polygonize::noding::snap::SnapNoder;
+use geo_polygonize_core::noding::snap::SnapNoder;
 
 #[test]
 fn test_nan_deduplication_failure() {
