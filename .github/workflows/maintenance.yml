@@ -30,11 +30,11 @@ jobs:
 
       - name: Run Benchmarks
         run: |
-          bash benches/run_comparison.sh
+          bash crates/geo-polygonize-core/benches/run_comparison.sh
 
       - name: Update BENCHMARKS.md
         run: |
-          python3 benches/compare_results.py --update
+          python3 crates/geo-polygonize-core/benches/compare_results.py --update
 
       - name: Generate llms.txt
         run: python3 scripts/generate_llms_txt.py
