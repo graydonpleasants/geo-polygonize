@@ -103,3 +103,42 @@ fn test_ffi_two_squares_touching() {
 
     unsafe { polygonize_result_free(result_ptr) };
 }
+
+#[test]
+fn test_ffi_accepts_null_empty_buffers() {
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, options) };
+
+    assert!(!result_ptr.is_null());
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
+    assert_eq!(count, 0);
+    unsafe { polygonize_result_free(result_ptr) };
+}
+
+#[test]
+fn test_ffi_rejects_out_of_bounds_offsets() {
+    // One bad linestring (offset points past coords length)
+    let coords: Vec<f64> = vec![0.0, 0.0, 1.0, 1.0];
+    let offsets: Vec<u32> = vec![0, 3];
+
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(result_ptr.is_null());
+}
