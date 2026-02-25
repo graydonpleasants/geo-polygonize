@@ -1,5 +1,5 @@
 use geo::Geometry;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::{Coord, LineString};
 
 #[test]
@@ -64,7 +64,7 @@ fn test_duplicate_edge_removal() {
 #[test]
 fn test_nan_handling_in_snap_noder() {
     use geo::Line;
-    use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
+    use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 
     let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
 

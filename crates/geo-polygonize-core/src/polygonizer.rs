@@ -39,7 +39,7 @@ impl RTreeObject for IndexedEnvelope {
 /// # Example
 ///
 /// ```rust
-/// use geo_polygonize::Polygonizer;
+/// use geo_polygonize_core::Polygonizer;
 /// use geo_types::{LineString, Geometry};
 /// use geo::Area;
 ///

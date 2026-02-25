@@ -378,28 +378,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo-polygonize"
+name = "geo-polygonize-core"
 version = "0.1.0"
 dependencies = [
  "approx",
  "clap",
- "console_error_panic_hook",
  "criterion",
  "float_next_after",
  "geo",
  "geo-types",
- "geojson",
- "getrandom",
  "log",
  "rand",
  "rayon",
  "robust",
  "rstar 0.12.2",
- "serde_json",
  "smallvec",
  "thiserror 1.0.69",
- "wasm-bindgen",
  "wide",
+]
+
+[[package]]
+name = "geo-polygonize-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "geo",
+ "geo-polygonize-core",
+ "geojson",
+ "getrandom",
+ "js-sys",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
