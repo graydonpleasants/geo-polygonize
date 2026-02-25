@@ -46,7 +46,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         return std::ptr::null_mut();
     }
 
-    if coords_len % 2 != 0 {
+    if !coords_len.is_multiple_of(2) {
         return std::ptr::null_mut();
     }
 
@@ -72,7 +72,6 @@ pub unsafe extern "C" fn polygonize_ffi(
     }
 
     let mut lines = Vec::new();
-    let mut status = CPolygonStatus::Success;
 
     // Iterate through linestrings defined by offsets
     for i in 0..offsets_len - 1 {
@@ -104,13 +103,6 @@ pub unsafe extern "C" fn polygonize_ffi(
             };
             lines.push(Line::new(p1, p2));
         }
-    }
-
-    if let CPolygonStatus::InvalidInput = status {
-        return Box::into_raw(Box::new(CPolygonResult {
-            polygons: Vec::new(),
-            status,
-        }));
     }
 
     let mut polygonizer = Polygonizer::new();

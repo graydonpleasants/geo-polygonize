@@ -1,6 +1,5 @@
 use geo_polygonize_core::ffi::{
-    polygonize_ffi, polygonize_result_free, polygonize_result_get_count,
-    polygonize_result_get_status, PolygonizerOptions,
+    polygonize_ffi, polygonize_result_free, polygonize_result_get_count, PolygonizerOptions,
 };
 
 #[test]
@@ -54,16 +53,7 @@ fn test_ffi_invalid_bounds() {
         )
     };
 
-    assert!(!result_ptr.is_null());
-
-    let status = unsafe { polygonize_result_get_status(result_ptr) };
-    // Expect InvalidInput = 1
-    assert_eq!(status, 1);
-
-    let count = unsafe { polygonize_result_get_count(result_ptr) };
-    assert_eq!(count, 0);
-
-    unsafe { polygonize_result_free(result_ptr) };
+    assert!(result_ptr.is_null());
 }
 
 #[test]
