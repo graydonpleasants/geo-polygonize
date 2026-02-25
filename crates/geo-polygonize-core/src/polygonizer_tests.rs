@@ -338,4 +338,76 @@ mod tests {
         );
         assert_eq!(outer.unwrap().interiors().len(), 0);
     }
+
+    #[test]
+    fn test_extract_only_polygonal_nested() {
+        let mut poly = Polygonizer::new();
+        poly.extract_only_polygonal = true;
+
+        // Outer square (0,0)-(10,0)-(10,10)-(0,10)-(0,0) (Area 100)
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // Inner square (2,2)-(8,2)-(8,8)-(2,8)-(2,2) (Area 36)
+        poly.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (8.0, 2.0),
+                (8.0, 8.0),
+                (2.0, 8.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
+
+        let result = poly.polygonize().expect("Polygonization failed");
+        let polygons = result.polygons;
+
+        // Default behavior would return 2 polygons.
+        // With extract_only_polygonal=true, the inner shell should be discarded.
+        assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
+        assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors().len(), 0);
+    }
+
+    #[test]
+    fn test_extract_only_polygonal_disjoint() {
+        let mut poly = Polygonizer::new();
+        poly.extract_only_polygonal = true;
+
+        // Poly 1
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // Poly 2 (Disjoint)
+        poly.add_geometry(
+            LineString::from(vec![
+                (20.0, 0.0),
+                (30.0, 0.0),
+                (30.0, 10.0),
+                (20.0, 10.0),
+                (20.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let result = poly.polygonize().expect("Polygonization failed");
+        assert_eq!(result.polygons.len(), 2);
+    }
 }

@@ -5,13 +5,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 #[pyfunction]
-#[pyo3(signature = (coords, offsets, node=false, snap=1e-10))]
+#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false))]
 fn polygonize<'py>(
     py: Python<'py>,
     coords: PyReadonlyArray1<'py, f64>,
     offsets: PyReadonlyArray1<'py, u32>,
     node: bool,
     snap: f64,
+    extract_only_polygonal: bool,
 ) -> PyResult<PyObject> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
@@ -65,6 +66,7 @@ fn polygonize<'py>(
     let mut polygonizer = Polygonizer::new();
     polygonizer.node_input = node;
     polygonizer.snap_grid_size = snap;
+    polygonizer.extract_only_polygonal = extract_only_polygonal;
     polygonizer.add_lines(lines);
 
     let result = polygonizer

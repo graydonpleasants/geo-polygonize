@@ -4,6 +4,7 @@ use geo::bounding_rect::BoundingRect;
 use geo::Area;
 use geo_types::{Coord, Geometry, Line, LineString, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
+use std::collections::HashSet;
 
 use crate::noding::snap::SnapNoder;
 use crate::utils::simd::SimdRing;
@@ -75,6 +76,13 @@ pub struct Polygonizer {
     /// Default: `1e-10`.
     pub snap_grid_size: f64,
 
+    /// Whether to extract only disjoint, outer-most polygonal shells.
+    ///
+    /// If `true`, the polygonizer will discard any shells that are contained
+    /// within other shells, returning only the top-level disjoint polygons.
+    /// Default: `false`.
+    pub extract_only_polygonal: bool,
+
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
     // Additional buffer for explicit line segments (e.g., from FFI)
@@ -101,6 +109,7 @@ impl Polygonizer {
             check_valid_rings: true,
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
+            extract_only_polygonal: false,
             inputs: Vec::new(),
             input_lines: Vec::new(),
             dirty: false,
@@ -258,7 +267,7 @@ impl Polygonizer {
         // If multiple shells contain it, it is assigned to the one with the smallest area (deepest).
 
         // Precompute SIMD shells for fast inclusion checks
-        let simd_shells: Vec<SimdRing> = shells
+        let mut simd_shells: Vec<SimdRing> = shells
             .iter()
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
@@ -272,7 +281,134 @@ impl Polygonizer {
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
             }
         }
-        let tree = RTree::bulk_load(indexed_shells);
+        let mut tree = RTree::bulk_load(indexed_shells);
+
+        // Filter shells if requested (Extract Only Polygonal)
+        if self.extract_only_polygonal {
+            let mut keep_mask = vec![true; shells.len()];
+            let mut removed_count = 0;
+            let mut discarded_edges = HashSet::new();
+
+            // Precompute probe points
+            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
+                .iter()
+                .map(guaranteed_interior_probe)
+                .collect();
+
+            // We can iterate indices because the tree uses indices into the original `shells` vector
+            for (i, shell) in shells.iter().enumerate() {
+                let bbox = match shell.bounding_rect() {
+                    Some(b) => b,
+                    None => {
+                        keep_mask[i] = false;
+                        removed_count += 1;
+                        continue;
+                    }
+                };
+                let aabb =
+                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+
+                let candidates = tree.locate_in_envelope_intersecting(&aabb);
+                let probe = probe_points[i];
+
+                if let Some(probe_pt) = probe {
+                    for cand in candidates {
+                        let j = cand.index;
+                        if i == j {
+                            continue;
+                        }
+
+                        // Check if shell[i] is inside shell[j]
+                        if simd_shells[j].contains(probe_pt.0) {
+                            let area_i = shell.unsigned_area();
+                            let area_j = shells[j].unsigned_area();
+
+                            // Discard i if it is inside j.
+                            // Use area and index as tie-breakers for duplicates.
+                            if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
+                                keep_mask[i] = false;
+                                removed_count += 1;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // No valid interior point found (collapsed?), remove it
+                    keep_mask[i] = false;
+                    removed_count += 1;
+                }
+            }
+
+            if removed_count > 0 {
+                // Rebuild shells vector
+                let mut iter = shells.into_iter();
+                shells = keep_mask
+                    .into_iter()
+                    .filter_map(|keep| {
+                        let s = iter.next().unwrap();
+                        if keep {
+                            Some(s)
+                        } else {
+                            // If we discard a shell, we should also track its edge to discard the corresponding hole
+                            // (which would otherwise form a void in the parent shell).
+                            let ext = s.exterior();
+                            if ext.0.len() >= 2 {
+                                let p1 = ext.0[0];
+                                let p2 = ext.0[1];
+                                discarded_edges.insert((
+                                    (p1.x.to_bits(), p1.y.to_bits()),
+                                    (p2.x.to_bits(), p2.y.to_bits()),
+                                ));
+                            }
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Also filter holes that correspond to discarded shells
+                if !discarded_edges.is_empty() {
+                    holes.retain(|h| {
+                        // Check if hole has any edge that matches a discarded shell's representative edge (reversed)
+                        // Discarded shell has edge u->v. Hole should have v->u.
+                        // We stored u->v. We check if hole has v->u.
+                        // We iterate all edges of hole.
+                        let coords = &h.exterior().0;
+                        for k in 0..coords.len().saturating_sub(1) {
+                            let p_start = coords[k];
+                            let p_end = coords[k + 1];
+                            // Hole edge: p_start -> p_end.
+                            // We look for u->v in discarded set where u=p_end, v=p_start.
+                            let key = (
+                                (p_end.x.to_bits(), p_end.y.to_bits()),     // u
+                                (p_start.x.to_bits(), p_start.y.to_bits()), // v
+                            );
+                            if discarded_edges.contains(&key) {
+                                return false; // Discard hole
+                            }
+                        }
+                        true
+                    });
+                }
+
+                // Rebuild helper structures for hole assignment
+                simd_shells = shells
+                    .iter()
+                    .map(|s| SimdRing::new(&s.exterior().0))
+                    .collect();
+
+                let mut indexed_shells = Vec::with_capacity(shells.len());
+                for (i, shell) in shells.iter().enumerate() {
+                    if let Some(bbox) = shell.bounding_rect() {
+                        let aabb = AABB::from_corners(
+                            [bbox.min().x, bbox.min().y],
+                            [bbox.max().x, bbox.max().y],
+                        );
+                        indexed_shells.push(IndexedEnvelope { aabb, index: i });
+                    }
+                }
+                tree = RTree::bulk_load(indexed_shells);
+            }
+        }
 
         // Process hole assignment
         let process_hole_assignment =

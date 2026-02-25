@@ -6,7 +6,7 @@ from .types import SimplePolygon
 
 ffi = cffi.FFI()
 ffi.cdef("""
-    typedef struct { bool node_input; double snap_grid_size; } PolygonizerOptions;
+    typedef struct { bool node_input; double snap_grid_size; bool extract_only_polygonal; } PolygonizerOptions;
     typedef struct CPolygonResult CPolygonResult;
 
     void polygonize_result_free(CPolygonResult* res);
@@ -74,7 +74,7 @@ def find_library():
 lib_path = find_library()
 lib = ffi.dlopen(lib_path)
 
-def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10):
+def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10, extract_only_polygonal: bool = False):
     """
     Polygonize a set of lines.
 
@@ -86,6 +86,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
                        means first line starts at point 0, second at point 2.
         node: whether to node the input.
         snap: snap grid size.
+        extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
 
     Returns:
         Dict with 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
@@ -100,7 +101,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     coords_ptr = ffi.cast("double*", coords.ctypes.data)
     offsets_ptr = ffi.cast("uint32_t*", offsets.ctypes.data)
 
-    options = {'node_input': node, 'snap_grid_size': snap}
+    options = {'node_input': node, 'snap_grid_size': snap, 'extract_only_polygonal': extract_only_polygonal}
 
     res_ptr = lib.polygonize_ffi(
         coords_ptr, coords.size,
