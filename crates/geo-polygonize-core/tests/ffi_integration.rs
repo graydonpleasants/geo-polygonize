@@ -5,13 +5,7 @@ use geo_polygonize_core::ffi::{
 #[test]
 fn test_ffi_simple_square() {
     // Square: (0,0), (10,0), (10,10), (0,10), (0,0)
-    let coords: Vec<f64> = vec![
-        0.0, 0.0,
-        10.0, 0.0,
-        10.0, 10.0,
-        0.0, 10.0,
-        0.0, 0.0,
-    ];
+    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
     let offsets: Vec<u32> = vec![0, 5]; // One linestring with 5 points
 
     let options = PolygonizerOptions {
@@ -44,8 +38,7 @@ fn test_ffi_two_squares_touching() {
     // We can pass them as 2 linestrings
     let coords: Vec<f64> = vec![
         // Square 1
-        0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0,
-        // Square 2
+        0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Square 2
         10.0, 0.0, 20.0, 0.0, 20.0, 10.0, 10.0, 10.0, 10.0, 0.0,
     ];
     let offsets: Vec<u32> = vec![0, 5, 10]; // 2 linestrings, each 5 points

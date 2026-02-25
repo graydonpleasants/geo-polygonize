@@ -39,7 +39,9 @@ pub extern "C" fn polygonize_ffi(
 
     if offsets_len < 2 {
         // No lines can be defined with < 2 offsets
-        return Box::into_raw(Box::new(CPolygonResult { polygons: Vec::new() }));
+        return Box::into_raw(Box::new(CPolygonResult {
+            polygons: Vec::new(),
+        }));
     }
 
     let mut lines = Vec::new();
