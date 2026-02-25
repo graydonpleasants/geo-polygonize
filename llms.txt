@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000241 | 0.000671 | 2.78x |
-| 10 | 0.000488 | 0.002216 | 4.54x |
-| 20 | 0.001141 | 0.008270 | 7.25x |
-| 50 | 0.005092 | 0.051924 | 10.20x |
-| 100 | 0.022652 | 0.227111 | 10.03x |
+| 5 | 0.000239 | 0.000681 | 2.85x |
+| 10 | 0.000478 | 0.002210 | 4.62x |
+| 20 | 0.001139 | 0.008233 | 7.23x |
+| 50 | 0.005173 | 0.051458 | 9.95x |
+| 100 | 0.022224 | 0.222352 | 10.01x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000989 | 0.008149 | 8.24x |
-| 100 | 0.003296 | 0.025962 | 7.88x |
-| 200 | 0.011674 | 0.106469 | 9.12x |
+| 50 | 0.000978 | 0.008068 | 8.25x |
+| 100 | 0.003266 | 0.025990 | 7.96x |
+| 200 | 0.011411 | 0.101862 | 8.93x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -967,6 +967,14 @@ fn generate_random_lines(n: usize, seed: u64) -> Vec<LineString<f64>> {
     lines
 }
 
+fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
+    let mut lines = Vec::new();
+    for i in 0..n {
+        lines.push(LineString::from(vec![(0.0, i as f64), (10.0, i as f64)]));
+    }
+    lines
+}
+
 fn bench_polygonize(c: &mut Criterion) {
     let mut group = c.benchmark_group("polygonize");
     group.sample_size(10);
@@ -1097,6 +1105,24 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         });
     }
+
+    // Sparse/Parallel Lines Test (Large N, 0 Intersections)
+    group.bench_function("large_parallel_10k", |b| {
+        let lines = generate_parallel_lines(10_000);
+        let mut input_segments = Vec::new();
+        for ls in &lines {
+            for line in ls.lines() {
+                input_segments.push(line);
+            }
+        }
+        // Clone for setup to avoid overhead in loop?
+        // SnapNoder::node consumes lines? No, it takes Vec<Line>.
+        // So we clone in iter.
+        b.iter(|| {
+            let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
+            noder.node(input_segments.clone());
+        });
+    });
 
     group.finish();
 }
@@ -4112,7 +4138,7 @@ impl UniformGrid {
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
-    /// Returns a flat list of (line_index, split_point) events.
+    /// Returns a flat list of (line_index, point) tuples.
     pub fn find_splits(
         &self,
         lines: &[Line<f64>],
@@ -4335,12 +4361,18 @@ mod tests {
 
         let splits = grid.find_splits(&lines, &noder);
 
-        // Both lines should be split at (5, 5)
-        assert!(!splits[0].is_empty());
-        assert!(!splits[1].is_empty());
+        // Expect 2 events: (0, (5,5)) and (1, (5,5))
+        assert_eq!(splits.len(), 2);
 
-        let p0 = splits[0][0];
-        let p1 = splits[1][0];
+        // Order is not guaranteed, sort by index
+        let mut sorted = splits.clone();
+        sorted.sort_by_key(|k| k.0);
+
+        assert_eq!(sorted[0].0, 0);
+        assert_eq!(sorted[1].0, 1);
+
+        let p0 = sorted[0].1;
+        let p1 = sorted[1].1;
 
         assert_relative_eq!(p0.x, 5.0);
         assert_relative_eq!(p0.y, 5.0);
@@ -4359,7 +4391,7 @@ mod tests {
         let noder = SnapNoder::new(0.0);
 
         let splits = grid.find_splits(&lines, &noder);
-        assert!(splits.iter().all(|v| v.is_empty()));
+        assert!(splits.is_empty());
     }
 
     #[test]
@@ -4466,7 +4498,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let mut splits = if !use_grid {
+            let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -4475,16 +4507,30 @@ impl SnapNoder {
                 grid.find_splits(&lines, self)
             };
 
-            if splits.iter().all(|v| v.is_empty()) {
+            if events.is_empty() {
                 break;
             }
+
+            // Sort events by line index to allow linear scan
+            events.sort_unstable_by_key(|e| e.0);
 
             // Apply splits
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
 
+            let mut event_idx = 0;
+            // Buffer to reuse for collecting points
+            let mut points = Vec::new();
+
             for (i, line) in lines.iter().enumerate() {
-                let mut points = std::mem::take(&mut splits[i]);
+                points.clear();
+
+                // Collect all split points for line i
+                while event_idx < events.len() && events[event_idx].0 == i {
+                    points.push(events[event_idx].1);
+                    event_idx += 1;
+                }
+
                 if !points.is_empty() {
                     // Add endpoints
                     points.push(line.start);
@@ -4602,37 +4648,28 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<Vec<Coord<f64>>> {
+    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<(usize, Coord<f64>)> {
         let soa = SoALines::new(lines);
 
         #[cfg(feature = "parallel")]
         {
             // Parallel execution: each thread processes a subset of query lines
             // and returns a list of split events (line_index, point).
-            let all_splits: Vec<(usize, Coord<f64>)> = lines
+            lines
                 .par_iter()
                 .enumerate()
                 .flat_map(|(i, &query_line)| {
                     self.check_intersection_simd(query_line, i, lines, &soa)
                 })
-                .collect();
-
-            // Aggregate results into dense Vec
-            let mut splits = vec![Vec::new(); lines.len()];
-            for (idx, pt) in all_splits {
-                splits[idx].push(pt);
-            }
-            splits
+                .collect()
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            let mut splits = vec![Vec::new(); lines.len()];
+            let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
                 let events = self.check_intersection_simd(query_line, i, lines, &soa);
-                for (idx, pt) in events {
-                    splits[idx].push(pt);
-                }
+                splits.extend(events);
             }
             splits
         }
@@ -4737,7 +4774,7 @@ impl SnapNoder {
         lines: &[Line<f64>],
         i: usize,
         j: usize,
-        splits: &mut [Vec<Coord<f64>>],
+        events: &mut Vec<(usize, Coord<f64>)>,
     ) {
         if i >= lines.len() || j >= lines.len() {
             return;
@@ -4747,7 +4784,7 @@ impl SnapNoder {
         let l2 = lines[j];
 
         self.process_intersection(l1, l2, i, j, |idx, pt| {
-            splits[idx].push(pt);
+            events.push((idx, pt));
         });
     }
 }
@@ -4785,49 +4822,40 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let splits_grid = grid.find_splits(&lines, &noder);
+        let mut splits_grid = grid.find_splits(&lines, &noder);
 
         // SIMD Logic
-        let splits_simd = noder.find_splits_simd(&lines);
+        let mut splits_simd = noder.find_splits_simd(&lines);
+
+        // Both return Vec<(usize, Coord)>
+        // Sort both by index, then coordinate
+        splits_grid.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+        });
+        splits_grid.dedup(); // Remove duplicate events if any
+
+        splits_simd.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+        });
+        splits_simd.dedup();
 
         assert_eq!(
             splits_grid.len(),
             splits_simd.len(),
-            "Different vector lengths"
+            "Different event counts"
         );
 
-        for (idx, points_grid) in splits_grid.iter().enumerate() {
-            let points_simd = &splits_simd[idx];
-
-            if points_grid.is_empty() && points_simd.is_empty() {
-                continue;
-            }
-
-            // Sort points to ensure order independence
-            let mut p_grid = points_grid.clone();
-            p_grid.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
-            p_grid.dedup();
-
-            let mut p_simd = points_simd.clone();
-            p_simd.sort_by(|a, b| (a.x, a.y).partial_cmp(&(b.x, b.y)).unwrap());
-            p_simd.dedup();
-
-            assert_eq!(
-                p_grid.len(),
-                p_simd.len(),
-                "Mismatch point count at index {}",
-                idx
+        for (e_g, e_s) in splits_grid.iter().zip(splits_simd.iter()) {
+            assert_eq!(e_g.0, e_s.0, "Index mismatch");
+            assert!(
+                (e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10,
+                "Point mismatch at index {}: {:?} vs {:?}",
+                e_g.0,
+                e_g.1,
+                e_s.1
             );
-
-            for (p_g, p_s) in p_grid.iter().zip(p_simd.iter()) {
-                assert!(
-                    (p_g.x - p_s.x).abs() < 1e-10 && (p_g.y - p_s.y).abs() < 1e-10,
-                    "Point mismatch at index {}: {:?} vs {:?}",
-                    idx,
-                    p_g,
-                    p_s
-                );
-            }
         }
     }
 
@@ -4872,15 +4900,14 @@ mod tests {
         let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
         let l2 = Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 });
         let lines = vec![l1, l2];
-        let mut splits = vec![Vec::new(); 2];
+        let mut events = Vec::new();
 
         let noder = SnapNoder::new(0.0);
-        noder.check_intersection(&lines, 0, 1, &mut splits);
+        noder.check_intersection(&lines, 0, 1, &mut events);
 
-        assert!(!splits[0].is_empty());
-        assert!(!splits[1].is_empty());
+        assert_eq!(events.len(), 2);
 
-        let p = splits[0][0];
+        let p = events[0].1;
         assert!((p.x - 5.0).abs() < 1e-10);
         assert!((p.y - 5.0).abs() < 1e-10);
     }
