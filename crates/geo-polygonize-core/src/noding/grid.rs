@@ -254,9 +254,8 @@ impl UniformGrid {
             let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
 
             for block_idx in (0..soa.len()).step_by(4) {
-                let mask = soa.intersects_bbox_batch_splatted(
-                    q_min_x, q_max_x, q_min_y, q_max_y, block_idx,
-                );
+                let mask = soa
+                    .intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, block_idx);
 
                 if mask != 0 {
                     for k in 0..4 {
@@ -587,8 +586,14 @@ mod tests {
         }
 
         // With supercell optimization, this line should NOT be in any cell
-        assert_eq!(cells_with_line, 0, "Global line should not be in any grid cell");
-        assert!(grid.global_lines.contains(&0), "Long line should be in global_lines");
+        assert_eq!(
+            cells_with_line, 0,
+            "Global line should not be in any grid cell"
+        );
+        assert!(
+            grid.global_lines.contains(&0),
+            "Long line should be in global_lines"
+        );
     }
 
     #[test]
@@ -599,7 +604,13 @@ mod tests {
         // l2: Global line intersecting l0 (x=0..2000, y crossing 0 at x=1000)
 
         let l0 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2000.0, y: 0.0 });
-        let l1 = Line::new(Coord { x: 1000.0, y: -0.01 }, Coord { x: 1000.0, y: 0.01 });
+        let l1 = Line::new(
+            Coord {
+                x: 1000.0,
+                y: -0.01,
+            },
+            Coord { x: 1000.0, y: 0.01 },
+        );
         let l2 = Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 2000.0, y: -1.0 });
 
         let lines = vec![l0, l1, l2];
@@ -623,9 +634,18 @@ mod tests {
         let events_l1 = splits.iter().filter(|(idx, _)| *idx == 1).count();
         let events_l2 = splits.iter().filter(|(idx, _)| *idx == 2).count();
 
-        assert!(events_l0 >= 2, "l0 should have at least 2 intersection events");
-        assert!(events_l1 >= 2, "l1 should have at least 2 intersection events");
-        assert!(events_l2 >= 2, "l2 should have at least 2 intersection events");
+        assert!(
+            events_l0 >= 2,
+            "l0 should have at least 2 intersection events"
+        );
+        assert!(
+            events_l1 >= 2,
+            "l1 should have at least 2 intersection events"
+        );
+        assert!(
+            events_l2 >= 2,
+            "l2 should have at least 2 intersection events"
+        );
 
         // Verify coordinates
         for (_, pt) in &splits {
