@@ -46,7 +46,8 @@ pub unsafe extern "C" fn polygonize_ffi(
         return std::ptr::null_mut();
     }
 
-    if !coords_len.is_multiple_of(2) {
+    #[allow(clippy::manual_is_multiple_of)]
+    if coords_len % 2 != 0 {
         return std::ptr::null_mut();
     }
 
@@ -75,24 +76,37 @@ pub unsafe extern "C" fn polygonize_ffi(
 
     // Iterate through linestrings defined by offsets
     for i in 0..offsets_len - 1 {
-        let start_idx = offsets[i] as usize;
-        let end_idx = offsets[i + 1] as usize;
+        // Offsets are indices of POINTS (pairs of f64), so multiply by 2 to get float index
+        // Use saturating_mul to avoid overflow panics
+        let start_point_idx = offsets[i] as usize;
+        let end_point_idx = offsets[i + 1] as usize;
 
-        if start_idx > end_idx {
-            return std::ptr::null_mut();
+        let _start_idx = start_point_idx.saturating_mul(2);
+        let end_idx = end_point_idx.saturating_mul(2);
+
+        if start_point_idx > end_point_idx {
+             // Invalid offset range
+             return Box::into_raw(Box::new(CPolygonResult {
+                polygons: Vec::new(),
+                status: CPolygonStatus::InvalidInput,
+            }));
         }
 
-        if start_idx == end_idx {
+        if start_point_idx == end_point_idx {
             continue;
         }
 
         // Check bounds: indices refer to points, each point is 2 f64s
-        if end_idx * 2 > coords_len {
-            return std::ptr::null_mut();
+        if end_idx > coords_len {
+             return Box::into_raw(Box::new(CPolygonResult {
+                polygons: Vec::new(),
+                status: CPolygonStatus::InvalidInput,
+            }));
         }
 
-        // Create segments for this linestring
-        for j in start_idx..end_idx - 1 {
+        // Iterate through POINTS in the linestring
+        for j in start_point_idx..end_point_idx - 1 {
+            // j is point index. Access coords at 2*j and 2*j+1
             let p1 = Coord {
                 x: coords[2 * j],
                 y: coords[2 * j + 1],
@@ -157,5 +171,131 @@ pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult
 pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
     if !res.is_null() {
         unsafe { drop(Box::from_raw(res)) };
+    }
+}
+
+/// Get shell point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_shell_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    polys[poly_idx].exterior().0.len()
+}
+
+/// Get shell points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_shell_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return;
+    }
+
+    let shell = polys[poly_idx].exterior();
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, shell.0.len() * 2) };
+    for (i, coord) in shell.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
+    }
+}
+
+/// Get hole count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    polys[poly_idx].interiors().len()
+}
+
+/// Get hole point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_point_count(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return 0;
+    }
+    let holes = polys[poly_idx].interiors();
+    if hole_idx >= holes.len() {
+        return 0;
+    }
+    holes[hole_idx].0.len()
+}
+
+/// Get hole points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_hole_points(
+    res: *const CPolygonResult,
+    poly_idx: usize,
+    hole_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let polys = unsafe { &(*res).polygons };
+    if poly_idx >= polys.len() {
+        return;
+    }
+    let holes = polys[poly_idx].interiors();
+    if hole_idx >= holes.len() {
+        return;
+    }
+
+    let hole = &holes[hole_idx];
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, hole.0.len() * 2) };
+    for (i, coord) in hole.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
     }
 }

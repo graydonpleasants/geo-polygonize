@@ -6,7 +6,12 @@ use geo_polygonize_core::ffi::{
 fn test_ffi_simple_square() {
     // Square: (0,0), (10,0), (10,10), (0,10), (0,0)
     let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
-    let offsets: Vec<u32> = vec![0, 5]; // One linestring with 5 points
+    // Offsets claims 5 points (index 0 to 5)
+    // IMPORTANT: Offsets are indices of POINTS (2 doubles).
+    // Square has 5 points (10 doubles).
+    // Offsets should be [0, 5] if offsets are point indices.
+    // If implementation expects point indices, this is correct.
+    let offsets: Vec<u32> = vec![0, 5];
 
     let options = PolygonizerOptions {
         node_input: false,
@@ -53,7 +58,13 @@ fn test_ffi_invalid_bounds() {
         )
     };
 
-    assert!(result_ptr.is_null());
+    // My new implementation returns a status struct, not null, on error
+    assert!(!result_ptr.is_null());
+    unsafe {
+        use geo_polygonize_core::ffi::polygonize_result_get_status;
+        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
+        polygonize_result_free(result_ptr)
+    };
 }
 
 #[test]
@@ -68,7 +79,11 @@ fn test_ffi_two_squares_touching() {
         0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Square 2
         10.0, 0.0, 20.0, 0.0, 20.0, 10.0, 10.0, 10.0, 10.0, 0.0,
     ];
-    let offsets: Vec<u32> = vec![0, 5, 10]; // 2 linestrings, each 5 points
+    // Offsets are point indices.
+    // Square 1: 5 points (10 floats). Start 0.
+    // Square 2: 5 points (10 floats). Start 5.
+    // End: 10 points.
+    let offsets: Vec<u32> = vec![0, 5, 10];
 
     let options = PolygonizerOptions {
         node_input: true, // Should dedup shared edge
@@ -130,5 +145,11 @@ fn test_ffi_rejects_out_of_bounds_offsets() {
         )
     };
 
-    assert!(result_ptr.is_null());
+    // My new implementation returns a status struct, not null, on error
+    assert!(!result_ptr.is_null());
+    unsafe {
+        use geo_polygonize_core::ffi::polygonize_result_get_status;
+        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
+        polygonize_result_free(result_ptr)
+    };
 }
