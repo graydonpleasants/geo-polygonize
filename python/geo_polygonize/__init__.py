@@ -15,6 +15,7 @@ ffi.cdef("""
         PolygonizerOptions options
     );
 
+    int polygonize_result_get_status(const CPolygonResult* res);
     size_t polygonize_result_get_count(const CPolygonResult* res);
 
     size_t polygonize_result_get_shell_point_count(const CPolygonResult* res, size_t poly_idx);
@@ -106,6 +107,16 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         raise RuntimeError("Polygonization failed (returned NULL)")
 
     try:
+        status = lib.polygonize_result_get_status(res_ptr)
+        if status != 0:
+             # 0 = Success, 1 = InvalidInput, 2 = InternalError
+             if status == 1:
+                 raise ValueError("Invalid input provided to polygonize")
+             elif status == 2:
+                 raise RuntimeError("Internal error during polygonization")
+             else:
+                 raise RuntimeError(f"Unknown error status: {status}")
+
         count = lib.polygonize_result_get_count(res_ptr)
         polygons = []
 
