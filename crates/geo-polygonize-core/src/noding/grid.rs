@@ -272,10 +272,9 @@ impl UniformGrid {
 
                             // Deduplicate Global-Global checks
                             // If target is also global, enforce index ordering (only check if g_idx < target_idx)
-                            if global_lines.binary_search(&target_idx).is_ok() {
-                                if target_idx < g_idx {
-                                    continue;
-                                }
+                            if global_lines.binary_search(&target_idx).is_ok() && target_idx < g_idx
+                            {
+                                continue;
                             }
 
                             // Process intersection
