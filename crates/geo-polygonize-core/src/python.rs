@@ -1,7 +1,7 @@
-use pyo3::prelude::*;
-use numpy::PyReadonlyArray1;
 use crate::Polygonizer;
 use geo_types::{Coord, Line};
+use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 
 #[pyfunction]
 #[pyo3(signature = (coords, offsets, node=false, snap=1e-10))]
@@ -16,7 +16,9 @@ fn polygonize<'py>(
     let offsets_slice = offsets.as_slice()?;
 
     if coords_slice.len() % 2 != 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("Coords array must have even length"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Coords array must have even length",
+        ));
     }
 
     if offsets_slice.len() < 2 {
@@ -29,12 +31,14 @@ fn polygonize<'py>(
         let end_idx = offsets_slice[i + 1] as usize;
 
         if start_idx > end_idx {
-             continue;
+            continue;
         }
 
         // Bounds check
         if end_idx.saturating_mul(2) > coords_slice.len() {
-             return Err(pyo3::exceptions::PyValueError::new_err("Offset index out of bounds"));
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Offset index out of bounds",
+            ));
         }
 
         if start_idx == end_idx {
@@ -59,7 +63,8 @@ fn polygonize<'py>(
     polygonizer.snap_grid_size = snap;
     polygonizer.add_lines(lines);
 
-    let polygons = polygonizer.polygonize()
+    let polygons = polygonizer
+        .polygonize()
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     // Import SimplePolygon class
