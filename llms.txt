@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000164 | 0.000641 | 3.91x |
-| 10 | 0.000302 | 0.002173 | 7.20x |
-| 20 | 0.000820 | 0.008100 | 9.88x |
-| 50 | 0.003905 | 0.051303 | 13.14x |
-| 100 | 0.015948 | 0.232127 | 14.56x |
+| 5 | 0.000151 | 0.000674 | 4.47x |
+| 10 | 0.000325 | 0.002206 | 6.79x |
+| 20 | 0.000809 | 0.008310 | 10.28x |
+| 50 | 0.003744 | 0.052364 | 13.98x |
+| 100 | 0.014307 | 0.227002 | 15.87x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000712 | 0.008079 | 11.35x |
-| 100 | 0.002582 | 0.025790 | 9.99x |
-| 200 | 0.009208 | 0.102901 | 11.18x |
+| 50 | 0.000698 | 0.008053 | 11.53x |
+| 100 | 0.002426 | 0.026092 | 10.75x |
+| 200 | 0.008537 | 0.105478 | 12.36x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -4170,59 +4170,81 @@ impl SnapNoder {
                 break;
             }
 
-            // Sort events by line index to allow linear scan
-            events.sort_unstable_by_key(|e| e.0);
+            // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
+            events.sort_unstable_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then(a.1.x.total_cmp(&b.1.x))
+                    .then(a.1.y.total_cmp(&b.1.y))
+            });
+            events.dedup();
 
-            // Apply splits
+            // Early bailout heuristic to avoid epsilon-thrashing on tiny residual updates.
+            // Apply this iteration first, then exit before running another pass.
+            let should_bail_early = events.len() < 3;
+
+            // Apply splits. Copy untouched line ranges in bulk and only rebuild lines with split events.
             new_lines.clear();
-            new_lines.reserve(lines.len() * 2);
+            new_lines.reserve(lines.len() + events.len());
 
             let mut event_idx = 0;
-            // Buffer to reuse for collecting points
+            let mut src_idx = 0;
+            // Buffer to reuse for collecting points on the current split line.
             let mut points = Vec::new();
 
-            for (i, line) in lines.iter().enumerate() {
-                points.clear();
+            while event_idx < events.len() {
+                let line_idx = events[event_idx].0;
 
-                // Collect all split points for line i
-                while event_idx < events.len() && events[event_idx].0 == i {
+                // Copy untouched lines directly.
+                if src_idx < line_idx {
+                    new_lines.extend_from_slice(&lines[src_idx..line_idx]);
+                }
+
+                points.clear();
+                while event_idx < events.len() && events[event_idx].0 == line_idx {
                     points.push(events[event_idx].1);
                     event_idx += 1;
                 }
 
-                if !points.is_empty() {
-                    // Add endpoints
-                    points.push(line.start);
-                    points.push(line.end);
+                let line = lines[line_idx];
+                points.push(line.start);
+                points.push(line.end);
 
-                    // Filter out invalid points (NaN/Inf)
-                    points.retain(|p| p.x.is_finite() && p.y.is_finite());
+                // Filter out invalid points (NaN/Inf)
+                points.retain(|p| p.x.is_finite() && p.y.is_finite());
 
-                    // Sort by distance from start
-                    let start = line.start;
-                    points.sort_unstable_by(|a, b| {
-                        let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
-                        let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                        da.total_cmp(&db)
-                    });
+                // Sort by distance from start
+                let start = line.start;
+                points.sort_unstable_by(|a, b| {
+                    let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
+                    let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
+                    da.total_cmp(&db)
+                });
 
-                    points.dedup();
+                points.dedup();
 
-                    // Create segments
-                    for w in points.windows(2) {
-                        let p0 = w[0];
-                        let p1 = w[1];
-                        if p0 != p1 {
-                            new_lines.push(Line::new(p0, p1));
-                        }
+                // Create replacement segments for the split line.
+                for w in points.windows(2) {
+                    let p0 = w[0];
+                    let p1 = w[1];
+                    if p0 != p1 {
+                        new_lines.push(Line::new(p0, p1));
                     }
-                } else {
-                    new_lines.push(*line);
                 }
+
+                src_idx = line_idx + 1;
+            }
+
+            // Copy any untouched trailing lines.
+            if src_idx < lines.len() {
+                new_lines.extend_from_slice(&lines[src_idx..]);
             }
 
             self.normalize_and_dedup(&mut new_lines);
             std::mem::swap(&mut lines, &mut new_lines);
+
+            if should_bail_early {
+                break;
+            }
         }
 
         lines
@@ -6238,6 +6260,9 @@ geojson = "0.24"
 serde_json = "1.0"
 getrandom = { version = "0.2", features = ["js"] }
 geo = "0.32"
+geo-traits = "0.3.0"
+geoarrow = "0.7.0"
+arrow-ipc = "57"
 
 [features]
 default = ["console_error_panic_hook"]
@@ -6246,10 +6271,14 @@ default = ["console_error_panic_hook"]
 
 File: crates/geo-polygonize-wasm/src/lib.rs
 ```
+use arrow_ipc::reader::StreamReader;
 use geo::{Coord, LineString};
 use geo_polygonize_core::Polygonizer;
+use geo_traits::to_geo::ToGeoLineString;
+use geoarrow::array::{GeoArrowArrayAccessor, LineStringArray};
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
+use std::io::Cursor;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
@@ -6409,28 +6438,74 @@ pub fn polygonize_buffers(
         polygonizer.add_geometry(geo::Geometry::LineString(LineString::new(points)));
     }
 
+    polygonize_and_flatten(polygonizer)
+}
+
+#[wasm_bindgen]
+pub fn polygonize_geoarrow(
+    ipc_bytes: &[u8],
+    node_input: bool,
+    snap_grid_size: f64,
+) -> Result<WasmPolygonResult, JsValue> {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = node_input;
+    polygonizer.snap_grid_size = snap_grid_size;
+
+    let mut reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
+        .map_err(|e| JsValue::from_str(&format!("Invalid Arrow IPC stream: {e}")))?;
+
+    let mut found_lines = false;
+    for batch_result in &mut reader {
+        let batch = batch_result
+            .map_err(|e| JsValue::from_str(&format!("Failed reading Arrow IPC batch: {e}")))?;
+
+        for (array, field) in batch.columns().iter().zip(batch.schema().fields().iter()) {
+            let lines = match LineStringArray::try_from((array.as_ref(), field.as_ref())) {
+                Ok(lines) => lines,
+                Err(_) => continue,
+            };
+
+            found_lines = true;
+            for scalar_result in lines.iter_values() {
+                let line = scalar_result.map_err(|e| {
+                    JsValue::from_str(&format!("Failed to decode GeoArrow LineString: {e}"))
+                })?;
+                polygonizer.add_geometry(geo::Geometry::LineString(line.to_line_string()));
+            }
+        }
+    }
+
+    if !found_lines {
+        return Err(JsValue::from_str(
+            "No GeoArrow LineString extension columns were found in the IPC stream",
+        ));
+    }
+
+    polygonize_and_flatten(polygonizer)
+}
+
+fn polygonize_and_flatten(mut polygonizer: Polygonizer) -> Result<WasmPolygonResult, JsValue> {
     let polygons = polygonizer
         .polygonize()
         .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
 
-    // Flatten output
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
 
     for poly in polygons {
         polygon_offsets.push(ring_offsets.len() as u32);
-
         let (exterior, interiors) = poly.into_inner();
 
-        // Exterior
         ring_offsets.push(flat_coords.len() as u32);
         for coord in exterior.0 {
             flat_coords.push(coord.x);
             flat_coords.push(coord.y);
         }
 
-        // Interiors
         for ring in interiors {
             ring_offsets.push(flat_coords.len() as u32);
             for coord in ring.0 {
