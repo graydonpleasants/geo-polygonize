@@ -77,7 +77,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Found {} dangles.", result.dangles.len());
 
     // Convert back to GeoJSON
-    let features: Vec<Feature> = result.polygons
+    let features: Vec<Feature> = result
+        .polygons
         .into_iter()
         .map(|poly| {
             let geometry = Geometry::from(&poly);
