@@ -99,6 +99,28 @@ async function run() {
 }
 ```
 
+**Multithreaded Usage (Experimental):**
+This library provides a multithreaded build powered by `wasm-bindgen-rayon`.
+
+```javascript
+import init, { initThreadPool, polygonize } from "geo-polygonize/threads";
+
+async function run() {
+    await init();
+
+    // Initialize thread pool (e.g., with navigator.hardwareConcurrency)
+    await initThreadPool(navigator.hardwareConcurrency);
+
+    // ... use polygonize as usual
+}
+```
+
+**Important:** Multithreaded WebAssembly requires `SharedArrayBuffer`, which is only available in secure contexts. You **must** serve your page with the following headers:
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
 ### CLI Example
 
 The repository includes a CLI tool to polygonize GeoJSON files.

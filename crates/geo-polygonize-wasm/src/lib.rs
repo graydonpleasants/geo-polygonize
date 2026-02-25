@@ -5,6 +5,9 @@ use std::convert::TryInto;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "threads")]
+pub use wasm_bindgen_rayon::init_thread_pool;
+
 #[wasm_bindgen]
 pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
     // Set panic hook for better error messages
