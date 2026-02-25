@@ -22,5 +22,5 @@ pub mod python;
 #[cfg(test)]
 mod polygonizer_tests;
 
-pub use polygonizer::Polygonizer;
+pub use polygonizer::{Polygonizer, PolygonizerResult};
 pub use tiling::TiledPolygonizer;

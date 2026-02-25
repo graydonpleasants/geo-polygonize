@@ -17,7 +17,7 @@ def polygonize(coords, offsets, node=False, snap=1e-10):
         snap: snap grid size.
 
     Returns:
-        List of SimplePolygon objects.
+        Dict with keys 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
     """
     # Ensure coords is a numpy array
     coords = np.ascontiguousarray(coords, dtype=np.float64)

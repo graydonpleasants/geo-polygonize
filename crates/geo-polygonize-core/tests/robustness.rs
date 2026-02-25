@@ -19,7 +19,7 @@ fn test_bowtie_noding() {
     poly.snap_grid_size = 1e-6;
     poly.add_geometry(Geometry::LineString(ls));
 
-    let results = poly.polygonize().expect("Polygonization failed");
+    let results = poly.polygonize().expect("Polygonization failed").polygons;
 
     println!("Bowtie Results: {}", results.len());
     for (i, p) in results.iter().enumerate() {
@@ -57,7 +57,7 @@ fn test_duplicate_edge_removal() {
         Coord { x: 0.0, y: 0.0 },
     ])));
 
-    let results = poly.polygonize().expect("Polygonization failed");
+    let results = poly.polygonize().expect("Polygonization failed").polygons;
     assert_eq!(results.len(), 1);
 }
 

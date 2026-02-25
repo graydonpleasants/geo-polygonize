@@ -72,11 +72,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Added {} geometries. Polygonizing...", count);
 
-    let polygons = polygonizer.polygonize()?;
-    println!("Found {} polygons.", polygons.len());
+    let result = polygonizer.polygonize()?;
+    println!("Found {} polygons.", result.polygons.len());
+    println!("Found {} dangles.", result.dangles.len());
 
     // Convert back to GeoJSON
-    let features: Vec<Feature> = polygons
+    let features: Vec<Feature> = result.polygons
         .into_iter()
         .map(|poly| {
             let geometry = Geometry::from(&poly);

@@ -2,6 +2,7 @@ use crate::Polygonizer;
 use geo_types::{Coord, Line};
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 #[pyfunction]
 #[pyo3(signature = (coords, offsets, node=false, snap=1e-10))]
@@ -11,7 +12,7 @@ fn polygonize<'py>(
     offsets: PyReadonlyArray1<'py, u32>,
     node: bool,
     snap: f64,
-) -> PyResult<Vec<PyObject>> {
+) -> PyResult<PyObject> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
@@ -22,7 +23,10 @@ fn polygonize<'py>(
     }
 
     if offsets_slice.len() < 2 {
-        return Ok(Vec::new());
+        let dict = PyDict::new_bound(py);
+        dict.set_item("polygons", Vec::<PyObject>::new())?;
+        dict.set_item("dangles", Vec::<PyObject>::new())?;
+        return Ok(dict.into());
     }
 
     let mut lines = Vec::new();
@@ -63,7 +67,7 @@ fn polygonize<'py>(
     polygonizer.snap_grid_size = snap;
     polygonizer.add_lines(lines);
 
-    let polygons = polygonizer
+    let result = polygonizer
         .polygonize()
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
@@ -71,9 +75,9 @@ fn polygonize<'py>(
     let types_mod = PyModule::import_bound(py, "geo_polygonize.types")?;
     let simple_polygon_cls = types_mod.getattr("SimplePolygon")?;
 
-    let mut results = Vec::with_capacity(polygons.len());
+    let mut poly_objects = Vec::with_capacity(result.polygons.len());
 
-    for poly in polygons {
+    for poly in result.polygons {
         let exterior = poly.exterior();
         let shell_coords: Vec<(f64, f64)> = exterior.0.iter().map(|c| (c.x, c.y)).collect();
 
@@ -84,10 +88,20 @@ fn polygonize<'py>(
         }
 
         let instance = simple_polygon_cls.call1((shell_coords, holes_list))?;
-        results.push(instance.into());
+        poly_objects.push(instance);
     }
 
-    Ok(results)
+    let mut dangle_objects = Vec::with_capacity(result.dangles.len());
+    for dangle in result.dangles {
+        let coords: Vec<(f64, f64)> = dangle.0.iter().map(|c| (c.x, c.y)).collect();
+        dangle_objects.push(coords);
+    }
+
+    let dict = PyDict::new_bound(py);
+    dict.set_item("polygons", poly_objects)?;
+    dict.set_item("dangles", dangle_objects)?;
+
+    Ok(dict.into())
 }
 
 #[pymodule]

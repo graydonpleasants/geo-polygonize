@@ -1,5 +1,5 @@
 use crate::Polygonizer;
-use geo_types::{Coord, Line, Polygon};
+use geo_types::{Coord, Line, LineString, Polygon};
 use std::slice;
 
 #[repr(C)]
@@ -18,6 +18,7 @@ pub enum CPolygonStatus {
 
 pub struct CPolygonResult {
     pub polygons: Vec<Polygon<f64>>,
+    pub dangles: Vec<LineString<f64>>,
     pub status: CPolygonStatus,
 }
 
@@ -68,6 +69,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         // No lines can be defined with < 2 offsets
         return Box::into_raw(Box::new(CPolygonResult {
             polygons: Vec::new(),
+            dangles: Vec::new(),
             status: CPolygonStatus::Success,
         }));
     }
@@ -88,6 +90,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             // Invalid offset range
             return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
+                dangles: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
         }
@@ -100,6 +103,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         if end_idx > coords_len {
             return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
+                dangles: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
         }
@@ -125,15 +129,17 @@ pub unsafe extern "C" fn polygonize_ffi(
     polygonizer.add_lines(lines);
 
     match polygonizer.polygonize() {
-        Ok(polygons) => {
+        Ok(result) => {
             let res = CPolygonResult {
-                polygons,
+                polygons: result.polygons,
+                dangles: result.dangles,
                 status: CPolygonStatus::Success,
             };
             Box::into_raw(Box::new(res))
         }
         Err(_) => Box::into_raw(Box::new(CPolygonResult {
             polygons: Vec::new(),
+            dangles: Vec::new(),
             status: CPolygonStatus::InternalError,
         })),
     }
@@ -217,6 +223,67 @@ pub unsafe extern "C" fn polygonize_result_get_shell_points(
     let shell = polys[poly_idx].exterior();
     let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, shell.0.len() * 2) };
     for (i, coord) in shell.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
+    }
+}
+
+/// Get dangle count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_dangle_count(res: *const CPolygonResult) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    unsafe { (*res).dangles.len() }
+}
+
+/// Get dangle point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_dangle_point_count(
+    res: *const CPolygonResult,
+    dangle_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let dangles = unsafe { &(*res).dangles };
+    if dangle_idx >= dangles.len() {
+        return 0;
+    }
+    dangles[dangle_idx].0.len()
+}
+
+/// Get dangle points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_dangle_points(
+    res: *const CPolygonResult,
+    dangle_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let dangles = unsafe { &(*res).dangles };
+    if dangle_idx >= dangles.len() {
+        return;
+    }
+
+    let dangle = &dangles[dangle_idx];
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, dangle.0.len() * 2) };
+    for (i, coord) in dangle.0.iter().enumerate() {
         buffer_slice[2 * i] = coord.x;
         buffer_slice[2 * i + 1] = coord.y;
     }

@@ -467,8 +467,8 @@ impl PlanarGraph {
     }
 
     /// Prunes dangles (nodes with degree 1) from the graph iteratively.
-    pub fn prune_dangles(&mut self) -> usize {
-        let mut dangles_removed = 0;
+    pub fn prune_dangles(&mut self) -> Vec<LineString<f64>> {
+        let mut dangles = Vec::new();
         let mut to_process: Vec<NodeId> = self
             .nodes_degree
             .iter()
@@ -484,7 +484,6 @@ impl PlanarGraph {
 
             self.nodes_marked[node_idx] = true;
             self.nodes_degree[node_idx] = 0;
-            dangles_removed += 1;
 
             let mut edge_found = false;
             let mut neighbor_idx = 0;
@@ -502,6 +501,11 @@ impl PlanarGraph {
                 let sym_idx = self.directed_edges[de_idx].sym_idx;
                 self.directed_edges[sym_idx].is_marked = true;
 
+                // Capture the geometry
+                let edge_idx = self.directed_edges[de_idx].edge_idx;
+                let line = self.edges[edge_idx].line;
+                dangles.push(LineString::new(vec![line.start, line.end]));
+
                 neighbor_idx = self.directed_edges[de_idx].dst;
                 edge_found = true;
             }
@@ -513,7 +517,25 @@ impl PlanarGraph {
                 }
             }
         }
-        dangles_removed
+        dangles
+    }
+
+    /// Returns unvisited edges (neither marked as dangle nor visited by ring extraction).
+    pub fn get_cut_edges(&self) -> Vec<LineString<f64>> {
+        let mut cuts = Vec::new();
+        for edge in &self.edges {
+            let de1 = &self.directed_edges[edge.dir_edges[0]];
+            let de2 = &self.directed_edges[edge.dir_edges[1]];
+
+            if de1.is_marked || de2.is_marked {
+                continue;
+            }
+
+            if !de1.is_visited && !de2.is_visited {
+                cuts.push(LineString::new(vec![edge.line.start, edge.line.end]));
+            }
+        }
+        cuts
     }
 
     /// Extracts rings from the graph using the Next-CCW rule.

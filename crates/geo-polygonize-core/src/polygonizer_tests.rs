@@ -11,7 +11,7 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(10.0, 0.0), (0.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]).into());
 
-        let polygons = poly.polygonize().unwrap();
+        let polygons = poly.polygonize().unwrap().polygons;
         assert!(polygons.len() >= 1);
         let triangle = polygons
             .iter()
@@ -46,7 +46,7 @@ mod tests {
             .into(),
         );
 
-        let polygons = poly.polygonize().unwrap();
+        let polygons = poly.polygonize().unwrap().polygons;
         assert_eq!(
             polygons.len(),
             2,
@@ -87,7 +87,7 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
         // Frame (empty because triangles are holes) + 4 Triangles
         // Wait, the logic assigns holes to shells.
         // Frame is OuterCCW (100) and OuterCW (-100).
@@ -139,7 +139,7 @@ mod tests {
             LineString::from(vec![(10.0, 0.0), (10.0, 10.0), (5.0, 10.0), (5.0, 0.0)]).into(),
         );
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
 
         // Should find the rectangle of area 50.
         let rect = polygons
@@ -156,7 +156,8 @@ mod tests {
         let mut poly = Polygonizer::new();
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on empty input");
+            .expect("Polygonization should not fail on empty input")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -169,7 +170,8 @@ mod tests {
         )));
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on empty LineString");
+            .expect("Polygonization should not fail on empty LineString")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -180,7 +182,8 @@ mod tests {
         poly.add_geometry(geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0)));
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on Point input");
+            .expect("Polygonization should not fail on Point input")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -190,7 +193,8 @@ mod tests {
         poly.node_input = true;
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on empty input with noding");
+            .expect("Polygonization should not fail on empty input with noding")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -203,7 +207,8 @@ mod tests {
         )));
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on empty LineString with noding");
+            .expect("Polygonization should not fail on empty LineString with noding")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -214,7 +219,8 @@ mod tests {
         poly.add_geometry(geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0)));
         let polygons = poly
             .polygonize()
-            .expect("Polygonization should not fail on Point input with noding");
+            .expect("Polygonization should not fail on Point input with noding")
+            .polygons;
         assert_eq!(polygons.len(), 0);
     }
 
@@ -250,7 +256,7 @@ mod tests {
             .into(),
         );
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
 
         let shell_with_hole = polygons
             .iter()
@@ -282,7 +288,7 @@ mod tests {
             LineString::from(vec![(5.0, 0.0), (4.0, 2.0), (6.0, 2.0), (5.0, 0.0)]).into(),
         );
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
 
         let shell_with_hole = polygons
             .iter()
@@ -321,7 +327,7 @@ mod tests {
             .into(),
         );
 
-        let polygons = poly.polygonize().expect("Polygonization failed");
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
 
         let outer = polygons
             .iter()
