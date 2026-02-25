@@ -206,9 +206,13 @@ impl Polygonizer {
         let _dangles_removed = self.graph.prune_dangles();
 
         // 3. Find rings
+        // Extracts all minimal cycles from the planar graph.
         let rings = self.graph.get_edge_rings();
 
-        // 4. Assign holes
+        // 4. Classify Rings (Shell vs Hole)
+        // Standard GEOS behavior:
+        // - CCW rings (positive signed area) are Shells.
+        // - CW rings (negative signed area) are Holes (or the exterior of the universe).
         let mut shells = Vec::new();
         let mut holes = Vec::new();
 
@@ -235,45 +239,22 @@ impl Polygonizer {
             }
         }
 
-        // Promote CW rings to Shells if they don't have a corresponding CCW Twin.
-        let process_holes = |hole: &Polygon<f64>| -> Option<Polygon<f64>> {
-            let hole_area = hole.unsigned_area();
-            let has_twin = shells.iter().any(|shell| {
-                (shell.unsigned_area() - hole_area).abs() < 1e-6
-                    && shell.bounding_rect() == hole.bounding_rect()
-            });
+        // NOTE: Previous heuristic to promote CW rings to Shells if !has_twin is removed.
+        // We explicitly rely on the topological relationship (containment) to assign holes.
+        // Any CW ring that is not contained in a Shell (e.g. Universe hole) will be discarded
+        // during the assignment phase or filtered out.
 
-            if !has_twin {
-                let mut shell_copy = hole.clone();
-                shell_copy.exterior_mut(|ext| {
-                    use geo::algorithm::winding_order::Winding;
-                    ext.make_ccw_winding();
-                });
-                Some(shell_copy)
-            } else {
-                None
-            }
-        };
+        // 5. Establish Topology (Assign Holes to Shells)
+        // A hole is assigned to the shell that contains it.
+        // If multiple shells contain it, it is assigned to the one with the smallest area (deepest).
 
-        let promoted_shells: Vec<_>;
-        #[cfg(feature = "parallel")]
-        {
-            promoted_shells = holes.par_iter().filter_map(process_holes).collect();
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            promoted_shells = holes.iter().filter_map(process_holes).collect();
-        }
-
-        shells.extend(promoted_shells);
-
-        // Precompute SIMD shells
+        // Precompute SIMD shells for fast inclusion checks
         let simd_shells: Vec<SimdRing> = shells
             .iter()
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
 
-        // Assign holes to shells using RTree (Dynamic, but robust)
+        // Build RTree for shells to optimize spatial lookups
         let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = shell.bounding_rect() {
@@ -284,7 +265,7 @@ impl Polygonizer {
         }
         let tree = RTree::bulk_load(indexed_shells);
 
-        // Process holes
+        // Process hole assignment
         let process_hole_assignment =
             |hole_poly: Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let bbox = hole_poly.bounding_rect()?;
@@ -312,6 +293,7 @@ impl Polygonizer {
                         let area = shell.unsigned_area();
                         let hole_area = hole_poly.unsigned_area();
 
+                        // Only assign if shell is larger than hole (and not equal, to skip Universe hole matching Shell)
                         if area > hole_area + 1e-6 && area < min_area {
                             min_area = area;
                             best_shell_idx = Some(idx);
@@ -341,15 +323,18 @@ impl Polygonizer {
                 .collect();
         }
 
+        // Group holes by shell
         let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
         for (idx, hole) in assignments {
             shell_holes[idx].push(hole);
         }
 
+        // 6. Construct Final Polygons
         let mut result = Vec::new();
         for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
             let (exterior, _) = shell.into_inner();
             let p = Polygon::new(exterior, holes);
+            // Filter out empty/degenerate polygons
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }

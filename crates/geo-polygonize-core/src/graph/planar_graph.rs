@@ -539,7 +539,9 @@ impl PlanarGraph {
                     let len = outgoing.len();
                     for k in 0..len {
                         let curr = outgoing[k];
-                        let next = outgoing[(k + 1) % len];
+                        // Left-most turn (CCW traversal) uses the previous edge in sorted CCW list.
+                        // (Current impl uses (k+1)%len which is Right-most turn / CW traversal)
+                        let next = outgoing[(k + len - 1) % len];
                         next_pointers[curr] = next;
                     }
                     continue;
@@ -562,7 +564,8 @@ impl PlanarGraph {
                 // Link them circular
                 for k in 0..valid_edges.len() {
                     let curr = valid_edges[k];
-                    let next = valid_edges[(k + 1) % valid_edges.len()];
+                    // Left-most turn
+                    let next = valid_edges[(k + valid_edges.len() - 1) % valid_edges.len()];
                     next_pointers[curr] = next;
                 }
             }
