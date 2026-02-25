@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000239 | 0.000681 | 2.85x |
-| 10 | 0.000478 | 0.002210 | 4.62x |
-| 20 | 0.001139 | 0.008233 | 7.23x |
-| 50 | 0.005173 | 0.051458 | 9.95x |
-| 100 | 0.022224 | 0.222352 | 10.01x |
+| 5 | 0.000191 | 0.000689 | 3.61x |
+| 10 | 0.000330 | 0.002237 | 6.79x |
+| 20 | 0.000849 | 0.008305 | 9.78x |
+| 50 | 0.003631 | 0.052454 | 14.45x |
+| 100 | 0.016261 | 0.221501 | 13.62x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000978 | 0.008068 | 8.25x |
-| 100 | 0.003266 | 0.025990 | 7.96x |
-| 200 | 0.011411 | 0.101862 | 8.93x |
+| 50 | 0.000742 | 0.008120 | 10.94x |
+| 100 | 0.002523 | 0.026325 | 10.44x |
+| 200 | 0.008612 | 0.106735 | 12.39x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -285,60 +285,17 @@ By contributing, you agree that your contributions will be licensed under the pr
 
 File: Cargo.toml
 ```
-[package]
-name = "geo-polygonize"
-version = "0.1.0"
-edition = "2021"
-description = "A native Rust port of the JTS/GEOS polygonization algorithm"
-license = "MIT/Apache-2.0"
-repository = "https://github.com/graydonpleasants/geo-polygonize"
-readme = "README.md"
-keywords = ["geo", "polygonize", "polygonization", "geometry", "gis"]
-categories = ["science::geo", "algorithms"]
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["parallel"]
-parallel = ["dep:rayon"]
-
-[dependencies]
-geo = "0.32"
-geo-types = "0.7"
-rstar = "0.12"
-rayon = { version = "1.10", optional = true }
-log = "0.4"
-thiserror = "1.0"
-float_next_after = "1.0"
-smallvec = "1.11"
-robust = "1.2"
-wide = "0.7"
-wasm-bindgen = "0.2"
-console_error_panic_hook = { version = "0.1.7", optional = true }
-geojson = "0.24"
-serde_json = "1.0"
-getrandom = { version = "0.2", features = ["js"] }
-
-[dev-dependencies]
-approx = "0.5"
-clap = { version = "4.5", features = ["derive"] }
-criterion = "0.5"
-rand = "0.8"
-
-[[bench]]
-name = "polygonize_bench"
-harness = false
+[workspace]
+members = [
+    "crates/geo-polygonize-core",
+    "crates/geo-polygonize-wasm"
+]
+resolver = "2"
 
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort" # Reduces binary size significantly for Wasm
-strip = true    # Removes symbols
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
 
 ```
 
@@ -618,7 +575,45 @@ max_width = 100
 
 ```
 
-File: benches/bench_shapely.py
+File: crates/geo-polygonize-core/Cargo.toml
+```
+[package]
+name = "geo-polygonize-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+geo = "0.32"
+geo-types = "0.7"
+rstar = "0.12"
+rayon = { version = "1.10", optional = true }
+robust = "1.2"
+wide = "0.7"
+log = "0.4"
+thiserror = "1.0"
+float_next_after = "1.0"
+smallvec = "1.11"
+
+[dev-dependencies]
+approx = "0.5"
+criterion = "0.5"
+rand = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
+[[bench]]
+name = "polygonize_bench"
+harness = false
+
+```
+
+File: crates/geo-polygonize-core/benches/bench_shapely.py
 ```
 import shapely
 from shapely.geometry import LineString
@@ -707,7 +702,7 @@ if __name__ == "__main__":
 
 ```
 
-File: benches/compare_results.py
+File: crates/geo-polygonize-core/benches/compare_results.py
 ```
 import re
 import sys
@@ -912,11 +907,11 @@ if __name__ == "__main__":
 
 ```
 
-File: benches/polygonize_bench.rs
+File: crates/geo-polygonize-core/benches/polygonize_bench.rs
 ```
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
-use geo_polygonize::{Polygonizer, TiledPolygonizer};
+use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
+use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -1135,7 +1130,7 @@ fn bench_get_edge_rings(c: &mut Criterion) {
     group.bench_function("get_edge_rings", |b| {
         b.iter_with_setup(
             || {
-                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                let mut graph = geo_polygonize_core::graph::PlanarGraph::new();
                 for line in &lines {
                     graph.add_line_string(line.clone());
                 }
@@ -1157,7 +1152,7 @@ fn bench_get_edge_rings_dangles(c: &mut Criterion) {
     group.bench_function("get_edge_rings_with_dangles", |b| {
         b.iter_with_setup(
             || {
-                let mut graph = geo_polygonize::graph::PlanarGraph::new();
+                let mut graph = geo_polygonize_core::graph::PlanarGraph::new();
                 for line in &lines {
                     graph.add_line_string(line.clone());
                 }
@@ -1187,29 +1182,29 @@ criterion_main!(benches);
 
 ```
 
-File: benches/run_comparison.sh
+File: crates/geo-polygonize-core/benches/run_comparison.sh
 ```
 #!/bin/bash
 set -e
 
 echo "Building Rust benchmarks..."
-cargo build --bench polygonize_bench --release
+cargo build -p geo-polygonize-core --bench polygonize_bench --release
 
 echo "Running Rust benchmarks..."
-cargo bench --bench polygonize_bench > rust_bench_output.txt
+cargo bench -p geo-polygonize-core --bench polygonize_bench > rust_bench_output.txt
 
 echo "Running Python benchmarks..."
-python3 benches/bench_shapely.py > python_bench_output.txt
+python3 crates/geo-polygonize-core/benches/bench_shapely.py > python_bench_output.txt
 
 echo "Processing results..."
 # Here I could write a python script to parse both output files and produce a combined table.
-python3 benches/compare_results.py
+python3 crates/geo-polygonize-core/benches/compare_results.py
 
 echo "Done."
 
 ```
 
-File: benches/run_wasm_bench.sh
+File: crates/geo-polygonize-core/benches/run_wasm_bench.sh
 ```
 #!/bin/bash
 set -e
@@ -1311,7 +1306,7 @@ for (const size of sizes) {
 
 ```
 
-File: benches/wasm_bench/Cargo.toml
+File: crates/geo-polygonize-core/benches/wasm_bench/Cargo.toml
 ```
 [package]
 name = "wasm-bench"
@@ -1323,7 +1318,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-geo-polygonize = { path = "../../" }
+geo-polygonize-core = { path = "../.." }
 geo-types = { version = "0.7", features = ["serde"] }
 geo = { version = "0.32", features = ["serde"] }
 console_error_panic_hook = "0.1"
@@ -1339,7 +1334,7 @@ geojson = "0.24"
 
 ```
 
-File: benches/wasm_bench/src/lib.rs
+File: crates/geo-polygonize-core/benches/wasm_bench/src/lib.rs
 ```
 use wasm_bindgen::prelude::*;
 use geo::{LineString, Geometry};
@@ -1437,637 +1432,7 @@ pub fn load_geoarrow(lines: JsValue) -> Result<JsValue, JsValue> {
 
 ```
 
-File: docs/WASM_OPTIMIZATIONS.md
-```
-# Wasm Optimization Strategy
-
-This document outlines potential strategies to further improve WebAssembly (Wasm) performance for `geo-polygonize` while maintaining or improving Native performance.
-
-## 1. Monotone Chain Sweep Line (Bentley-Ottmann)
-
-The current implementation uses an R-Tree for noding (finding intersections). While robust and parallelizable (good for Native), it is memory-intensive and O(N^2) in worst-case dense grids.
-
-*   **Pros:**
-    *   **Algorithmic Efficiency:** O((N + k) log N) complexity is superior for dense intersections.
-    *   **Memory Footprint:** Significantly lower memory usage than constructing an R-Tree, crucial for Wasm's 4GB limit (and practical browser limits).
-*   **Cons:**
-    *   **Robustness:** Extremely difficult to implement robustly with floating-point arithmetic compared to the "find all, then split" R-Tree approach.
-    *   **Parallelism:** Inherently sequential algorithm. Replacing the parallel R-Tree with this would **degrade Native performance** on multi-core systems unless we maintain two separate implementations (high maintenance).
-
-## 2. Shared Memory Parallelism (Rayon on Wasm)
-
-Enable threads in Wasm using `SharedArrayBuffer` and `wasm-bindgen-rayon`.
-
-*   **Pros:**
-    *   **Speed:** Directly utilizes multi-core CPUs in the browser, potentially bringing Wasm parity with Native.
-*   **Cons:**
-    *   **Deployment Complexity:** Requires the hosting server to send specific headers (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`). This breaks many standard deployments (e.g., simple CDNs, iframes).
-    *   **Browser Support:** Good but not universal (e.g., Safari restrictions).
-    *   **Overhead:** Thread startup in Wasm is heavier than Native.
-
-## 3. Geometry Quantization (Int32 Coordinates)
-
-Convert all `f64` coordinates to `i32` (fixed precision) before processing.
-
-*   **Pros:**
-    *   **Math Speed:** Integer arithmetic is faster and exact.
-    *   **Size:** Reduces memory bandwidth (4 bytes vs 8 bytes per coord).
-*   **Cons:**
-    *   **Precision Loss:** Coordinates are snapped to a grid.
-    *   **Conversion Cost:** Overhead of converting to/from float at boundaries.
-    *   **API Breaking:** Changes the public API or requires a wrapper.
-
-## 4. Arena / Bump Allocation
-
-Use a custom allocator (like `bumpalo`) for the graph nodes and edges instead of `Vec` or standard heap.
-
-*   **Pros:**
-    *   **Allocation Speed:** Bump allocation is effectively instantaneous.
-    *   **Cache Locality:** Related data is stored contiguously.
-*   **Cons:**
-    *   **Memory Peaks:** Memory cannot be freed individually; it grows until the entire operation finishes. This increases the risk of OOM on Wasm for large datasets, even if it's faster.
-
-## 5. `wasm-opt` Tuning (Toolchain)
-
-Use `binaryen`'s `wasm-opt` to optimize the final binary.
-
-*   **Pros:**
-    *   **Free Performance:** 10-20% size reduction and speedup without code changes.
-*   **Cons:**
-    *   **Build Time:** Adds to CI/CD pipeline time.
-    *   **Debugging:** Makes stack traces harder to read (though DWARF helps).
-
-## Recommendation
-
-For the immediate future, we should stick to **Algorithmic Improvements** that benefit both targets (like the Tiled Polygonizer for large grids) and **Memory Optimizations** (like the lazy streaming implemented in this PR). Switching to a Sweep Line algorithm is the high-risk/high-reward option if memory constraints become the primary blocker.
-
-```
-
-File: examples/polygonize.rs
-```
-use clap::Parser;
-use geo_polygonize::Polygonizer;
-use geo_types::Geometry as GeoGeometry;
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
-use std::convert::TryInto;
-use std::error::Error;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Input GeoJSON file (LineStrings)
-    #[arg(short, long)]
-    input: PathBuf,
-
-    /// Output GeoJSON file (Polygons)
-    #[arg(short, long)]
-    output: PathBuf,
-
-    /// Enable robust noding (split intersecting lines)
-    #[arg(long, default_value_t = false)]
-    node: bool,
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-
-    // Read Input
-    if !args.input.exists() {
-        eprintln!("Input file does not exist: {:?}", args.input);
-        return Ok(());
-    }
-
-    println!("Reading input from {:?}", args.input);
-    let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
-    let geojson: GeoJson = serde_json::from_reader(reader)?;
-
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = args.node;
-
-    let mut count = 0;
-
-    match geojson {
-        GeoJson::FeatureCollection(fc) => {
-            for feature in fc.features {
-                if let Some(geom) = feature.geometry {
-                    if let Ok(geo_geom) = geom.try_into() {
-                        add_geometry(&mut polygonizer, geo_geom);
-                        count += 1;
-                    }
-                }
-            }
-        }
-        GeoJson::Geometry(geom) => {
-            if let Ok(geo_geom) = geom.try_into() {
-                add_geometry(&mut polygonizer, geo_geom);
-                count += 1;
-            }
-        }
-        GeoJson::Feature(feature) => {
-            if let Some(geom) = feature.geometry {
-                if let Ok(geo_geom) = geom.try_into() {
-                    add_geometry(&mut polygonizer, geo_geom);
-                    count += 1;
-                }
-            }
-        }
-    }
-
-    println!("Added {} geometries. Polygonizing...", count);
-
-    let polygons = polygonizer.polygonize()?;
-    println!("Found {} polygons.", polygons.len());
-
-    // Convert back to GeoJSON
-    let features: Vec<Feature> = polygons
-        .into_iter()
-        .map(|poly| {
-            let geometry = Geometry::from(&poly);
-            Feature {
-                bbox: None,
-                geometry: Some(geometry),
-                id: None,
-                properties: None,
-                foreign_members: None,
-            }
-        })
-        .collect();
-
-    let output_fc = FeatureCollection {
-        bbox: None,
-        features,
-        foreign_members: None,
-    };
-
-    let output_geojson = GeoJson::FeatureCollection(output_fc);
-
-    println!("Writing output to {:?}", args.output);
-    let file = File::create(&args.output)?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, &output_geojson)?;
-
-    Ok(())
-}
-
-fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
-    match geom {
-        GeoGeometry::LineString(ls) => {
-            polygonizer.add_geometry(GeoGeometry::LineString(ls));
-        }
-        GeoGeometry::MultiLineString(mls) => {
-            for ls in mls {
-                polygonizer.add_geometry(GeoGeometry::LineString(ls));
-            }
-        }
-        GeoGeometry::GeometryCollection(gc) => {
-            for g in gc {
-                add_geometry(polygonizer, g);
-            }
-        }
-        _ => {
-            // Ignore other types or try to add them if Polygonizer supports them?
-            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
-            // But usually we want LineStrings.
-            polygonizer.add_geometry(geom);
-        }
-    }
-}
-
-```
-
-File: examples/simple.rs
-```
-//! Simple example of polygonizing a set of lines.
-
-use geo::Area;
-use geo_polygonize::Polygonizer;
-use geo_types::{Geometry, LineString};
-
-fn main() {
-    let mut polygonizer = Polygonizer::new();
-
-    // Create a simple square
-    let square_lines = LineString::from(vec![
-        (0.0, 0.0),
-        (10.0, 0.0),
-        (10.0, 10.0),
-        (0.0, 10.0),
-        (0.0, 0.0),
-    ]);
-
-    // Add geometry to the polygonizer
-    polygonizer.add_geometry(Geometry::LineString(square_lines));
-
-    // Compute polygons
-    let polygons = polygonizer.polygonize().expect("Failed to polygonize");
-
-    println!("Found {} polygon(s)", polygons.len());
-
-    for (i, poly) in polygons.iter().enumerate() {
-        println!("Polygon {}: Area = {}", i, poly.unsigned_area());
-    }
-}
-
-```
-
-File: scripts/benchmark_circle.py
-```
-
-import timeit
-import numpy as np
-from shapely.geometry import LineString
-
-def create_circle_original(x, y, r, points=100):
-    angles = np.linspace(0, 2*np.pi, points)
-    coords = []
-    for a in angles:
-        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
-    return LineString(coords)
-
-def create_circle_optimized(x, y, r, points=100):
-    angles = np.linspace(0, 2*np.pi, points)
-    # Vectorized calculation
-    xs = x + r * np.cos(angles)
-    ys = y + r * np.sin(angles)
-    coords = np.column_stack((xs, ys))
-    return LineString(coords)
-
-def benchmark():
-    points = 10000
-    loops = 100
-
-    t_orig = timeit.timeit(lambda: create_circle_original(0, 0, 10, points), number=loops)
-    t_opt = timeit.timeit(lambda: create_circle_optimized(0, 0, 10, points), number=loops)
-
-    print(f"Original: {t_orig:.4f} s")
-    print(f"Optimized: {t_opt:.4f} s")
-    print(f"Speedup: {t_orig / t_opt:.2f}x")
-
-if __name__ == "__main__":
-    benchmark()
-
-```
-
-File: scripts/build_wasm.sh
-```
-#!/bin/bash
-set -e
-
-# Configuration
-WASM_BINDGEN_VERSION="0.2.106"
-TARGET="wasm32-unknown-unknown"
-
-# Ensure target is installed
-echo "Checking for $TARGET..."
-rustup target add $TARGET
-
-# Install wasm-bindgen-cli if needed
-if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
-    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-fi
-
-# Install binaryen (wasm-opt) if needed - assuming it's not present or managing manual install is hard in this env,
-# we'll try to use the system one or skip if not found, but since we are "deconstructing", we should try to ensure it exists.
-# For this environment, we'll check if it's available. If not, we might assume it's pre-installed or we skip optimization
-# if we can't easily fetch it (since we can't use apt-get/brew).
-# However, `cargo install wasm-opt` allows installing a wrapper.
-if ! command -v wasm-opt &> /dev/null; then
-    echo "wasm-opt not found. Attempting to install via cargo..."
-    # There isn't a direct official cargo crate for wasm-opt binary, usually provided by system or npm.
-    # We will skip explicit installation logic for wasm-opt here to avoid breaking the build environment
-    # if it's complex, but we'll try to use it if present.
-    echo "Warning: wasm-opt not found. Build will proceed without optimization."
-else
-    echo "Found wasm-opt: $(wasm-opt --version)"
-fi
-
-build_variant() {
-    local VARIANT=$1
-    local OUT_DIR="pkg-$VARIANT"
-    local FLAGS=$2
-
-    echo "Building $VARIANT version..."
-
-    # 1. Cargo Build
-    # We use --release and the specified flags
-    # Note: We need to handle the fact that cargo build outputs to target/wasm32-unknown-unknown/release
-    # and filenames are based on crate name.
-
-    # Clean previous build artifacts for this target to ensure flags apply?
-    # Cargo handles rebuilds, but changing RUSTFLAGS might require a clean or careful handling.
-    # To be safe, we touch the source or rely on cargo detecting flag changes.
-
-    RUSTFLAGS="$FLAGS" cargo build --target $TARGET --release --features console_error_panic_hook --lib
-
-    # 2. Wasm Bindgen
-    echo "Running wasm-bindgen for $VARIANT..."
-    # The output filename is usually geo_polygonize.wasm based on Cargo.toml name
-    CRATE_NAME="geo_polygonize"
-    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
-
-    if [ ! -f "$WASM_PATH" ]; then
-        echo "Error: $WASM_PATH not found!"
-        exit 1
-    fi
-
-    rm -rf $OUT_DIR
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name $CRATE_NAME "$WASM_PATH"
-
-    # 3. Optimization
-    if command -v wasm-opt &> /dev/null; then
-        echo "Optimizing $VARIANT..."
-        wasm-opt -O3 -o "$OUT_DIR/${CRATE_NAME}_bg.wasm" "$OUT_DIR/${CRATE_NAME}_bg.wasm"
-    fi
-
-    # Remove .gitignore if generated
-    rm -f $OUT_DIR/.gitignore
-}
-
-# Build Scalar
-build_variant "scalar" ""
-
-# Build SIMD
-build_variant "simd" "-C target-feature=+simd128"
-
-# Ensure wrapper exists
-if [ ! -d "pkg-wrapper" ]; then
-    echo "pkg-wrapper directory missing!"
-    exit 1
-fi
-
-# Install npm deps
-if [ ! -d "node_modules" ]; then
-    npm install
-fi
-
-# Bundle with Rollup
-echo "Running rollup..."
-npx rollup -c
-
-# Prepare distribution files
-echo "Preparing dist..."
-# Copy the WASM files to dist for external consumption (Slim build)
-# We rename them to be explicit as per the "Wasm is not an implementation detail" advice
-cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
-cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
-
-echo "Build complete! Artifacts are in dist/"
-
-```
-
-File: scripts/generate_complex_geojson.py
-```
-import json
-import numpy as np
-from shapely.geometry import Point, LineString, mapping
-import os
-
-def create_circle(x, y, r, points=100):
-    angles = np.linspace(0, 2*np.pi, points)
-    coords = np.column_stack((x + r * np.cos(angles), y + r * np.sin(angles)))
-    return LineString(coords)
-
-def main():
-    os.makedirs("examples/data", exist_ok=True)
-
-    # 1. Overlapping Circles
-    # Three circles: (0,0), (10,0), (5, 8.66)
-    c1 = create_circle(30, 30, 30)
-    c2 = create_circle(60, 30, 30)
-    c3 = create_circle(45, 55, 30)
-
-    features = []
-    for geom in [c1, c2, c3]:
-        features.append({
-            "type": "Feature",
-            "properties": {},
-            "geometry": mapping(geom)
-        })
-
-    with open("examples/data/overlapping_circles.geojson", "w") as f:
-        json.dump({"type": "FeatureCollection", "features": features}, f)
-
-    # 2. Curved Holes (Swiss Cheese)
-    # Large outer circle
-    outer = create_circle(50, 50, 50, points=200)
-
-    # Random holes
-    holes = []
-    holes.append(create_circle(30, 30, 10))
-    holes.append(create_circle(70, 30, 10))
-    holes.append(create_circle(50, 70, 15))
-    holes.append(create_circle(50, 40, 5)) # Central small one
-
-    features = []
-    features.append({
-        "type": "Feature",
-        "properties": {},
-        "geometry": mapping(outer)
-    })
-    for h in holes:
-         features.append({
-            "type": "Feature",
-            "properties": {},
-            "geometry": mapping(h)
-        })
-
-    with open("examples/data/curved_holes.geojson", "w") as f:
-        json.dump({"type": "FeatureCollection", "features": features}, f)
-
-    print("Generated examples/data/overlapping_circles.geojson and examples/data/curved_holes.geojson")
-
-if __name__ == "__main__":
-    main()
-
-```
-
-File: scripts/generate_llms_txt.py
-```
-#!/usr/bin/env python3
-import os
-
-OUTPUT_FILE = "llms.txt"
-extensions = [".rs", ".md", ".toml", ".py", ".sh"]
-ignore_dirs = ["target", ".git", ".github"]
-ignore_files = ["Cargo.lock", "llms.txt"]
-
-def generate_llms_txt():
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as outfile:
-        # Walk through the directory
-        for root, dirs, files in os.walk("."):
-            # Modify dirs in-place to skip ignored directories
-            dirs[:] = [d for d in dirs if d not in ignore_dirs]
-
-            # Sort for deterministic output
-            dirs.sort()
-            files.sort()
-
-            for file in files:
-                if file in ignore_files:
-                    continue
-
-                _, ext = os.path.splitext(file)
-                if ext in extensions or file in ["Dockerfile", "Makefile"]: # Add other exact matches if needed
-                    file_path = os.path.join(root, file)
-
-                    # Normalize path to use forward slashes and remove leading ./
-                    rel_path = os.path.relpath(file_path, ".")
-
-                    outfile.write(f"File: {rel_path}\n")
-                    outfile.write("```\n")
-
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as infile:
-                            outfile.write(infile.read())
-                    except Exception as e:
-                        outfile.write(f"Error reading file: {e}\n")
-
-                    outfile.write("\n```\n\n")
-
-if __name__ == "__main__":
-    generate_llms_txt()
-    print(f"Generated {OUTPUT_FILE}")
-
-```
-
-File: scripts/visualize.py
-```
-import json
-import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection, PatchCollection
-from matplotlib.patches import PathPatch
-from matplotlib.path import Path
-from shapely.geometry import shape
-import sys
-import argparse
-import numpy as np
-
-def polygon_to_patch(polygon):
-    """Converts a Shapely Polygon to a matplotlib PathPatch."""
-    if polygon.is_empty:
-        return None
-
-    vertices = []
-    codes = []
-
-    # Exterior ring
-    ext = np.array(polygon.exterior.coords)
-    if len(ext) > 0:
-        vertices.extend(ext)
-        codes.append(Path.MOVETO)
-        codes.extend([Path.LINETO] * (len(ext) - 2))
-        codes.append(Path.CLOSEPOLY)
-
-    # Interior rings (holes)
-    for interior in polygon.interiors:
-        inte = np.array(interior.coords)
-        if len(inte) > 0:
-            vertices.extend(inte)
-            codes.append(Path.MOVETO)
-            codes.extend([Path.LINETO] * (len(inte) - 2))
-            codes.append(Path.CLOSEPOLY)
-
-    if not vertices:
-        return None
-
-    path = Path(vertices, codes)
-    return PathPatch(path)
-
-def plot_geojson(filepath, ax, color, title, is_polygon=False):
-    with open(filepath, 'r') as f:
-        data = json.load(f)
-
-    geoms = []
-    if data['type'] == 'FeatureCollection':
-        for feature in data['features']:
-            if feature['geometry']:
-                geoms.append(shape(feature['geometry']))
-    elif data['type'] == 'GeometryCollection':
-        for geom in data['geometries']:
-            geoms.append(shape(geom))
-    else:
-        # Single geometry or Feature
-        if 'geometry' in data:
-            geoms.append(shape(data['geometry']))
-        else:
-            geoms.append(shape(data))
-
-    count = 0
-    if is_polygon:
-        patches = []
-        for geom in geoms:
-            if geom.geom_type == 'Polygon':
-                patch = polygon_to_patch(geom)
-                if patch:
-                    patches.append(patch)
-                count += 1
-            elif geom.geom_type == 'MultiPolygon':
-                for poly in geom.geoms:
-                    patch = polygon_to_patch(poly)
-                    if patch:
-                        patches.append(patch)
-                count += 1
-
-        if patches:
-            p = PatchCollection(patches, facecolor=color, edgecolor='black', alpha=0.5)
-            ax.add_collection(p)
-            ax.autoscale()
-    else:
-        lines = []
-        for geom in geoms:
-            if geom.geom_type == 'LineString':
-                if not geom.is_empty:
-                    lines.append(np.array(geom.coords))
-                count += 1
-            elif geom.geom_type == 'MultiLineString':
-                for line in geom.geoms:
-                    if not line.is_empty:
-                        lines.append(np.array(line.coords))
-                count += 1
-
-        if lines:
-            lc = LineCollection(lines, colors=color, linewidths=1, alpha=0.7)
-            ax.add_collection(lc)
-            ax.autoscale()
-
-    ax.set_title(f"{title} ({count} items)")
-
-def main():
-    parser = argparse.ArgumentParser(description="Visualize Polygonization Results")
-    parser.add_argument("--input", required=True, help="Input GeoJSON (Lines)")
-    parser.add_argument("--output", required=True, help="Output GeoJSON (Polygons)")
-    parser.add_argument("--save", help="Save plot to file")
-    args = parser.parse_args()
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-
-    try:
-        plot_geojson(args.input, ax1, 'blue', "Input Lines", is_polygon=False)
-        plot_geojson(args.output, ax2, 'green', "Output Polygons", is_polygon=True)
-
-        plt.tight_layout()
-
-        if args.save:
-            plt.savefig(args.save)
-            print(f"Saved visualization to {args.save}")
-        else:
-            plt.show()
-
-    except Exception as e:
-        print(f"Error visualizing: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
-
-```
-
-File: src/error.rs
+File: crates/geo-polygonize-core/src/error.rs
 ```
 use thiserror::Error;
 
@@ -2087,7 +1452,173 @@ pub type Result<T> = std::result::Result<T, PolygonizerError>;
 
 ```
 
-File: src/lib.rs
+File: crates/geo-polygonize-core/src/ffi.rs
+```
+use crate::Polygonizer;
+use geo_types::{Coord, Line, Polygon};
+use std::slice;
+
+#[repr(C)]
+pub struct PolygonizerOptions {
+    pub node_input: bool,
+    pub snap_grid_size: f64,
+}
+
+#[repr(i32)]
+#[derive(Clone, Copy)]
+pub enum CPolygonStatus {
+    Success = 0,
+    InvalidInput = 1,
+    InternalError = 2,
+}
+
+pub struct CPolygonResult {
+    pub polygons: Vec<Polygon<f64>>,
+    pub status: CPolygonStatus,
+}
+
+/// Helper to ingest raw data and run polygonization
+///
+/// `coords_ptr`: Pointer to flat array of f64 coordinates [x0, y0, x1, y1, ...]
+/// `coords_len`: Number of f64 values (should be even)
+/// `offsets_ptr`: Pointer to u32 offsets defining linestrings.
+/// `offsets_len`: Number of offsets.
+///
+/// This assumes Arrow-like offsets: `offsets` has length `N+1` for `N` linestrings.
+/// The `i`-th linestring consists of points from index `offsets[i]` to `offsets[i+1]`.
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+/// The caller must ensure that `coords_ptr` and `offsets_ptr` are valid for the given lengths.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_ffi(
+    coords_ptr: *const f64,
+    coords_len: usize,
+    offsets_ptr: *const u32,
+    offsets_len: usize,
+    options: PolygonizerOptions,
+) -> *mut CPolygonResult {
+    if (coords_ptr.is_null() && coords_len > 0) || (offsets_ptr.is_null() && offsets_len > 0) {
+        return std::ptr::null_mut();
+    }
+
+    if !coords_len.is_multiple_of(2) {
+        return std::ptr::null_mut();
+    }
+
+    // Safety: The caller must ensure pointers are valid for the given lengths.
+    // For empty buffers, allow null pointers (common FFI convention).
+    let coords = if coords_len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(coords_ptr, coords_len) }
+    };
+    let offsets = if offsets_len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(offsets_ptr, offsets_len) }
+    };
+
+    if offsets_len < 2 {
+        // No lines can be defined with < 2 offsets
+        return Box::into_raw(Box::new(CPolygonResult {
+            polygons: Vec::new(),
+            status: CPolygonStatus::Success,
+        }));
+    }
+
+    let mut lines = Vec::new();
+
+    // Iterate through linestrings defined by offsets
+    for i in 0..offsets_len - 1 {
+        let start_idx = offsets[i] as usize;
+        let end_idx = offsets[i + 1] as usize;
+
+        if start_idx > end_idx {
+            return std::ptr::null_mut();
+        }
+
+        if start_idx == end_idx {
+            continue;
+        }
+
+        // Check bounds: indices refer to points, each point is 2 f64s
+        if end_idx * 2 > coords_len {
+            return std::ptr::null_mut();
+        }
+
+        // Create segments for this linestring
+        for j in start_idx..end_idx - 1 {
+            let p1 = Coord {
+                x: coords[2 * j],
+                y: coords[2 * j + 1],
+            };
+            let p2 = Coord {
+                x: coords[2 * (j + 1)],
+                y: coords[2 * (j + 1) + 1],
+            };
+            lines.push(Line::new(p1, p2));
+        }
+    }
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = options.node_input;
+    polygonizer.snap_grid_size = options.snap_grid_size;
+    polygonizer.add_lines(lines);
+
+    match polygonizer.polygonize() {
+        Ok(polygons) => {
+            let res = CPolygonResult {
+                polygons,
+                status: CPolygonStatus::Success,
+            };
+            Box::into_raw(Box::new(res))
+        }
+        Err(_) => Box::into_raw(Box::new(CPolygonResult {
+            polygons: Vec::new(),
+            status: CPolygonStatus::InternalError,
+        })),
+    }
+}
+
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that `res` is a valid pointer to a `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    unsafe { (*res).polygons.len() }
+}
+
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that `res` is a valid pointer to a `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult) -> i32 {
+    if res.is_null() {
+        return -1; // Null pointer error
+    }
+    unsafe { (*res).status as i32 }
+}
+
+/// # Safety
+///
+/// This function is unsafe because it dereferences and drops a raw pointer.
+/// The caller must ensure that `res` is a valid pointer obtained from `polygonize_ffi`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
+    if !res.is_null() {
+        unsafe { drop(Box::from_raw(res)) };
+    }
+}
+
+```
+
+File: crates/geo-polygonize-core/src/lib.rs
 ```
 //! A native Rust port of the JTS/GEOS polygonization algorithm.
 //!
@@ -2100,14 +1631,12 @@ File: src/lib.rs
 //! - **Wasm**: Optimized for WebAssembly environments.
 
 pub mod error;
+pub mod ffi;
 pub mod graph;
 pub mod noding;
 pub mod polygonizer;
 pub mod tiling;
 pub mod utils;
-
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
 
 #[cfg(test)]
 mod polygonizer_tests;
@@ -2117,7 +1646,7 @@ pub use tiling::TiledPolygonizer;
 
 ```
 
-File: src/polygonizer.rs
+File: crates/geo-polygonize-core/src/polygonizer.rs
 ```
 use crate::error::Result;
 use crate::graph::PlanarGraph;
@@ -2160,7 +1689,7 @@ impl RTreeObject for IndexedEnvelope {
 /// # Example
 ///
 /// ```rust
-/// use geo_polygonize::Polygonizer;
+/// use geo_polygonize_core::Polygonizer;
 /// use geo_types::{LineString, Geometry};
 /// use geo::Area;
 ///
@@ -2198,6 +1727,8 @@ pub struct Polygonizer {
 
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
+    // Additional buffer for explicit line segments (e.g., from FFI)
+    input_lines: Vec<Line<f64>>,
     dirty: bool,
 }
 
@@ -2216,6 +1747,7 @@ impl Polygonizer {
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
             inputs: Vec::new(),
+            input_lines: Vec::new(),
             dirty: false,
         }
     }
@@ -2236,6 +1768,14 @@ impl Polygonizer {
     /// MultiLineString, MultiPolygon) are flattened and all lineal components are extracted.
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
         self.inputs.push(geom);
+        self.dirty = true;
+    }
+
+    /// Adds a collection of explicit line segments to the graph.
+    ///
+    /// This is useful for FFI or cases where you have raw segments.
+    pub fn add_lines(&mut self, lines: Vec<Line<f64>>) {
+        self.input_lines.extend(lines);
         self.dirty = true;
     }
 
@@ -2268,6 +1808,8 @@ impl Polygonizer {
                     input_segments.push(line);
                 }
             }
+            // Add explicit lines
+            input_segments.extend(self.input_lines.iter().cloned());
 
             // OPTIMIZATION: Spatial Sort (Z-Order)
             // This improves cache locality for both the Grid and the SIMD noder.
@@ -2289,6 +1831,8 @@ impl Polygonizer {
                     segments.push(line);
                 }
             }
+            // Add explicit lines
+            segments.extend(self.input_lines.iter().cloned());
         }
 
         // Use bulk load
@@ -2312,9 +1856,13 @@ impl Polygonizer {
         let _dangles_removed = self.graph.prune_dangles();
 
         // 3. Find rings
+        // Extracts all minimal cycles from the planar graph.
         let rings = self.graph.get_edge_rings();
 
-        // 4. Assign holes
+        // 4. Classify Rings (Shell vs Hole)
+        // Standard GEOS behavior:
+        // - CCW rings (positive signed area) are Shells.
+        // - CW rings (negative signed area) are Holes (or the exterior of the universe).
         let mut shells = Vec::new();
         let mut holes = Vec::new();
 
@@ -2341,45 +1889,22 @@ impl Polygonizer {
             }
         }
 
-        // Promote CW rings to Shells if they don't have a corresponding CCW Twin.
-        let process_holes = |hole: &Polygon<f64>| -> Option<Polygon<f64>> {
-            let hole_area = hole.unsigned_area();
-            let has_twin = shells.iter().any(|shell| {
-                (shell.unsigned_area() - hole_area).abs() < 1e-6
-                    && shell.bounding_rect() == hole.bounding_rect()
-            });
+        // NOTE: Previous heuristic to promote CW rings to Shells if !has_twin is removed.
+        // We explicitly rely on the topological relationship (containment) to assign holes.
+        // Any CW ring that is not contained in a Shell (e.g. Universe hole) will be discarded
+        // during the assignment phase or filtered out.
 
-            if !has_twin {
-                let mut shell_copy = hole.clone();
-                shell_copy.exterior_mut(|ext| {
-                    use geo::algorithm::winding_order::Winding;
-                    ext.make_ccw_winding();
-                });
-                Some(shell_copy)
-            } else {
-                None
-            }
-        };
+        // 5. Establish Topology (Assign Holes to Shells)
+        // A hole is assigned to the shell that contains it.
+        // If multiple shells contain it, it is assigned to the one with the smallest area (deepest).
 
-        let promoted_shells: Vec<_>;
-        #[cfg(feature = "parallel")]
-        {
-            promoted_shells = holes.par_iter().filter_map(process_holes).collect();
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            promoted_shells = holes.iter().filter_map(process_holes).collect();
-        }
-
-        shells.extend(promoted_shells);
-
-        // Precompute SIMD shells
+        // Precompute SIMD shells for fast inclusion checks
         let simd_shells: Vec<SimdRing> = shells
             .iter()
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
 
-        // Assign holes to shells using RTree (Dynamic, but robust)
+        // Build RTree for shells to optimize spatial lookups
         let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = shell.bounding_rect() {
@@ -2390,7 +1915,7 @@ impl Polygonizer {
         }
         let tree = RTree::bulk_load(indexed_shells);
 
-        // Process holes
+        // Process hole assignment
         let process_hole_assignment =
             |hole_poly: Polygon<f64>| -> Option<(usize, LineString<f64>)> {
                 let bbox = hole_poly.bounding_rect()?;
@@ -2418,6 +1943,7 @@ impl Polygonizer {
                         let area = shell.unsigned_area();
                         let hole_area = hole_poly.unsigned_area();
 
+                        // Only assign if shell is larger than hole (and not equal, to skip Universe hole matching Shell)
                         if area > hole_area + 1e-6 && area < min_area {
                             min_area = area;
                             best_shell_idx = Some(idx);
@@ -2447,15 +1973,18 @@ impl Polygonizer {
                 .collect();
         }
 
+        // Group holes by shell
         let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
         for (idx, hole) in assignments {
             shell_holes[idx].push(hole);
         }
 
+        // 6. Construct Final Polygons
         let mut result = Vec::new();
         for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
             let (exterior, _) = shell.into_inner();
             let p = Polygon::new(exterior, holes);
+            // Filter out empty/degenerate polygons
             if p.unsigned_area() > 1e-6 {
                 result.push(p);
             }
@@ -2492,7 +2021,7 @@ fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
 
 ```
 
-File: src/polygonizer_tests.rs
+File: crates/geo-polygonize-core/src/polygonizer_tests.rs
 ```
 #[cfg(test)]
 mod tests {
@@ -2717,7 +2246,7 @@ mod tests {
 
 ```
 
-File: src/tiling.rs
+File: crates/geo-polygonize-core/src/tiling.rs
 ```
 use crate::Polygonizer;
 use geo::algorithm::centroid::Centroid;
@@ -2882,7 +2411,7 @@ mod tests;
 
 ```
 
-File: src/tiling_tests.rs
+File: crates/geo-polygonize-core/src/tiling_tests.rs
 ```
 #[cfg(test)]
 mod tests {
@@ -3040,88 +2569,7 @@ mod tests {
 
 ```
 
-File: src/wasm.rs
-```
-use crate::Polygonizer;
-use geojson::{GeoJson, Geometry, Value};
-use std::convert::TryInto;
-use std::str::FromStr;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
-    // Set panic hook for better error messages
-    #[cfg(feature = "console_error_panic_hook")]
-    console_error_panic_hook::set_once();
-
-    let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
-
-    let mut polygonizer = Polygonizer::new();
-
-    // Process inputs
-    match geojson {
-        GeoJson::FeatureCollection(fc) => {
-            for feature in fc.features {
-                if let Some(geom) = feature.geometry {
-                    let geo_geom: geo::Geometry<f64> = geom
-                        .try_into()
-                        .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
-                    polygonizer.add_geometry(geo_geom);
-                }
-            }
-        }
-        GeoJson::Feature(f) => {
-            if let Some(geom) = f.geometry {
-                let geo_geom: geo::Geometry<f64> = geom
-                    .try_into()
-                    .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
-                polygonizer.add_geometry(geo_geom);
-            }
-        }
-        GeoJson::Geometry(g) => {
-            let geo_geom: geo::Geometry<f64> = g
-                .try_into()
-                .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
-            polygonizer.add_geometry(geo_geom);
-        }
-    }
-
-    let polygons = polygonizer
-        .polygonize()
-        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
-
-    // Convert back to GeoJSON
-    let geometries: Vec<Geometry> = polygons
-        .into_iter()
-        .map(|p| Geometry::new(Value::from(&p)))
-        .collect();
-
-    // Wrap in FeatureCollection? Or GeometryCollection?
-    // Let's return a FeatureCollection as it's standard for multiple geometries
-    let mut features = Vec::new();
-    for geom in geometries {
-        features.push(geojson::Feature {
-            bbox: None,
-            geometry: Some(geom),
-            id: None,
-            properties: None,
-            foreign_members: None,
-        });
-    }
-
-    let fc = GeoJson::FeatureCollection(geojson::FeatureCollection {
-        bbox: None,
-        features,
-        foreign_members: None,
-    });
-
-    Ok(fc.to_string())
-}
-
-```
-
-File: src/graph/mod.rs
+File: crates/geo-polygonize-core/src/graph/mod.rs
 ```
 pub mod planar_graph;
 pub use planar_graph::{DirEdgeId, EdgeId, NodeId, PlanarGraph};
@@ -3131,7 +2579,7 @@ mod tests;
 
 ```
 
-File: src/graph/planar_graph.rs
+File: crates/geo-polygonize-core/src/graph/planar_graph.rs
 ```
 use crate::utils::parallel::{
     par_flat_map, par_into_enumerate_map, par_sort_unstable, par_zip_for_each,
@@ -3674,7 +3122,9 @@ impl PlanarGraph {
                     let len = outgoing.len();
                     for k in 0..len {
                         let curr = outgoing[k];
-                        let next = outgoing[(k + 1) % len];
+                        // Left-most turn (CCW traversal) uses the previous edge in sorted CCW list.
+                        // (Current impl uses (k+1)%len which is Right-most turn / CW traversal)
+                        let next = outgoing[(k + len - 1) % len];
                         next_pointers[curr] = next;
                     }
                     continue;
@@ -3697,7 +3147,8 @@ impl PlanarGraph {
                 // Link them circular
                 for k in 0..valid_edges.len() {
                     let curr = valid_edges[k];
-                    let next = valid_edges[(k + 1) % valid_edges.len()];
+                    // Left-most turn
+                    let next = valid_edges[(k + valid_edges.len() - 1) % valid_edges.len()];
                     next_pointers[curr] = next;
                 }
             }
@@ -3773,7 +3224,7 @@ impl PlanarGraph {
 
 ```
 
-File: src/graph/tests.rs
+File: crates/geo-polygonize-core/src/graph/tests.rs
 ```
 #[cfg(test)]
 mod tests {
@@ -4004,7 +3455,7 @@ mod tests {
 
 ```
 
-File: src/noding/grid.rs
+File: crates/geo-polygonize-core/src/noding/grid.rs
 ```
 use crate::noding::snap::SnapNoder;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -4423,14 +3874,14 @@ mod tests {
 
 ```
 
-File: src/noding/mod.rs
+File: crates/geo-polygonize-core/src/noding/mod.rs
 ```
 pub mod grid;
 pub mod snap;
 
 ```
 
-File: src/noding/snap.rs
+File: crates/geo-polygonize-core/src/noding/snap.rs
 ```
 use crate::noding::grid::UniformGrid;
 use crate::utils::soa::SoALines;
@@ -4915,7 +4366,7 @@ mod tests {
 
 ```
 
-File: src/utils/mod.rs
+File: crates/geo-polygonize-core/src/utils/mod.rs
 ```
 use geo_types::Coord;
 use robust::{orient2d, Coord as RobustCoord};
@@ -5030,7 +4481,7 @@ fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
 
 ```
 
-File: src/utils/parallel.rs
+File: crates/geo-polygonize-core/src/utils/parallel.rs
 ```
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -5157,7 +4608,7 @@ where
 
 ```
 
-File: src/utils/simd.rs
+File: crates/geo-polygonize-core/src/utils/simd.rs
 ```
 use geo::Coord;
 use wide::f64x4;
@@ -5530,7 +4981,7 @@ mod tests {
 
 ```
 
-File: src/utils/soa.rs
+File: crates/geo-polygonize-core/src/utils/soa.rs
 ```
 use geo::Line;
 use wide::f64x4;
@@ -5741,10 +5192,149 @@ mod tests {
 
 ```
 
-File: tests/integration_tests.rs
+File: crates/geo-polygonize-core/tests/ffi_integration.rs
+```
+use geo_polygonize_core::ffi::{
+    polygonize_ffi, polygonize_result_free, polygonize_result_get_count, PolygonizerOptions,
+};
+
+#[test]
+fn test_ffi_simple_square() {
+    // Square: (0,0), (10,0), (10,10), (0,10), (0,0)
+    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
+    let offsets: Vec<u32> = vec![0, 5]; // One linestring with 5 points
+
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(!result_ptr.is_null());
+
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
+    assert_eq!(count, 1);
+
+    unsafe { polygonize_result_free(result_ptr) };
+}
+
+#[test]
+fn test_ffi_invalid_bounds() {
+    // Only 2 points (4 doubles) provided
+    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0];
+    // Offsets claims 5 points (index 0 to 5)
+    let offsets: Vec<u32> = vec![0, 5];
+
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(result_ptr.is_null());
+}
+
+#[test]
+fn test_ffi_two_squares_touching() {
+    // Two squares sharing an edge
+    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
+    // Square 2: (10,0)-(20,0)-(20,10)-(10,10)-(10,0)
+
+    // We can pass them as 2 linestrings
+    let coords: Vec<f64> = vec![
+        // Square 1
+        0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Square 2
+        10.0, 0.0, 20.0, 0.0, 20.0, 10.0, 10.0, 10.0, 10.0, 0.0,
+    ];
+    let offsets: Vec<u32> = vec![0, 5, 10]; // 2 linestrings, each 5 points
+
+    let options = PolygonizerOptions {
+        node_input: true, // Should dedup shared edge
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(!result_ptr.is_null());
+
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
+    // Should result in 2 polygons (squares)
+    assert_eq!(count, 2);
+
+    unsafe { polygonize_result_free(result_ptr) };
+}
+
+#[test]
+fn test_ffi_accepts_null_empty_buffers() {
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, options) };
+
+    assert!(!result_ptr.is_null());
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
+    assert_eq!(count, 0);
+    unsafe { polygonize_result_free(result_ptr) };
+}
+
+#[test]
+fn test_ffi_rejects_out_of_bounds_offsets() {
+    // One bad linestring (offset points past coords length)
+    let coords: Vec<f64> = vec![0.0, 0.0, 1.0, 1.0];
+    let offsets: Vec<u32> = vec![0, 3];
+
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(result_ptr.is_null());
+}
+
+```
+
+File: crates/geo-polygonize-core/tests/integration_tests.rs
 ```
 use geo::Area;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::{Coord, LineString};
 use std::f64::consts::PI;
 
@@ -6215,10 +5805,10 @@ fn test_grid_2x2() {
 
 ```
 
-File: tests/regression_nan_panic.rs
+File: crates/geo-polygonize-core/tests/regression_nan_panic.rs
 ```
 use geo::LineString;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 
 #[test]
 fn test_nan_polygon_panic() {
@@ -6235,10 +5825,10 @@ fn test_nan_polygon_panic() {
 
 ```
 
-File: tests/reproduce_nan.rs
+File: crates/geo-polygonize-core/tests/reproduce_nan.rs
 ```
 use geo::{Coord, Line};
-use geo_polygonize::noding::snap::SnapNoder;
+use geo_polygonize_core::noding::snap::SnapNoder;
 
 #[test]
 fn test_nan_deduplication_failure() {
@@ -6277,10 +5867,10 @@ fn test_nan_deduplication_failure() {
 
 ```
 
-File: tests/robustness.rs
+File: crates/geo-polygonize-core/tests/robustness.rs
 ```
 use geo::Geometry;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::{Coord, LineString};
 
 #[test]
@@ -6345,7 +5935,7 @@ fn test_duplicate_edge_removal() {
 #[test]
 fn test_nan_handling_in_snap_noder() {
     use geo::Line;
-    use geo_polygonize::noding::snap::{NodingStrategy, SnapNoder};
+    use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 
     let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
 
@@ -6384,6 +5974,860 @@ fn test_nan_handling_in_snap_noder() {
         }
     }
 }
+
+```
+
+File: crates/geo-polygonize-wasm/Cargo.toml
+```
+[package]
+name = "geo-polygonize-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+geo-polygonize-core = { path = "../geo-polygonize-core", default-features = false }
+wasm-bindgen = "0.2"
+console_error_panic_hook = { version = "0.1.7", optional = true }
+js-sys = "0.3"
+geojson = "0.24"
+serde_json = "1.0"
+getrandom = { version = "0.2", features = ["js"] }
+geo = "0.32"
+
+[features]
+default = ["console_error_panic_hook"]
+
+```
+
+File: crates/geo-polygonize-wasm/src/lib.rs
+```
+use geo::{Coord, LineString};
+use geo_polygonize_core::Polygonizer;
+use geojson::{GeoJson, Geometry, Value};
+use std::convert::TryInto;
+use std::str::FromStr;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+    // Set panic hook for better error messages
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
+
+    let mut polygonizer = Polygonizer::new();
+
+    // Process inputs
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    let geo_geom: geo::Geometry<f64> = geom
+                        .try_into()
+                        .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                    polygonizer.add_geometry(geo_geom);
+                }
+            }
+        }
+        GeoJson::Feature(f) => {
+            if let Some(geom) = f.geometry {
+                let geo_geom: geo::Geometry<f64> = geom
+                    .try_into()
+                    .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                polygonizer.add_geometry(geo_geom);
+            }
+        }
+        GeoJson::Geometry(g) => {
+            let geo_geom: geo::Geometry<f64> = g
+                .try_into()
+                .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+            polygonizer.add_geometry(geo_geom);
+        }
+    }
+
+    let polygons = polygonizer
+        .polygonize()
+        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+
+    // Convert back to GeoJSON
+    let geometries: Vec<Geometry> = polygons
+        .into_iter()
+        .map(|p| Geometry::new(Value::from(&p)))
+        .collect();
+
+    // Wrap in FeatureCollection? Or GeometryCollection?
+    // Let's return a FeatureCollection as it's standard for multiple geometries
+    let mut features = Vec::new();
+    for geom in geometries {
+        features.push(geojson::Feature {
+            bbox: None,
+            geometry: Some(geom),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        });
+    }
+
+    let fc = GeoJson::FeatureCollection(geojson::FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    });
+
+    Ok(fc.to_string())
+}
+
+#[wasm_bindgen]
+pub struct WasmPolygonResult {
+    // Flat representation of output polygons
+    coords: Vec<f64>,
+    ring_offsets: Vec<u32>,
+    polygon_offsets: Vec<u32>,
+}
+
+#[wasm_bindgen]
+impl WasmPolygonResult {
+    // Expose memory directly to JS to avoid copying
+    pub fn coords_ptr(&self) -> *const f64 {
+        self.coords.as_ptr()
+    }
+    pub fn coords_len(&self) -> usize {
+        self.coords.len()
+    }
+
+    pub fn ring_offsets_ptr(&self) -> *const u32 {
+        self.ring_offsets.as_ptr()
+    }
+    pub fn ring_offsets_len(&self) -> usize {
+        self.ring_offsets.len()
+    }
+
+    pub fn polygon_offsets_ptr(&self) -> *const u32 {
+        self.polygon_offsets.as_ptr()
+    }
+    pub fn polygon_offsets_len(&self) -> usize {
+        self.polygon_offsets.len()
+    }
+}
+
+#[wasm_bindgen]
+pub fn polygonize_buffers(
+    coords: &[f64],  // wasm-bindgen automatically views Float64Array as &[f64]
+    offsets: &[u32], // views Uint32Array as &[u32]
+    node_input: bool,
+    snap_grid_size: f64,
+) -> Result<WasmPolygonResult, JsValue> {
+    // Set panic hook for better error messages
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = node_input;
+    polygonizer.snap_grid_size = snap_grid_size;
+
+    // Process inputs
+    // offsets are start indices of LineStrings in coords
+    for i in 0..offsets.len() {
+        let start = offsets[i] as usize;
+        let end = if i < offsets.len() - 1 {
+            offsets[i + 1] as usize
+        } else {
+            coords.len()
+        };
+
+        if start > coords.len() || end > coords.len() || start > end {
+            return Err(JsValue::from_str(&format!(
+                "Invalid offsets at index {}: start={}, end={}",
+                i, start, end
+            )));
+        }
+
+        let len = end - start;
+        if !len.is_multiple_of(2) {
+            return Err(JsValue::from_str(&format!(
+                "Odd number of coordinates at index {}: len={}",
+                i, len
+            )));
+        }
+
+        let num_points = len / 2;
+        let mut points = Vec::with_capacity(num_points);
+        for j in 0..num_points {
+            points.push(Coord {
+                x: coords[start + 2 * j],
+                y: coords[start + 2 * j + 1],
+            });
+        }
+
+        polygonizer.add_geometry(geo::Geometry::LineString(LineString::new(points)));
+    }
+
+    let polygons = polygonizer
+        .polygonize()
+        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+
+    // Flatten output
+    let mut flat_coords = Vec::new();
+    let mut ring_offsets = Vec::new();
+    let mut polygon_offsets = Vec::new();
+
+    for poly in polygons {
+        polygon_offsets.push(ring_offsets.len() as u32);
+
+        let (exterior, interiors) = poly.into_inner();
+
+        // Exterior
+        ring_offsets.push(flat_coords.len() as u32);
+        for coord in exterior.0 {
+            flat_coords.push(coord.x);
+            flat_coords.push(coord.y);
+        }
+
+        // Interiors
+        for ring in interiors {
+            ring_offsets.push(flat_coords.len() as u32);
+            for coord in ring.0 {
+                flat_coords.push(coord.x);
+                flat_coords.push(coord.y);
+            }
+        }
+    }
+
+    Ok(WasmPolygonResult {
+        coords: flat_coords,
+        ring_offsets,
+        polygon_offsets,
+    })
+}
+
+```
+
+File: docs/WASM_OPTIMIZATIONS.md
+```
+# Wasm Optimization Strategy
+
+This document outlines potential strategies to further improve WebAssembly (Wasm) performance for `geo-polygonize` while maintaining or improving Native performance.
+
+## 1. Monotone Chain Sweep Line (Bentley-Ottmann)
+
+The current implementation uses an R-Tree for noding (finding intersections). While robust and parallelizable (good for Native), it is memory-intensive and O(N^2) in worst-case dense grids.
+
+*   **Pros:**
+    *   **Algorithmic Efficiency:** O((N + k) log N) complexity is superior for dense intersections.
+    *   **Memory Footprint:** Significantly lower memory usage than constructing an R-Tree, crucial for Wasm's 4GB limit (and practical browser limits).
+*   **Cons:**
+    *   **Robustness:** Extremely difficult to implement robustly with floating-point arithmetic compared to the "find all, then split" R-Tree approach.
+    *   **Parallelism:** Inherently sequential algorithm. Replacing the parallel R-Tree with this would **degrade Native performance** on multi-core systems unless we maintain two separate implementations (high maintenance).
+
+## 2. Shared Memory Parallelism (Rayon on Wasm)
+
+Enable threads in Wasm using `SharedArrayBuffer` and `wasm-bindgen-rayon`.
+
+*   **Pros:**
+    *   **Speed:** Directly utilizes multi-core CPUs in the browser, potentially bringing Wasm parity with Native.
+*   **Cons:**
+    *   **Deployment Complexity:** Requires the hosting server to send specific headers (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`). This breaks many standard deployments (e.g., simple CDNs, iframes).
+    *   **Browser Support:** Good but not universal (e.g., Safari restrictions).
+    *   **Overhead:** Thread startup in Wasm is heavier than Native.
+
+## 3. Geometry Quantization (Int32 Coordinates)
+
+Convert all `f64` coordinates to `i32` (fixed precision) before processing.
+
+*   **Pros:**
+    *   **Math Speed:** Integer arithmetic is faster and exact.
+    *   **Size:** Reduces memory bandwidth (4 bytes vs 8 bytes per coord).
+*   **Cons:**
+    *   **Precision Loss:** Coordinates are snapped to a grid.
+    *   **Conversion Cost:** Overhead of converting to/from float at boundaries.
+    *   **API Breaking:** Changes the public API or requires a wrapper.
+
+## 4. Arena / Bump Allocation
+
+Use a custom allocator (like `bumpalo`) for the graph nodes and edges instead of `Vec` or standard heap.
+
+*   **Pros:**
+    *   **Allocation Speed:** Bump allocation is effectively instantaneous.
+    *   **Cache Locality:** Related data is stored contiguously.
+*   **Cons:**
+    *   **Memory Peaks:** Memory cannot be freed individually; it grows until the entire operation finishes. This increases the risk of OOM on Wasm for large datasets, even if it's faster.
+
+## 5. `wasm-opt` Tuning (Toolchain)
+
+Use `binaryen`'s `wasm-opt` to optimize the final binary.
+
+*   **Pros:**
+    *   **Free Performance:** 10-20% size reduction and speedup without code changes.
+*   **Cons:**
+    *   **Build Time:** Adds to CI/CD pipeline time.
+    *   **Debugging:** Makes stack traces harder to read (though DWARF helps).
+
+## Recommendation
+
+For the immediate future, we should stick to **Algorithmic Improvements** that benefit both targets (like the Tiled Polygonizer for large grids) and **Memory Optimizations** (like the lazy streaming implemented in this PR). Switching to a Sweep Line algorithm is the high-risk/high-reward option if memory constraints become the primary blocker.
+
+```
+
+File: examples/polygonize.rs
+```
+use clap::Parser;
+use geo_polygonize::Polygonizer;
+use geo_types::Geometry as GeoGeometry;
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
+use std::convert::TryInto;
+use std::error::Error;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Input GeoJSON file (LineStrings)
+    #[arg(short, long)]
+    input: PathBuf,
+
+    /// Output GeoJSON file (Polygons)
+    #[arg(short, long)]
+    output: PathBuf,
+
+    /// Enable robust noding (split intersecting lines)
+    #[arg(long, default_value_t = false)]
+    node: bool,
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    // Read Input
+    if !args.input.exists() {
+        eprintln!("Input file does not exist: {:?}", args.input);
+        return Ok(());
+    }
+
+    println!("Reading input from {:?}", args.input);
+    let file = File::open(&args.input)?;
+    let reader = BufReader::new(file);
+    let geojson: GeoJson = serde_json::from_reader(reader)?;
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = args.node;
+
+    let mut count = 0;
+
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    if let Ok(geo_geom) = geom.try_into() {
+                        add_geometry(&mut polygonizer, geo_geom);
+                        count += 1;
+                    }
+                }
+            }
+        }
+        GeoJson::Geometry(geom) => {
+            if let Ok(geo_geom) = geom.try_into() {
+                add_geometry(&mut polygonizer, geo_geom);
+                count += 1;
+            }
+        }
+        GeoJson::Feature(feature) => {
+            if let Some(geom) = feature.geometry {
+                if let Ok(geo_geom) = geom.try_into() {
+                    add_geometry(&mut polygonizer, geo_geom);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    println!("Added {} geometries. Polygonizing...", count);
+
+    let polygons = polygonizer.polygonize()?;
+    println!("Found {} polygons.", polygons.len());
+
+    // Convert back to GeoJSON
+    let features: Vec<Feature> = polygons
+        .into_iter()
+        .map(|poly| {
+            let geometry = Geometry::from(&poly);
+            Feature {
+                bbox: None,
+                geometry: Some(geometry),
+                id: None,
+                properties: None,
+                foreign_members: None,
+            }
+        })
+        .collect();
+
+    let output_fc = FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    };
+
+    let output_geojson = GeoJson::FeatureCollection(output_fc);
+
+    println!("Writing output to {:?}", args.output);
+    let file = File::create(&args.output)?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &output_geojson)?;
+
+    Ok(())
+}
+
+fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
+    match geom {
+        GeoGeometry::LineString(ls) => {
+            polygonizer.add_geometry(GeoGeometry::LineString(ls));
+        }
+        GeoGeometry::MultiLineString(mls) => {
+            for ls in mls {
+                polygonizer.add_geometry(GeoGeometry::LineString(ls));
+            }
+        }
+        GeoGeometry::GeometryCollection(gc) => {
+            for g in gc {
+                add_geometry(polygonizer, g);
+            }
+        }
+        _ => {
+            // Ignore other types or try to add them if Polygonizer supports them?
+            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
+            // But usually we want LineStrings.
+            polygonizer.add_geometry(geom);
+        }
+    }
+}
+
+```
+
+File: examples/simple.rs
+```
+//! Simple example of polygonizing a set of lines.
+
+use geo::Area;
+use geo_polygonize::Polygonizer;
+use geo_types::{Geometry, LineString};
+
+fn main() {
+    let mut polygonizer = Polygonizer::new();
+
+    // Create a simple square
+    let square_lines = LineString::from(vec![
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+        (0.0, 0.0),
+    ]);
+
+    // Add geometry to the polygonizer
+    polygonizer.add_geometry(Geometry::LineString(square_lines));
+
+    // Compute polygons
+    let polygons = polygonizer.polygonize().expect("Failed to polygonize");
+
+    println!("Found {} polygon(s)", polygons.len());
+
+    for (i, poly) in polygons.iter().enumerate() {
+        println!("Polygon {}: Area = {}", i, poly.unsigned_area());
+    }
+}
+
+```
+
+File: scripts/benchmark_circle.py
+```
+
+import timeit
+import numpy as np
+from shapely.geometry import LineString
+
+def create_circle_original(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    coords = []
+    for a in angles:
+        coords.append((x + r * np.cos(a), y + r * np.sin(a)))
+    return LineString(coords)
+
+def create_circle_optimized(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    # Vectorized calculation
+    xs = x + r * np.cos(angles)
+    ys = y + r * np.sin(angles)
+    coords = np.column_stack((xs, ys))
+    return LineString(coords)
+
+def benchmark():
+    points = 10000
+    loops = 100
+
+    t_orig = timeit.timeit(lambda: create_circle_original(0, 0, 10, points), number=loops)
+    t_opt = timeit.timeit(lambda: create_circle_optimized(0, 0, 10, points), number=loops)
+
+    print(f"Original: {t_orig:.4f} s")
+    print(f"Optimized: {t_opt:.4f} s")
+    print(f"Speedup: {t_orig / t_opt:.2f}x")
+
+if __name__ == "__main__":
+    benchmark()
+
+```
+
+File: scripts/build_wasm.sh
+```
+#!/bin/bash
+set -e
+
+# Configuration
+WASM_BINDGEN_VERSION="0.2.106"
+TARGET="wasm32-unknown-unknown"
+
+# Ensure target is installed
+echo "Checking for $TARGET..."
+rustup target add $TARGET
+
+# Install wasm-bindgen-cli if needed
+if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
+    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+
+# Install binaryen (wasm-opt) if needed
+if ! command -v wasm-opt &> /dev/null; then
+    echo "wasm-opt not found. Attempting to install via cargo..."
+    echo "Warning: wasm-opt not found. Build will proceed without optimization."
+else
+    echo "Found wasm-opt: $(wasm-opt --version)"
+fi
+
+build_variant() {
+    local VARIANT=$1
+    local OUT_DIR="pkg-$VARIANT"
+    local FLAGS=$2
+
+    echo "Building $VARIANT version..."
+
+    # 1. Cargo Build
+    # We explicitly specify the wasm crate
+    RUSTFLAGS="$FLAGS" cargo build -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for $VARIANT..."
+    # With the new crate name, the output is geo_polygonize_wasm.wasm
+    CRATE_NAME="geo_polygonize_wasm"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        exit 1
+    fi
+
+    rm -rf $OUT_DIR
+    # We want the output JS/WASM file to still be named nicely for consumption,
+    # or match what rollup expects.
+    # The original script output name was "geo_polygonize".
+    # pkg-wrapper/index.ts imports from pkg-scalar/geo_polygonize.js usually, or whatever wasm-bindgen outputs.
+    # Let's check rollup config or pkg-wrapper import.
+    # The previous script used --out-name "geo_polygonize". We should stick to that if possible
+    # to avoid breaking downstream consumers.
+
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+
+    # 3. Optimization
+    if command -v wasm-opt &> /dev/null; then
+        echo "Optimizing $VARIANT..."
+        # The file name comes from --out-name "geo_polygonize" -> "geo_polygonize_bg.wasm"
+        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+    fi
+
+    # Remove .gitignore if generated
+    rm -f $OUT_DIR/.gitignore
+}
+
+# Build Scalar
+build_variant "scalar" ""
+
+# Build SIMD
+build_variant "simd" "-C target-feature=+simd128"
+
+# Ensure wrapper exists
+if [ ! -d "pkg-wrapper" ]; then
+    echo "pkg-wrapper directory missing!"
+    exit 1
+fi
+
+# Install npm deps
+if [ ! -d "node_modules" ]; then
+    npm install
+fi
+
+# Bundle with Rollup
+echo "Running rollup..."
+npx rollup -c
+
+# Prepare distribution files
+echo "Preparing dist..."
+# Copy the WASM files to dist for external consumption (Slim build)
+cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
+cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+
+echo "Build complete! Artifacts are in dist/"
+
+```
+
+File: scripts/generate_complex_geojson.py
+```
+import json
+import numpy as np
+from shapely.geometry import Point, LineString, mapping
+import os
+
+def create_circle(x, y, r, points=100):
+    angles = np.linspace(0, 2*np.pi, points)
+    coords = np.column_stack((x + r * np.cos(angles), y + r * np.sin(angles)))
+    return LineString(coords)
+
+def main():
+    os.makedirs("examples/data", exist_ok=True)
+
+    # 1. Overlapping Circles
+    # Three circles: (0,0), (10,0), (5, 8.66)
+    c1 = create_circle(30, 30, 30)
+    c2 = create_circle(60, 30, 30)
+    c3 = create_circle(45, 55, 30)
+
+    features = []
+    for geom in [c1, c2, c3]:
+        features.append({
+            "type": "Feature",
+            "properties": {},
+            "geometry": mapping(geom)
+        })
+
+    with open("examples/data/overlapping_circles.geojson", "w") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f)
+
+    # 2. Curved Holes (Swiss Cheese)
+    # Large outer circle
+    outer = create_circle(50, 50, 50, points=200)
+
+    # Random holes
+    holes = []
+    holes.append(create_circle(30, 30, 10))
+    holes.append(create_circle(70, 30, 10))
+    holes.append(create_circle(50, 70, 15))
+    holes.append(create_circle(50, 40, 5)) # Central small one
+
+    features = []
+    features.append({
+        "type": "Feature",
+        "properties": {},
+        "geometry": mapping(outer)
+    })
+    for h in holes:
+         features.append({
+            "type": "Feature",
+            "properties": {},
+            "geometry": mapping(h)
+        })
+
+    with open("examples/data/curved_holes.geojson", "w") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f)
+
+    print("Generated examples/data/overlapping_circles.geojson and examples/data/curved_holes.geojson")
+
+if __name__ == "__main__":
+    main()
+
+```
+
+File: scripts/generate_llms_txt.py
+```
+#!/usr/bin/env python3
+import os
+
+OUTPUT_FILE = "llms.txt"
+extensions = [".rs", ".md", ".toml", ".py", ".sh"]
+ignore_dirs = ["target", ".git", ".github"]
+ignore_files = ["Cargo.lock", "llms.txt"]
+
+def generate_llms_txt():
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as outfile:
+        # Walk through the directory
+        for root, dirs, files in os.walk("."):
+            # Modify dirs in-place to skip ignored directories
+            dirs[:] = [d for d in dirs if d not in ignore_dirs]
+
+            # Sort for deterministic output
+            dirs.sort()
+            files.sort()
+
+            for file in files:
+                if file in ignore_files:
+                    continue
+
+                _, ext = os.path.splitext(file)
+                if ext in extensions or file in ["Dockerfile", "Makefile"]: # Add other exact matches if needed
+                    file_path = os.path.join(root, file)
+
+                    # Normalize path to use forward slashes and remove leading ./
+                    rel_path = os.path.relpath(file_path, ".")
+
+                    outfile.write(f"File: {rel_path}\n")
+                    outfile.write("```\n")
+
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as infile:
+                            outfile.write(infile.read())
+                    except Exception as e:
+                        outfile.write(f"Error reading file: {e}\n")
+
+                    outfile.write("\n```\n\n")
+
+if __name__ == "__main__":
+    generate_llms_txt()
+    print(f"Generated {OUTPUT_FILE}")
+
+```
+
+File: scripts/visualize.py
+```
+import json
+import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection, PatchCollection
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path
+from shapely.geometry import shape
+import sys
+import argparse
+import numpy as np
+
+def polygon_to_patch(polygon):
+    """Converts a Shapely Polygon to a matplotlib PathPatch."""
+    if polygon.is_empty:
+        return None
+
+    vertices = []
+    codes = []
+
+    # Exterior ring
+    ext = np.array(polygon.exterior.coords)
+    if len(ext) > 0:
+        vertices.extend(ext)
+        codes.append(Path.MOVETO)
+        codes.extend([Path.LINETO] * (len(ext) - 2))
+        codes.append(Path.CLOSEPOLY)
+
+    # Interior rings (holes)
+    for interior in polygon.interiors:
+        inte = np.array(interior.coords)
+        if len(inte) > 0:
+            vertices.extend(inte)
+            codes.append(Path.MOVETO)
+            codes.extend([Path.LINETO] * (len(inte) - 2))
+            codes.append(Path.CLOSEPOLY)
+
+    if not vertices:
+        return None
+
+    path = Path(vertices, codes)
+    return PathPatch(path)
+
+def plot_geojson(filepath, ax, color, title, is_polygon=False):
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+
+    geoms = []
+    if data['type'] == 'FeatureCollection':
+        for feature in data['features']:
+            if feature['geometry']:
+                geoms.append(shape(feature['geometry']))
+    elif data['type'] == 'GeometryCollection':
+        for geom in data['geometries']:
+            geoms.append(shape(geom))
+    else:
+        # Single geometry or Feature
+        if 'geometry' in data:
+            geoms.append(shape(data['geometry']))
+        else:
+            geoms.append(shape(data))
+
+    count = 0
+    if is_polygon:
+        patches = []
+        for geom in geoms:
+            if geom.geom_type == 'Polygon':
+                patch = polygon_to_patch(geom)
+                if patch:
+                    patches.append(patch)
+                count += 1
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    patch = polygon_to_patch(poly)
+                    if patch:
+                        patches.append(patch)
+                count += 1
+
+        if patches:
+            p = PatchCollection(patches, facecolor=color, edgecolor='black', alpha=0.5)
+            ax.add_collection(p)
+            ax.autoscale()
+    else:
+        lines = []
+        for geom in geoms:
+            if geom.geom_type == 'LineString':
+                if not geom.is_empty:
+                    lines.append(np.array(geom.coords))
+                count += 1
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    if not line.is_empty:
+                        lines.append(np.array(line.coords))
+                count += 1
+
+        if lines:
+            lc = LineCollection(lines, colors=color, linewidths=1, alpha=0.7)
+            ax.add_collection(lc)
+            ax.autoscale()
+
+    ax.set_title(f"{title} ({count} items)")
+
+def main():
+    parser = argparse.ArgumentParser(description="Visualize Polygonization Results")
+    parser.add_argument("--input", required=True, help="Input GeoJSON (Lines)")
+    parser.add_argument("--output", required=True, help="Output GeoJSON (Polygons)")
+    parser.add_argument("--save", help="Save plot to file")
+    args = parser.parse_args()
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+
+    try:
+        plot_geojson(args.input, ax1, 'blue', "Input Lines", is_polygon=False)
+        plot_geojson(args.output, ax2, 'green', "Output Polygons", is_polygon=True)
+
+        plt.tight_layout()
+
+        if args.save:
+            plt.savefig(args.save)
+            print(f"Saved visualization to {args.save}")
+        else:
+            plt.show()
+
+    except Exception as e:
+        print(f"Error visualizing: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
 
 ```
 
