@@ -8,8 +8,17 @@ pub struct PolygonizerOptions {
     pub snap_grid_size: f64,
 }
 
+#[repr(i32)]
+#[derive(Clone, Copy)]
+pub enum CPolygonStatus {
+    Success = 0,
+    InvalidInput = 1,
+    InternalError = 2,
+}
+
 pub struct CPolygonResult {
     pub polygons: Vec<Polygon<f64>>,
+    pub status: CPolygonStatus,
 }
 
 /// Helper to ingest raw data and run polygonization
@@ -45,10 +54,12 @@ pub unsafe extern "C" fn polygonize_ffi(
         // No lines can be defined with < 2 offsets
         return Box::into_raw(Box::new(CPolygonResult {
             polygons: Vec::new(),
+            status: CPolygonStatus::Success,
         }));
     }
 
     let mut lines = Vec::new();
+    let mut status = CPolygonStatus::Success;
 
     // Iterate through linestrings defined by offsets
     for i in 0..offsets_len - 1 {
@@ -62,7 +73,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         // Check bounds: indices refer to points, each point is 2 f64s
         if end_idx * 2 > coords_len {
             // Should handle error more gracefully?
-            // For now, stop processing to avoid panic or reading garbage
+            status = CPolygonStatus::InvalidInput;
             break;
         }
 
@@ -80,6 +91,13 @@ pub unsafe extern "C" fn polygonize_ffi(
         }
     }
 
+    if let CPolygonStatus::InvalidInput = status {
+        return Box::into_raw(Box::new(CPolygonResult {
+            polygons: Vec::new(),
+            status,
+        }));
+    }
+
     let mut polygonizer = Polygonizer::new();
     polygonizer.node_input = options.node_input;
     polygonizer.snap_grid_size = options.snap_grid_size;
@@ -87,10 +105,16 @@ pub unsafe extern "C" fn polygonize_ffi(
 
     match polygonizer.polygonize() {
         Ok(polygons) => {
-            let res = CPolygonResult { polygons };
+            let res = CPolygonResult {
+                polygons,
+                status: CPolygonStatus::Success,
+            };
             Box::into_raw(Box::new(res))
         }
-        Err(_) => std::ptr::null_mut(),
+        Err(_) => Box::into_raw(Box::new(CPolygonResult {
+            polygons: Vec::new(),
+            status: CPolygonStatus::InternalError,
+        })),
     }
 }
 
@@ -104,6 +128,18 @@ pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult)
         return 0;
     }
     unsafe { (*res).polygons.len() }
+}
+
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that `res` is a valid pointer to a `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult) -> i32 {
+    if res.is_null() {
+        return -1; // Null pointer error
+    }
+    unsafe { (*res).status as i32 }
 }
 
 /// # Safety
