@@ -64,6 +64,23 @@ def parse_python_output(filename):
                     pass
     return results
 
+def skip_table_lines(lines, i):
+    """Skips the existing table in the markdown lines starting from index i."""
+    i += 1
+    # Skip blank lines
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+    # Skip header
+    if i < len(lines) and "|" in lines[i]:
+        i += 1
+    # Skip separator
+    if i < len(lines) and "|---" in lines[i]:
+        i += 1
+    # Skip rows
+    while i < len(lines) and "|" in lines[i]:
+        i += 1
+    return i
+
 def generate_table(category, display_name, col1_name, rust_results, python_results):
     lines = []
     lines.append(f"### {display_name}")
@@ -111,19 +128,7 @@ def update_markdown(filename, rust_results, python_results):
             for l in table_lines:
                 new_lines.append(l + "\n")
 
-            i += 1
-            # Skip blank lines
-            while i < len(lines) and lines[i].strip() == "":
-                i += 1
-            # Skip header
-            if i < len(lines) and "|" in lines[i]:
-                 i += 1
-            # Skip separator
-            if i < len(lines) and "|---" in lines[i]:
-                 i += 1
-            # Skip rows
-            while i < len(lines) and "|" in lines[i]:
-                i += 1
+            i = skip_table_lines(lines, i)
             continue
 
         # Detect Random Table
@@ -132,15 +137,7 @@ def update_markdown(filename, rust_results, python_results):
             for l in table_lines:
                 new_lines.append(l + "\n")
 
-            i += 1
-            while i < len(lines) and lines[i].strip() == "":
-                i += 1
-            if i < len(lines) and "|" in lines[i]:
-                 i += 1
-            if i < len(lines) and "|---" in lines[i]:
-                 i += 1
-            while i < len(lines) and "|" in lines[i]:
-                i += 1
+            i = skip_table_lines(lines, i)
             continue
 
         new_lines.append(line)
