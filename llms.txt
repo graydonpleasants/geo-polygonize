@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000151 | 0.000674 | 4.47x |
-| 10 | 0.000325 | 0.002206 | 6.79x |
-| 20 | 0.000809 | 0.008310 | 10.28x |
-| 50 | 0.003744 | 0.052364 | 13.98x |
-| 100 | 0.014307 | 0.227002 | 15.87x |
+| 5 | 0.000134 | 0.000599 | 4.47x |
+| 10 | 0.000277 | 0.002026 | 7.32x |
+| 20 | 0.000781 | 0.007577 | 9.70x |
+| 50 | 0.003830 | 0.048731 | 12.72x |
+| 100 | 0.016887 | 0.217756 | 12.89x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000698 | 0.008053 | 11.53x |
-| 100 | 0.002426 | 0.026092 | 10.75x |
-| 200 | 0.008537 | 0.105478 | 12.36x |
+| 50 | 0.000676 | 0.007597 | 11.23x |
+| 100 | 0.002443 | 0.024410 | 9.99x |
+| 200 | 0.008701 | 0.100323 | 11.53x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -415,6 +415,28 @@ async function run() {
 }
 ```
 
+**Multithreaded Usage (Experimental):**
+This library provides a multithreaded build powered by `wasm-bindgen-rayon`.
+
+```javascript
+import init, { initThreadPool, polygonize } from "geo-polygonize/threads";
+
+async function run() {
+    await init();
+
+    // Initialize thread pool (e.g., with navigator.hardwareConcurrency)
+    await initThreadPool(navigator.hardwareConcurrency);
+
+    // ... use polygonize as usual
+}
+```
+
+**Important:** Multithreaded WebAssembly requires `SharedArrayBuffer`, which is only available in secure contexts. You **must** serve your page with the following headers:
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
 ### CLI Example
 
 The repository includes a CLI tool to polygonize GeoJSON files.
@@ -568,6 +590,30 @@ This document outlines future improvements and optimization ideas for the `geo-p
 
 ```
 
+File: pyproject.toml
+```
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "geo_polygonize"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = ["numpy", "cffi"]
+
+[tool.maturin]
+python-source = "python"
+manifest-path = "crates/geo-polygonize-core/Cargo.toml"
+module-name = "geo_polygonize.geo_polygonize_core"
+features = ["python"]
+
+```
+
 File: rustfmt.toml
 ```
 edition = "2021"
@@ -596,6 +642,8 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py37"], optional = true }
+numpy = { version = "0.21", optional = true }
 
 [dev-dependencies]
 approx = "0.5"
@@ -609,6 +657,7 @@ serde_json = "1.0"
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
+python = ["dep:pyo3", "dep:numpy"]
 
 [[bench]]
 name = "polygonize_bench"
@@ -1785,6 +1834,9 @@ pub mod polygonizer;
 pub mod tiling;
 pub mod utils;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 #[cfg(test)]
 mod polygonizer_tests;
 
@@ -2389,6 +2441,108 @@ mod tests {
             .expect("Polygonization should not fail on Point input with noding");
         assert_eq!(polygons.len(), 0);
     }
+}
+
+```
+
+File: crates/geo-polygonize-core/src/python.rs
+```
+use crate::Polygonizer;
+use geo_types::{Coord, Line};
+use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
+
+#[pyfunction]
+#[pyo3(signature = (coords, offsets, node=false, snap=1e-10))]
+fn polygonize<'py>(
+    py: Python<'py>,
+    coords: PyReadonlyArray1<'py, f64>,
+    offsets: PyReadonlyArray1<'py, u32>,
+    node: bool,
+    snap: f64,
+) -> PyResult<Vec<PyObject>> {
+    let coords_slice = coords.as_slice()?;
+    let offsets_slice = offsets.as_slice()?;
+
+    if coords_slice.len() % 2 != 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Coords array must have even length",
+        ));
+    }
+
+    if offsets_slice.len() < 2 {
+        return Ok(Vec::new());
+    }
+
+    let mut lines = Vec::new();
+    for i in 0..offsets_slice.len() - 1 {
+        let start_idx = offsets_slice[i] as usize;
+        let end_idx = offsets_slice[i + 1] as usize;
+
+        if start_idx > end_idx {
+            continue;
+        }
+
+        // Bounds check
+        if end_idx.saturating_mul(2) > coords_slice.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Offset index out of bounds",
+            ));
+        }
+
+        if start_idx == end_idx {
+            continue;
+        }
+
+        for j in start_idx..end_idx - 1 {
+            let p1 = Coord {
+                x: coords_slice[2 * j],
+                y: coords_slice[2 * j + 1],
+            };
+            let p2 = Coord {
+                x: coords_slice[2 * (j + 1)],
+                y: coords_slice[2 * (j + 1) + 1],
+            };
+            lines.push(Line::new(p1, p2));
+        }
+    }
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = node;
+    polygonizer.snap_grid_size = snap;
+    polygonizer.add_lines(lines);
+
+    let polygons = polygonizer
+        .polygonize()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+    // Import SimplePolygon class
+    let types_mod = PyModule::import_bound(py, "geo_polygonize.types")?;
+    let simple_polygon_cls = types_mod.getattr("SimplePolygon")?;
+
+    let mut results = Vec::with_capacity(polygons.len());
+
+    for poly in polygons {
+        let exterior = poly.exterior();
+        let shell_coords: Vec<(f64, f64)> = exterior.0.iter().map(|c| (c.x, c.y)).collect();
+
+        let mut holes_list = Vec::new();
+        for interior in poly.interiors() {
+            let hole_coords: Vec<(f64, f64)> = interior.0.iter().map(|c| (c.x, c.y)).collect();
+            holes_list.push(hole_coords);
+        }
+
+        let instance = simple_polygon_cls.call1((shell_coords, holes_list))?;
+        results.push(instance.into());
+    }
+
+    Ok(results)
+}
+
+#[pymodule]
+fn geo_polygonize_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(polygonize, m)?)?;
+    Ok(())
 }
 
 ```
@@ -6260,12 +6414,14 @@ geojson = "0.24"
 serde_json = "1.0"
 getrandom = { version = "0.2", features = ["js"] }
 geo = "0.32"
+wasm-bindgen-rayon = { version = "1.0", optional = true }
 geo-traits = "0.3.0"
 geoarrow = "0.7.0"
 arrow-ipc = "57"
 
 [features]
 default = ["console_error_panic_hook"]
+threads = ["wasm-bindgen-rayon", "geo-polygonize-core/parallel"]
 
 ```
 
@@ -6281,6 +6437,9 @@ use std::convert::TryInto;
 use std::io::Cursor;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
+
+#[cfg(feature = "threads")]
+pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen]
 pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
@@ -6867,9 +7026,22 @@ if __name__ == "__main__":
 
 File: python/geo_polygonize/__init__.py
 ```
+from .types import SimplePolygon
+
+try:
+    from .geo_polygonize_core import polygonize
+except ImportError:
+    from .cffi_wrapper import polygonize
+
+```
+
+File: python/geo_polygonize/cffi_wrapper.py
+```
 import os
+import glob
 import cffi
 import numpy as np
+from .types import SimplePolygon
 
 ffi = cffi.FFI()
 ffi.cdef("""
@@ -6913,30 +7085,29 @@ def find_library():
 
     # 2. Check in development build directory
     # Path: ../../target/release/
+    # This assumes we are running from python/geo_polygonize/
+    # So ../../ reaches python/.. which is repo root.
+    # Wait, python/geo_polygonize/../.. => python/.. => root.
+    # Then target/release/ => correct.
     for name in possible_names:
         path = os.path.join(base_dir, "../../target/release", name)
         if os.path.exists(path):
             return path
 
+    # 3. Check for PyO3 extension module (as shared lib)
+    # The extension name is geo_polygonize_core.
+    # It might have a suffix like .cpython-39-x86_64-linux-gnu.so or .abi3.so
+    extensions = ["*.so", "*.pyd", "*.dylib"]
+    for ext in extensions:
+        pattern = os.path.join(base_dir, "geo_polygonize_core" + ext)
+        matches = glob.glob(pattern)
+        if matches:
+            return matches[0]
+
     raise FileNotFoundError("Could not find geo_polygonize_core shared library")
 
 lib_path = find_library()
 lib = ffi.dlopen(lib_path)
-
-class SimplePolygon:
-    def __init__(self, shell, holes):
-        self.shell = shell
-        self.holes = holes
-
-    @property
-    def __geo_interface__(self):
-        return {
-            'type': 'Polygon',
-            'coordinates': tuple([self.shell] + self.holes)
-        }
-
-    def __repr__(self):
-        return f"<SimplePolygon shell_pts={len(self.shell)} holes={len(self.holes)}>"
 
 def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10):
     """
@@ -7018,6 +7189,25 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
 
     finally:
         lib.polygonize_result_free(res_ptr)
+
+```
+
+File: python/geo_polygonize/types.py
+```
+class SimplePolygon:
+    def __init__(self, shell, holes):
+        self.shell = shell
+        self.holes = holes
+
+    @property
+    def __geo_interface__(self):
+        return {
+            'type': 'Polygon',
+            'coordinates': tuple([self.shell] + self.holes)
+        }
+
+    def __repr__(self):
+        return f"<SimplePolygon shell_pts={len(self.shell)} holes={len(self.holes)}>"
 
 ```
 
@@ -7135,6 +7325,58 @@ build_variant "scalar" ""
 
 # Build SIMD
 build_variant "simd" "-C target-feature=+simd128"
+
+# Build Threads
+build_variant_threads() {
+    local OUT_DIR="pkg-threads"
+    # Enable atomics and shared memory
+    local FLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+
+    echo "Building Threads version..."
+
+    # Check for nightly
+    if ! rustup toolchain list | grep -q "nightly"; then
+        echo "Installing nightly toolchain..."
+        rustup toolchain install nightly
+    fi
+
+    # Ensure rust-src component is installed (required for build-std)
+    echo "Installing rust-src for nightly..."
+    rustup component add rust-src --toolchain nightly
+
+    # 1. Cargo Build with Nightly and build-std
+    RUSTFLAGS="$FLAGS" cargo +nightly build -p geo-polygonize-wasm \
+        --target $TARGET \
+        --release \
+        --features "console_error_panic_hook threads" \
+        --lib \
+        -Z build-std=std,panic_abort
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for threads..."
+    CRATE_NAME="geo_polygonize_wasm"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        exit 1
+    fi
+
+    rm -rf $OUT_DIR
+    # Use --target web to ensure correct loading behavior for threads
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+
+    # 3. Optimization
+    if command -v wasm-opt &> /dev/null; then
+        echo "Optimizing Threads..."
+        # wasm-opt generally supports atomics if present in the binary
+        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+    fi
+
+    rm -f $OUT_DIR/.gitignore
+}
+
+build_variant_threads
 
 # Ensure wrapper exists
 if [ ! -d "pkg-wrapper" ]; then
