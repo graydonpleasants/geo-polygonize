@@ -1,3 +1,4 @@
+use crate::utils::parallel::{flat_map, into_map_enumerate, sort_unstable, zip_for_each};
 use crate::utils::{compare_angular, z_order_index};
 use geo::Line;
 use geo_types::{Coord, LineString};
@@ -215,7 +216,7 @@ impl PlanarGraph {
         }
 
         // 1. Collect all coordinates and precompute Z-order
-        let to_entries = |line: &Line<f64>| {
+        let mut entries: Vec<NodeEntry> = flat_map(&lines, |line| {
             [
                 NodeEntry {
                     z: z_order_index(line.start),
@@ -226,20 +227,10 @@ impl PlanarGraph {
                     c: line.end,
                 },
             ]
-        };
-
-        #[cfg(feature = "parallel")]
-        let mut entries: Vec<NodeEntry> = lines.par_iter().flat_map_iter(to_entries).collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let mut entries: Vec<NodeEntry> = lines.iter().flat_map(to_entries).collect();
+        });
 
         // 2. Sort using precomputed Z-order
-        #[cfg(feature = "parallel")]
-        entries.par_sort_unstable();
-
-        #[cfg(not(feature = "parallel"))]
-        entries.sort_unstable();
+        sort_unstable(&mut entries);
 
         // Dedup using exact equality.
         entries.dedup_by(|a, b| {
@@ -310,21 +301,9 @@ impl PlanarGraph {
         }
 
         // Reserve exact capacity
-        #[cfg(feature = "parallel")]
-        self.nodes_outgoing
-            .par_iter_mut()
-            .zip(degrees.par_iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
-
-        #[cfg(not(feature = "parallel"))]
-        self.nodes_outgoing
-            .iter_mut()
-            .zip(degrees.iter())
-            .for_each(|(adj, &deg)| {
-                adj.reserve(deg);
-            });
+        zip_for_each(&mut self.nodes_outgoing, &degrees, |(adj, &deg)| {
+            adj.reserve(deg);
+        });
 
         // 5. Build Edges
         self.edges.reserve(valid_edges.len());
@@ -333,19 +312,9 @@ impl PlanarGraph {
         let edges_start_len = self.edges.len();
         let directed_edges_start_len = self.directed_edges.len();
 
-        let mapper = |(i, (u, v, line)): (usize, (NodeId, NodeId, Line<f64>))| {
+        let new_edges_data: Vec<_> = into_map_enumerate(valid_edges, |(i, (u, v, line))| {
             create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
-        };
-
-        #[cfg(feature = "parallel")]
-        let new_edges_data: Vec<_> = valid_edges
-            .into_par_iter()
-            .enumerate()
-            .map(mapper)
-            .collect();
-
-        #[cfg(not(feature = "parallel"))]
-        let new_edges_data: Vec<_> = valid_edges.into_iter().enumerate().map(mapper).collect();
+        });
 
         for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
             self.directed_edges.push(de_u_v);
