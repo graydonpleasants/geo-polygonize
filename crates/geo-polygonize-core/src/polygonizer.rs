@@ -77,6 +77,8 @@ pub struct Polygonizer {
 
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
+    // Additional buffer for explicit line segments (e.g., from FFI)
+    input_lines: Vec<Line<f64>>,
     dirty: bool,
 }
 
@@ -95,6 +97,7 @@ impl Polygonizer {
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
             inputs: Vec::new(),
+            input_lines: Vec::new(),
             dirty: false,
         }
     }
@@ -115,6 +118,14 @@ impl Polygonizer {
     /// MultiLineString, MultiPolygon) are flattened and all lineal components are extracted.
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
         self.inputs.push(geom);
+        self.dirty = true;
+    }
+
+    /// Adds a collection of explicit line segments to the graph.
+    ///
+    /// This is useful for FFI or cases where you have raw segments.
+    pub fn add_lines(&mut self, lines: Vec<Line<f64>>) {
+        self.input_lines.extend(lines);
         self.dirty = true;
     }
 
@@ -147,6 +158,8 @@ impl Polygonizer {
                     input_segments.push(line);
                 }
             }
+            // Add explicit lines
+            input_segments.extend(self.input_lines.iter().cloned());
 
             // OPTIMIZATION: Spatial Sort (Z-Order)
             // This improves cache locality for both the Grid and the SIMD noder.
@@ -168,6 +181,8 @@ impl Polygonizer {
                     segments.push(line);
                 }
             }
+            // Add explicit lines
+            segments.extend(self.input_lines.iter().cloned());
         }
 
         // Use bulk load

@@ -9,6 +9,7 @@
 //! - **Wasm**: Optimized for WebAssembly environments.
 
 pub mod error;
+pub mod ffi;
 pub mod graph;
 pub mod noding;
 pub mod polygonizer;
