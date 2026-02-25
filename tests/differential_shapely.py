@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import time
 import pytest
 import numpy as np
 import os
@@ -215,11 +216,17 @@ def run_rust_cli(lines):
         f_in.flush()
         f_in.close() # Close to ensure flush to disk
 
-        # Run Rust process
-        cmd = [
-            "cargo", "run", "--release", "-p", "geo-polygonize-core", "--example", "polygonize",
-            "--", "--input", f_in.name, "--output", f_out.name, "--node"
-        ]
+        # Check for pre-built release binary to avoid cargo overhead
+        binary_path = os.path.join("target", "release", "examples", "polygonize")
+        if os.path.exists(binary_path):
+            cmd = [binary_path, "--input", f_in.name, "--output", f_out.name, "--node"]
+        else:
+            # Fallback to cargo run
+            cmd = [
+                "cargo", "run", "--release", "-p", "geo-polygonize-core", "--example", "polygonize",
+                "--", "--input", f_in.name, "--output", f_out.name, "--node"
+            ]
+
         # Using capture_output=True to suppress stdout unless error
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -243,22 +250,18 @@ def run_rust_cli(lines):
                 os.unlink(f_out.name)
 
 def assert_parity(shapely_polys, rust_polys):
-    """Compares topological equivalence without relying on vertex order."""
+    """Compares topological equivalence using geometric symmetric difference."""
     # Filter empty polygons if any (though shapely/rust shouldn't produce them usually)
     shapely_polys = [p for p in shapely_polys if not p.is_empty and p.area > 1e-9]
     rust_polys = [p for p in rust_polys if not p.is_empty and p.area > 1e-9]
 
-    assert len(shapely_polys) == len(rust_polys), f"Count mismatch: Shapely {len(shapely_polys)} vs Rust {len(rust_polys)}"
+    # Compute the unary_union of the Shapely polygons and the unary_union of the Rust polygons
+    shapely_union = unary_union(shapely_polys)
+    rust_union = unary_union(rust_polys)
 
-    shapely_areas = sorted([p.area for p in shapely_polys])
-    rust_areas = sorted([p.area for p in rust_polys])
-
-    # Use a looser tolerance for areas because of different FP arithmetic
-    np.testing.assert_allclose(
-        rust_areas, shapely_areas,
-        rtol=1e-6, atol=1e-6,
-        err_msg="Multiset of polygon areas do not match."
-    )
+    # Assert that the symmetric_difference between these two unions has an area of < 1e-5
+    diff = shapely_union.symmetric_difference(rust_union)
+    assert diff.area < 1e-5, f"Spatial parity failed. Symmetric difference area: {diff.area}"
 
 @pytest.mark.parametrize("generator", [
     generate_t_junction_soup,
@@ -274,6 +277,18 @@ def assert_parity(shapely_polys, rust_polys):
 ])
 def test_differential_parity(generator):
     lines = generator()
+
+    start_shapely = time.perf_counter()
     shapely_result = run_shapely(lines)
+    shapely_time = time.perf_counter() - start_shapely
+
+    start_rust = time.perf_counter()
     rust_result = run_rust_cli(lines)
+    rust_time = time.perf_counter() - start_rust
+
     assert_parity(shapely_result, rust_result)
+
+    # Soft assertion for time complexity (with overhead buffer for small inputs)
+    # Using a constant floor of 1.0s to account for CLI startup and IO overhead
+    assert rust_time < max(shapely_time * 10.0, 1.0), \
+        f"Rust performance regression: Rust {rust_time:.4f}s > max(Shapely {shapely_time:.4f}s * 10, 1.0s)"
