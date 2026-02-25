@@ -77,59 +77,81 @@ impl SnapNoder {
                 break;
             }
 
-            // Sort events by line index to allow linear scan
-            events.sort_unstable_by_key(|e| e.0);
+            // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
+            events.sort_unstable_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then(a.1.x.total_cmp(&b.1.x))
+                    .then(a.1.y.total_cmp(&b.1.y))
+            });
+            events.dedup();
 
-            // Apply splits
+            // Early bailout heuristic to avoid epsilon-thrashing on tiny residual updates.
+            // Apply this iteration first, then exit before running another pass.
+            let should_bail_early = events.len() < 3;
+
+            // Apply splits. Copy untouched line ranges in bulk and only rebuild lines with split events.
             new_lines.clear();
-            new_lines.reserve(lines.len() * 2);
+            new_lines.reserve(lines.len() + events.len());
 
             let mut event_idx = 0;
-            // Buffer to reuse for collecting points
+            let mut src_idx = 0;
+            // Buffer to reuse for collecting points on the current split line.
             let mut points = Vec::new();
 
-            for (i, line) in lines.iter().enumerate() {
-                points.clear();
+            while event_idx < events.len() {
+                let line_idx = events[event_idx].0;
 
-                // Collect all split points for line i
-                while event_idx < events.len() && events[event_idx].0 == i {
+                // Copy untouched lines directly.
+                if src_idx < line_idx {
+                    new_lines.extend_from_slice(&lines[src_idx..line_idx]);
+                }
+
+                points.clear();
+                while event_idx < events.len() && events[event_idx].0 == line_idx {
                     points.push(events[event_idx].1);
                     event_idx += 1;
                 }
 
-                if !points.is_empty() {
-                    // Add endpoints
-                    points.push(line.start);
-                    points.push(line.end);
+                let line = lines[line_idx];
+                points.push(line.start);
+                points.push(line.end);
 
-                    // Filter out invalid points (NaN/Inf)
-                    points.retain(|p| p.x.is_finite() && p.y.is_finite());
+                // Filter out invalid points (NaN/Inf)
+                points.retain(|p| p.x.is_finite() && p.y.is_finite());
 
-                    // Sort by distance from start
-                    let start = line.start;
-                    points.sort_unstable_by(|a, b| {
-                        let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
-                        let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                        da.total_cmp(&db)
-                    });
+                // Sort by distance from start
+                let start = line.start;
+                points.sort_unstable_by(|a, b| {
+                    let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
+                    let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
+                    da.total_cmp(&db)
+                });
 
-                    points.dedup();
+                points.dedup();
 
-                    // Create segments
-                    for w in points.windows(2) {
-                        let p0 = w[0];
-                        let p1 = w[1];
-                        if p0 != p1 {
-                            new_lines.push(Line::new(p0, p1));
-                        }
+                // Create replacement segments for the split line.
+                for w in points.windows(2) {
+                    let p0 = w[0];
+                    let p1 = w[1];
+                    if p0 != p1 {
+                        new_lines.push(Line::new(p0, p1));
                     }
-                } else {
-                    new_lines.push(*line);
                 }
+
+                src_idx = line_idx + 1;
+            }
+
+            // Copy any untouched trailing lines.
+            if src_idx < lines.len() {
+                new_lines.extend_from_slice(&lines[src_idx..]);
             }
 
             self.normalize_and_dedup(&mut new_lines);
             std::mem::swap(&mut lines, &mut new_lines);
+
+            if should_bail_early {
+                break;
+            }
         }
 
         lines
