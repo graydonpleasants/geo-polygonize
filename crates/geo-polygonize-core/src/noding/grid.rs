@@ -2,6 +2,7 @@ use crate::noding::snap::SnapNoder;
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::{Coord, Line};
+use wide::f64x4;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -12,6 +13,8 @@ pub struct UniformGrid {
     cell_offsets: Vec<usize>,
     /// Flattened list of line indices in each cell
     cell_items: Vec<u32>,
+    /// Lines that span too many cells and are handled via brute-force
+    pub(crate) global_lines: Vec<usize>,
     cell_size: f64,
     cols: usize,
     rows: usize,
@@ -63,10 +66,12 @@ impl UniformGrid {
 
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
-        // Pass 1: Count entries per cell
+        // Pass 1: Count entries per cell & Identify Global Lines
         let mut counts = vec![0usize; cols * rows];
+        let mut global_lines = Vec::new();
+        const MAX_CELLS_PER_LINE: usize = 50;
 
-        for line in lines {
+        for (i, line) in lines.iter().enumerate() {
             let l_min_x = line.start.x.min(line.end.x);
             let l_max_x = line.start.x.max(line.end.x);
             let l_min_y = line.start.y.min(line.end.y);
@@ -82,6 +87,13 @@ impl UniformGrid {
             let row_max = row_max.min(rows.saturating_sub(1));
             let col_min = col_min.min(col_max);
             let row_min = row_min.min(row_max);
+
+            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+
+            if num_cells > MAX_CELLS_PER_LINE {
+                global_lines.push(i);
+                continue;
+            }
 
             for r in row_min..=row_max {
                 for c in col_min..=col_max {
@@ -105,7 +117,18 @@ impl UniformGrid {
         // Copy the start offsets to use as current write pointers.
         let mut current_offsets = cell_offsets[0..cols * rows].to_vec();
 
+        // Use peekable iterator to skip global lines efficiently
+        let mut global_iter = global_lines.iter().peekable();
+
         for (i, line) in lines.iter().enumerate() {
+            // Check if this line is global
+            if let Some(&&global_idx) = global_iter.peek() {
+                if i == global_idx {
+                    global_iter.next();
+                    continue;
+                }
+            }
+
             let l_min_x = line.start.x.min(line.end.x);
             let l_max_x = line.start.x.max(line.end.x);
             let l_min_y = line.start.y.min(line.end.y);
@@ -134,6 +157,7 @@ impl UniformGrid {
         Self {
             cell_offsets,
             cell_items,
+            global_lines,
             cell_size,
             cols,
             rows,
@@ -145,6 +169,7 @@ impl UniformGrid {
         Self {
             cell_offsets: vec![0],
             cell_items: vec![],
+            global_lines: vec![],
             cell_size: 1.0,
             cols: 0,
             rows: 0,
@@ -163,7 +188,7 @@ impl UniformGrid {
         let soa = SoALines::new(lines);
 
         #[cfg(feature = "parallel")]
-        {
+        let mut splits = {
             (0..self.rows * self.cols)
                 .into_par_iter()
                 .fold(Vec::new, |mut acc, idx| {
@@ -182,10 +207,10 @@ impl UniformGrid {
                     a.append(&mut b);
                     a
                 })
-        }
+        };
 
         #[cfg(not(feature = "parallel"))]
-        {
+        let mut splits = {
             let mut splits = Vec::new();
             for r in 0..self.rows {
                 for c in 0..self.cols {
@@ -198,6 +223,96 @@ impl UniformGrid {
                 }
             }
             splits
+        };
+
+        // Process Global Lines (Brute Force against ALL lines)
+        if !self.global_lines.is_empty() {
+            let global_splits = self.process_global_lines(lines, snap_noder, &soa);
+            splits.extend(global_splits);
+        }
+
+        splits
+    }
+
+    fn process_global_lines(
+        &self,
+        lines: &[Line<f64>],
+        snap_noder: &SnapNoder,
+        soa: &SoALines,
+    ) -> Vec<(usize, Coord<f64>)> {
+        let global_lines = &self.global_lines;
+
+        // Helper to process a single global line against all others
+        let process_one_global = |g_idx: usize| -> Vec<(usize, Coord<f64>)> {
+            let mut events = Vec::new();
+            let query_line = lines[g_idx];
+
+            // Pre-calculate query BBox splats
+            let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
+            let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
+            let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
+            let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
+
+            for block_idx in (0..soa.len()).step_by(4) {
+                let mask = soa.intersects_bbox_batch_splatted(
+                    q_min_x, q_max_x, q_min_y, q_max_y, block_idx,
+                );
+
+                if mask != 0 {
+                    for k in 0..4 {
+                        if (mask & (1 << k)) != 0 {
+                            let target_idx = block_idx + k;
+                            if target_idx >= lines.len() {
+                                continue;
+                            }
+
+                            // Avoid self-intersection check
+                            if target_idx == g_idx {
+                                continue;
+                            }
+
+                            // Deduplicate Global-Global checks
+                            // If target is also global, enforce index ordering (only check if g_idx < target_idx)
+                            if global_lines.binary_search(&target_idx).is_ok() {
+                                if target_idx < g_idx {
+                                    continue;
+                                }
+                            }
+
+                            // Process intersection
+                            snap_noder.process_intersection(
+                                query_line,
+                                lines[target_idx],
+                                g_idx,
+                                target_idx,
+                                |idx, pt| events.push((idx, pt)),
+                            );
+                        }
+                    }
+                }
+            }
+            events
+        };
+
+        #[cfg(feature = "parallel")]
+        {
+            global_lines
+                .par_iter()
+                .map(|&g_idx| process_one_global(g_idx))
+                .reduce(Vec::new, |mut a, mut b| {
+                    a.append(&mut b);
+                    a
+                })
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut all_events = Vec::new();
+            for &g_idx in global_lines {
+                let events = process_one_global(g_idx);
+                all_events.extend(events);
+            }
+            all_events
         }
     }
 
@@ -447,6 +562,7 @@ mod tests {
     #[test]
     fn test_boundary_handling() {
         // Line crossing multiple cells horizontally
+        // This should trigger the "Global Line" heuristic and be excluded from grid cells.
         let lines = vec![Line::new(
             Coord { x: 0.0, y: 0.0 },
             Coord { x: 100.0, y: 0.0 },
@@ -470,6 +586,51 @@ mod tests {
             }
         }
 
-        assert!(cells_with_line > 1, "Long line should span multiple cells");
+        // With supercell optimization, this line should NOT be in any cell
+        assert_eq!(cells_with_line, 0, "Global line should not be in any grid cell");
+        assert!(grid.global_lines.contains(&0), "Long line should be in global_lines");
+    }
+
+    #[test]
+    fn test_global_line_intersection() {
+        // Scenario:
+        // l0: Global line (y=0, x=0..2000)
+        // l1: Local line intersecting l0 (x=1000, y=-0.01..0.01)
+        // l2: Global line intersecting l0 (x=0..2000, y crossing 0 at x=1000)
+
+        let l0 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2000.0, y: 0.0 });
+        let l1 = Line::new(Coord { x: 1000.0, y: -0.01 }, Coord { x: 1000.0, y: 0.01 });
+        let l2 = Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 2000.0, y: -1.0 });
+
+        let lines = vec![l0, l1, l2];
+        let grid = UniformGrid::new(&lines);
+
+        // Verify l0 and l2 are global
+        assert!(grid.global_lines.contains(&0), "l0 should be global");
+        assert!(grid.global_lines.contains(&2), "l2 should be global");
+        assert!(!grid.global_lines.contains(&1), "l1 should be local");
+
+        let noder = SnapNoder::new(0.0);
+        let splits = grid.find_splits(&lines, &noder);
+
+        // Expected intersections:
+        // l0 and l1 at (1000, 0)
+        // l0 and l2 at (1000, 0)
+        // l1 and l2 at (1000, 0) (triple intersection)
+
+        // Count events for each line
+        let events_l0 = splits.iter().filter(|(idx, _)| *idx == 0).count();
+        let events_l1 = splits.iter().filter(|(idx, _)| *idx == 1).count();
+        let events_l2 = splits.iter().filter(|(idx, _)| *idx == 2).count();
+
+        assert!(events_l0 >= 2, "l0 should have at least 2 intersection events");
+        assert!(events_l1 >= 2, "l1 should have at least 2 intersection events");
+        assert!(events_l2 >= 2, "l2 should have at least 2 intersection events");
+
+        // Verify coordinates
+        for (_, pt) in &splits {
+            assert_relative_eq!(pt.x, 1000.0, epsilon = 1e-5);
+            assert_relative_eq!(pt.y, 0.0, epsilon = 1e-5);
+        }
     }
 }
