@@ -27,6 +27,7 @@ fn polygonize<'py>(
         let dict = PyDict::new_bound(py);
         dict.set_item("polygons", Vec::<PyObject>::new())?;
         dict.set_item("dangles", Vec::<PyObject>::new())?;
+        dict.set_item("invalid_rings", Vec::<PyObject>::new())?;
         return Ok(dict.into());
     }
 
@@ -99,9 +100,16 @@ fn polygonize<'py>(
         dangle_objects.push(coords);
     }
 
+    let mut invalid_rings_objects = Vec::with_capacity(result.invalid_rings.len());
+    for ring in result.invalid_rings {
+        let coords: Vec<(f64, f64)> = ring.0.iter().map(|c| (c.x, c.y)).collect();
+        invalid_rings_objects.push(coords);
+    }
+
     let dict = PyDict::new_bound(py);
     dict.set_item("polygons", poly_objects)?;
     dict.set_item("dangles", dangle_objects)?;
+    dict.set_item("invalid_rings", invalid_rings_objects)?;
 
     Ok(dict.into())
 }

@@ -20,6 +20,7 @@ pub enum CPolygonStatus {
 pub struct CPolygonResult {
     pub polygons: Vec<Polygon<f64>>,
     pub dangles: Vec<LineString<f64>>,
+    pub invalid_rings: Vec<LineString<f64>>,
     pub status: CPolygonStatus,
 }
 
@@ -71,6 +72,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         return Box::into_raw(Box::new(CPolygonResult {
             polygons: Vec::new(),
             dangles: Vec::new(),
+            invalid_rings: Vec::new(),
             status: CPolygonStatus::Success,
         }));
     }
@@ -92,6 +94,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
                 dangles: Vec::new(),
+                invalid_rings: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
         }
@@ -105,6 +108,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
                 dangles: Vec::new(),
+                invalid_rings: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
         }
@@ -135,6 +139,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             let res = CPolygonResult {
                 polygons: result.polygons,
                 dangles: result.dangles,
+                invalid_rings: result.invalid_rings,
                 status: CPolygonStatus::Success,
             };
             Box::into_raw(Box::new(res))
@@ -142,6 +147,7 @@ pub unsafe extern "C" fn polygonize_ffi(
         Err(_) => Box::into_raw(Box::new(CPolygonResult {
             polygons: Vec::new(),
             dangles: Vec::new(),
+            invalid_rings: Vec::new(),
             status: CPolygonStatus::InternalError,
         })),
     }
@@ -364,6 +370,69 @@ pub unsafe extern "C" fn polygonize_result_get_hole_points(
     let hole = &holes[hole_idx];
     let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, hole.0.len() * 2) };
     for (i, coord) in hole.0.iter().enumerate() {
+        buffer_slice[2 * i] = coord.x;
+        buffer_slice[2 * i + 1] = coord.y;
+    }
+}
+
+/// Get invalid ring count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_invalid_ring_count(
+    res: *const CPolygonResult,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    unsafe { (*res).invalid_rings.len() }
+}
+
+/// Get invalid ring point count
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_invalid_ring_point_count(
+    res: *const CPolygonResult,
+    ring_idx: usize,
+) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    let rings = unsafe { &(*res).invalid_rings };
+    if ring_idx >= rings.len() {
+        return 0;
+    }
+    rings[ring_idx].0.len()
+}
+
+/// Get invalid ring points
+///
+/// # Safety
+///
+/// `res` must be a valid pointer to `CPolygonResult`.
+/// `buffer` must point to a valid memory region large enough to hold `2 * point_count` doubles.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_invalid_ring_points(
+    res: *const CPolygonResult,
+    ring_idx: usize,
+    buffer: *mut f64,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+    let rings = unsafe { &(*res).invalid_rings };
+    if ring_idx >= rings.len() {
+        return;
+    }
+
+    let ring = &rings[ring_idx];
+    let buffer_slice = unsafe { slice::from_raw_parts_mut(buffer, ring.0.len() * 2) };
+    for (i, coord) in ring.0.iter().enumerate() {
         buffer_slice[2 * i] = coord.x;
         buffer_slice[2 * i + 1] = coord.y;
     }

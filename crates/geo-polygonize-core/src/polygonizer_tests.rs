@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::Polygonizer;
+    use geo::bounding_rect::BoundingRect;
     use geo::Area;
     use geo_types::LineString;
 
@@ -409,5 +410,96 @@ mod tests {
 
         let result = poly.polygonize().expect("Polygonization failed");
         assert_eq!(result.polygons.len(), 2);
+    }
+
+    #[test]
+    fn test_invalid_rings_capture() {
+        let mut poly = Polygonizer::new();
+
+        // 1. Valid Square (10x10)
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // 2. Tiny Ring 1 (Area < 1e-9)
+        // A triangle with base 1e-5 and height 1e-5 has area 0.5e-10.
+        poly.add_geometry(
+            LineString::from(vec![
+                (20.0, 0.0),
+                (20.00001, 0.0),
+                (20.0, 0.00001),
+                (20.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // 3. Tiny Ring 2 (Inside Tiny Ring 1? No, let's make them disjoint first to test capture)
+        // Another tiny one.
+        poly.add_geometry(
+            LineString::from(vec![
+                (30.0, 0.0),
+                (30.00001, 0.0),
+                (30.0, 0.00001),
+                (30.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let result = poly.polygonize().expect("Polygonization failed");
+        assert_eq!(result.polygons.len(), 1, "Expected 1 valid polygon");
+        assert_eq!(result.invalid_rings.len(), 2, "Expected 2 invalid rings");
+    }
+
+    #[test]
+    fn test_invalid_rings_deduplication_and_nesting() {
+        let mut poly = Polygonizer::new();
+
+        // Ring A: Tiny but "outer" relative to B.
+        // Let's say we have a ring that is small enough to be invalid (< 1e-9),
+        // but we want to test the containment logic.
+
+        // Ring A (Outer): (0,0)-(1e-5,0)-(1e-5,1e-5)-(0,1e-5)-(0,0). Area = 1e-10.
+        let ring_a = LineString::from(vec![
+            (0.0, 0.0),
+            (1e-5, 0.0),
+            (1e-5, 1e-5),
+            (0.0, 1e-5),
+            (0.0, 0.0),
+        ]);
+
+        // Ring B (Inner): (0.2e-5, 0.2e-5)-(0.8e-5, 0.2e-5)-(0.8e-5, 0.8e-5)-(0.2e-5, 0.8e-5)-(0.2e-5, 0.2e-5).
+        // Area is smaller and is contained in A.
+        let ring_b = LineString::from(vec![
+            (0.2e-5, 0.2e-5),
+            (0.8e-5, 0.2e-5),
+            (0.8e-5, 0.8e-5),
+            (0.2e-5, 0.8e-5),
+            (0.2e-5, 0.2e-5),
+        ]);
+
+        poly.add_geometry(ring_a.into());
+        poly.add_geometry(ring_b.into());
+
+        let result = poly.polygonize().expect("Polygonization failed");
+        // Both are invalid (area < 1e-9).
+        // process_invalid_rings should filter out Ring B because it is contained in Ring A.
+
+        assert_eq!(result.polygons.len(), 0);
+        assert_eq!(result.invalid_rings.len(), 1);
+
+        // Verify it is ring A
+        let captured = &result.invalid_rings[0];
+        // Bounding box of captured should match Ring A.
+        let bbox = captured.bounding_rect().unwrap();
+        // Ring A max x is 1e-5. Ring B max x is 0.8e-5.
+        // If we captured Ring A, max x should be close to 1e-5.
+        assert!((bbox.max().x - 1e-5).abs() < 1e-12);
     }
 }
