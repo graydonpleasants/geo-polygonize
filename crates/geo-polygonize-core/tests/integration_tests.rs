@@ -43,7 +43,7 @@ fn test_nested_holes() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize().unwrap().polygons;
 
     // The polygonizer produces a full mesh:
     // 1. The Donut (Outer - Hole). Area = 10000 - 3600 = 6400.
@@ -102,7 +102,7 @@ fn test_touching_polygons() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize().unwrap().polygons;
 
     // Should find 2 polygons (Mesh behavior):
     // 1. Square 1 (Area 2500)
@@ -136,9 +136,10 @@ fn test_dangles() {
     // Tail
     poly.add_geometry(LineString::from(vec![(10.0, 10.0), (20.0, 20.0)]).into());
 
-    let polygons = poly.polygonize().unwrap();
-    assert_eq!(polygons.len(), 1);
-    assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+    let result = poly.polygonize().unwrap();
+    assert_eq!(result.polygons.len(), 1);
+    assert!((result.polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+    assert_eq!(result.dangles.len(), 1);
 }
 
 #[test]
@@ -159,7 +160,7 @@ fn test_bowtie() {
         .into(),
     );
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize().unwrap().polygons;
 
     // Produces:
     // 1. Triangle 1 (Shell). Area 25.
@@ -202,7 +203,7 @@ fn test_overlapping_circles() {
     poly.add_geometry(c2.into());
     poly.add_geometry(c3.into());
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize().unwrap().polygons;
     // Expect 8 (7 regions + 1 union).
     // Note: With the new Uniform Grid noding, or changes in robustness, we might be merging
     // very small artifact slivers differently. If the count is 7, it likely means one very small
@@ -233,7 +234,7 @@ fn test_curved_holes() {
     poly.add_geometry(h3.into());
     poly.add_geometry(h4.into());
 
-    let polygons = poly.polygonize().unwrap();
+    let polygons = poly.polygonize().unwrap().polygons;
 
     // Expect 5 (Outer + 4 holes).
     assert!(polygons.len() >= 5);
@@ -271,7 +272,7 @@ fn test_touching_full_edge() {
         .into(),
     );
 
-    let polygons = poly.polygonize().expect("Polygonization failed");
+    let polygons = poly.polygonize().expect("Polygonization failed").polygons;
     assert_eq!(polygons.len(), 2, "Expected 2 squares");
 
     for p in &polygons {
@@ -311,7 +312,7 @@ fn test_touching_partial_edge() {
         .into(),
     );
 
-    let polygons = poly.polygonize().expect("Polygonization failed");
+    let polygons = poly.polygonize().expect("Polygonization failed").polygons;
     // Should result in Square 1 (area 100) and Square 2 (area 100)
     // The noder should split the edge of Square 1 at (10,5) and edge of Square 2 at (10,10) (if needed)
     assert_eq!(polygons.len(), 2);
@@ -354,7 +355,7 @@ fn test_touching_vertex() {
         .into(),
     );
 
-    let polygons = poly.polygonize().expect("Polygonization failed");
+    let polygons = poly.polygonize().expect("Polygonization failed").polygons;
     assert_eq!(polygons.len(), 2);
 }
 
@@ -390,7 +391,7 @@ fn test_touching_t_junction() {
         .into(),
     );
 
-    let polygons = poly.polygonize().expect("Polygonization failed");
+    let polygons = poly.polygonize().expect("Polygonization failed").polygons;
     assert_eq!(polygons.len(), 2);
 
     // Check areas: S1 is 100, S2 is 6*10 = 60
@@ -460,7 +461,7 @@ fn test_grid_2x2() {
         .into(),
     );
 
-    let polygons = poly.polygonize().expect("Polygonization failed");
+    let polygons = poly.polygonize().expect("Polygonization failed").polygons;
     assert_eq!(polygons.len(), 4);
 
     for p in &polygons {

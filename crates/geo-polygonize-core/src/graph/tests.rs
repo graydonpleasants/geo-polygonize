@@ -94,7 +94,7 @@ mod tests {
         graph.sort_edges();
 
         let dangles = graph.prune_dangles();
-        assert_eq!(dangles, 1);
+        assert_eq!(dangles.len(), 1);
 
         let b_idx = graph
             .node_map

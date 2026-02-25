@@ -67,10 +67,10 @@ impl TiledPolygonizer {
         }
 
         // Run polygonization
-        if let Ok(polys) = local_poly.polygonize() {
+        if let Ok(result) = local_poly.polygonize() {
             // Ownership check:
             let mut valid_polys = Vec::new();
-            for poly in polys {
+            for poly in result.polygons {
                 if let Some(pt) = poly.centroid() {
                     let c = pt;
                     let area = poly.unsigned_area();

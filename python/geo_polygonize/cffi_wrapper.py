@@ -26,6 +26,10 @@ ffi.cdef("""
     size_t polygonize_result_get_hole_count(const CPolygonResult* res, size_t poly_idx);
     size_t polygonize_result_get_hole_point_count(const CPolygonResult* res, size_t poly_idx, size_t hole_idx);
     void polygonize_result_get_hole_points(const CPolygonResult* res, size_t poly_idx, size_t hole_idx, double* buffer);
+
+    size_t polygonize_result_get_dangle_count(const CPolygonResult* res);
+    size_t polygonize_result_get_dangle_point_count(const CPolygonResult* res, size_t dangle_idx);
+    void polygonize_result_get_dangle_points(const CPolygonResult* res, size_t dangle_idx, double* buffer);
 """)
 
 # Locate the library
@@ -84,7 +88,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         snap: snap grid size.
 
     Returns:
-        List of SimplePolygon objects.
+        Dict with 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
     """
     # Ensure contiguous C-order arrays
     coords = np.ascontiguousarray(coords_array, dtype=np.float64)
@@ -146,7 +150,20 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
 
             polygons.append(SimplePolygon(shell_coords, holes))
 
-        return polygons
+        # Dangles
+        dangle_count = lib.polygonize_result_get_dangle_count(res_ptr)
+        dangles = []
+        for i in range(dangle_count):
+            pts_count = lib.polygonize_result_get_dangle_point_count(res_ptr, i)
+            buffer = np.zeros(pts_count * 2, dtype=np.float64)
+            lib.polygonize_result_get_dangle_points(
+                res_ptr, i,
+                ffi.cast("double*", buffer.ctypes.data)
+            )
+            coords = tuple(map(tuple, buffer.reshape(-1, 2).tolist()))
+            dangles.append(coords)
+
+        return {'polygons': polygons, 'dangles': dangles}
 
     finally:
         lib.polygonize_result_free(res_ptr)

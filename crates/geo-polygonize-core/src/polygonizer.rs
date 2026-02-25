@@ -49,7 +49,8 @@ impl RTreeObject for IndexedEnvelope {
 ///     (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
 /// ])));
 ///
-/// let polygons = polygonizer.polygonize().expect("Polygonization failed");
+/// let result = polygonizer.polygonize().expect("Polygonization failed");
+/// let polygons = result.polygons;
 ///
 /// // Should find 1 polygon with area 100.0
 /// assert_eq!(polygons.len(), 1);
@@ -79,6 +80,11 @@ pub struct Polygonizer {
     // Additional buffer for explicit line segments (e.g., from FFI)
     input_lines: Vec<Line<f64>>,
     dirty: bool,
+}
+
+pub struct PolygonizerResult {
+    pub polygons: Vec<geo_types::Polygon<f64>>,
+    pub dangles: Vec<geo_types::LineString<f64>>,
 }
 
 impl Default for Polygonizer {
@@ -194,19 +200,23 @@ impl Polygonizer {
     /// Computes the polygons.
     /// This is the main entry point.
     ///
-    /// Returns a vector of `geo_types::Polygon<f64>`.
-    pub fn polygonize(&mut self) -> Result<Vec<geo_types::Polygon<f64>>> {
+    /// Returns a `PolygonizerResult` containing polygons and dangles.
+    pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
         self.build_graph()?;
 
         // 1. Sort edges (Geometry Graph operation)
         self.graph.sort_edges();
 
         // 2. Prune dangles
-        let _dangles_removed = self.graph.prune_dangles();
+        let mut dangles = self.graph.prune_dangles();
 
         // 3. Find rings
         // Extracts all minimal cycles from the planar graph.
         let rings = self.graph.get_edge_rings();
+
+        // 3b. Find cut edges (unvisited edges)
+        let mut cut_edges = self.graph.get_cut_edges();
+        dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
         // Standard GEOS behavior:
@@ -343,7 +353,10 @@ impl Polygonizer {
             }
         }
 
-        Ok(result)
+        Ok(PolygonizerResult {
+            polygons: result,
+            dangles,
+        })
     }
 }
 
