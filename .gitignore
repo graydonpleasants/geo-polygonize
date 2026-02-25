@@ -14,3 +14,4 @@ llms.txt
 python_bench_output.txt
 rust_bench_output.txt
 check_geo*
+__pycache__/

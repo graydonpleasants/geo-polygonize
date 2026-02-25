@@ -1,5 +1,5 @@
 use clap::Parser;
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geo_types::Geometry as GeoGeometry;
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
 use std::convert::TryInto;
