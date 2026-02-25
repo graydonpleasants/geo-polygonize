@@ -1,5 +1,6 @@
 use geo_polygonize_core::ffi::{
-    polygonize_ffi, polygonize_result_free, polygonize_result_get_count, PolygonizerOptions,
+    polygonize_ffi, polygonize_result_free, polygonize_result_get_count,
+    polygonize_result_get_status, PolygonizerOptions,
 };
 
 #[test]
@@ -27,6 +28,40 @@ fn test_ffi_simple_square() {
 
     let count = unsafe { polygonize_result_get_count(result_ptr) };
     assert_eq!(count, 1);
+
+    unsafe { polygonize_result_free(result_ptr) };
+}
+
+#[test]
+fn test_ffi_invalid_bounds() {
+    // Only 2 points (4 doubles) provided
+    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0];
+    // Offsets claims 5 points (index 0 to 5)
+    let offsets: Vec<u32> = vec![0, 5];
+
+    let options = PolygonizerOptions {
+        node_input: false,
+        snap_grid_size: 1e-10,
+    };
+
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            offsets.as_ptr(),
+            offsets.len(),
+            options,
+        )
+    };
+
+    assert!(!result_ptr.is_null());
+
+    let status = unsafe { polygonize_result_get_status(result_ptr) };
+    // Expect InvalidInput = 1
+    assert_eq!(status, 1);
+
+    let count = unsafe { polygonize_result_get_count(result_ptr) };
+    assert_eq!(count, 0);
 
     unsafe { polygonize_result_free(result_ptr) };
 }
