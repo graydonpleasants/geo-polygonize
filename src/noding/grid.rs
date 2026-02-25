@@ -130,7 +130,7 @@ impl UniformGrid {
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
-    /// Returns a flat list of (line_index, split_point) events.
+    /// Returns a flat list of (line_index, point) tuples.
     pub fn find_splits(
         &self,
         lines: &[Line<f64>],
@@ -353,14 +353,18 @@ mod tests {
 
         let splits = grid.find_splits(&lines, &noder);
 
-        // Both lines should be split at (5, 5)
-        let count_0 = splits.iter().filter(|(i, _)| *i == 0).count();
-        let count_1 = splits.iter().filter(|(i, _)| *i == 1).count();
-        assert!(count_0 > 0);
-        assert!(count_1 > 0);
+        // Expect 2 events: (0, (5,5)) and (1, (5,5))
+        assert_eq!(splits.len(), 2);
 
-        let p0 = splits.iter().find(|(i, _)| *i == 0).unwrap().1;
-        let p1 = splits.iter().find(|(i, _)| *i == 1).unwrap().1;
+        // Order is not guaranteed, sort by index
+        let mut sorted = splits.clone();
+        sorted.sort_by_key(|k| k.0);
+
+        assert_eq!(sorted[0].0, 0);
+        assert_eq!(sorted[1].0, 1);
+
+        let p0 = sorted[0].1;
+        let p1 = sorted[1].1;
 
         assert_relative_eq!(p0.x, 5.0);
         assert_relative_eq!(p0.y, 5.0);

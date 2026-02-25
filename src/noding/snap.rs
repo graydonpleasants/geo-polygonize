@@ -64,7 +64,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let mut splits = if !use_grid {
+            let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 self.find_splits_simd(&lines)
             } else {
@@ -73,37 +73,27 @@ impl SnapNoder {
                 grid.find_splits(&lines, self)
             };
 
-            if splits.is_empty() {
+            if events.is_empty() {
                 break;
             }
+
+            // Sort events by line index to allow linear scan
+            events.sort_unstable_by_key(|e| e.0);
 
             // Apply splits
             new_lines.clear();
             new_lines.reserve(lines.len() * 2);
 
-            // Sort events by line index
-            // Use parallel sort if available, though stable/unstable distinction matters less for usize keys
-            #[cfg(feature = "parallel")]
-            splits.par_sort_unstable_by_key(|e| e.0);
-            #[cfg(not(feature = "parallel"))]
-            splits.sort_unstable_by_key(|e| e.0);
-
             let mut event_idx = 0;
-            // Points buffer reuse
-            let mut points = Vec::with_capacity(4);
+            // Buffer to reuse for collecting points
+            let mut points = Vec::new();
 
             for (i, line) in lines.iter().enumerate() {
-                // Collect points for line i
                 points.clear();
 
-                // Fast-forward to current line
-                // Since splits is sorted, we can just check current index
-                while event_idx < splits.len() && splits[event_idx].0 < i {
-                    event_idx += 1;
-                }
-
-                while event_idx < splits.len() && splits[event_idx].0 == i {
-                    points.push(splits[event_idx].1);
+                // Collect all split points for line i
+                while event_idx < events.len() && events[event_idx].0 == i {
+                    points.push(events[event_idx].1);
                     event_idx += 1;
                 }
 
@@ -350,7 +340,7 @@ impl SnapNoder {
         lines: &[Line<f64>],
         i: usize,
         j: usize,
-        splits: &mut Vec<(usize, Coord<f64>)>,
+        events: &mut Vec<(usize, Coord<f64>)>,
     ) {
         if i >= lines.len() || j >= lines.len() {
             return;
@@ -360,7 +350,7 @@ impl SnapNoder {
         let l2 = lines[j];
 
         self.process_intersection(l1, l2, i, j, |idx, pt| {
-            splits.push((idx, pt));
+            events.push((idx, pt));
         });
     }
 }
@@ -403,17 +393,18 @@ mod tests {
         // SIMD Logic
         let mut splits_simd = noder.find_splits_simd(&lines);
 
-        // Sort both to compare
+        // Both return Vec<(usize, Coord)>
+        // Sort both by index, then coordinate
         splits_grid.sort_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
         });
+        splits_grid.dedup(); // Remove duplicate events if any
+
         splits_simd.sort_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
         });
-
-        splits_grid.dedup();
         splits_simd.dedup();
 
         assert_eq!(
@@ -422,13 +413,14 @@ mod tests {
             "Different event counts"
         );
 
-        for (e1, e2) in splits_grid.iter().zip(splits_simd.iter()) {
-            assert_eq!(e1.0, e2.0, "Mismatch index");
+        for (e_g, e_s) in splits_grid.iter().zip(splits_simd.iter()) {
+            assert_eq!(e_g.0, e_s.0, "Index mismatch");
             assert!(
-                (e1.1.x - e2.1.x).abs() < 1e-10 && (e1.1.y - e2.1.y).abs() < 1e-10,
-                "Point mismatch: {:?} vs {:?}",
-                e1.1,
-                e2.1
+                (e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10,
+                "Point mismatch at index {}: {:?} vs {:?}",
+                e_g.0,
+                e_g.1,
+                e_s.1
             );
         }
     }
@@ -474,18 +466,14 @@ mod tests {
         let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
         let l2 = Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 });
         let lines = vec![l1, l2];
-        let mut splits = Vec::new();
+        let mut events = Vec::new();
 
         let noder = SnapNoder::new(0.0);
-        noder.check_intersection(&lines, 0, 1, &mut splits);
+        noder.check_intersection(&lines, 0, 1, &mut events);
 
-        assert!(!splits.is_empty());
-        let count_0 = splits.iter().filter(|(i, _)| *i == 0).count();
-        let count_1 = splits.iter().filter(|(i, _)| *i == 1).count();
-        assert!(count_0 > 0);
-        assert!(count_1 > 0);
+        assert_eq!(events.len(), 2);
 
-        let p = splits[0].1;
+        let p = events[0].1;
         assert!((p.x - 5.0).abs() < 1e-10);
         assert!((p.y - 5.0).abs() < 1e-10);
     }

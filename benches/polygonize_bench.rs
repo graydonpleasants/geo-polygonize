@@ -51,6 +51,14 @@ fn generate_random_lines(n: usize, seed: u64) -> Vec<LineString<f64>> {
     lines
 }
 
+fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
+    let mut lines = Vec::new();
+    for i in 0..n {
+        lines.push(LineString::from(vec![(0.0, i as f64), (10.0, i as f64)]));
+    }
+    lines
+}
+
 fn bench_polygonize(c: &mut Criterion) {
     let mut group = c.benchmark_group("polygonize");
     group.sample_size(10);
@@ -99,7 +107,7 @@ fn bench_polygonize(c: &mut Criterion) {
 
     // Stress Test: Bowtie/Dirty Grid
     // Compare Strategies
-    let dirty_sizes = [10, 20, 50, 100];
+    let dirty_sizes = [10, 20, 50];
     for &size in dirty_sizes.iter() {
         let lines = generate_bowtie_grid(size);
 
@@ -181,6 +189,24 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         });
     }
+
+    // Sparse/Parallel Lines Test (Large N, 0 Intersections)
+    group.bench_function("large_parallel_10k", |b| {
+        let lines = generate_parallel_lines(10_000);
+        let mut input_segments = Vec::new();
+        for ls in &lines {
+            for line in ls.lines() {
+                input_segments.push(line);
+            }
+        }
+        // Clone for setup to avoid overhead in loop?
+        // SnapNoder::node consumes lines? No, it takes Vec<Line>.
+        // So we clone in iter.
+        b.iter(|| {
+            let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
+            noder.node(input_segments.clone());
+        });
+    });
 
     group.finish();
 }
