@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import init, { polygonize } from '../dist/standard/es/index.js';
+import init, { polygonize } from '../../../dist/standard/es/index.js';
 
 describe('WASM Polygonizer', () => {
     it('should polygonize a simple square', async () => {
