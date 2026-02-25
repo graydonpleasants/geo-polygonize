@@ -87,6 +87,10 @@ build_variant_threads() {
         rustup toolchain install nightly
     fi
 
+    # Ensure rust-src component is installed (required for build-std)
+    echo "Installing rust-src for nightly..."
+    rustup component add rust-src --toolchain nightly
+
     # 1. Cargo Build with Nightly and build-std
     RUSTFLAGS="$FLAGS" cargo +nightly build -p geo-polygonize-wasm \
         --target $TARGET \
