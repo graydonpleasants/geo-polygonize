@@ -2,16 +2,16 @@
 set -e
 
 echo "Building Rust benchmarks..."
-cargo build --bench polygonize_bench --release
+cargo build -p geo-polygonize-core --bench polygonize_bench --release
 
 echo "Running Rust benchmarks..."
-cargo bench --bench polygonize_bench > rust_bench_output.txt
+cargo bench -p geo-polygonize-core --bench polygonize_bench > rust_bench_output.txt
 
 echo "Running Python benchmarks..."
-python3 benches/bench_shapely.py > python_bench_output.txt
+python3 crates/geo-polygonize-core/benches/bench_shapely.py > python_bench_output.txt
 
 echo "Processing results..."
 # Here I could write a python script to parse both output files and produce a combined table.
-python3 benches/compare_results.py
+python3 crates/geo-polygonize-core/benches/compare_results.py
 
 echo "Done."
