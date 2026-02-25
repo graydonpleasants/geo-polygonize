@@ -1,4 +1,5 @@
 use crate::noding::snap::SnapNoder;
+use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::{Coord, Line};
 
@@ -6,8 +7,11 @@ use geo::{Coord, Line};
 use rayon::prelude::*;
 
 pub struct UniformGrid {
-    /// Flattened grid: cells[row * cols + col] -> List of line indices
-    cells: Vec<Vec<usize>>,
+    /// Compressed Sparse Row (CSR) storage
+    /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
+    cell_offsets: Vec<usize>,
+    /// Flattened list of line indices in each cell
+    cell_items: Vec<u32>,
     cell_size: f64,
     cols: usize,
     rows: usize,
@@ -52,80 +56,99 @@ impl UniformGrid {
         // Ensure cell_size isn't too small relative to the bounds
         let cell_size = target_cell_size.max(width.max(height) / 1000.0).max(1e-6);
 
-        // Adjust for overlapping_circles regression:
-        // Too small grid cells might cause ownership check issues with near-boundary intersections?
-        // Or perhaps logic is fine, but tuning helps.
-        // Let's force cell size slightly larger for now to pass robustness tests if border cases are tricky.
-        // let cell_size = cell_size * 2.0;
-
         // Calculate dimensions
         // Add small epsilon to ensure max boundary falls into a valid cell
         let cols = ((width + 1e-9) / cell_size).ceil() as usize;
         let rows = ((height + 1e-9) / cell_size).ceil() as usize;
 
-        // 3. Initialize & Populate
-        // Note: For Wasm, a single flat Vec<Vec> is better than complex trees,
-        // but high row/col counts can spike memory. Cap it if necessary.
-        let mut grid = Self {
-            cells: vec![Vec::new(); cols * rows],
+        // 3. Initialize & Populate (Two-Pass CSR Construction)
+
+        // Pass 1: Count entries per cell
+        let mut counts = vec![0usize; cols * rows];
+
+        for line in lines {
+            let l_min_x = line.start.x.min(line.end.x);
+            let l_max_x = line.start.x.max(line.end.x);
+            let l_min_y = line.start.y.min(line.end.y);
+            let l_max_y = line.start.y.max(line.end.y);
+
+            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+
+            // Clamp
+            let col_max = col_max.min(cols.saturating_sub(1));
+            let row_max = row_max.min(rows.saturating_sub(1));
+            let col_min = col_min.min(col_max);
+            let row_min = row_min.min(row_max);
+
+            for r in row_min..=row_max {
+                for c in col_min..=col_max {
+                    counts[r * cols + c] += 1;
+                }
+            }
+        }
+
+        // Prefix Sum to create offsets
+        let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
+        let mut sum = 0;
+        cell_offsets.push(0);
+        for count in counts {
+            sum += count;
+            cell_offsets.push(sum);
+        }
+
+        // Pass 2: Populate cell_items
+        let mut cell_items = vec![0u32; sum];
+        // We need a running tracker of where to insert in each cell.
+        // Copy the start offsets to use as current write pointers.
+        let mut current_offsets = cell_offsets[0..cols * rows].to_vec();
+
+        for (i, line) in lines.iter().enumerate() {
+            let l_min_x = line.start.x.min(line.end.x);
+            let l_max_x = line.start.x.max(line.end.x);
+            let l_min_y = line.start.y.min(line.end.y);
+            let l_max_y = line.start.y.max(line.end.y);
+
+            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+
+            let col_max = col_max.min(cols.saturating_sub(1));
+            let row_max = row_max.min(rows.saturating_sub(1));
+            let col_min = col_min.min(col_max);
+            let row_min = row_min.min(row_max);
+
+            for r in row_min..=row_max {
+                for c in col_min..=col_max {
+                    let cell_idx = r * cols + c;
+                    let write_pos = current_offsets[cell_idx];
+                    cell_items[write_pos] = i as u32;
+                    current_offsets[cell_idx] += 1;
+                }
+            }
+        }
+
+        Self {
+            cell_offsets,
+            cell_items,
             cell_size,
             cols,
             rows,
             bounds_min: Coord { x: min_x, y: min_y },
-        };
-
-        for (i, line) in lines.iter().enumerate() {
-            grid.insert(line, i);
         }
-
-        grid
     }
 
     fn empty() -> Self {
         Self {
-            cells: vec![],
+            cell_offsets: vec![0],
+            cell_items: vec![],
             cell_size: 1.0,
             cols: 0,
             rows: 0,
             bounds_min: Coord::zero(),
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self, line: &Line<f64>, index: usize) {
-        // Find grid range for the line AABB
-        let l_min_x = line.start.x.min(line.end.x);
-        let l_max_x = line.start.x.max(line.end.x);
-        let l_min_y = line.start.y.min(line.end.y);
-        let l_max_y = line.start.y.max(line.end.y);
-
-        let col_min = ((l_min_x - self.bounds_min.x) / self.cell_size)
-            .floor()
-            .max(0.0) as usize;
-        let col_max = ((l_max_x - self.bounds_min.x) / self.cell_size)
-            .floor()
-            .max(0.0) as usize;
-        let row_min = ((l_min_y - self.bounds_min.y) / self.cell_size)
-            .floor()
-            .max(0.0) as usize;
-        let row_max = ((l_max_y - self.bounds_min.y) / self.cell_size)
-            .floor()
-            .max(0.0) as usize;
-
-        // Safety clamp (floating point issues)
-        let col_max = col_max.min(self.cols.saturating_sub(1));
-        let row_max = row_max.min(self.rows.saturating_sub(1));
-
-        // Ensure min <= max after clamping (in case indices are out of bounds initially)
-        let col_min = col_min.min(col_max);
-        let row_min = row_min.min(row_max);
-
-        for r in row_min..=row_max {
-            for c in col_min..=col_max {
-                // Optimization: Avoid pushing if the line barely touches the cell?
-                // For noding, conservative (AABB inclusion) is safer and faster.
-                self.cells[r * self.cols + c].push(index);
-            }
         }
     }
 
@@ -136,16 +159,22 @@ impl UniformGrid {
         lines: &[Line<f64>],
         snap_noder: &SnapNoder,
     ) -> Vec<(usize, Coord<f64>)> {
+        // Instantiate SoA structure for fast AABB checks
+        let soa = SoALines::new(lines);
+
         #[cfg(feature = "parallel")]
         {
-            self.cells
-                .par_iter()
-                .enumerate()
-                .fold(Vec::new, |mut acc, (idx, cell_indices)| {
+            (0..self.rows * self.cols)
+                .into_par_iter()
+                .fold(Vec::new, |mut acc, idx| {
+                    let start = self.cell_offsets[idx];
+                    let end = self.cell_offsets[idx + 1];
+                    let cell_indices = &self.cell_items[start..end];
+
                     if cell_indices.len() >= 2 {
                         let r = idx / self.cols;
                         let c = idx % self.cols;
-                        self.process_cell(r, c, cell_indices, lines, snap_noder, &mut acc);
+                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc);
                     }
                     acc
                 })
@@ -160,8 +189,12 @@ impl UniformGrid {
             let mut splits = Vec::new();
             for r in 0..self.rows {
                 for c in 0..self.cols {
-                    let cell_indices = &self.cells[r * self.cols + c];
-                    self.process_cell(r, c, cell_indices, lines, snap_noder, &mut splits);
+                    let idx = r * self.cols + c;
+                    let start = self.cell_offsets[idx];
+                    let end = self.cell_offsets[idx + 1];
+                    let cell_indices = &self.cell_items[start..end];
+
+                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
                 }
             }
             splits
@@ -173,9 +206,10 @@ impl UniformGrid {
         &self,
         r: usize,
         c: usize,
-        cell_indices: &[usize],
+        cell_indices: &[u32],
         lines: &[Line<f64>],
         snap_noder: &SnapNoder,
+        soa: &SoALines,
         splits: &mut Vec<(usize, Coord<f64>)>,
     ) {
         if cell_indices.len() < 2 {
@@ -191,65 +225,80 @@ impl UniformGrid {
         // Brute force pairs within the cell
         for i in 0..cell_indices.len() {
             for j in (i + 1)..cell_indices.len() {
-                let idx1 = cell_indices[i];
-                let idx2 = cell_indices[j];
+                let idx1 = cell_indices[i] as usize;
+                let idx2 = cell_indices[j] as usize;
 
-                // NOTE: If you implemented SoALines, you could insert the SoA check here!
-                // if !soa.intersects(idx1, idx2) { continue; }
+                // Fast AABB rejection using SoA
+                // Check if idx1 and idx2 AABBs overlap
+                // Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
+                // We read directly from SoA vectors
 
-                let l1 = lines[idx1];
-                let l2 = lines[idx2];
+                let min_x1 = soa.min_x[idx1];
+                let max_x1 = soa.max_x[idx1];
+                let min_y1 = soa.min_y[idx1];
+                let max_y1 = soa.max_y[idx1];
 
-                if let Some(res) = line_intersection(l1, l2) {
-                    match res {
-                        LineIntersection::SinglePoint {
-                            intersection: pt, ..
-                        } => {
-                            // OWNERSHIP CHECK:
-                            // A line pair might exist in multiple cells.
-                            // To avoid Duplicate Work: only process if the intersection point
-                            // falls strictly within THIS cell's responsibility.
-                            let is_in_x = pt.x >= cell_min_x
-                                && (pt.x < cell_max_x
-                                    || (c == self.cols - 1 && pt.x <= cell_max_x));
-                            let is_in_y = pt.y >= cell_min_y
-                                && (pt.y < cell_max_y
-                                    || (r == self.rows - 1 && pt.y <= cell_max_y));
+                let min_x2 = soa.min_x[idx2];
+                let max_x2 = soa.max_x[idx2];
+                let min_y2 = soa.min_y[idx2];
+                let max_y2 = soa.max_y[idx2];
 
-                            if is_in_x && is_in_y {
-                                snap_noder.handle_intersection(
-                                    res,
-                                    idx1,
-                                    idx2,
-                                    l1,
-                                    l2,
-                                    |idx, pt| {
-                                        splits.push((idx, pt));
-                                    },
-                                );
+                // Scalar overlap check
+                if max_x1 >= min_x2 && min_x1 <= max_x2 && max_y1 >= min_y2 && min_y1 <= max_y2 {
+                    let l1 = lines[idx1];
+                    let l2 = lines[idx2];
+
+                    if let Some(res) = line_intersection(l1, l2) {
+                        match res {
+                            LineIntersection::SinglePoint {
+                                intersection: pt, ..
+                            } => {
+                                // OWNERSHIP CHECK:
+                                // A line pair might exist in multiple cells.
+                                // To avoid Duplicate Work: only process if the intersection point
+                                // falls strictly within THIS cell's responsibility.
+                                let is_in_x = pt.x >= cell_min_x
+                                    && (pt.x < cell_max_x
+                                        || (c == self.cols - 1 && pt.x <= cell_max_x));
+                                let is_in_y = pt.y >= cell_min_y
+                                    && (pt.y < cell_max_y
+                                        || (r == self.rows - 1 && pt.y <= cell_max_y));
+
+                                if is_in_x && is_in_y {
+                                    snap_noder.handle_intersection(
+                                        res,
+                                        idx1,
+                                        idx2,
+                                        l1,
+                                        l2,
+                                        |idx, pt| {
+                                            splits.push((idx, pt));
+                                        },
+                                    );
+                                }
                             }
-                        }
-                        LineIntersection::Collinear {
-                            intersection: overlap,
-                        } => {
-                            // Collinear is rare. Just process start/end and let HashMap dedup later.
-                            let p1 = snap_noder.snap(overlap.start);
-                            // Simplified ownership: Check if p1 is in cell
-                            let p1_in = p1.x >= cell_min_x
-                                && p1.x < cell_max_x
-                                && p1.y >= cell_min_y
-                                && p1.y < cell_max_y;
-                            if p1_in || (c == 0 && r == 0) {
-                                snap_noder.handle_intersection(
-                                    res,
-                                    idx1,
-                                    idx2,
-                                    l1,
-                                    l2,
-                                    |idx, pt| {
-                                        splits.push((idx, pt));
-                                    },
-                                );
+                            LineIntersection::Collinear {
+                                intersection: overlap,
+                            } => {
+                                // Collinear is rare. Just process start/end and let HashMap dedup later.
+                                let p1 = snap_noder.snap(overlap.start);
+                                // Simplified ownership: Check if p1 is in cell
+                                let p1_in = p1.x >= cell_min_x
+                                    && p1.x < cell_max_x
+                                    && p1.y >= cell_min_y
+                                    && p1.y < cell_max_y;
+                                if p1_in || (c == 0 && r == 0) {
+                                    snap_noder.handle_intersection(
+                                        res,
+                                        idx1,
+                                        idx2,
+                                        l1,
+                                        l2,
+                                        |idx, pt| {
+                                            splits.push((idx, pt));
+                                        },
+                                    );
+                                }
                             }
                         }
                     }
@@ -271,7 +320,8 @@ mod tests {
         let grid = UniformGrid::new(&[]);
         assert_eq!(grid.rows, 0);
         assert_eq!(grid.cols, 0);
-        assert!(grid.cells.is_empty());
+        assert!(grid.cell_offsets.len() <= 1);
+        assert!(grid.cell_items.is_empty());
     }
 
     #[test]
@@ -303,7 +353,7 @@ mod tests {
         assert!(grid.cell_size > 0.0);
 
         // Verify total cells
-        assert_eq!(grid.cells.len(), grid.rows * grid.cols);
+        assert_eq!(grid.cell_offsets.len(), grid.rows * grid.cols + 1);
     }
 
     #[test]
@@ -320,11 +370,15 @@ mod tests {
         let mut cells_with_0 = 0;
         let mut cells_with_1 = 0;
 
-        for cell in &grid.cells {
-            if cell.contains(&0) {
+        for i in 0..(grid.rows * grid.cols) {
+            let start = grid.cell_offsets[i];
+            let end = grid.cell_offsets[i+1];
+            let cell = &grid.cell_items[start..end];
+
+            if cell.contains(&(0u32)) {
                 cells_with_0 += 1;
             }
-            if cell.contains(&1) {
+            if cell.contains(&(1u32)) {
                 cells_with_1 += 1;
             }
         }
@@ -333,9 +387,12 @@ mod tests {
         assert!(cells_with_1 > 0, "Line 1 should be in at least one cell");
 
         // Verify they don't share any cells (given the distance and reasonable grid size)
-        for cell in &grid.cells {
+        for i in 0..(grid.rows * grid.cols) {
+            let start = grid.cell_offsets[i];
+            let end = grid.cell_offsets[i+1];
+            let cell = &grid.cell_items[start..end];
             assert!(
-                !(cell.contains(&0) && cell.contains(&1)),
+                !(cell.contains(&(0u32)) && cell.contains(&(1u32))),
                 "Lines far apart should not share a cell"
             );
         }
@@ -403,8 +460,11 @@ mod tests {
         );
 
         let mut cells_with_line = 0;
-        for cell in &grid.cells {
-            if cell.contains(&0) {
+        for i in 0..(grid.rows * grid.cols) {
+            let start = grid.cell_offsets[i];
+            let end = grid.cell_offsets[i+1];
+            let cell = &grid.cell_items[start..end];
+            if cell.contains(&(0u32)) {
                 cells_with_line += 1;
             }
         }

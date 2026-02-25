@@ -219,15 +219,28 @@ impl SnapNoder {
 
         #[cfg(feature = "parallel")]
         {
-            // Parallel execution: each thread processes a subset of query lines
-            // and returns a list of split events (line_index, point).
-            lines
-                .par_iter()
-                .enumerate()
-                .flat_map(|(i, &query_line)| {
-                    self.check_intersection_simd(query_line, i, lines, &soa)
-                })
-                .collect()
+            // Rayon Heuristic: Thread spin-up dominates for small N.
+            // Use sequential loop if lines < 1000.
+            if lines.len() >= 1000 {
+                // Parallel execution: each thread processes a subset of query lines
+                // and returns a list of split events (line_index, point).
+                lines
+                    .par_iter()
+                    .enumerate()
+                    .flat_map(|(i, &query_line)| {
+                        self.check_intersection_simd(query_line, i, lines, &soa)
+                    })
+                    .collect()
+            } else {
+                // Sequential fallback
+                lines
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, &query_line)| {
+                        self.check_intersection_simd(query_line, i, lines, &soa)
+                    })
+                    .collect()
+            }
         }
 
         #[cfg(not(feature = "parallel"))]
