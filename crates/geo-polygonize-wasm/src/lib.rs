@@ -56,7 +56,8 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
 
     // Convert back to GeoJSON
-    let geometries: Vec<Geometry> = result.polygons
+    let geometries: Vec<Geometry> = result
+        .polygons
         .into_iter()
         .map(|p| Geometry::new(Value::from(&p)))
         .collect();
