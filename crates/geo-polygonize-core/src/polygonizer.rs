@@ -1,9 +1,8 @@
 use crate::error::Result;
 use crate::graph::PlanarGraph;
-use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
-use geo_types::{Coord, Geometry, Line, LineString, Point, Polygon};
+use geo_types::{Coord, Geometry, Line, LineString, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 
 use crate::noding::snap::SnapNoder;
@@ -277,11 +276,7 @@ impl Polygonizer {
                 let mut best_shell_idx = None;
                 let mut min_area = f64::MAX;
 
-                // Use centroid for inclusion check to avoid boundary issues
-                let probe_point = hole_poly.centroid().unwrap_or_else(|| {
-                    // Fallback to first point if centroid fails (e.g. degenerate)
-                    Point(hole_poly.exterior().0[0])
-                });
+                let probe_point = guaranteed_interior_probe(&hole_poly)?;
 
                 for cand in candidates {
                     let idx = cand.index;
@@ -290,6 +285,14 @@ impl Polygonizer {
 
                     if simd_shell.contains(probe_point.0) {
                         let shell = &shells[idx];
+
+                        // GEOS topology strictness:
+                        // - Point-touch between hole and shell is valid and kept.
+                        // - Edge-sharing invalidates the hole assignment here and we drop the hole.
+                        if rings_share_edge(shell.exterior(), hole_poly.exterior(), 1e-10) {
+                            continue;
+                        }
+
                         let area = shell.unsigned_area();
                         let hole_area = hole_poly.unsigned_area();
 
@@ -342,6 +345,157 @@ impl Polygonizer {
 
         Ok(result)
     }
+}
+
+fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64>> {
+    let ring = poly.exterior();
+    let coords = &ring.0;
+    if coords.len() < 4 {
+        return None;
+    }
+
+    let unique_n = coords.len().saturating_sub(1);
+    if unique_n < 3 {
+        return None;
+    }
+
+    let area = poly.signed_area();
+    if !area.is_finite() || area.abs() < 1e-12 {
+        return None;
+    }
+
+    let hole_simd = SimdRing::new(coords);
+    let diag = poly
+        .bounding_rect()
+        .map(|b| {
+            let dx = b.max().x - b.min().x;
+            let dy = b.max().y - b.min().y;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .unwrap_or(1.0);
+    let eps = (diag * 1e-9).max(1e-10);
+
+    for i in 0..unique_n {
+        let prev = coords[(i + unique_n - 1) % unique_n];
+        let curr = coords[i];
+        let next = coords[(i + 1) % unique_n];
+
+        let in_edge = Coord {
+            x: curr.x - prev.x,
+            y: curr.y - prev.y,
+        };
+        let out_edge = Coord {
+            x: next.x - curr.x,
+            y: next.y - curr.y,
+        };
+
+        let in_len = (in_edge.x * in_edge.x + in_edge.y * in_edge.y).sqrt();
+        let out_len = (out_edge.x * out_edge.x + out_edge.y * out_edge.y).sqrt();
+        if in_len < 1e-12 || out_len < 1e-12 {
+            continue;
+        }
+
+        let turn = in_edge.x * out_edge.y - in_edge.y * out_edge.x;
+        let convex = if area > 0.0 {
+            turn > 1e-12
+        } else {
+            turn < -1e-12
+        };
+        if !convex {
+            continue;
+        }
+
+        let to_prev = Coord {
+            x: (prev.x - curr.x) / in_len,
+            y: (prev.y - curr.y) / in_len,
+        };
+        let to_next = Coord {
+            x: (next.x - curr.x) / out_len,
+            y: (next.y - curr.y) / out_len,
+        };
+
+        let bisector = Coord {
+            x: to_prev.x + to_next.x,
+            y: to_prev.y + to_next.y,
+        };
+        let bisector_len = (bisector.x * bisector.x + bisector.y * bisector.y).sqrt();
+        if bisector_len < 1e-12 {
+            continue;
+        }
+
+        let bisector_unit = Coord {
+            x: bisector.x / bisector_len,
+            y: bisector.y / bisector_len,
+        };
+
+        for sign in [1.0, -1.0] {
+            let candidate = Coord {
+                x: curr.x + sign * bisector_unit.x * eps,
+                y: curr.y + sign * bisector_unit.y * eps,
+            };
+            if hole_simd.contains(candidate) {
+                return Some(geo_types::Point(candidate));
+            }
+        }
+    }
+
+    Some(geo_types::Point(coords[0]))
+}
+
+fn rings_share_edge(shell: &LineString<f64>, hole: &LineString<f64>, eps: f64) -> bool {
+    if shell.0.len() < 2 || hole.0.len() < 2 {
+        return false;
+    }
+
+    let shell_n = shell.0.len() - 1;
+    let hole_n = hole.0.len() - 1;
+
+    for i in 0..shell_n {
+        let a1 = shell.0[i];
+        let a2 = shell.0[i + 1];
+        for j in 0..hole_n {
+            let b1 = hole.0[j];
+            let b2 = hole.0[j + 1];
+            if segments_overlap_with_length(a1, a2, b1, b2, eps) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn segments_overlap_with_length(
+    a1: Coord<f64>,
+    a2: Coord<f64>,
+    b1: Coord<f64>,
+    b2: Coord<f64>,
+    eps: f64,
+) -> bool {
+    let ax = a2.x - a1.x;
+    let ay = a2.y - a1.y;
+    let a_len_sq = ax * ax + ay * ay;
+    if a_len_sq <= eps * eps {
+        return false;
+    }
+
+    // Collinearity checks for segment B endpoints against segment A line
+    let cross_b1 = ax * (b1.y - a1.y) - ay * (b1.x - a1.x);
+    let cross_b2 = ax * (b2.y - a1.y) - ay * (b2.x - a1.x);
+    let tol = eps * a_len_sq.sqrt();
+    if cross_b1.abs() > tol || cross_b2.abs() > tol {
+        return false;
+    }
+
+    let t1 = ((b1.x - a1.x) * ax + (b1.y - a1.y) * ay) / a_len_sq;
+    let t2 = ((b2.x - a1.x) * ax + (b2.y - a1.y) * ay) / a_len_sq;
+
+    let min_t = t1.min(t2);
+    let max_t = t1.max(t2);
+    let overlap_start = 0.0_f64.max(min_t);
+    let overlap_end = 1.0_f64.min(max_t);
+
+    overlap_end - overlap_start > eps
 }
 
 fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {

@@ -217,4 +217,119 @@ mod tests {
             .expect("Polygonization should not fail on Point input with noding");
         assert_eq!(polygons.len(), 0);
     }
+
+    #[test]
+    fn test_concave_hole_uses_interior_probe_not_centroid() {
+        let mut poly = Polygonizer::new();
+
+        // Outer shell (CCW)
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // Concave C-shaped hole (CW). Its centroid lies outside of the ring.
+        poly.add_geometry(
+            LineString::from(vec![
+                (3.0, 3.0),
+                (3.0, 9.0),
+                (9.0, 9.0),
+                (9.0, 7.0),
+                (5.0, 7.0),
+                (5.0, 5.0),
+                (9.0, 5.0),
+                (9.0, 3.0),
+                (3.0, 3.0),
+            ])
+            .into(),
+        );
+
+        let polygons = poly.polygonize().expect("Polygonization failed");
+
+        let shell_with_hole = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 72.0).abs() < 1.0);
+        assert!(
+            shell_with_hole.is_some(),
+            "Expected outer shell area near 72 with assigned concave hole"
+        );
+        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+    }
+
+    #[test]
+    fn test_point_touch_hole_is_kept() {
+        let mut poly = Polygonizer::new();
+
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // CW hole touching shell at one vertex (5,0)
+        poly.add_geometry(
+            LineString::from(vec![(5.0, 0.0), (4.0, 2.0), (6.0, 2.0), (5.0, 0.0)]).into(),
+        );
+
+        let polygons = poly.polygonize().expect("Polygonization failed");
+
+        let shell_with_hole = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 98.0).abs() < 1.0);
+        assert!(
+            shell_with_hole.is_some(),
+            "Point-touch hole should be retained on parent shell"
+        );
+        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+    }
+
+    #[test]
+    fn test_edge_touch_hole_is_dropped() {
+        let mut poly = Polygonizer::new();
+
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // CW hole sharing an entire edge segment with the shell boundary.
+        poly.add_geometry(
+            LineString::from(vec![
+                (2.0, 0.0),
+                (2.0, 2.0),
+                (4.0, 2.0),
+                (4.0, 0.0),
+                (2.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let polygons = poly.polygonize().expect("Polygonization failed");
+
+        let outer = polygons
+            .iter()
+            .find(|p| (p.unsigned_area() - 100.0).abs() < 1.0);
+        assert!(
+            outer.is_some(),
+            "Edge-touch hole should not be assigned to the parent shell"
+        );
+        assert_eq!(outer.unwrap().interiors().len(), 0);
+    }
 }
