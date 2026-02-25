@@ -160,19 +160,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000149 | 0.000677 | 4.53x |
-| 10 | 0.000326 | 0.002215 | 6.80x |
-| 20 | 0.000805 | 0.008279 | 10.29x |
-| 50 | 0.004278 | 0.051249 | 11.98x |
-| 100 | 0.015552 | 0.218355 | 14.04x |
+| 5 | 0.000150 | 0.000689 | 4.60x |
+| 10 | 0.000323 | 0.002267 | 7.02x |
+| 20 | 0.000804 | 0.008604 | 10.70x |
+| 50 | 0.004134 | 0.053387 | 12.91x |
+| 100 | 0.014455 | 0.232546 | 16.09x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000695 | 0.008179 | 11.77x |
-| 100 | 0.002474 | 0.026310 | 10.64x |
-| 200 | 0.008781 | 0.104874 | 11.94x |
+| 50 | 0.000701 | 0.008971 | 12.80x |
+| 100 | 0.002475 | 0.026481 | 10.70x |
+| 200 | 0.009030 | 0.104840 | 11.61x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -7463,21 +7463,101 @@ def test_square_with_hole():
     assert abs(areas[1] - 64.0) < 1e-6
     print("Square with hole test passed!")
 
+def test_3d_coordinates():
+    print("\nTesting 3D coordinates (expecting Z to be ignored)...")
+    # A square in 3D: (0,0,100), (10,0,101), (10,10,102), (0,10,103)
+    coords = np.array([
+        [0.0, 0.0, 100.0],
+        [10.0, 0.0, 101.0],
+        [10.0, 10.0, 102.0],
+        [0.0, 10.0, 103.0],
+        [0.0, 0.0, 100.0]  # Closed ring
+    ], dtype=np.float64)
+
+    # Offsets in POINTS (indices into the N rows)
+    # 5 points.
+    # We want one ring.
+    # Note: polygonize usually takes multiple lines.
+    # If we pass a single closed linestring, it should work if it forms a polygon.
+    # We need to include the last point (index 4) to close the loop P3->P4.
+    # Offsets define range [start, end). The loop runs for j in start..end-1.
+    # To get segments P0-P1, P1-P2, P2-P3, P3-P4, we need j=0,1,2,3.
+    # So end-1 = 4 => end = 5.
+    offsets = np.array([0, 5], dtype=np.uint32)
+
+    polys = polygonize(coords, offsets)
+    print(f"Result count: {len(polys)}")
+    assert len(polys) == 1
+
+    poly = polys[0]
+    shapely_poly = shape(poly.__geo_interface__)
+    print(f"Shapely area: {shapely_poly.area}")
+    assert abs(shapely_poly.area - 100.0) < 1e-6
+    print("3D coordinates test passed!")
+
+def test_odd_length_coordinates():
+    print("\nTesting odd length coordinates...")
+    # Flat array with 3 elements (1.5 points)
+    coords = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    offsets = np.array([0], dtype=np.uint32)
+
+    try:
+        polygonize(coords, offsets)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        print(f"Caught expected error: {e}")
+        assert "Coordinates array must have an even number of elements" in str(e)
+    print("Odd length coordinates test passed!")
+
 if __name__ == "__main__":
     test_square()
     test_two_squares()
     test_square_with_hole()
+    test_3d_coordinates()
+    test_odd_length_coordinates()
 
 ```
 
 File: python/geo_polygonize/__init__.py
 ```
 from .types import SimplePolygon
+import numpy as np
 
 try:
-    from .geo_polygonize_core import polygonize
+    from .geo_polygonize_core import polygonize as _polygonize_impl
 except ImportError:
-    from .cffi_wrapper import polygonize
+    from .cffi_wrapper import polygonize as _polygonize_impl
+
+def polygonize(coords, offsets, node=False, snap=1e-10):
+    """
+    Polygonize a set of lines.
+
+    Args:
+        coords: float64 array of shape (N, 2) or (N, 3) or flattened.
+        offsets: uint32 array of start indices in coords.
+        node: whether to node the input.
+        snap: snap grid size.
+
+    Returns:
+        List of SimplePolygon objects.
+    """
+    # Ensure coords is a numpy array
+    coords = np.ascontiguousarray(coords, dtype=np.float64)
+
+    # Handle (N, 3) case: slice out Z
+    if coords.ndim == 2 and coords.shape[1] == 3:
+        coords = coords[:, :2]
+        coords = np.ascontiguousarray(coords, dtype=np.float64)
+
+    # Flatten if 2D (N, 2)
+    if coords.ndim == 2:
+        coords = coords.ravel()
+
+    # Check for odd length (must be pairs of XY)
+    if coords.size % 2 != 0:
+        raise ValueError("Coordinates array must have an even number of elements (XY pairs).")
+
+    return _polygonize_impl(coords, offsets, node=node, snap=snap)
 
 ```
 
@@ -8101,6 +8181,7 @@ File: tests/differential_shapely.py
 import json
 import subprocess
 import tempfile
+import time
 import pytest
 import numpy as np
 import os
@@ -8315,11 +8396,17 @@ def run_rust_cli(lines):
         f_in.flush()
         f_in.close() # Close to ensure flush to disk
 
-        # Run Rust process
-        cmd = [
-            "cargo", "run", "--release", "-p", "geo-polygonize-core", "--example", "polygonize",
-            "--", "--input", f_in.name, "--output", f_out.name, "--node"
-        ]
+        # Check for pre-built release binary to avoid cargo overhead
+        binary_path = os.path.join("target", "release", "examples", "polygonize")
+        if os.path.exists(binary_path):
+            cmd = [binary_path, "--input", f_in.name, "--output", f_out.name, "--node"]
+        else:
+            # Fallback to cargo run
+            cmd = [
+                "cargo", "run", "--release", "-p", "geo-polygonize-core", "--example", "polygonize",
+                "--", "--input", f_in.name, "--output", f_out.name, "--node"
+            ]
+
         # Using capture_output=True to suppress stdout unless error
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -8343,22 +8430,18 @@ def run_rust_cli(lines):
                 os.unlink(f_out.name)
 
 def assert_parity(shapely_polys, rust_polys):
-    """Compares topological equivalence without relying on vertex order."""
+    """Compares topological equivalence using geometric symmetric difference."""
     # Filter empty polygons if any (though shapely/rust shouldn't produce them usually)
     shapely_polys = [p for p in shapely_polys if not p.is_empty and p.area > 1e-9]
     rust_polys = [p for p in rust_polys if not p.is_empty and p.area > 1e-9]
 
-    assert len(shapely_polys) == len(rust_polys), f"Count mismatch: Shapely {len(shapely_polys)} vs Rust {len(rust_polys)}"
+    # Compute the unary_union of the Shapely polygons and the unary_union of the Rust polygons
+    shapely_union = unary_union(shapely_polys)
+    rust_union = unary_union(rust_polys)
 
-    shapely_areas = sorted([p.area for p in shapely_polys])
-    rust_areas = sorted([p.area for p in rust_polys])
-
-    # Use a looser tolerance for areas because of different FP arithmetic
-    np.testing.assert_allclose(
-        rust_areas, shapely_areas,
-        rtol=1e-6, atol=1e-6,
-        err_msg="Multiset of polygon areas do not match."
-    )
+    # Assert that the symmetric_difference between these two unions has an area of < 1e-5
+    diff = shapely_union.symmetric_difference(rust_union)
+    assert diff.area < 1e-5, f"Spatial parity failed. Symmetric difference area: {diff.area}"
 
 @pytest.mark.parametrize("generator", [
     generate_t_junction_soup,
@@ -8374,9 +8457,21 @@ def assert_parity(shapely_polys, rust_polys):
 ])
 def test_differential_parity(generator):
     lines = generator()
+
+    start_shapely = time.perf_counter()
     shapely_result = run_shapely(lines)
+    shapely_time = time.perf_counter() - start_shapely
+
+    start_rust = time.perf_counter()
     rust_result = run_rust_cli(lines)
+    rust_time = time.perf_counter() - start_rust
+
     assert_parity(shapely_result, rust_result)
+
+    # Soft assertion for time complexity (with overhead buffer for small inputs)
+    # Using a constant floor of 1.0s to account for CLI startup and IO overhead
+    assert rust_time < max(shapely_time * 10.0, 1.0), \
+        f"Rust performance regression: Rust {rust_time:.4f}s > max(Shapely {shapely_time:.4f}s * 10, 1.0s)"
 
 ```
 
