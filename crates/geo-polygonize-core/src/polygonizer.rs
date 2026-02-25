@@ -2,6 +2,7 @@ use crate::error::Result;
 use crate::graph::PlanarGraph;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
+use geo::Contains;
 use geo_types::{Coord, Geometry, Line, LineString, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 use std::collections::HashSet;
@@ -93,6 +94,7 @@ pub struct Polygonizer {
 pub struct PolygonizerResult {
     pub polygons: Vec<geo_types::Polygon<f64>>,
     pub dangles: Vec<geo_types::LineString<f64>>,
+    pub invalid_rings: Vec<geo_types::LineString<f64>>,
 }
 
 impl Default for Polygonizer {
@@ -233,6 +235,7 @@ impl Polygonizer {
         // - CW rings (negative signed area) are Holes (or the exterior of the universe).
         let mut shells = Vec::new();
         let mut holes = Vec::new();
+        let mut invalid_rings_candidates = Vec::new();
 
         shells.reserve(rings.len() / 2);
         holes.reserve(rings.len() / 2);
@@ -245,7 +248,8 @@ impl Polygonizer {
             let area = poly.signed_area();
 
             if !area.is_finite() || area.abs() < 1e-9 {
-                continue; // Degenerate or invalid
+                invalid_rings_candidates.push(poly); // Degenerate or invalid
+                continue;
             }
 
             if area > 0.0 {
@@ -487,11 +491,66 @@ impl Polygonizer {
             }
         }
 
+        // Ensure we don't crash on NaNs during processing
+        let invalid_rings = process_invalid_rings(invalid_rings_candidates);
+
         Ok(PolygonizerResult {
             polygons: result,
             dangles,
+            invalid_rings,
         })
     }
+}
+
+/// Sorts invalid rings by bounding box area and filters out inner redundant rings.
+/// Ported from GEOS `extractInvalidLines`.
+fn process_invalid_rings(rings: Vec<Polygon<f64>>) -> Vec<LineString<f64>> {
+    // Separate rings with NaN/Inf coordinates from processable ones to avoid panics in geo algorithms
+    let (mut processable, others): (Vec<_>, Vec<_>) = rings.into_iter().partition(|p| {
+        p.exterior()
+            .0
+            .iter()
+            .all(|c| c.x.is_finite() && c.y.is_finite())
+    });
+
+    // 1. Sort by bounding box area (descending)
+    // GEOS sorts by Envelope area.
+    processable.sort_by(|a, b| {
+        let area_a = a
+            .bounding_rect()
+            .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
+            .unwrap_or(0.0);
+        let area_b = b
+            .bounding_rect()
+            .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
+            .unwrap_or(0.0);
+        area_b
+            .partial_cmp(&area_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // 2. Filter inner redundant rings
+    let mut valid_rings = Vec::with_capacity(processable.len());
+    for ring in processable {
+        let is_contained = valid_rings.iter().any(|existing: &Polygon<f64>| {
+            // Check if ring is contained in existing
+            existing.contains(&ring)
+        });
+
+        if !is_contained {
+            valid_rings.push(ring);
+        }
+    }
+
+    let mut result: Vec<LineString<f64>> = valid_rings
+        .into_iter()
+        .map(|p| p.into_inner().0)
+        .collect();
+
+    // Append the ones we couldn't process safely
+    result.extend(others.into_iter().map(|p| p.into_inner().0));
+
+    result
 }
 
 fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64>> {
