@@ -85,8 +85,8 @@ pub unsafe extern "C" fn polygonize_ffi(
         let end_idx = end_point_idx.saturating_mul(2);
 
         if start_point_idx > end_point_idx {
-             // Invalid offset range
-             return Box::into_raw(Box::new(CPolygonResult {
+            // Invalid offset range
+            return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
@@ -98,7 +98,7 @@ pub unsafe extern "C" fn polygonize_ffi(
 
         // Check bounds: indices refer to points, each point is 2 f64s
         if end_idx > coords_len {
-             return Box::into_raw(Box::new(CPolygonResult {
+            return Box::into_raw(Box::new(CPolygonResult {
                 polygons: Vec::new(),
                 status: CPolygonStatus::InvalidInput,
             }));
