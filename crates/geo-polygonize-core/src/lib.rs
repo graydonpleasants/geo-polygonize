@@ -16,6 +16,9 @@ pub mod polygonizer;
 pub mod tiling;
 pub mod utils;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 #[cfg(test)]
 mod polygonizer_tests;
 
