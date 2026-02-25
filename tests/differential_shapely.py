@@ -95,6 +95,107 @@ def generate_self_intersecting_figure_8s(num_figures=10, seed=42):
 
     return lines
 
+def generate_spiderwebs(num_webs=5, rays_per_web=50, seed=42):
+    """Multiple hubs where dozens of lines intersect at exactly one vertex.
+    Uses integer coordinates to ensure exact intersection at the hub.
+    """
+    rng = random.Random(seed)
+    lines = []
+    for _ in range(num_webs):
+        # Integer center
+        cx, cy = rng.randint(20, 80), rng.randint(20, 80)
+        for _ in range(rays_per_web):
+            # Random integer vector (dx, dy)
+            dx = rng.randint(-20, 20)
+            dy = rng.randint(-20, 20)
+            if dx == 0 and dy == 0:
+                dx, dy = 1, 1
+
+            # Line passing through (cx, cy)
+            x1 = cx - dx
+            y1 = cy - dy
+            x2 = cx + dx
+            y2 = cy + dy
+
+            lines.append(LineString([(x1, y1), (x2, y2)]))
+    return lines
+
+def generate_concentric_nested_polygons(depth=10, center=(50,50)):
+    """Shell -> Hole -> Shell -> Hole nesting."""
+    lines = []
+    cx, cy = center
+    for i in range(1, depth + 1):
+        radius = i * 5.0
+        # Approximate a circle with an octagon or hexadecagon
+        # Use endpoint=False and manual closure to ensure exact ring closure
+        angles = np.linspace(0, 2*np.pi, 16, endpoint=False)
+        coords = []
+        for a in angles:
+             x = cx + radius * np.cos(a)
+             y = cy + radius * np.sin(a)
+             coords.append((round(x, 5), round(y, 5)))
+
+        # Explicitly close the ring by repeating the first point
+        coords.append(coords[0])
+        lines.append(LineString(coords))
+    return lines
+
+def generate_dumbbells_and_antennas():
+    """Valid polygons connected by single-line bridges, covered in dangles."""
+    lines = []
+    # Square 1
+    lines.append(LineString([(0,0), (10,0), (10,10), (0,10), (0,0)]))
+    # Square 2
+    lines.append(LineString([(20,0), (30,0), (30,10), (20,10), (20,0)]))
+    # The Bridge (Cut-edge)
+    lines.append(LineString([(10,5), (20,5)]))
+    # The Antennas (Dangles)
+    lines.append(LineString([(0,10), (-5, 15), (-10, 20)]))
+    lines.append(LineString([(30,0), (35, -5)]))
+    # Internal Cut-line (line projecting into the polygon but not closing)
+    lines.append(LineString([(5,0), (5, 5)]))
+    return lines
+
+def generate_micro_gaps_and_overlaps(num_pairs=50, seed=42):
+    """Lines separated by distances near the float64 epsilon limits."""
+    rng = random.Random(seed)
+    lines = []
+    for _ in range(num_pairs):
+        base_y = rng.uniform(0, 100)
+        # Exactly horizontal line
+        lines.append(LineString([(0, base_y), (10, base_y)]))
+
+        # Line that overlaps by 1e-11 on the Y axis
+        tiny_offset = rng.choice([1e-11, 1e-12, 1e-9])
+        lines.append(LineString([(5, base_y + tiny_offset), (15, base_y + tiny_offset)]))
+
+        # Line that almost touches the end
+        lines.append(LineString([(10 + tiny_offset, base_y), (20, base_y)]))
+    return lines
+
+def generate_extreme_translation_grids(offset=1e9):
+    """A standard grid but translated massively far away from origin."""
+    lines = generate_grid(rows=5, cols=5) # reuse existing grid generator
+    translated_lines = []
+    for line in lines:
+        coords = [(x + offset, y + offset) for x, y in line.coords]
+        translated_lines.append(LineString(coords))
+    return translated_lines
+
+def generate_winding_chaos():
+    """Identical boundaries drawn in opposite directions and fragmented."""
+    lines = []
+    # Square CW
+    lines.append(LineString([(0,0), (0,10), (10,10), (10,0), (0,0)]))
+    # Square CCW
+    lines.append(LineString([(0,0), (10,0), (10,10), (0,10), (0,0)]))
+
+    # Fragmented overlapping lines
+    lines.append(LineString([(0,0), (5,0)]))
+    lines.append(LineString([(10,0), (2,0)])) # Reversed and overlapping
+
+    return lines
+
 def run_shapely(lines):
     """The industry standard ground-truth GEOS recipe."""
     noded = unary_union(lines)
@@ -164,6 +265,12 @@ def assert_parity(shapely_polys, rust_polys):
     generate_collinear_overlaps,
     generate_grid,
     generate_self_intersecting_figure_8s,
+    generate_spiderwebs,
+    generate_concentric_nested_polygons,
+    generate_dumbbells_and_antennas,
+    generate_micro_gaps_and_overlaps,
+    generate_extreme_translation_grids,
+    generate_winding_chaos,
 ])
 def test_differential_parity(generator):
     lines = generator()
