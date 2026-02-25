@@ -1,0 +1,104 @@
+use crate::Polygonizer;
+use geo_types::{Coord, Line, Polygon};
+use std::slice;
+
+#[repr(C)]
+pub struct PolygonizerOptions {
+    pub node_input: bool,
+    pub snap_grid_size: f64,
+}
+
+pub struct CPolygonResult {
+    pub polygons: Vec<Polygon<f64>>,
+}
+
+/// Helper to ingest raw data and run polygonization
+///
+/// `coords_ptr`: Pointer to flat array of f64 coordinates [x0, y0, x1, y1, ...]
+/// `coords_len`: Number of f64 values (should be even)
+/// `offsets_ptr`: Pointer to u32 offsets defining linestrings.
+/// `offsets_len`: Number of offsets.
+///
+/// This assumes Arrow-like offsets: `offsets` has length `N+1` for `N` linestrings.
+/// The `i`-th linestring consists of points from index `offsets[i]` to `offsets[i+1]`.
+#[no_mangle]
+pub extern "C" fn polygonize_ffi(
+    coords_ptr: *const f64,
+    coords_len: usize,
+    offsets_ptr: *const u32,
+    offsets_len: usize,
+    options: PolygonizerOptions,
+) -> *mut CPolygonResult {
+    if coords_ptr.is_null() || offsets_ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    // Safety: The caller must ensure pointers are valid for the given lengths
+    let coords = unsafe { slice::from_raw_parts(coords_ptr, coords_len) };
+    let offsets = unsafe { slice::from_raw_parts(offsets_ptr, offsets_len) };
+
+    if offsets_len < 2 {
+        // No lines can be defined with < 2 offsets
+        return Box::into_raw(Box::new(CPolygonResult { polygons: Vec::new() }));
+    }
+
+    let mut lines = Vec::new();
+
+    // Iterate through linestrings defined by offsets
+    for i in 0..offsets_len - 1 {
+        let start_idx = offsets[i] as usize;
+        let end_idx = offsets[i + 1] as usize;
+
+        if start_idx >= end_idx {
+            continue;
+        }
+
+        // Check bounds: indices refer to points, each point is 2 f64s
+        if end_idx * 2 > coords_len {
+            // Should handle error more gracefully?
+            // For now, stop processing to avoid panic or reading garbage
+            break;
+        }
+
+        // Create segments for this linestring
+        for j in start_idx..end_idx - 1 {
+            let p1 = Coord {
+                x: coords[2 * j],
+                y: coords[2 * j + 1],
+            };
+            let p2 = Coord {
+                x: coords[2 * (j + 1)],
+                y: coords[2 * (j + 1) + 1],
+            };
+            lines.push(Line::new(p1, p2));
+        }
+    }
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = options.node_input;
+    polygonizer.snap_grid_size = options.snap_grid_size;
+    polygonizer.add_lines(lines);
+
+    match polygonizer.polygonize() {
+        Ok(polygons) => {
+            let res = CPolygonResult { polygons };
+            Box::into_raw(Box::new(res))
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
+    if res.is_null() {
+        return 0;
+    }
+    unsafe { (*res).polygons.len() }
+}
+
+#[no_mangle]
+pub extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
+    if !res.is_null() {
+        unsafe { drop(Box::from_raw(res)) };
+    }
+}
