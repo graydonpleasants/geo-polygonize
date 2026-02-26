@@ -179,12 +179,12 @@ mod tests {
     fn test_crossing_scenario() {
         // Reproduction of test_noding_crossing_lines structure
         let lines = vec![
-            make_line(0., 0., 10., 0.), // 0
+            make_line(0., 0., 10., 0.),   // 0
             make_line(10., 0., 10., 10.), // 1
             make_line(10., 10., 0., 10.), // 2
-            make_line(0., 10., 0., 0.), // 3
-            make_line(0., 0., 10., 10.), // 4
-            make_line(0., 10., 10., 0.), // 5
+            make_line(0., 10., 0., 0.),   // 3
+            make_line(0., 0., 10., 10.),  // 4
+            make_line(0., 10., 10., 0.),  // 5
         ];
 
         let soa = SoALines::new(&lines);

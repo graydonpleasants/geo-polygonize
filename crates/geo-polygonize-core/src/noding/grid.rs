@@ -180,11 +180,7 @@ impl UniformGrid {
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     /// Returns a flat list of (line_index, point) tuples.
-    pub fn find_splits(
-        &self,
-        lines: &[Line3D],
-        snap_noder: &SnapNoder,
-    ) -> Vec<(usize, Coord3D)> {
+    pub fn find_splits(&self, lines: &[Line3D], snap_noder: &SnapNoder) -> Vec<(usize, Coord3D)> {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
@@ -401,7 +397,9 @@ impl UniformGrid {
                                 // Collinear is rare. Just process start/end and let HashMap dedup later.
                                 // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
                                 // We construct dummy 3D coords (Z=0).
-                                let p1 = snap_noder.snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0)).to_coord_2d();
+                                let p1 = snap_noder
+                                    .snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0))
+                                    .to_coord_2d();
                                 // Simplified ownership: Check if p1 is in cell
                                 let p1_in = p1.x >= cell_min_x
                                     && p1.x < cell_max_x
@@ -484,7 +482,7 @@ mod tests {
     fn test_cell_population() {
         // Create 2 disjoint lines far apart
         let lines = vec![
-            make_line(0.0, 0.0, 1.0, 1.0), // Bottom-left
+            make_line(0.0, 0.0, 1.0, 1.0),   // Bottom-left
             make_line(9.0, 9.0, 10.0, 10.0), // Top-right
         ];
 

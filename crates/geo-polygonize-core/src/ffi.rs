@@ -28,10 +28,7 @@ pub struct CPolygonResult {
     pub status: CPolygonStatus,
 }
 
-fn flatten_polygons(
-    polygons: &[Polygon3D],
-    stride: u8,
-) -> (Vec<f64>, Vec<u32>, Vec<u32>) {
+fn flatten_polygons(polygons: &[Polygon3D], stride: u8) -> (Vec<f64>, Vec<u32>, Vec<u32>) {
     let mut coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();

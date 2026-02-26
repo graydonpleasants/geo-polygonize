@@ -1,6 +1,6 @@
 use arrow_ipc::reader::StreamReader;
 use geo::{Coord, LineString};
-use geo_polygonize_core::{Polygonizer, Coord3D, Line3D, Polygon3D};
+use geo_polygonize_core::{Coord3D, Line3D, Polygon3D, Polygonizer};
 use geo_traits::to_geo::ToGeoLineString;
 use geoarrow::array::{GeoArrowArrayAccessor, LineStringArray};
 use geojson::{GeoJson, Geometry, Value};
