@@ -25,6 +25,7 @@ fn test_ffi_simple_square() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            2,
             options,
         )
     };
@@ -56,6 +57,7 @@ fn test_ffi_invalid_bounds() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            2,
             options,
         )
     };
@@ -99,6 +101,7 @@ fn test_ffi_two_squares_touching() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            2,
             options,
         )
     };
@@ -120,7 +123,8 @@ fn test_ffi_accepts_null_empty_buffers() {
         extract_only_polygonal: false,
     };
 
-    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, options) };
+    let result_ptr =
+        unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, 2, options) };
 
     assert!(!result_ptr.is_null());
     let count = unsafe { polygonize_result_get_count(result_ptr) };
@@ -146,6 +150,7 @@ fn test_ffi_rejects_out_of_bounds_offsets() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            2,
             options,
         )
     };

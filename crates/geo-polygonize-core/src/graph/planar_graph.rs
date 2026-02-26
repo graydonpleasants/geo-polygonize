@@ -65,6 +65,8 @@ pub struct PlanarGraph {
     pub nodes_x: Vec<f64>,
     /// Node coordinates (Y). Index is `NodeId`.
     pub nodes_y: Vec<f64>,
+    /// Node elevations (Z). Index is `NodeId`.
+    pub nodes_z: Vec<f64>,
     /// Node adjacency lists. Index is `NodeId`.
     /// Stores the list of outgoing `DirEdgeId`s for each node.
     pub nodes_outgoing: Vec<Vec<DirEdgeId>>,
@@ -183,6 +185,7 @@ impl PlanarGraph {
         Self {
             nodes_x: Vec::new(),
             nodes_y: Vec::new(),
+            nodes_z: Vec::new(),
             nodes_outgoing: Vec::new(),
             nodes_degree: Vec::new(),
             nodes_marked: Vec::new(),
@@ -203,6 +206,7 @@ impl PlanarGraph {
         let id = self.nodes_x.len();
         self.nodes_x.push(coord.x);
         self.nodes_y.push(coord.y);
+        self.nodes_z.push(0.0);
         self.nodes_outgoing.push(Vec::new());
         self.nodes_degree.push(0);
         self.nodes_marked.push(false);
@@ -246,6 +250,7 @@ impl PlanarGraph {
         let start_node_idx = self.nodes_x.len();
         self.nodes_x.reserve(entries.len());
         self.nodes_y.reserve(entries.len());
+        self.nodes_z.reserve(entries.len());
         self.nodes_outgoing.reserve(entries.len());
         self.nodes_degree.reserve(entries.len());
         self.nodes_marked.reserve(entries.len());
@@ -253,6 +258,7 @@ impl PlanarGraph {
         for entry in &entries {
             self.nodes_x.push(entry.c.x);
             self.nodes_y.push(entry.c.y);
+            self.nodes_z.push(0.0);
             self.nodes_outgoing.push(Vec::new());
             self.nodes_degree.push(0);
             self.nodes_marked.push(false);

@@ -1,11 +1,15 @@
-use crate::Polygonizer;
-use geo_types::{Coord, Line};
-use numpy::PyReadonlyArray1;
+use crate::ffi::{
+    polygonize_ffi, polygonize_result_copy_flat_coords, polygonize_result_copy_polygon_offsets,
+    polygonize_result_copy_ring_offsets, polygonize_result_free,
+    polygonize_result_get_flat_coords_len, polygonize_result_get_polygon_offsets_len,
+    polygonize_result_get_ring_offsets_len, polygonize_result_get_status, PolygonizerOptions,
+};
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 #[pyfunction]
-#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false))]
+#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2))]
 fn polygonize<'py>(
     py: Python<'py>,
     coords: PyReadonlyArray1<'py, f64>,
@@ -13,104 +17,65 @@ fn polygonize<'py>(
     node: bool,
     snap: f64,
     extract_only_polygonal: bool,
+    stride: u8,
 ) -> PyResult<PyObject> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
-    if coords_slice.len() % 2 != 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "Coords array must have even length",
+    let options = PolygonizerOptions {
+        node_input: node,
+        snap_grid_size: snap,
+        extract_only_polygonal,
+    };
+
+    let res_ptr = unsafe {
+        polygonize_ffi(
+            coords_slice.as_ptr(),
+            coords_slice.len(),
+            offsets_slice.as_ptr(),
+            offsets_slice.len(),
+            stride,
+            options,
+        )
+    };
+
+    if res_ptr.is_null() {
+        return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "polygonize_ffi returned NULL",
         ));
     }
 
-    if offsets_slice.len() < 2 {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("polygons", Vec::<PyObject>::new())?;
-        dict.set_item("dangles", Vec::<PyObject>::new())?;
-        dict.set_item("invalid_rings", Vec::<PyObject>::new())?;
-        return Ok(dict.into());
+    let status = unsafe { polygonize_result_get_status(res_ptr) };
+    if status != 0 {
+        unsafe { polygonize_result_free(res_ptr) };
+        return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "polygonization failed",
+        ));
     }
 
-    let mut lines = Vec::new();
-    for i in 0..offsets_slice.len() - 1 {
-        let start_idx = offsets_slice[i] as usize;
-        let end_idx = offsets_slice[i + 1] as usize;
+    let coords_len = unsafe { polygonize_result_get_flat_coords_len(res_ptr) };
+    let ring_len = unsafe { polygonize_result_get_ring_offsets_len(res_ptr) };
+    let poly_len = unsafe { polygonize_result_get_polygon_offsets_len(res_ptr) };
 
-        if start_idx > end_idx {
-            continue;
-        }
+    let mut flat = vec![0.0; coords_len];
+    let mut ring_offsets = vec![0u32; ring_len];
+    let mut polygon_offsets = vec![0u32; poly_len];
 
-        // Bounds check
-        if end_idx.saturating_mul(2) > coords_slice.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "Offset index out of bounds",
-            ));
-        }
-
-        if start_idx == end_idx {
-            continue;
-        }
-
-        for j in start_idx..end_idx - 1 {
-            let p1 = Coord {
-                x: coords_slice[2 * j],
-                y: coords_slice[2 * j + 1],
-            };
-            let p2 = Coord {
-                x: coords_slice[2 * (j + 1)],
-                y: coords_slice[2 * (j + 1) + 1],
-            };
-            lines.push(Line::new(p1, p2));
-        }
-    }
-
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = node;
-    polygonizer.snap_grid_size = snap;
-    polygonizer.extract_only_polygonal = extract_only_polygonal;
-    polygonizer.add_lines(lines);
-
-    let result = polygonizer
-        .polygonize()
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-
-    // Import SimplePolygon class
-    let types_mod = PyModule::import_bound(py, "geo_polygonize.types")?;
-    let simple_polygon_cls = types_mod.getattr("SimplePolygon")?;
-
-    let mut poly_objects = Vec::with_capacity(result.polygons.len());
-
-    for poly in result.polygons {
-        let exterior = poly.exterior();
-        let shell_coords: Vec<(f64, f64)> = exterior.0.iter().map(|c| (c.x, c.y)).collect();
-
-        let mut holes_list = Vec::new();
-        for interior in poly.interiors() {
-            let hole_coords: Vec<(f64, f64)> = interior.0.iter().map(|c| (c.x, c.y)).collect();
-            holes_list.push(hole_coords);
-        }
-
-        let instance = simple_polygon_cls.call1((shell_coords, holes_list))?;
-        poly_objects.push(instance);
-    }
-
-    let mut dangle_objects = Vec::with_capacity(result.dangles.len());
-    for dangle in result.dangles {
-        let coords: Vec<(f64, f64)> = dangle.0.iter().map(|c| (c.x, c.y)).collect();
-        dangle_objects.push(coords);
-    }
-
-    let mut invalid_rings_objects = Vec::with_capacity(result.invalid_rings.len());
-    for ring in result.invalid_rings {
-        let coords: Vec<(f64, f64)> = ring.0.iter().map(|c| (c.x, c.y)).collect();
-        invalid_rings_objects.push(coords);
+    unsafe {
+        polygonize_result_copy_flat_coords(res_ptr, flat.as_mut_ptr());
+        polygonize_result_copy_ring_offsets(res_ptr, ring_offsets.as_mut_ptr());
+        polygonize_result_copy_polygon_offsets(res_ptr, polygon_offsets.as_mut_ptr());
+        polygonize_result_free(res_ptr);
     }
 
     let dict = PyDict::new_bound(py);
-    dict.set_item("polygons", poly_objects)?;
-    dict.set_item("dangles", dangle_objects)?;
-    dict.set_item("invalid_rings", invalid_rings_objects)?;
-
+    dict.set_item("flat_coords", PyArray1::from_vec_bound(py, flat))?;
+    dict.set_item("ring_offsets", PyArray1::from_vec_bound(py, ring_offsets))?;
+    dict.set_item(
+        "polygon_offsets",
+        PyArray1::from_vec_bound(py, polygon_offsets),
+    )?;
+    dict.set_item("stride", stride)?;
     Ok(dict.into())
 }
 
