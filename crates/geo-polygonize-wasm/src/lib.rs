@@ -12,37 +12,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "threads")]
 pub use wasm_bindgen_rayon::init_thread_pool;
 
-fn interpolate_z(point: Coord<f64>, seg: Line3D) -> Option<f64> {
-    let dx = seg.end.x - seg.start.x;
-    let dy = seg.end.y - seg.start.y;
-    if dx * dx + dy * dy <= 1e-24 {
-        return None;
-    }
-    let t = if dx.abs() >= dy.abs() {
-        (point.x - seg.start.x) / dx
-    } else {
-        (point.y - seg.start.y) / dy
-    };
-    if !(-1e-8..=1.0 + 1e-8).contains(&t) {
-        return None;
-    }
-    let px = seg.start.x + t * dx;
-    let py = seg.start.y + t * dy;
-    if (px - point.x).abs() > 1e-6 || (py - point.y).abs() > 1e-6 {
-        return None;
-    }
-    Some(seg.start.z + t * (seg.end.z - seg.start.z))
-}
-
-fn lookup_z(point: Coord<f64>, segments: &[Line3D]) -> f64 {
-    for seg in segments {
-        if let Some(z) = interpolate_z(point, *seg) {
-            return z;
-        }
-    }
-    0.0
-}
-
 #[wasm_bindgen]
 pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
@@ -171,7 +140,7 @@ pub fn polygonize_buffers(
     polygonizer.node_input = node_input;
     polygonizer.snap_grid_size = snap_grid_size;
 
-    let mut segments_3d = Vec::new();
+    let mut lines = Vec::new();
 
     for i in 0..offsets.len() {
         let start = offsets[i] as usize;
@@ -185,29 +154,22 @@ pub fn polygonize_buffers(
             return Err(JsValue::from_str("Invalid offsets"));
         }
 
-        let mut points = Vec::new();
-        for j in start..end {
-            let idx = j * stride as usize;
-            points.push(Coord {
-                x: coords[idx],
-                y: coords[idx + 1],
-            });
-        }
         for j in start..end.saturating_sub(1) {
             let idx = j * stride as usize;
             let jdx = (j + 1) * stride as usize;
             let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
             let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
-            segments_3d.push(Line3D {
-                start: Coord3D::new(coords[idx], coords[idx + 1], z1),
-                end: Coord3D::new(coords[jdx], coords[jdx + 1], z2),
-            });
-        }
 
-        polygonizer.add_geometry(geo::Geometry::LineString(LineString::new(points)));
+            lines.push(Line3D::new(
+                Coord3D::new(coords[idx], coords[idx + 1], z1),
+                Coord3D::new(coords[jdx], coords[jdx + 1], z2),
+            ));
+        }
     }
 
-    polygonize_and_flatten(polygonizer, &segments_3d, stride)
+    polygonizer.add_lines(lines);
+
+    polygonize_and_flatten(polygonizer, stride)
 }
 
 #[wasm_bindgen]
@@ -253,12 +215,11 @@ pub fn polygonize_geoarrow(
         ));
     }
 
-    polygonize_and_flatten(polygonizer, &[], 2)
+    polygonize_and_flatten(polygonizer, 2)
 }
 
 fn polygonize_and_flatten(
     mut polygonizer: Polygonizer,
-    segments_3d: &[Line3D],
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
     let result = polygonizer
@@ -280,7 +241,7 @@ fn polygonize_and_flatten(
             flat_coords.push(coord.x);
             flat_coords.push(coord.y);
             if stride == 3 {
-                flat_coords.push(lookup_z(coord.to_coord_2d(), segments_3d));
+                flat_coords.push(coord.z);
             }
         }
 
@@ -290,7 +251,7 @@ fn polygonize_and_flatten(
                 flat_coords.push(coord.x);
                 flat_coords.push(coord.y);
                 if stride == 3 {
-                    flat_coords.push(lookup_z(coord.to_coord_2d(), segments_3d));
+                    flat_coords.push(coord.z);
                 }
             }
         }
