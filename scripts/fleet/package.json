@@ -1,0 +1,22 @@
+{
+  "name": "geo-polygonize-fleet",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "analyze": "bun fleet-analyze.ts",
+    "plan": "bun fleet-plan.ts",
+    "dispatch": "bun fleet-dispatch.ts",
+    "merge": "bun fleet-merge.ts"
+  },
+  "dependencies": {
+    "@google/jules-sdk": "^0.0.1",
+    "@octokit/core": "^6.0.0",
+    "@octokit/plugin-paginate-rest": "^9.0.0",
+    "octokit": "^4.0.0",
+    "find-up": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "bun-types": "latest"
+  }
+}
