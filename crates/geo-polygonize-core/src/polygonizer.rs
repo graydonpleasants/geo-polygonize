@@ -542,10 +542,8 @@ fn process_invalid_rings(rings: Vec<Polygon<f64>>) -> Vec<LineString<f64>> {
         }
     }
 
-    let mut result: Vec<LineString<f64>> = valid_rings
-        .into_iter()
-        .map(|p| p.into_inner().0)
-        .collect();
+    let mut result: Vec<LineString<f64>> =
+        valid_rings.into_iter().map(|p| p.into_inner().0).collect();
 
     // Append the ones we couldn't process safely
     result.extend(others.into_iter().map(|p| p.into_inner().0));
