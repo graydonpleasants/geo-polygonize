@@ -91,10 +91,7 @@ fn polygonize<'py>(
         "polygon_offsets",
         PyArray1::from_vec_bound(py, polygon_offsets),
     )?;
-    dict.set_item(
-        "flat_line_ids",
-        PyArray1::from_vec_bound(py, flat_line_ids),
-    )?;
+    dict.set_item("flat_line_ids", PyArray1::from_vec_bound(py, flat_line_ids))?;
     dict.set_item("stride", stride)?;
     Ok(dict.into())
 }
