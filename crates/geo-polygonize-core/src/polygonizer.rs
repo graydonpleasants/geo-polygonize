@@ -113,7 +113,7 @@ impl Polygonizer {
         }
         all_segments.extend(self.input_lines.iter().cloned());
 
-        let mut segments = Vec::new();
+        let segments;
 
         if self.node_input {
             // Sort by 2D coordinates

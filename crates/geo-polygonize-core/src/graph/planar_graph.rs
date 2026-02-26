@@ -3,7 +3,6 @@ use crate::utils::parallel::{
     par_flat_map, par_into_enumerate_map, par_sort_unstable, par_zip_for_each,
 };
 use crate::utils::{compare_angular, z_order_index};
-use geo::Line;
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
