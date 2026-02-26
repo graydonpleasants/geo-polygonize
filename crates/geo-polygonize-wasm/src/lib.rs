@@ -162,6 +162,7 @@ pub fn polygonize_buffers(
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
+                0,
             ));
         }
     }

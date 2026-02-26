@@ -171,7 +171,7 @@ impl Polygonizer {
         let mut dangles = self.graph.prune_dangles();
 
         // 3. Find rings (3D)
-        let rings = self.graph.get_edge_rings();
+        let rings_with_ids = self.graph.get_edge_rings();
 
         // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
@@ -182,12 +182,12 @@ impl Polygonizer {
         let mut holes = Vec::new();
         let mut invalid_rings_candidates = Vec::new();
 
-        shells.reserve(rings.len() / 2);
-        holes.reserve(rings.len() / 2);
+        shells.reserve(rings_with_ids.len() / 2);
+        holes.reserve(rings_with_ids.len() / 2);
 
-        for ring_coords in rings {
+        for (ring_coords, ring_ids) in rings_with_ids {
             // Create Polygon3D
-            let poly3d = Polygon3D::new(ring_coords, vec![]);
+            let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
             // Create 2D projection for area check
             let poly2d = poly3d.to_polygon_2d();
             let area = poly2d.signed_area();
@@ -354,7 +354,7 @@ impl Polygonizer {
         let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         // Process hole assignment
-        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>)> {
+        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
             let hole_poly_2d = &holes_2d[i];
             let hole_3d = &holes[i];
 
@@ -390,7 +390,7 @@ impl Polygonizer {
                 }
             }
 
-            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone()))
+            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone(), hole_3d.exterior_ids.clone()))
         };
 
         let assignments: Vec<_>;
@@ -411,15 +411,22 @@ impl Polygonizer {
 
         // Group holes by shell
         let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
-        for (idx, hole_coords) in assignments {
+        let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
+
+        for (idx, hole_coords, hole_ids) in assignments {
             shell_holes[idx].push(hole_coords);
+            shell_holes_ids[idx].push(hole_ids);
         }
 
         // 6. Construct Final Polygons
         let mut result = Vec::new();
-        for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
+        for (i, shell) in shells.into_iter().enumerate() {
             let exterior = shell.exterior;
-            let p = Polygon3D::new(exterior, holes);
+            let exterior_ids = shell.exterior_ids;
+            let holes = shell_holes[i].clone();
+            let holes_ids = shell_holes_ids[i].clone();
+
+            let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
             // Check area of 2D projection
             let p2d = p.to_polygon_2d();

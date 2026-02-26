@@ -143,7 +143,7 @@ impl SnapNoder {
                     let p1 = w[1];
                     // Check 2D equality
                     if p0.x != p1.x || p0.y != p1.y {
-                        new_lines.push(Line3D::new(p0, p1));
+                        new_lines.push(Line3D::new(p0, p1, line.line_id));
                     }
                 }
 
@@ -459,7 +459,7 @@ mod tests {
     use rand::Rng;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
-        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0), 0)
     }
 
     #[test]

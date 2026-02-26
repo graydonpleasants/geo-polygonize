@@ -6,7 +6,7 @@ try:
 except ImportError:
     from .cffi_wrapper import polygonize as _polygonize_impl
 
-def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=False, stride=None):
+def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=False, stride=None, line_ids=None):
     """
     Polygonize a set of lines.
 
@@ -17,9 +17,10 @@ def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=F
         snap: snap grid size.
         extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
         stride: stride of coordinates (2 or 3). If None, inferred from shape.
+        line_ids: optional uint32 array of line IDs.
 
     Returns:
-        Dict with keys 'polygons' (List[SimplePolygon]), 'dangles' and 'invalid_rings'.
+        Dict with keys 'polygons' (List[SimplePolygon]), 'dangles', 'invalid_rings', and 'flat_line_ids'.
     """
     # Ensure coords is a numpy array
     coords = np.ascontiguousarray(coords, dtype=np.float64)
@@ -53,4 +54,7 @@ def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=F
     if coords.size % stride != 0:
         raise ValueError(f"Coordinates array length must be multiple of {stride}.")
 
-    return _polygonize_impl(coords, offsets, node=node, snap=snap, extract_only_polygonal=extract_only_polygonal, stride=stride)
+    if line_ids is not None:
+        line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
+
+    return _polygonize_impl(coords, offsets, node=node, snap=snap, extract_only_polygonal=extract_only_polygonal, stride=stride, line_ids=line_ids)
