@@ -1,5 +1,5 @@
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
-use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
+use geo_polygonize_core::{Coord3D, Line3D};
 
 #[test]
 fn test_reproduce_nan_in_noder() {

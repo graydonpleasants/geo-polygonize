@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
-    use crate::types::{Coord3D, Line3D};
+    use crate::types::Line3D;
     use geo_types::{Coord, LineString};
 
     #[test]

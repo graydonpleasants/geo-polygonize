@@ -25,6 +25,13 @@ pub struct CPolygonResult {
 }
 
 /// Helper to ingest raw data and run polygonization
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+/// The caller must ensure that `coords_ptr` points to a valid array of `f64` with length `coords_len`.
+/// The caller must ensure that `offsets_ptr` points to a valid array of `u32` with length `offsets_len`.
+/// The caller must ensure that `options` is a valid pointer to a `PolygonizerOptions` struct.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     coords_ptr: *const f64,

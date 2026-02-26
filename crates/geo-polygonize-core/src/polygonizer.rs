@@ -97,7 +97,7 @@ impl Polygonizer {
             extract_lines(geom, &mut temp_lines);
         }
 
-        let mut segments = Vec::new();
+        let segments;
 
         // Convert 2D lines to 3D segments
         let mut all_segments: Vec<Line3D> = Vec::new();

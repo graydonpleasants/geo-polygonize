@@ -1,6 +1,5 @@
 use arrow_ipc::reader::StreamReader;
-use geo::{Coord, LineString};
-use geo_polygonize_core::Polygonizer;
+use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
 use geo_traits::to_geo::ToGeoLineString;
 use geoarrow::array::{GeoArrowArrayAccessor, LineStringArray};
 use geojson::{GeoJson, Geometry, Value};
@@ -59,11 +58,19 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
     let geometries: Vec<Geometry> = result
         .polygons
         .into_iter()
-        .map(|p| Geometry::new(Value::from(&p)))
+        .map(|p| {
+            let exterior: Vec<Vec<f64>> = p.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+            let interiors: Vec<Vec<Vec<f64>>> = p
+                .interiors
+                .iter()
+                .map(|ring| ring.iter().map(|c| vec![c.x, c.y, c.z]).collect())
+                .collect();
+            let mut rings = vec![exterior];
+            rings.extend(interiors);
+            Geometry::new(Value::Polygon(rings))
+        })
         .collect();
 
-    // Wrap in FeatureCollection? Or GeometryCollection?
-    // Let's return a FeatureCollection as it's standard for multiple geometries
     let mut features = Vec::new();
     for geom in geometries {
         features.push(geojson::Feature {
@@ -86,7 +93,7 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
 
 #[wasm_bindgen]
 pub struct WasmPolygonResult {
-    // Flat representation of output polygons
+    // Flat representation of output polygons (XYZ interleaved)
     coords: Vec<f64>,
     ring_offsets: Vec<u32>,
     polygon_offsets: Vec<u32>,
@@ -94,7 +101,6 @@ pub struct WasmPolygonResult {
 
 #[wasm_bindgen]
 impl WasmPolygonResult {
-    // Expose memory directly to JS to avoid copying
     pub fn coords_ptr(&self) -> *const f64 {
         self.coords.as_ptr()
     }
@@ -119,12 +125,12 @@ impl WasmPolygonResult {
 
 #[wasm_bindgen]
 pub fn polygonize_buffers(
-    coords: &[f64],  // wasm-bindgen automatically views Float64Array as &[f64]
-    offsets: &[u32], // views Uint32Array as &[u32]
+    coords: &[f64],
+    offsets: &[u32],
+    stride: u8,
     node_input: bool,
     snap_grid_size: f64,
 ) -> Result<WasmPolygonResult, JsValue> {
-    // Set panic hook for better error messages
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
@@ -132,8 +138,13 @@ pub fn polygonize_buffers(
     polygonizer.node_input = node_input;
     polygonizer.snap_grid_size = snap_grid_size;
 
-    // Process inputs
-    // offsets are start indices of LineStrings in coords
+    if stride != 2 && stride != 3 {
+        return Err(JsValue::from_str("Stride must be 2 or 3"));
+    }
+    let stride_usize = stride as usize;
+
+    let mut lines = Vec::new();
+
     for i in 0..offsets.len() {
         let start = offsets[i] as usize;
         let end = if i < offsets.len() - 1 {
@@ -150,25 +161,39 @@ pub fn polygonize_buffers(
         }
 
         let len = end - start;
-        if !len.is_multiple_of(2) {
+        if !len.is_multiple_of(stride_usize) {
             return Err(JsValue::from_str(&format!(
-                "Odd number of coordinates at index {}: len={}",
+                "Invalid number of coordinates at index {}: len={}",
                 i, len
             )));
         }
 
-        let num_points = len / 2;
-        let mut points = Vec::with_capacity(num_points);
-        for j in 0..num_points {
-            points.push(Coord {
-                x: coords[start + 2 * j],
-                y: coords[start + 2 * j + 1],
-            });
+        let num_points = len / stride_usize;
+        if num_points < 2 {
+            continue;
         }
 
-        polygonizer.add_geometry(geo::Geometry::LineString(LineString::new(points)));
+        for j in 0..num_points - 1 {
+            let idx1 = start + j * stride_usize;
+            let idx2 = start + (j + 1) * stride_usize;
+
+            let p1 = if stride == 2 {
+                Coord3D::new(coords[idx1], coords[idx1 + 1], 0.0)
+            } else {
+                Coord3D::new(coords[idx1], coords[idx1 + 1], coords[idx1 + 2])
+            };
+
+            let p2 = if stride == 2 {
+                Coord3D::new(coords[idx2], coords[idx2 + 1], 0.0)
+            } else {
+                Coord3D::new(coords[idx2], coords[idx2 + 1], coords[idx2 + 2])
+            };
+
+            lines.push(Line3D::new(p1, p2));
+        }
     }
 
+    polygonizer.add_lines(lines);
     polygonize_and_flatten(polygonizer)
 }
 
@@ -232,16 +257,18 @@ fn polygonize_and_flatten(mut polygonizer: Polygonizer) -> Result<WasmPolygonRes
         let (exterior, interiors) = poly.into_inner();
 
         ring_offsets.push(flat_coords.len() as u32);
-        for coord in exterior.0 {
+        for coord in exterior {
             flat_coords.push(coord.x);
             flat_coords.push(coord.y);
+            flat_coords.push(coord.z);
         }
 
         for ring in interiors {
             ring_offsets.push(flat_coords.len() as u32);
-            for coord in ring.0 {
+            for coord in ring {
                 flat_coords.push(coord.x);
                 flat_coords.push(coord.y);
+                flat_coords.push(coord.z);
             }
         }
     }

@@ -79,6 +79,10 @@ impl Polygon3D {
             .collect();
         Polygon::new(ext, ints)
     }
+
+    pub fn into_inner(self) -> (Vec<Coord3D>, Vec<Vec<Coord3D>>) {
+        (self.exterior, self.interiors)
+    }
 }
 
 // Implement basic arithmetic for interpolation

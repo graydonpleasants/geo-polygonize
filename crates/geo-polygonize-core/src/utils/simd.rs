@@ -247,6 +247,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_simd_ring_vs_geo_random() {
         let mut rng = StdRng::seed_from_u64(42);
 

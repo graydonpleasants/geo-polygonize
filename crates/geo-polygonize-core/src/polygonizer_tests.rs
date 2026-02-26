@@ -3,7 +3,7 @@ mod tests {
     use crate::Polygonizer;
     use geo::bounding_rect::BoundingRect;
     use geo::Area;
-    use geo_types::{LineString, Polygon};
+    use geo_types::LineString;
 
     #[test]
     fn test_polygonize_simple_triangle() {

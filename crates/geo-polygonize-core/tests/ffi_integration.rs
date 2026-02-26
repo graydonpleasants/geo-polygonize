@@ -1,9 +1,8 @@
 use geo_polygonize_core::ffi::{
     polygonize_ffi, polygonize_result_free, polygonize_result_get_count,
-    polygonize_result_get_shell_point_count, polygonize_result_get_shell_points, CPolygonStatus,
+    polygonize_result_get_shell_point_count, polygonize_result_get_shell_points,
     PolygonizerOptions,
 };
-use std::slice;
 
 #[test]
 fn test_ffi_simple_square() {
