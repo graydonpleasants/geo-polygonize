@@ -6,8 +6,16 @@ fn test_reproduce_nan_in_noder() {
     let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
 
     // Create lines with NaN coordinates
-    let l1: Line3D = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(10.0, 10.0, 0.0), 0);
-    let l2: Line3D = Line3D::new(Coord3D::new(0.0, 10.0, 0.0), Coord3D::new(10.0, 0.0, 0.0), 0);
+    let l1: Line3D = Line3D::new(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(10.0, 10.0, 0.0),
+        0,
+    );
+    let l2: Line3D = Line3D::new(
+        Coord3D::new(0.0, 10.0, 0.0),
+        Coord3D::new(10.0, 0.0, 0.0),
+        0,
+    );
     let l3: Line3D = Line3D::new(
         Coord3D::new(f64::NAN, 0.0, 0.0),
         Coord3D::new(5.0, 5.0, 0.0),
