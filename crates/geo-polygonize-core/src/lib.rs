@@ -14,6 +14,7 @@ pub mod graph;
 pub mod noding;
 pub mod polygonizer;
 pub mod tiling;
+pub mod types;
 pub mod utils;
 
 #[cfg(feature = "python")]
@@ -24,3 +25,4 @@ mod polygonizer_tests;
 
 pub use polygonizer::{Polygonizer, PolygonizerResult};
 pub use tiling::TiledPolygonizer;
+pub use types::{Coord3D, Line3D, Polygon3D};

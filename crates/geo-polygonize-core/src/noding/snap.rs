@@ -1,7 +1,8 @@
 use crate::noding::grid::UniformGrid;
+use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
-use geo::algorithm::line_intersection::LineIntersection;
-use geo::{Coord, Line};
+use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
+use geo::Coord;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -35,7 +36,7 @@ impl SnapNoder {
         self
     }
 
-    pub fn node(&self, mut lines: Vec<Line<f64>>) -> Vec<Line<f64>> {
+    pub fn node(&self, mut lines: Vec<Line3D>) -> Vec<Line3D> {
         // 1. Initial Snap of endpoints
         for line in &mut lines {
             line.start = self.snap(line.start);
@@ -44,7 +45,9 @@ impl SnapNoder {
 
         // Remove degenerates and invalid lines
         lines.retain(|l| {
-            l.start != l.end
+            let start = l.start.to_coord_2d();
+            let end = l.end.to_coord_2d();
+            start != end
                 && l.start.x.is_finite()
                 && l.start.y.is_finite()
                 && l.end.x.is_finite()
@@ -83,7 +86,11 @@ impl SnapNoder {
                     .then(a.1.x.total_cmp(&b.1.x))
                     .then(a.1.y.total_cmp(&b.1.y))
             });
-            events.dedup();
+            events.dedup_by(|a, b| {
+                a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y
+                // Note: We don't check Z for dedup because for a given line index and X,Y,
+                // Z should be consistent (interpolated from the same line).
+            });
 
             // Early bailout heuristic to avoid epsilon-thrashing on tiny residual updates.
             // Apply this iteration first, then exit before running another pass.
@@ -127,14 +134,16 @@ impl SnapNoder {
                     da.total_cmp(&db)
                 });
 
-                points.dedup();
+                // Dedup by 2D coordinates
+                points.dedup_by(|a, b| a.x == b.x && a.y == b.y);
 
                 // Create replacement segments for the split line.
                 for w in points.windows(2) {
                     let p0 = w[0];
                     let p1 = w[1];
-                    if p0 != p1 {
-                        new_lines.push(Line::new(p0, p1));
+                    // Check 2D equality
+                    if p0.x != p1.x || p0.y != p1.y {
+                        new_lines.push(Line3D::new(p0, p1));
                     }
                 }
 
@@ -157,7 +166,7 @@ impl SnapNoder {
         lines
     }
 
-    fn normalize_and_dedup(&self, lines: &mut Vec<Line<f64>>) {
+    fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
         // Filter out invalid lines (NaN or infinite coordinates)
         lines.retain(|l| {
             l.start.x.is_finite()
@@ -185,14 +194,38 @@ impl SnapNoder {
         lines.dedup();
     }
 
-    pub(crate) fn snap(&self, c: Coord<f64>) -> Coord<f64> {
+    pub(crate) fn snap(&self, c: Coord3D) -> Coord3D {
         if self.grid_size == 0.0 {
             return c;
         }
-        Coord {
+        Coord3D {
             x: (c.x / self.grid_size).round() * self.grid_size,
             y: (c.y / self.grid_size).round() * self.grid_size,
+            z: c.z, // Keep Z unchanged
         }
+    }
+
+    // Interpolates Z value for a point (px, py) assumed to be on the line segment
+    fn interpolate_z(&self, p: Coord<f64>, line: Line3D) -> f64 {
+        let l_dx = line.end.x - line.start.x;
+        let l_dy = line.end.y - line.start.y;
+        let l_len_sq = l_dx * l_dx + l_dy * l_dy;
+
+        if l_len_sq < 1e-18 {
+            return line.start.z;
+        }
+
+        // Project p onto line to find t
+        let dx = p.x - line.start.x;
+        let dy = p.y - line.start.y;
+
+        // Dot product projection
+        let t = (dx * l_dx + dy * l_dy) / l_len_sq;
+
+        // Clamp t to [0, 1] for safety, although intersection should be on segment
+        let t = t.clamp(0.0, 1.0);
+
+        line.start.z + t * (line.end.z - line.start.z)
     }
 
     #[inline]
@@ -201,42 +234,69 @@ impl SnapNoder {
         res: LineIntersection<f64>,
         i: usize,
         j: usize,
-        l1: Line<f64>,
-        l2: Line<f64>,
+        l1: Line3D,
+        l2: Line3D,
         mut handler: F,
     ) where
-        F: FnMut(usize, Coord<f64>),
+        F: FnMut(usize, Coord3D),
     {
         match res {
             LineIntersection::SinglePoint {
                 intersection: pt, ..
             } => {
-                let snapped = self.snap(pt);
-                if snapped != l1.start && snapped != l1.end {
-                    handler(i, snapped);
+                // Snap the 2D intersection point
+                let snapped_2d = {
+                    let s = self.snap(Coord3D::new(pt.x, pt.y, 0.0));
+                    s.to_coord_2d()
+                };
+
+                let l1_start_2d = l1.start.to_coord_2d();
+                let l1_end_2d = l1.end.to_coord_2d();
+                let l2_start_2d = l2.start.to_coord_2d();
+                let l2_end_2d = l2.end.to_coord_2d();
+
+                if snapped_2d != l1_start_2d && snapped_2d != l1_end_2d {
+                    let z = self.interpolate_z(snapped_2d, l1);
+                    handler(i, Coord3D::new(snapped_2d.x, snapped_2d.y, z));
                 }
-                if snapped != l2.start && snapped != l2.end {
-                    handler(j, snapped);
+                if snapped_2d != l2_start_2d && snapped_2d != l2_end_2d {
+                    let z = self.interpolate_z(snapped_2d, l2);
+                    handler(j, Coord3D::new(snapped_2d.x, snapped_2d.y, z));
                 }
             }
             LineIntersection::Collinear {
                 intersection: overlap,
             } => {
-                let p1 = self.snap(overlap.start);
-                let p2 = self.snap(overlap.end);
-                for p in [p1, p2] {
-                    if p != l1.start && p != l1.end {
-                        handler(i, p);
+                // For collinear, we process endpoints of the overlap
+                let p1_2d = {
+                    let s = self.snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0));
+                    s.to_coord_2d()
+                };
+                let p2_2d = {
+                    let s = self.snap(Coord3D::new(overlap.end.x, overlap.end.y, 0.0));
+                    s.to_coord_2d()
+                };
+
+                for p in [p1_2d, p2_2d] {
+                    let l1_start_2d = l1.start.to_coord_2d();
+                    let l1_end_2d = l1.end.to_coord_2d();
+                    let l2_start_2d = l2.start.to_coord_2d();
+                    let l2_end_2d = l2.end.to_coord_2d();
+
+                    if p != l1_start_2d && p != l1_end_2d {
+                        let z = self.interpolate_z(p, l1);
+                        handler(i, Coord3D::new(p.x, p.y, z));
                     }
-                    if p != l2.start && p != l2.end {
-                        handler(j, p);
+                    if p != l2_start_2d && p != l2_end_2d {
+                        let z = self.interpolate_z(p, l2);
+                        handler(j, Coord3D::new(p.x, p.y, z));
                     }
                 }
             }
         }
     }
 
-    fn find_splits_simd(&self, lines: &[Line<f64>]) -> Vec<(usize, Coord<f64>)> {
+    fn find_splits_simd(&self, lines: &[Line3D]) -> Vec<(usize, Coord3D)> {
         let soa = SoALines::new(lines);
 
         #[cfg(feature = "parallel")]
@@ -279,15 +339,18 @@ impl SnapNoder {
     #[inline]
     pub(crate) fn process_intersection<F>(
         &self,
-        l1: Line<f64>,
-        l2: Line<f64>,
+        l1: Line3D,
+        l2: Line3D,
         i: usize,
         j: usize,
         handler: F,
     ) where
-        F: FnMut(usize, Coord<f64>),
+        F: FnMut(usize, Coord3D),
     {
-        if let Some(res) = geo::algorithm::line_intersection::line_intersection(l1, l2) {
+        let l1_2d = l1.to_line_2d();
+        let l2_2d = l2.to_line_2d();
+
+        if let Some(res) = line_intersection(l1_2d, l2_2d) {
             self.handle_intersection(res, i, j, l1, l2, handler);
         }
     }
@@ -297,11 +360,11 @@ impl SnapNoder {
     #[inline]
     fn check_intersection_simd(
         &self,
-        query_line: Line<f64>,
+        query_line: Line3D,
         i: usize,
-        lines: &[Line<f64>],
+        lines: &[Line3D],
         soa: &SoALines,
-    ) -> Vec<(usize, Coord<f64>)> {
+    ) -> Vec<(usize, Coord3D)> {
         let mut events = Vec::new();
         // Start block to avoid duplicate checks (j > i)
         // We start checking at index i+1.
@@ -372,10 +435,10 @@ impl SnapNoder {
     #[inline]
     pub fn check_intersection(
         &self,
-        lines: &[Line<f64>],
+        lines: &[Line3D],
         i: usize,
         j: usize,
-        events: &mut Vec<(usize, Coord<f64>)>,
+        events: &mut Vec<(usize, Coord3D)>,
     ) {
         if i >= lines.len() || j >= lines.len() {
             return;
@@ -395,6 +458,10 @@ mod tests {
     use super::*;
     use rand::Rng;
 
+    fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
+    }
+
     #[test]
     fn test_grid_vs_simd_equivalence() {
         let mut rng = rand::thread_rng();
@@ -406,18 +473,12 @@ mod tests {
             let y1 = rng.gen_range(0.0..100.0);
             let x2 = rng.gen_range(0.0..100.0);
             let y2 = rng.gen_range(0.0..100.0);
-            lines.push(Line::new(Coord { x: x1, y: y1 }, Coord { x: x2, y: y2 }));
+            lines.push(make_line(x1, y1, x2, y2));
         }
 
         // Add some guaranteed intersections
-        lines.push(Line::new(
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 10.0, y: 10.0 },
-        ));
-        lines.push(Line::new(
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 10.0, y: 0.0 },
-        ));
+        lines.push(make_line(0.0, 0.0, 10.0, 10.0));
+        lines.push(make_line(0.0, 10.0, 10.0, 0.0));
 
         let noder = SnapNoder::new(0.001);
 
@@ -428,19 +489,19 @@ mod tests {
         // SIMD Logic
         let mut splits_simd = noder.find_splits_simd(&lines);
 
-        // Both return Vec<(usize, Coord)>
+        // Both return Vec<(usize, Coord3D)>
         // Sort both by index, then coordinate
         splits_grid.sort_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
         });
-        splits_grid.dedup(); // Remove duplicate events if any
+        splits_grid.dedup_by(|a, b| a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y);
 
         splits_simd.sort_by(|a, b| {
             a.0.cmp(&b.0)
                 .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
         });
-        splits_simd.dedup();
+        splits_simd.dedup_by(|a, b| a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y);
 
         assert_eq!(
             splits_grid.len(),
@@ -464,14 +525,8 @@ mod tests {
     fn test_scalar_strategy_simple() {
         let mut lines = Vec::new();
         // Intersection at (5, 5)
-        lines.push(Line::new(
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 10.0, y: 10.0 },
-        ));
-        lines.push(Line::new(
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 10.0, y: 0.0 },
-        ));
+        lines.push(make_line(0.0, 0.0, 10.0, 10.0));
+        lines.push(make_line(0.0, 10.0, 10.0, 0.0));
 
         let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
         let noded = noder.node(lines);
@@ -483,7 +538,7 @@ mod tests {
         // (5,5)->(10,0)
         assert_eq!(noded.len(), 4, "Expected 4 lines from simple intersection");
 
-        let center = Coord { x: 5.0, y: 5.0 };
+        let center = Coord3D::new(5.0, 5.0, 0.0);
         // Check if any line endpoint is close to center
         let center_hits = noded
             .iter()
@@ -498,8 +553,8 @@ mod tests {
 
     #[test]
     fn test_check_intersection_direct() {
-        let l1 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
-        let l2 = Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 });
+        let l1 = make_line(0.0, 0.0, 10.0, 10.0);
+        let l2 = make_line(0.0, 10.0, 10.0, 0.0);
         let lines = vec![l1, l2];
         let mut events = Vec::new();
 

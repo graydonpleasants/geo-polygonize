@@ -1,4 +1,4 @@
-use geo::Line;
+use crate::types::Line3D;
 use wide::f64x4;
 use wide::CmpGe;
 use wide::CmpLe;
@@ -11,7 +11,7 @@ pub struct SoALines {
 }
 
 impl SoALines {
-    pub fn new(lines: &[Line<f64>]) -> Self {
+    pub fn new(lines: &[Line3D]) -> Self {
         let len = lines.len();
         // Reserve memory + padding
         let mut min_x = Vec::with_capacity(len + 3);
@@ -58,7 +58,7 @@ impl SoALines {
     /// Bit 1 = index + 1
     /// ...
     #[inline]
-    pub fn intersects_bbox_batch(&self, query: Line<f64>, index: usize) -> u8 {
+    pub fn intersects_bbox_batch(&self, query: Line3D, index: usize) -> u8 {
         // 1. Prepare Query BBox (Splat to all 4 lanes)
         let q_min_x_val = query.start.x.min(query.end.x);
         let q_max_x_val = query.start.x.max(query.end.x);
@@ -104,25 +104,29 @@ impl SoALines {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::{Coord, Line};
+    use crate::types::{Coord3D, Line3D};
+
+    fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
+    }
 
     #[test]
     fn test_soa_bbox_batch_simd() {
         // Setup 4 lines to test against a query
         // Query Line: (0,0) -> (10,10). BBox: [0,0, 10,10]
-        let query = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let query = make_line(0.0, 0.0, 10.0, 10.0);
 
         let lines = vec![
             // 0. Inside Query BBox (Should Match)
-            Line::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 2.0, y: 2.0 }),
+            make_line(1.0, 1.0, 2.0, 2.0),
             // 1. Completely Outside to the Right (No Match)
             // BBox: [12,0, 14,10] -> MinX(12) > QueryMaxX(10)
-            Line::new(Coord { x: 12.0, y: 0.0 }, Coord { x: 14.0, y: 10.0 }),
+            make_line(12.0, 0.0, 14.0, 10.0),
             // 2. Overlapping Boundary (Touching) (Should Match)
             // BBox: [10,5, 15,5]. MinX(10) <= QueryMaxX(10)
-            Line::new(Coord { x: 10.0, y: 5.0 }, Coord { x: 15.0, y: 5.0 }),
+            make_line(10.0, 5.0, 15.0, 5.0),
             // 3. Diagonal Crossing (Should Match)
-            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }),
+            make_line(0.0, 10.0, 10.0, 0.0),
         ];
 
         let soa = SoALines::new(&lines);
@@ -143,13 +147,10 @@ mod tests {
     #[test]
     fn test_soa_padding_safety() {
         // Test that the padding NaNs don't cause false positives
-        let query = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let query = make_line(0.0, 0.0, 10.0, 10.0);
 
         // Only 1 line provided. 3 slots will be padded with NaN.
-        let lines = vec![Line::new(
-            Coord { x: 1.0, y: 1.0 },
-            Coord { x: 2.0, y: 2.0 },
-        )];
+        let lines = vec![make_line(1.0, 1.0, 2.0, 2.0)];
 
         let soa = SoALines::new(&lines);
 
@@ -168,7 +169,7 @@ mod tests {
     #[test]
     fn test_empty_soa() {
         // Edge case: Empty input
-        let lines: Vec<Line<f64>> = vec![];
+        let lines: Vec<Line3D> = vec![];
         let soa = SoALines::new(&lines);
 
         assert_eq!(soa.min_x.len(), 0);
@@ -178,12 +179,12 @@ mod tests {
     fn test_crossing_scenario() {
         // Reproduction of test_noding_crossing_lines structure
         let lines = vec![
-            Line::new(Coord { x: 0., y: 0. }, Coord { x: 10., y: 0. }), // 0
-            Line::new(Coord { x: 10., y: 0. }, Coord { x: 10., y: 10. }), // 1
-            Line::new(Coord { x: 10., y: 10. }, Coord { x: 0., y: 10. }), // 2
-            Line::new(Coord { x: 0., y: 10. }, Coord { x: 0., y: 0. }), // 3
-            Line::new(Coord { x: 0., y: 0. }, Coord { x: 10., y: 10. }), // 4
-            Line::new(Coord { x: 0., y: 10. }, Coord { x: 10., y: 0. }), // 5
+            make_line(0., 0., 10., 0.), // 0
+            make_line(10., 0., 10., 10.), // 1
+            make_line(10., 10., 0., 10.), // 2
+            make_line(0., 10., 0., 0.), // 3
+            make_line(0., 0., 10., 10.), // 4
+            make_line(0., 10., 10., 0.), // 5
         ];
 
         let soa = SoALines::new(&lines);
