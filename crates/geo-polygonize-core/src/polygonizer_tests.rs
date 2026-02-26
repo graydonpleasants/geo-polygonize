@@ -3,7 +3,7 @@ mod tests {
     use crate::Polygonizer;
     use geo::bounding_rect::BoundingRect;
     use geo::Area;
-    use geo_types::LineString;
+    use geo_types::{LineString, Polygon};
 
     #[test]
     fn test_polygonize_simple_triangle() {
@@ -14,9 +14,10 @@ mod tests {
 
         let polygons = poly.polygonize().unwrap().polygons;
         assert!(polygons.len() >= 1);
-        let triangle = polygons
-            .iter()
-            .find(|p| p.unsigned_area() > 49.0 && p.unsigned_area() < 51.0);
+        let triangle = polygons.iter().find(|p| {
+            let p2d = p.to_polygon_2d();
+            p2d.unsigned_area() > 49.0 && p2d.unsigned_area() < 51.0
+        });
         assert!(triangle.is_some());
     }
 
@@ -57,13 +58,13 @@ mod tests {
 
         let donut = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 64.0).abs() < 1.0);
         assert!(donut.is_some(), "Donut polygon not found");
-        assert_eq!(donut.unwrap().interiors().len(), 1);
+        assert_eq!(donut.unwrap().interiors.len(), 1);
 
         let island = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
     }
 
@@ -89,19 +90,6 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
         let polygons = poly.polygonize().expect("Polygonization failed").polygons;
-        // Frame (empty because triangles are holes) + 4 Triangles
-        // Wait, the logic assigns holes to shells.
-        // Frame is OuterCCW (100) and OuterCW (-100).
-        // Triangles are InnerCCW (25) and InnerCW (-25).
-        // 4 Triangles (CW) are holes of Frame (OuterCCW).
-        // Area = 100 - 4*25 = 0.
-        // The Frame has Area 0 and is filtered out by the Polygonizer (tolerance 1e-6).
-        // 4 Triangles (CCW) are shells. Area 25.
-        // So we get:
-        // 1. Triangle 1 (Area 25)
-        // 2. Triangle 2 (Area 25)
-        // 3. Triangle 3 (Area 25)
-        // 4. Triangle 4 (Area 25)
 
         assert_eq!(
             polygons.len(),
@@ -111,7 +99,7 @@ mod tests {
         );
         let triangles_count = polygons
             .iter()
-            .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
+            .filter(|p| (p.to_polygon_2d().unsigned_area() - 25.0).abs() < 1e-6)
             .count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
@@ -120,19 +108,6 @@ mod tests {
     fn test_noding_collinear_lines() {
         let mut poly = Polygonizer::new();
         poly.node_input = true;
-
-        // 1. Line (0,0)->(10,0)
-        // 2. Line (5,0)->(15,0) (Overlap 5..10)
-        // 3. Line (10,0)->(10,10)->(5,10)->(5,0) (To close the rectangle with the overlap)
-
-        // The overlap is on (5,0) to (10,0).
-        // If handled correctly, we should get:
-        // - Segment (0,0)-(5,0)
-        // - Segment (5,0)-(10,0) (Double covered but graph should unique-ify edges or handle overlap?)
-        // - Segment (10,0)-(15,0)
-        // - And the rest of the box.
-
-        // We expect a rectangle (5,0)-(10,0)-(10,10)-(5,10)-(5,0). Area 50.
 
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]).into());
         poly.add_geometry(LineString::from(vec![(5.0, 0.0), (15.0, 0.0)]).into());
@@ -145,7 +120,7 @@ mod tests {
         // Should find the rectangle of area 50.
         let rect = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 50.0).abs() < 1e-6);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 50.0).abs() < 1e-6);
         assert!(
             rect.is_some(),
             "Expected rectangle of area 50 from collinear overlap"
@@ -261,12 +236,12 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 72.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 72.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Expected outer shell area near 72 with assigned concave hole"
         );
-        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+        assert_eq!(shell_with_hole.unwrap().interiors.len(), 1);
     }
 
     #[test]
@@ -293,12 +268,12 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 98.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 98.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Point-touch hole should be retained on parent shell"
         );
-        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+        assert_eq!(shell_with_hole.unwrap().interiors.len(), 1);
     }
 
     #[test]
@@ -332,12 +307,12 @@ mod tests {
 
         let outer = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 100.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1.0);
         assert!(
             outer.is_some(),
             "Edge-touch hole should not be assigned to the parent shell"
         );
-        assert_eq!(outer.unwrap().interiors().len(), 0);
+        assert_eq!(outer.unwrap().interiors.len(), 0);
     }
 
     #[test]
@@ -375,8 +350,8 @@ mod tests {
         // Default behavior would return 2 polygons.
         // With extract_only_polygonal=true, the inner shell should be discarded.
         assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
-        assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
-        assert_eq!(polygons[0].interiors().len(), 0);
+        assert!((polygons[0].to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors.len(), 0);
     }
 
     #[test]
@@ -429,7 +404,6 @@ mod tests {
         );
 
         // 2. Tiny Ring 1 (Area < 1e-9)
-        // A triangle with base 1e-5 and height 1e-5 has area 0.5e-10.
         poly.add_geometry(
             LineString::from(vec![
                 (20.0, 0.0),
@@ -440,8 +414,7 @@ mod tests {
             .into(),
         );
 
-        // 3. Tiny Ring 2 (Inside Tiny Ring 1? No, let's make them disjoint first to test capture)
-        // Another tiny one.
+        // 3. Tiny Ring 2
         poly.add_geometry(
             LineString::from(vec![
                 (30.0, 0.0),
@@ -461,11 +434,7 @@ mod tests {
     fn test_invalid_rings_deduplication_and_nesting() {
         let mut poly = Polygonizer::new();
 
-        // Ring A: Tiny but "outer" relative to B.
-        // Let's say we have a ring that is small enough to be invalid (< 1e-9),
-        // but we want to test the containment logic.
-
-        // Ring A (Outer): (0,0)-(1e-5,0)-(1e-5,1e-5)-(0,1e-5)-(0,0). Area = 1e-10.
+        // Ring A (Outer)
         let ring_a = LineString::from(vec![
             (0.0, 0.0),
             (1e-5, 0.0),
@@ -474,8 +443,7 @@ mod tests {
             (0.0, 0.0),
         ]);
 
-        // Ring B (Inner): (0.2e-5, 0.2e-5)-(0.8e-5, 0.2e-5)-(0.8e-5, 0.8e-5)-(0.2e-5, 0.8e-5)-(0.2e-5, 0.2e-5).
-        // Area is smaller and is contained in A.
+        // Ring B (Inner)
         let ring_b = LineString::from(vec![
             (0.2e-5, 0.2e-5),
             (0.8e-5, 0.2e-5),
@@ -496,8 +464,10 @@ mod tests {
 
         // Verify it is ring A
         let captured = &result.invalid_rings[0];
-        // Bounding box of captured should match Ring A.
-        let bbox = captured.bounding_rect().unwrap();
+        // Convert to LineString for bounding box check
+        let ls = LineString(captured.iter().map(|c| c.to_coord_2d()).collect());
+
+        let bbox = ls.bounding_rect().unwrap();
         // Ring A max x is 1e-5. Ring B max x is 0.8e-5.
         // If we captured Ring A, max x should be close to 1e-5.
         assert!((bbox.max().x - 1e-5).abs() < 1e-12);

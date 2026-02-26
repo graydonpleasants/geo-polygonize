@@ -82,12 +82,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .into_iter()
         .map(|poly| {
             // poly is Polygon3D
-            let exterior_ring: Vec<Vec<f64>> = poly.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+            let exterior_ring: Vec<Vec<f64>> =
+                poly.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
 
             let mut rings: Vec<Vec<Vec<f64>>> = vec![exterior_ring];
 
             for interior in poly.interiors {
-                let interior_ring: Vec<Vec<f64>> = interior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+                let interior_ring: Vec<Vec<f64>> =
+                    interior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
                 rings.push(interior_ring);
             }
 

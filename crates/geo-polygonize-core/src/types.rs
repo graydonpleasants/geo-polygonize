@@ -71,22 +71,11 @@ impl Polygon3D {
     }
 
     pub fn to_polygon_2d(&self) -> Polygon<f64> {
-        let ext = LineString(
-            self.exterior
-                .iter()
-                .map(|c| c.to_coord_2d())
-                .collect(),
-        );
+        let ext = LineString(self.exterior.iter().map(|c| c.to_coord_2d()).collect());
         let ints = self
             .interiors
             .iter()
-            .map(|ring| {
-                LineString(
-                    ring.iter()
-                        .map(|c| c.to_coord_2d())
-                        .collect(),
-                )
-            })
+            .map(|ring| LineString(ring.iter().map(|c| c.to_coord_2d()).collect()))
             .collect();
         Polygon::new(ext, ints)
     }

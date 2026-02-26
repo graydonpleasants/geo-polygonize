@@ -107,10 +107,7 @@ mod tests {
     use crate::types::{Coord3D, Line3D};
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
-        Line3D::new(
-            Coord3D::new(x1, y1, 0.0),
-            Coord3D::new(x2, y2, 0.0),
-        )
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
     }
 
     #[test]
@@ -182,12 +179,12 @@ mod tests {
     fn test_crossing_scenario() {
         // Reproduction of test_noding_crossing_lines structure
         let lines = vec![
-            make_line(0., 0., 10., 0.), // 0
+            make_line(0., 0., 10., 0.),   // 0
             make_line(10., 0., 10., 10.), // 1
             make_line(10., 10., 0., 10.), // 2
-            make_line(0., 10., 0., 0.), // 3
-            make_line(0., 0., 10., 10.), // 4
-            make_line(0., 10., 10., 0.), // 5
+            make_line(0., 10., 0., 0.),   // 3
+            make_line(0., 0., 10., 10.),  // 4
+            make_line(0., 10., 10., 0.),  // 5
         ];
 
         let soa = SoALines::new(&lines);

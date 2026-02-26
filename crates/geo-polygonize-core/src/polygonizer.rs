@@ -8,10 +8,10 @@ use geo::bounding_rect::BoundingRect;
 use geo::Area;
 use geo::Contains;
 use geo_types::{Coord, Geometry, LineString, Polygon};
-use rstar::{RTree, RTreeObject, AABB};
-use std::collections::HashSet;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use rstar::{RTree, RTreeObject, AABB};
+use std::collections::HashSet;
 
 // Wrapper for Polygon indexable by rstar (2D)
 struct IndexedEnvelope {
@@ -111,7 +111,9 @@ impl Polygonizer {
         if self.node_input {
             // Sort by 2D coordinates
             all_segments.sort_by(|a, b| {
-                a.start.x.total_cmp(&b.start.x)
+                a.start
+                    .x
+                    .total_cmp(&b.start.x)
                     .then(a.start.y.total_cmp(&b.start.y))
             });
             // Dedup based on 3D equality? or 2D?
@@ -295,7 +297,8 @@ impl Polygonizer {
                 // Recompute shells_2d and simd_shells for hole assignment
                 // We can just use new_shells_2d but we need to re-index tree
                 // Let's recompute everything for safety
-                let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
+                let shells_2d: Vec<Polygon<f64>> =
+                    shells.iter().map(|s| s.to_polygon_2d()).collect();
 
                 // Filter holes
                 if !discarded_edges.is_empty() {
@@ -382,9 +385,7 @@ impl Polygonizer {
                 }
             }
 
-            best_shell_idx.map(|idx| {
-                (idx, hole_3d.exterior.clone())
-            })
+            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone()))
         };
 
         let assignments: Vec<_>;
@@ -438,24 +439,32 @@ fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
     let mut others = Vec::new();
 
     for ring in rings {
-         if ring.exterior.iter().all(|c| c.x.is_finite() && c.y.is_finite()) {
-             processable.push(ring);
-         } else {
-             others.push(ring);
-         }
+        if ring
+            .exterior
+            .iter()
+            .all(|c| c.x.is_finite() && c.y.is_finite())
+        {
+            processable.push(ring);
+        } else {
+            others.push(ring);
+        }
     }
 
     // Sort by 2D bbox area
     processable.sort_by(|a, b| {
-        let area_a = a.to_polygon_2d()
+        let area_a = a
+            .to_polygon_2d()
             .bounding_rect()
             .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
             .unwrap_or(0.0);
-        let area_b = b.to_polygon_2d()
+        let area_b = b
+            .to_polygon_2d()
             .bounding_rect()
             .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
             .unwrap_or(0.0);
-        area_b.partial_cmp(&area_a).unwrap_or(std::cmp::Ordering::Equal)
+        area_b
+            .partial_cmp(&area_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     // We need 2D forms for containment check
@@ -470,9 +479,7 @@ fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
 
     for ring in processable {
         let p2d = ring.to_polygon_2d();
-        let is_contained = accepted.iter().any(|existing| {
-            existing.p2d.contains(&p2d)
-        });
+        let is_contained = accepted.iter().any(|existing| existing.p2d.contains(&p2d));
 
         if !is_contained {
             accepted.push(RingPair { p3d: ring, p2d });

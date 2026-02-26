@@ -238,9 +238,7 @@ impl PlanarGraph {
         // `NodeEntry` PartialEq/Ord implementation considers X,Y.
         // We need to ensure we don't have duplicates with same X,Y but different Z.
         // `dedup_by` keeps the first one.
-        entries.dedup_by(|a, b| {
-            a.c.x == b.c.x && a.c.y == b.c.y
-        });
+        entries.dedup_by(|a, b| a.c.x == b.c.x && a.c.y == b.c.y);
 
         // 3. Build Nodes
         let start_node_idx = self.nodes_x.len();

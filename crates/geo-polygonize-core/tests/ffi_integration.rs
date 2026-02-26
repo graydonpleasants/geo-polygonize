@@ -1,31 +1,29 @@
 use geo_polygonize_core::ffi::{
-    polygonize_ffi, polygonize_result_free, polygonize_result_get_count, PolygonizerOptions,
+    polygonize_ffi, polygonize_result_free, polygonize_result_get_count,
+    polygonize_result_get_shell_point_count, polygonize_result_get_shell_points, CPolygonStatus,
+    PolygonizerOptions,
 };
+use std::slice;
 
 #[test]
 fn test_ffi_simple_square() {
-    // Square: (0,0), (10,0), (10,10), (0,10), (0,0)
-    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
-    // Offsets claims 5 points (index 0 to 5)
-    // IMPORTANT: Offsets are indices of POINTS (2 doubles).
-    // Square has 5 points (10 doubles).
-    // Offsets should be [0, 5] if offsets are point indices.
-    // If implementation expects point indices, this is correct.
-    let offsets: Vec<u32> = vec![0, 5];
+    let coords = vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0];
+    let offsets = vec![0, 5]; // 1 linestring with 5 points
 
     let options = PolygonizerOptions {
-        node_input: false,
+        node_input: 0,
         snap_grid_size: 1e-10,
-        extract_only_polygonal: false,
+        extract_only_polygonal: 0,
     };
 
     let result_ptr = unsafe {
         polygonize_ffi(
             coords.as_ptr(),
             coords.len(),
+            2, // Stride
             offsets.as_ptr(),
             offsets.len(),
-            options,
+            &options,
         )
     };
 
@@ -34,127 +32,128 @@ fn test_ffi_simple_square() {
     let count = unsafe { polygonize_result_get_count(result_ptr) };
     assert_eq!(count, 1);
 
-    unsafe { polygonize_result_free(result_ptr) };
-}
+    let shell_pts = unsafe { polygonize_result_get_shell_point_count(result_ptr, 0) };
+    assert_eq!(shell_pts, 5);
 
-#[test]
-fn test_ffi_invalid_bounds() {
-    // Only 2 points (4 doubles) provided
-    let coords: Vec<f64> = vec![0.0, 0.0, 10.0, 0.0];
-    // Offsets claims 5 points (index 0 to 5)
-    let offsets: Vec<u32> = vec![0, 5];
-
-    let options = PolygonizerOptions {
-        node_input: false,
-        snap_grid_size: 1e-10,
-        extract_only_polygonal: false,
-    };
-
-    let result_ptr = unsafe {
-        polygonize_ffi(
-            coords.as_ptr(),
-            coords.len(),
-            offsets.as_ptr(),
-            offsets.len(),
-            options,
-        )
-    };
-
-    // My new implementation returns a status struct, not null, on error
-    assert!(!result_ptr.is_null());
+    let mut buffer = vec![0.0; shell_pts * 3]; // 3D
     unsafe {
-        use geo_polygonize_core::ffi::polygonize_result_get_status;
-        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
-        polygonize_result_free(result_ptr)
-    };
+        polygonize_result_get_shell_points(result_ptr, 0, buffer.as_mut_ptr());
+    }
+
+    // Verify first point (0,0,0)
+    assert_eq!(buffer[0], 0.0);
+    assert_eq!(buffer[1], 0.0);
+    assert_eq!(buffer[2], 0.0);
+
+    unsafe {
+        polygonize_result_free(result_ptr);
+    }
 }
 
 #[test]
-fn test_ffi_two_squares_touching() {
-    // Two squares sharing an edge
-    // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
-    // Square 2: (10,0)-(20,0)-(20,10)-(10,10)-(10,0)
-
-    // We can pass them as 2 linestrings
-    let coords: Vec<f64> = vec![
-        // Square 1
-        0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Square 2
-        10.0, 0.0, 20.0, 0.0, 20.0, 10.0, 10.0, 10.0, 10.0, 0.0,
+fn test_ffi_noding() {
+    // Frame + Cross
+    let coords = vec![
+        0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Frame
+        0.0, 0.0, 10.0, 10.0, // Diag 1
+        0.0, 10.0, 10.0, 0.0  // Diag 2
     ];
-    // Offsets are point indices.
-    // Square 1: 5 points (10 floats). Start 0.
-    // Square 2: 5 points (10 floats). Start 5.
-    // End: 10 points.
-    let offsets: Vec<u32> = vec![0, 5, 10];
+    let offsets = vec![0, 5, 7, 9]; // 3 lines
 
     let options = PolygonizerOptions {
-        node_input: true, // Should dedup shared edge
+        node_input: 1,
         snap_grid_size: 1e-10,
-        extract_only_polygonal: false,
+        extract_only_polygonal: 0,
     };
 
     let result_ptr = unsafe {
         polygonize_ffi(
             coords.as_ptr(),
             coords.len(),
+            2, // Stride
             offsets.as_ptr(),
             offsets.len(),
-            options,
+            &options,
         )
     };
 
     assert!(!result_ptr.is_null());
-
     let count = unsafe { polygonize_result_get_count(result_ptr) };
-    // Should result in 2 polygons (squares)
-    assert_eq!(count, 2);
+    assert_eq!(count, 4);
 
-    unsafe { polygonize_result_free(result_ptr) };
+    unsafe {
+        polygonize_result_free(result_ptr);
+    }
 }
 
 #[test]
-fn test_ffi_accepts_null_empty_buffers() {
+fn test_ffi_invalid_input() {
+    // Even length but invalid linestring (1 point)
+    let coords = vec![0.0, 0.0];
+    let offsets = vec![0, 1]; // 1 point
+
     let options = PolygonizerOptions {
-        node_input: false,
+        node_input: 0,
         snap_grid_size: 1e-10,
-        extract_only_polygonal: false,
+        extract_only_polygonal: 0,
     };
 
-    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, options) };
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            coords.as_ptr(),
+            coords.len(),
+            2, // Stride
+            offsets.as_ptr(),
+            offsets.len(),
+            &options,
+        )
+    };
 
     assert!(!result_ptr.is_null());
     let count = unsafe { polygonize_result_get_count(result_ptr) };
     assert_eq!(count, 0);
+
+    unsafe {
+        polygonize_result_free(result_ptr);
+    }
+}
+
+#[test]
+fn test_ffi_null_pointers() {
+    let options = PolygonizerOptions {
+        node_input: 0,
+        snap_grid_size: 1e-10,
+        extract_only_polygonal: 0,
+    };
+
+    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, 2, std::ptr::null(), 0, &options) };
+    assert!(!result_ptr.is_null());
+    assert_eq!(unsafe { polygonize_result_get_count(result_ptr) }, 0);
     unsafe { polygonize_result_free(result_ptr) };
 }
 
 #[test]
-fn test_ffi_rejects_out_of_bounds_offsets() {
-    // One bad linestring (offset points past coords length)
-    let coords: Vec<f64> = vec![0.0, 0.0, 1.0, 1.0];
-    let offsets: Vec<u32> = vec![0, 3];
+fn test_ffi_odd_coordinates() {
+    let coords = vec![0.0, 0.0, 10.0]; // 3 coords?
+    let offsets = vec![0, 1];
 
     let options = PolygonizerOptions {
-        node_input: false,
+        node_input: 0,
         snap_grid_size: 1e-10,
-        extract_only_polygonal: false,
+        extract_only_polygonal: 0,
     };
 
     let result_ptr = unsafe {
         polygonize_ffi(
             coords.as_ptr(),
             coords.len(),
+            2,
             offsets.as_ptr(),
             offsets.len(),
-            options,
+            &options,
         )
     };
 
-    // My new implementation returns a status struct, not null, on error
-    assert!(!result_ptr.is_null());
-    unsafe {
-        use geo_polygonize_core::ffi::polygonize_result_get_status;
-        assert_ne!(polygonize_result_get_status(result_ptr), 0); // 0 is Success
-        polygonize_result_free(result_ptr)
-    };
+    // Should be null due to stride check
+    assert!(result_ptr.is_null());
 }

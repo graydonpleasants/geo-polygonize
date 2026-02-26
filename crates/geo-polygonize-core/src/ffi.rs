@@ -34,12 +34,15 @@ pub unsafe extern "C" fn polygonize_ffi(
     offsets_len: usize,
     options: *const PolygonizerOptions,
 ) -> *mut CPolygonResult {
-    if (coords_ptr.is_null() && coords_len > 0) || (offsets_ptr.is_null() && offsets_len > 0) || options.is_null() {
+    if (coords_ptr.is_null() && coords_len > 0)
+        || (offsets_ptr.is_null() && offsets_len > 0)
+        || options.is_null()
+    {
         return std::ptr::null_mut();
     }
 
     if stride != 2 && stride != 3 {
-         return std::ptr::null_mut();
+        return std::ptr::null_mut();
     }
 
     #[allow(clippy::manual_is_multiple_of)]

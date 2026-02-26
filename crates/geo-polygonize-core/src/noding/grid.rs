@@ -180,11 +180,7 @@ impl UniformGrid {
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     /// Returns a flat list of (line_index, point) tuples.
-    pub fn find_splits(
-        &self,
-        lines: &[Line3D],
-        snap_noder: &SnapNoder,
-    ) -> Vec<(usize, Coord3D)> {
+    pub fn find_splits(&self, lines: &[Line3D], snap_noder: &SnapNoder) -> Vec<(usize, Coord3D)> {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
@@ -437,14 +433,11 @@ impl UniformGrid {
 mod tests {
     use super::*;
     use crate::noding::snap::SnapNoder;
-    use approx::assert_relative_eq;
     use crate::types::{Coord3D, Line3D};
+    use approx::assert_relative_eq;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
-        Line3D::new(
-            Coord3D::new(x1, y1, 0.0),
-            Coord3D::new(x2, y2, 0.0),
-        )
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
     }
 
     #[test]
@@ -492,7 +485,7 @@ mod tests {
     fn test_cell_population() {
         // Create 2 disjoint lines far apart
         let lines = vec![
-            make_line(0.0, 0.0, 1.0, 1.0), // Bottom-left
+            make_line(0.0, 0.0, 1.0, 1.0),   // Bottom-left
             make_line(9.0, 9.0, 10.0, 10.0), // Top-right
         ];
 
