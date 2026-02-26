@@ -24,39 +24,57 @@ pub struct CPolygonResult {
     pub polygon_coords: Vec<f64>,
     pub ring_offsets: Vec<u32>,
     pub polygon_offsets: Vec<u32>,
+    pub polygon_line_ids: Vec<u32>,
     pub stride: u8,
     pub status: CPolygonStatus,
 }
 
-fn flatten_polygons(polygons: &[Polygon3D], stride: u8) -> (Vec<f64>, Vec<u32>, Vec<u32>) {
+fn flatten_polygons(
+    polygons: &[Polygon3D],
+    stride: u8,
+) -> (Vec<f64>, Vec<u32>, Vec<u32>, Vec<u32>) {
     let mut coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
+    let mut line_ids = Vec::new();
 
     for poly in polygons {
         polygon_offsets.push(ring_offsets.len() as u32);
         ring_offsets.push((coords.len() / stride as usize) as u32);
-        for coord in &poly.exterior {
+
+        // Exterior
+        for (i, coord) in poly.exterior.iter().enumerate() {
             coords.push(coord.x);
             coords.push(coord.y);
             if stride == 3 {
                 coords.push(coord.z);
             }
+            if i < poly.exterior_ids.len() {
+                line_ids.push(poly.exterior_ids[i]);
+            } else {
+                line_ids.push(0); // Dummy for last point
+            }
         }
 
-        for ring in &poly.interiors {
+        // Interiors
+        for (h_idx, ring) in poly.interiors.iter().enumerate() {
             ring_offsets.push((coords.len() / stride as usize) as u32);
-            for coord in ring {
+            for (i, coord) in ring.iter().enumerate() {
                 coords.push(coord.x);
                 coords.push(coord.y);
                 if stride == 3 {
                     coords.push(coord.z);
                 }
+                if i < poly.interiors_ids[h_idx].len() {
+                    line_ids.push(poly.interiors_ids[h_idx][i]);
+                } else {
+                    line_ids.push(0); // Dummy for last point
+                }
             }
         }
     }
 
-    (coords, ring_offsets, polygon_offsets)
+    (coords, ring_offsets, polygon_offsets, line_ids)
 }
 
 /// Helper to ingest raw data and run polygonization
@@ -65,6 +83,8 @@ fn flatten_polygons(polygons: &[Polygon3D], stride: u8) -> (Vec<f64>, Vec<u32>, 
 /// `coords_len`: Number of f64 values (should be even)
 /// `offsets_ptr`: Pointer to u32 offsets defining linestrings.
 /// `offsets_len`: Number of offsets.
+/// `line_ids_ptr`: Optional pointer to u32 line IDs. If null, sequential indices are used.
+/// `line_ids_len`: Number of line IDs. Should match `offsets_len - 1` if provided.
 ///
 /// This assumes Arrow-like offsets: `offsets` has length `N+1` for `N` linestrings.
 /// The `i`-th linestring consists of points from index `offsets[i]` to `offsets[i+1]`.
@@ -78,6 +98,8 @@ pub unsafe extern "C" fn polygonize_ffi(
     coords_len: usize,
     offsets_ptr: *const u32,
     offsets_len: usize,
+    line_ids_ptr: *const u32,
+    line_ids_len: usize,
     stride: u8,
     options: *const PolygonizerOptions,
 ) -> *mut CPolygonResult {
@@ -110,6 +132,12 @@ pub unsafe extern "C" fn polygonize_ffi(
         unsafe { slice::from_raw_parts(offsets_ptr, offsets_len) }
     };
 
+    let line_ids = if !line_ids_ptr.is_null() && line_ids_len > 0 {
+        Some(unsafe { slice::from_raw_parts(line_ids_ptr, line_ids_len) })
+    } else {
+        None
+    };
+
     let opts = unsafe { &*options };
 
     if offsets_len < 2 {
@@ -121,6 +149,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             polygon_coords: Vec::new(),
             ring_offsets: Vec::new(),
             polygon_offsets: Vec::new(),
+            polygon_line_ids: Vec::new(),
             stride,
             status: CPolygonStatus::Success,
         }));
@@ -146,6 +175,7 @@ pub unsafe extern "C" fn polygonize_ffi(
                 polygon_coords: Vec::new(),
                 ring_offsets: Vec::new(),
                 polygon_offsets: Vec::new(),
+                polygon_line_ids: Vec::new(),
                 stride: stride as u8,
                 status: CPolygonStatus::InvalidInput,
             }));
@@ -164,10 +194,22 @@ pub unsafe extern "C" fn polygonize_ffi(
                 polygon_coords: Vec::new(),
                 ring_offsets: Vec::new(),
                 polygon_offsets: Vec::new(),
+                polygon_line_ids: Vec::new(),
                 stride: stride as u8,
                 status: CPolygonStatus::InvalidInput,
             }));
         }
+
+        // Determine line ID
+        let current_line_id = if let Some(ids) = line_ids {
+            if i < ids.len() {
+                ids[i]
+            } else {
+                0 // Fallback if IDs array too short
+            }
+        } else {
+            i as u32 // Default to index
+        };
 
         // Iterate through POINTS in the linestring
         for j in start_point_idx..end_point_idx - 1 {
@@ -186,7 +228,7 @@ pub unsafe extern "C" fn polygonize_ffi(
                 Coord3D::new(coords[idx2], coords[idx2 + 1], coords[idx2 + 2])
             };
 
-            lines.push(Line3D::new(p1, p2));
+            lines.push(Line3D::new(p1, p2, current_line_id));
         }
     }
 
@@ -198,7 +240,7 @@ pub unsafe extern "C" fn polygonize_ffi(
 
     match polygonizer.polygonize() {
         Ok(result) => {
-            let (polygon_coords, ring_offsets, polygon_offsets) =
+            let (polygon_coords, ring_offsets, polygon_offsets, polygon_line_ids) =
                 flatten_polygons(&result.polygons, stride as u8);
             Box::into_raw(Box::new(CPolygonResult {
                 polygons: result.polygons,
@@ -207,6 +249,7 @@ pub unsafe extern "C" fn polygonize_ffi(
                 polygon_coords,
                 ring_offsets,
                 polygon_offsets,
+                polygon_line_ids,
                 stride: stride as u8,
                 status: CPolygonStatus::Success,
             }))
@@ -218,6 +261,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             polygon_coords: Vec::new(),
             ring_offsets: Vec::new(),
             polygon_offsets: Vec::new(),
+            polygon_line_ids: Vec::new(),
             stride: stride as u8,
             status: CPolygonStatus::InternalError,
         })),
@@ -633,4 +677,40 @@ pub unsafe extern "C" fn polygonize_result_copy_polygon_offsets(
     let offsets = unsafe { &(*res).polygon_offsets };
     let out = unsafe { slice::from_raw_parts_mut(buffer, offsets.len()) };
     out.copy_from_slice(offsets);
+}
+
+/// Return the number of entries in the flat line IDs buffer.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_get_flat_line_ids_len(
+    res: *const CPolygonResult,
+) -> usize {
+    if res.is_null() {
+        0
+    } else {
+        unsafe { (*res).polygon_line_ids.len() }
+    }
+}
+
+/// Copy flat line IDs into a caller-provided buffer.
+///
+/// # Safety
+///
+/// `res` must be a valid pointer returned by `polygonize_ffi` (or null, in which case this is a no-op).
+/// `buffer` must be valid for writes of `polygonize_result_get_flat_line_ids_len(res)` `u32` values.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_copy_flat_line_ids(
+    res: *const CPolygonResult,
+    buffer: *mut u32,
+) {
+    if res.is_null() || buffer.is_null() {
+        return;
+    }
+
+    let ids = unsafe { &(*res).polygon_line_ids };
+    let out = unsafe { slice::from_raw_parts_mut(buffer, ids.len()) };
+    out.copy_from_slice(ids);
 }

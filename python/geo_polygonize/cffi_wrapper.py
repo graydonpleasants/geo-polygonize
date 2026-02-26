@@ -14,6 +14,7 @@ ffi.cdef("""
     CPolygonResult* polygonize_ffi(
         const double* coords, size_t coords_len,
         const uint32_t* offsets, size_t offsets_len,
+        const uint32_t* line_ids, size_t line_ids_len,
         uint8_t stride,
         const PolygonizerOptions* options
     );
@@ -29,6 +30,9 @@ ffi.cdef("""
 
     size_t polygonize_result_get_polygon_offsets_len(const CPolygonResult* res);
     void polygonize_result_copy_polygon_offsets(const CPolygonResult* res, uint32_t* buffer);
+
+    size_t polygonize_result_get_flat_line_ids_len(const CPolygonResult* res);
+    void polygonize_result_copy_flat_line_ids(const CPolygonResult* res, uint32_t* buffer);
 
     size_t polygonize_result_get_dangle_count(const CPolygonResult* res);
     size_t polygonize_result_get_dangle_point_count(const CPolygonResult* res, size_t dangle_idx);
@@ -56,19 +60,12 @@ def find_library():
             return path
 
     # 2. Check in development build directory
-    # Path: ../../target/release/
-    # This assumes we are running from python/geo_polygonize/
-    # So ../../ reaches python/.. which is repo root.
-    # Wait, python/geo_polygonize/../.. => python/.. => root.
-    # Then target/release/ => correct.
     for name in possible_names:
         path = os.path.join(base_dir, "../../target/release", name)
         if os.path.exists(path):
             return path
 
     # 3. Check for PyO3 extension module (as shared lib)
-    # The extension name is geo_polygonize_core.
-    # It might have a suffix like .cpython-39-x86_64-linux-gnu.so or .abi3.so
     extensions = ["*.so", "*.pyd", "*.dylib"]
     for ext in extensions:
         pattern = os.path.join(base_dir, "geo_polygonize_core" + ext)
@@ -81,7 +78,7 @@ def find_library():
 lib_path = find_library()
 lib = ffi.dlopen(lib_path)
 
-def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10, extract_only_polygonal: bool = False, stride: int = 2):
+def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10, extract_only_polygonal: bool = False, stride: int = 2, line_ids: np.ndarray = None):
     """
     Polygonize a set of lines.
 
@@ -93,6 +90,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         snap: snap grid size.
         extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
         stride: 2 for XY, 3 for XYZ.
+        line_ids: optional contiguous uint32 array of line IDs (length = num_linestrings).
 
     Returns:
         Dict with 'polygons' (List[SimplePolygon]), 'dangles', and 'invalid_rings'.
@@ -107,6 +105,13 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     coords_ptr = ffi.cast("double*", coords.ctypes.data)
     offsets_ptr = ffi.cast("uint32_t*", offsets.ctypes.data)
 
+    line_ids_ptr = ffi.NULL
+    line_ids_len = 0
+    if line_ids is not None:
+        line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
+        line_ids_ptr = ffi.cast("uint32_t*", line_ids.ctypes.data)
+        line_ids_len = line_ids.size
+
     options_val = {
         'node_input': 1 if node else 0,
         'snap_grid_size': snap,
@@ -117,6 +122,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     res_ptr = lib.polygonize_ffi(
         coords_ptr, coords.size,
         offsets_ptr, offsets.size,
+        line_ids_ptr, line_ids_len,
         stride,
         options_ptr
     )
@@ -145,13 +151,20 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         poly_offsets = np.zeros(poly_len, dtype=np.uint32)
         lib.polygonize_result_copy_polygon_offsets(res_ptr, ffi.cast("uint32_t*", poly_offsets.ctypes.data))
 
+        line_ids_out_len = lib.polygonize_result_get_flat_line_ids_len(res_ptr)
+        flat_line_ids = np.zeros(line_ids_out_len, dtype=np.uint32)
+        lib.polygonize_result_copy_flat_line_ids(res_ptr, ffi.cast("uint32_t*", flat_line_ids.ctypes.data))
+
         polygons = []
         for p_idx in range(len(poly_offsets)):
             ring_start = poly_offsets[p_idx]
             ring_end = poly_offsets[p_idx+1] if p_idx + 1 < len(poly_offsets) else len(ring_offsets)
 
             shell = None
+            shell_ids = None
             holes = []
+            holes_ids = []
+
             for r in range(ring_start, ring_end):
                 point_start = ring_offsets[r]
                 point_end = ring_offsets[r+1] if r + 1 < len(ring_offsets) else (len(flat) // out_stride)
@@ -159,12 +172,18 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
                 ring = flat[point_start*out_stride : point_end*out_stride].reshape(-1, out_stride)
                 coords_tuples = tuple(map(tuple, ring.tolist()))
 
+                # Extract IDs
+                r_ids = flat_line_ids[point_start:point_end]
+                ids_tuple = tuple(r_ids.tolist())
+
                 if shell is None:
                     shell = coords_tuples
+                    shell_ids = ids_tuple
                 else:
                     holes.append(coords_tuples)
+                    holes_ids.append(ids_tuple)
 
-            polygons.append(SimplePolygon(shell or tuple(), holes))
+            polygons.append(SimplePolygon(shell or tuple(), holes, shell_ids, holes_ids))
 
         # Dangles
         dangle_count = lib.polygonize_result_get_dangle_count(res_ptr)
@@ -176,22 +195,6 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
                 res_ptr, i,
                 ffi.cast("double*", buffer.ctypes.data)
             )
-            # Reshape based on stride?
-            # Rust side `polygonize_result_get_dangle_points` writes 3 coords (3D) always?
-            # Let's check ffi.rs. Yes, it writes 3 doubles per point.
-            # But python `stride` might be 2.
-            # If stride=2, we should probably slice?
-            # Or should we respect the output stride?
-            # The prompt said "Adopt the Coord3D ... and expose it seamlessly to Python ... via interleaved flat arrays."
-            # But dangles are handled via separate accessors in this implementation.
-            # If I use `stride=2`, do I expect 2D output?
-            # The FFI `get_dangle_points` hardcodes 3 doubles per point.
-            # So I should reshape to (-1, 3).
-            # And then if stride is 2, slice?
-            # Or should FFI respect stride?
-            # The previous FFI implementation I wrote for `get_dangle_points` used `slice::from_raw_parts_mut(buffer, dangle.len() * 3)`.
-            # So it always outputs 3D.
-            # Python side should adapt.
             coords = buffer.reshape(-1, 3)
             if stride == 2:
                 coords = coords[:, :2]
@@ -212,7 +215,16 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
                 coords = coords[:, :2]
             invalid_rings.append(tuple(map(tuple, coords.tolist())))
 
-        return {'polygons': polygons, 'flat_coords': flat, 'ring_offsets': ring_offsets, 'polygon_offsets': poly_offsets, 'stride': int(out_stride), 'dangles': dangles, 'invalid_rings': invalid_rings}
+        return {
+            'polygons': polygons,
+            'flat_coords': flat,
+            'ring_offsets': ring_offsets,
+            'polygon_offsets': poly_offsets,
+            'flat_line_ids': flat_line_ids,
+            'stride': int(out_stride),
+            'dangles': dangles,
+            'invalid_rings': invalid_rings
+        }
 
     finally:
         lib.polygonize_result_free(res_ptr)

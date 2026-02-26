@@ -21,6 +21,8 @@ fn test_ffi_simple_square() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            std::ptr::null(),
+            0,
             2, // Stride
             &options,
         )
@@ -71,6 +73,8 @@ fn test_ffi_noding() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            std::ptr::null(),
+            0,
             2, // Stride
             &options,
         )
@@ -104,6 +108,8 @@ fn test_ffi_invalid_input() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            std::ptr::null(),
+            0,
             2, // Stride
             &options,
         )
@@ -126,8 +132,18 @@ fn test_ffi_null_pointers() {
         extract_only_polygonal: 0,
     };
 
-    let result_ptr =
-        unsafe { polygonize_ffi(std::ptr::null(), 0, std::ptr::null(), 0, 2, &options) };
+    let result_ptr = unsafe {
+        polygonize_ffi(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            2,
+            &options,
+        )
+    };
 
     assert!(!result_ptr.is_null());
     assert_eq!(unsafe { polygonize_result_get_count(result_ptr) }, 0);
@@ -151,6 +167,8 @@ fn test_ffi_odd_coordinates() {
             coords.len(),
             offsets.as_ptr(),
             offsets.len(),
+            std::ptr::null(),
+            0,
             2,
             &options,
         )
