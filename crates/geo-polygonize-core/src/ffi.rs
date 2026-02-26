@@ -105,6 +105,16 @@ fn flatten_polygons(
     (coords, ring_offsets, polygon_offsets)
 }
 
+/// Polygonize linework from flat coordinate and offset buffers.
+///
+/// Coordinates are provided as interleaved tuples with `stride` components per point
+/// (`2` for XY, `3` for XYZ). Offsets follow Arrow-style semantics over point indices.
+///
+/// # Safety
+///
+/// If `coords_len > 0`, `coords_ptr` must be valid for reading `coords_len` `f64` values.
+/// If `offsets_len > 0`, `offsets_ptr` must be valid for reading `offsets_len` `u32` values.
+/// Pointers may be null only when their corresponding length is zero.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     coords_ptr: *const f64,
@@ -243,6 +253,11 @@ pub unsafe extern "C" fn polygonize_ffi(
     }
 }
 
+/// Return the number of polygon records in the result.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult) -> usize {
     if res.is_null() {
@@ -252,6 +267,11 @@ pub unsafe extern "C" fn polygonize_result_get_count(res: *const CPolygonResult)
     }
 }
 
+/// Return the status code for the result.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult) -> i32 {
     if res.is_null() {
@@ -261,6 +281,11 @@ pub unsafe extern "C" fn polygonize_result_get_status(res: *const CPolygonResult
     }
 }
 
+/// Return the coordinate stride (2 or 3) used in this result.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_stride(res: *const CPolygonResult) -> u8 {
     if res.is_null() {
@@ -270,6 +295,11 @@ pub unsafe extern "C" fn polygonize_result_get_stride(res: *const CPolygonResult
     }
 }
 
+/// Return the number of `f64` values in the flat polygon coordinate buffer.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_flat_coords_len(
     res: *const CPolygonResult,
@@ -281,6 +311,12 @@ pub unsafe extern "C" fn polygonize_result_get_flat_coords_len(
     }
 }
 
+/// Copy flat polygon coordinates into a caller-provided buffer.
+///
+/// # Safety
+///
+/// `res` must be a valid pointer returned by `polygonize_ffi` (or null, in which case this is a no-op).
+/// `buffer` must be valid for writes of `polygonize_result_get_flat_coords_len(res)` `f64` values.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_copy_flat_coords(
     res: *const CPolygonResult,
@@ -294,6 +330,11 @@ pub unsafe extern "C" fn polygonize_result_copy_flat_coords(
     out.copy_from_slice(coords);
 }
 
+/// Return the number of entries in the ring-offset buffer.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_ring_offsets_len(
     res: *const CPolygonResult,
@@ -305,6 +346,12 @@ pub unsafe extern "C" fn polygonize_result_get_ring_offsets_len(
     }
 }
 
+/// Copy ring offsets into a caller-provided buffer.
+///
+/// # Safety
+///
+/// `res` must be a valid pointer returned by `polygonize_ffi` (or null, in which case this is a no-op).
+/// `buffer` must be valid for writes of `polygonize_result_get_ring_offsets_len(res)` `u32` values.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_copy_ring_offsets(
     res: *const CPolygonResult,
@@ -318,6 +365,11 @@ pub unsafe extern "C" fn polygonize_result_copy_ring_offsets(
     out.copy_from_slice(offsets);
 }
 
+/// Return the number of entries in the polygon-offset buffer.
+///
+/// # Safety
+///
+/// `res` must be either null or a valid pointer returned by `polygonize_ffi`.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_get_polygon_offsets_len(
     res: *const CPolygonResult,
@@ -329,6 +381,12 @@ pub unsafe extern "C" fn polygonize_result_get_polygon_offsets_len(
     }
 }
 
+/// Copy polygon offsets into a caller-provided buffer.
+///
+/// # Safety
+///
+/// `res` must be a valid pointer returned by `polygonize_ffi` (or null, in which case this is a no-op).
+/// `buffer` must be valid for writes of `polygonize_result_get_polygon_offsets_len(res)` `u32` values.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_copy_polygon_offsets(
     res: *const CPolygonResult,
@@ -342,6 +400,12 @@ pub unsafe extern "C" fn polygonize_result_copy_polygon_offsets(
     out.copy_from_slice(offsets);
 }
 
+/// Free a result allocated by `polygonize_ffi`.
+///
+/// # Safety
+///
+/// `res` must be either null or a pointer previously returned by `polygonize_ffi`
+/// that has not already been freed.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_free(res: *mut CPolygonResult) {
     if !res.is_null() {
