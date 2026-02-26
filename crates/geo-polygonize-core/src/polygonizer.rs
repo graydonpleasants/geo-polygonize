@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use crate::noding::snap::SnapNoder;
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
+use std::sync::OnceLock;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -271,9 +272,8 @@ impl Polygonizer {
         // If multiple shells contain it, it is assigned to the one with the smallest area (deepest).
 
         // Precompute SIMD shells for fast inclusion checks
-        let mut simd_shells: Vec<SimdRing> = shells
-            .iter()
-            .map(|s| SimdRing::new(&s.exterior().0))
+        let mut simd_shells: Vec<OnceLock<SimdRing>> = (0..shells.len())
+            .map(|_| OnceLock::new())
             .collect();
 
         // Build RTree for shells to optimize spatial lookups
@@ -321,7 +321,10 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        if simd_shells[j].contains(probe_pt.0) {
+                        let simd_shell = simd_shells[j]
+                            .get_or_init(|| SimdRing::new(&shells[j].exterior().0));
+
+                        if simd_shell.contains(probe_pt.0) {
                             let area_i = shell.unsigned_area();
                             let area_j = shells[j].unsigned_area();
 
@@ -393,9 +396,8 @@ impl Polygonizer {
                 }
 
                 // Rebuild helper structures for hole assignment
-                simd_shells = shells
-                    .iter()
-                    .map(|s| SimdRing::new(&s.exterior().0))
+                simd_shells = (0..shells.len())
+                    .map(|_| OnceLock::new())
                     .collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -429,7 +431,8 @@ impl Polygonizer {
                 for cand in candidates {
                     let idx = cand.index;
                     // Use SIMD check first
-                    let simd_shell = &simd_shells[idx];
+                    let simd_shell = simd_shells[idx]
+                        .get_or_init(|| SimdRing::new(&shells[idx].exterior().0));
 
                     if simd_shell.contains(probe_point.0) {
                         let shell = &shells[idx];
