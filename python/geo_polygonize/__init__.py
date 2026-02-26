@@ -6,7 +6,7 @@ try:
 except ImportError:
     from .cffi_wrapper import polygonize as _polygonize_impl
 
-def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=False):
+def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=False, stride=None):
     """
     Polygonize a set of lines.
 
@@ -16,24 +16,37 @@ def polygonize(coords, offsets, node=False, snap=1e-10, extract_only_polygonal=F
         node: whether to node the input.
         snap: snap grid size.
         extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
+        stride: stride of coordinates (2 or 3). If None, inferred from shape.
 
     Returns:
-        Dict with keys 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
+        Dict with keys 'polygons' (List[SimplePolygon]), 'dangles', and 'invalid_rings'.
     """
     # Ensure coords is a numpy array
     coords = np.ascontiguousarray(coords, dtype=np.float64)
 
-    # Handle (N, 3) case: slice out Z
-    if coords.ndim == 2 and coords.shape[1] == 3:
-        coords = coords[:, :2]
-        coords = np.ascontiguousarray(coords, dtype=np.float64)
+    # Determine stride
+    if stride is None:
+        stride = 2 # Default
+        if coords.ndim == 2:
+            stride = coords.shape[1]
+            if stride not in [2, 3]:
+                 raise ValueError("Coordinates must be (N, 2) or (N, 3)")
+            coords = coords.ravel()
+        elif coords.ndim == 1:
+            # Check for odd length if flattened (for stride 2 check).
+            if coords.size % 2 != 0:
+                 if coords.size % 3 == 0:
+                     stride = 3
+                 else:
+                     raise ValueError("Coordinates array length must be multiple of 2 or 3.")
+            # If size is multiple of 6 (e.g. 12), it could be 2 or 3.
+            # We default to 2 if ambiguous, matching legacy behavior.
+    else:
+        if stride not in [2, 3]:
+            raise ValueError("Stride must be 2 or 3")
+        if coords.ndim == 2:
+             if coords.shape[1] != stride:
+                 raise ValueError(f"Input shape {coords.shape} does not match stride {stride}")
+             coords = coords.ravel()
 
-    # Flatten if 2D (N, 2)
-    if coords.ndim == 2:
-        coords = coords.ravel()
-
-    # Check for odd length (must be pairs of XY)
-    if coords.size % 2 != 0:
-        raise ValueError("Coordinates array must have an even number of elements (XY pairs).")
-
-    return _polygonize_impl(coords, offsets, node=node, snap=snap, extract_only_polygonal=extract_only_polygonal)
+    return _polygonize_impl(coords, offsets, node=node, snap=snap, extract_only_polygonal=extract_only_polygonal, stride=stride)

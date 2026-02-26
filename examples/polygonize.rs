@@ -1,7 +1,7 @@
 use clap::Parser;
 use geo_polygonize_core::Polygonizer;
 use geo_types::Geometry as GeoGeometry;
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry};
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 use std::convert::TryInto;
 use std::error::Error;
 use std::fs::File;
@@ -76,12 +76,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Found {} polygons.", result.polygons.len());
     println!("Found {} dangles.", result.dangles.len());
 
-    // Convert back to GeoJSON
+    // Convert back to GeoJSON (handling 3D)
     let features: Vec<Feature> = result
         .polygons
         .into_iter()
         .map(|poly| {
-            let geometry = Geometry::from(&poly);
+            // poly is Polygon3D
+            let exterior_ring: Vec<Vec<f64>> = poly.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+
+            let mut rings: Vec<Vec<Vec<f64>>> = vec![exterior_ring];
+
+            for interior in poly.interiors {
+                let interior_ring: Vec<Vec<f64>> = interior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+                rings.push(interior_ring);
+            }
+
+            let geometry = Geometry::new(Value::Polygon(rings));
+
             Feature {
                 bbox: None,
                 geometry: Some(geometry),
@@ -124,9 +135,6 @@ fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
             }
         }
         _ => {
-            // Ignore other types or try to add them if Polygonizer supports them?
-            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
-            // But usually we want LineStrings.
             polygonizer.add_geometry(geom);
         }
     }

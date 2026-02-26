@@ -6,15 +6,16 @@ from .types import SimplePolygon
 
 ffi = cffi.FFI()
 ffi.cdef("""
-    typedef struct { bool node_input; double snap_grid_size; bool extract_only_polygonal; } PolygonizerOptions;
+    typedef struct { uint8_t node_input; double snap_grid_size; uint8_t extract_only_polygonal; } PolygonizerOptions;
     typedef struct CPolygonResult CPolygonResult;
 
     void polygonize_result_free(CPolygonResult* res);
 
     CPolygonResult* polygonize_ffi(
         const double* coords, size_t coords_len,
+        uint8_t stride,
         const uint32_t* offsets, size_t offsets_len,
-        PolygonizerOptions options
+        const PolygonizerOptions* options
     );
 
     int polygonize_result_get_status(const CPolygonResult* res);
@@ -30,6 +31,10 @@ ffi.cdef("""
     size_t polygonize_result_get_dangle_count(const CPolygonResult* res);
     size_t polygonize_result_get_dangle_point_count(const CPolygonResult* res, size_t dangle_idx);
     void polygonize_result_get_dangle_points(const CPolygonResult* res, size_t dangle_idx, double* buffer);
+
+    size_t polygonize_result_get_invalid_ring_count(const CPolygonResult* res);
+    size_t polygonize_result_get_invalid_ring_point_count(const CPolygonResult* res, size_t ring_idx);
+    void polygonize_result_get_invalid_ring_points(const CPolygonResult* res, size_t ring_idx, double* buffer);
 """)
 
 # Locate the library
@@ -49,19 +54,12 @@ def find_library():
             return path
 
     # 2. Check in development build directory
-    # Path: ../../target/release/
-    # This assumes we are running from python/geo_polygonize/
-    # So ../../ reaches python/.. which is repo root.
-    # Wait, python/geo_polygonize/../.. => python/.. => root.
-    # Then target/release/ => correct.
     for name in possible_names:
         path = os.path.join(base_dir, "../../target/release", name)
         if os.path.exists(path):
             return path
 
     # 3. Check for PyO3 extension module (as shared lib)
-    # The extension name is geo_polygonize_core.
-    # It might have a suffix like .cpython-39-x86_64-linux-gnu.so or .abi3.so
     extensions = ["*.so", "*.pyd", "*.dylib"]
     for ext in extensions:
         pattern = os.path.join(base_dir, "geo_polygonize_core" + ext)
@@ -74,22 +72,21 @@ def find_library():
 lib_path = find_library()
 lib = ffi.dlopen(lib_path)
 
-def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10, extract_only_polygonal: bool = False):
+def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool = False, snap: float = 1e-10, extract_only_polygonal: bool = False, stride: int = 2):
     """
     Polygonize a set of lines.
 
     Args:
         coords_array: contiguous float64 array of shape (N, 2) or flattened (2*N,).
         offsets_array: contiguous uint32 array of start indices in coords_array.
-                       Indices refer to points (pairs of doubles), NOT individual doubles.
-                       E.g., if coords_array has 4 points (8 doubles), offsets=[0, 2]
-                       means first line starts at point 0, second at point 2.
+                       Indices refer to points (tuples of doubles), NOT individual doubles.
         node: whether to node the input.
         snap: snap grid size.
         extract_only_polygonal: whether to extract only disjoint, outer-most polygonal shells.
+        stride: 2 for XY, 3 for XYZ.
 
     Returns:
-        Dict with 'polygons' (List[SimplePolygon]) and 'dangles' (List[tuple of coords]).
+        Dict with 'polygons' (List[SimplePolygon]), 'dangles', and 'invalid_rings'.
     """
     # Ensure contiguous C-order arrays
     coords = np.ascontiguousarray(coords_array, dtype=np.float64)
@@ -101,12 +98,18 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     coords_ptr = ffi.cast("double*", coords.ctypes.data)
     offsets_ptr = ffi.cast("uint32_t*", offsets.ctypes.data)
 
-    options = {'node_input': node, 'snap_grid_size': snap, 'extract_only_polygonal': extract_only_polygonal}
+    options_val = {
+        'node_input': 1 if node else 0,
+        'snap_grid_size': snap,
+        'extract_only_polygonal': 1 if extract_only_polygonal else 0
+    }
+    options_ptr = ffi.new("PolygonizerOptions*", options_val)
 
     res_ptr = lib.polygonize_ffi(
         coords_ptr, coords.size,
+        stride,
         offsets_ptr, offsets.size,
-        options
+        options_ptr
     )
 
     if res_ptr == ffi.NULL:
@@ -115,7 +118,6 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
     try:
         status = lib.polygonize_result_get_status(res_ptr)
         if status != 0:
-             # 0 = Success, 1 = InvalidInput, 2 = InternalError
              if status == 1:
                  raise ValueError("Invalid input provided to polygonize")
              elif status == 2:
@@ -127,26 +129,26 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         polygons = []
 
         for i in range(count):
-            # Shell
+            # Shell (3D)
             shell_pts_count = lib.polygonize_result_get_shell_point_count(res_ptr, i)
-            shell_buffer = np.zeros(shell_pts_count * 2, dtype=np.float64)
+            shell_buffer = np.zeros(shell_pts_count * 3, dtype=np.float64)
             lib.polygonize_result_get_shell_points(
                 res_ptr, i,
                 ffi.cast("double*", shell_buffer.ctypes.data)
             )
-            shell_coords = tuple(map(tuple, shell_buffer.reshape(-1, 2).tolist()))
+            shell_coords = tuple(map(tuple, shell_buffer.reshape(-1, 3).tolist()))
 
             # Holes
             hole_count = lib.polygonize_result_get_hole_count(res_ptr, i)
             holes = []
             for j in range(hole_count):
                 hole_pts_count = lib.polygonize_result_get_hole_point_count(res_ptr, i, j)
-                hole_buffer = np.zeros(hole_pts_count * 2, dtype=np.float64)
+                hole_buffer = np.zeros(hole_pts_count * 3, dtype=np.float64)
                 lib.polygonize_result_get_hole_points(
                     res_ptr, i, j,
                     ffi.cast("double*", hole_buffer.ctypes.data)
                 )
-                hole_coords = tuple(map(tuple, hole_buffer.reshape(-1, 2).tolist()))
+                hole_coords = tuple(map(tuple, hole_buffer.reshape(-1, 3).tolist()))
                 holes.append(hole_coords)
 
             polygons.append(SimplePolygon(shell_coords, holes))
@@ -156,15 +158,28 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         dangles = []
         for i in range(dangle_count):
             pts_count = lib.polygonize_result_get_dangle_point_count(res_ptr, i)
-            buffer = np.zeros(pts_count * 2, dtype=np.float64)
+            buffer = np.zeros(pts_count * 3, dtype=np.float64)
             lib.polygonize_result_get_dangle_points(
                 res_ptr, i,
                 ffi.cast("double*", buffer.ctypes.data)
             )
-            coords = tuple(map(tuple, buffer.reshape(-1, 2).tolist()))
+            coords = tuple(map(tuple, buffer.reshape(-1, 3).tolist()))
             dangles.append(coords)
 
-        return {'polygons': polygons, 'dangles': dangles}
+        # Invalid Rings
+        invalid_count = lib.polygonize_result_get_invalid_ring_count(res_ptr)
+        invalid_rings = []
+        for i in range(invalid_count):
+            pts_count = lib.polygonize_result_get_invalid_ring_point_count(res_ptr, i)
+            buffer = np.zeros(pts_count * 3, dtype=np.float64)
+            lib.polygonize_result_get_invalid_ring_points(
+                res_ptr, i,
+                ffi.cast("double*", buffer.ctypes.data)
+            )
+            coords = tuple(map(tuple, buffer.reshape(-1, 3).tolist()))
+            invalid_rings.append(coords)
+
+        return {'polygons': polygons, 'dangles': dangles, 'invalid_rings': invalid_rings}
 
     finally:
         lib.polygonize_result_free(res_ptr)

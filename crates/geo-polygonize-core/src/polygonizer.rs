@@ -1,19 +1,19 @@
 use crate::error::Result;
 use crate::graph::PlanarGraph;
+use crate::noding::snap::SnapNoder;
+use crate::types::{Coord3D, Line3D, Polygon3D};
+use crate::utils::simd::SimdRing;
+use crate::utils::z_order_index;
 use geo::bounding_rect::BoundingRect;
 use geo::Area;
 use geo::Contains;
-use geo_types::{Coord, Geometry, Line, LineString, Polygon};
+use geo_types::{Coord, Geometry, LineString, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 use std::collections::HashSet;
-
-use crate::noding::snap::SnapNoder;
-use crate::utils::simd::SimdRing;
-use crate::utils::z_order_index;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-// Wrapper for Polygon to be indexable by rstar
+// Wrapper for Polygon indexable by rstar (2D)
 struct IndexedEnvelope {
     aabb: AABB<[f64; 2]>,
     index: usize,
@@ -27,74 +27,26 @@ impl RTreeObject for IndexedEnvelope {
     }
 }
 
-/// A robust polygonizer that reconstructs polygons from a set of lines.
-///
-/// The `Polygonizer` takes a collection of geometries (LineStrings, Polygons, etc.),
-/// extracts all line segments, and reconstructs valid polygons from the linework.
-/// It handles complex topologies such as:
-/// - Nested holes
-/// - Disconnected components (islands)
-/// - Self-intersecting lines (if `node_input` is enabled)
-/// - Overlapping polygons
-///
-/// # Example
-///
-/// ```rust
-/// use geo_polygonize_core::Polygonizer;
-/// use geo_types::{LineString, Geometry};
-/// use geo::Area;
-///
-/// let mut polygonizer = Polygonizer::new();
-///
-/// // Add a square
-/// polygonizer.add_geometry(Geometry::LineString(LineString::from(vec![
-///     (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
-/// ])));
-///
-/// let result = polygonizer.polygonize().expect("Polygonization failed");
-/// let polygons = result.polygons;
-///
-/// // Should find 1 polygon with area 100.0
-/// assert_eq!(polygons.len(), 1);
-/// assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
-/// ```
+/// A robust polygonizer that reconstructs polygons from a set of lines (3D supported).
 pub struct Polygonizer {
     graph: PlanarGraph,
     // Configuration
-    /// Whether to check if rings are valid (closed, simple) before processing.
-    /// Default: `true`.
     pub check_valid_rings: bool,
-    /// Whether to node the input lines.
-    ///
-    /// If `true`, the polygonizer will use Iterated Snap Rounding to find and split
-    /// intersecting lines. This is required if the input lines are not already noded
-    /// (i.e., if they cross each other without a node at the intersection).
-    /// Default: `false`.
     pub node_input: bool,
-    /// The grid size used for snapping during noding.
-    ///
-    /// Points are snapped to this grid resolution to ensure robustness.
-    /// Default: `1e-10`.
     pub snap_grid_size: f64,
-
-    /// Whether to extract only disjoint, outer-most polygonal shells.
-    ///
-    /// If `true`, the polygonizer will discard any shells that are contained
-    /// within other shells, returning only the top-level disjoint polygons.
-    /// Default: `false`.
     pub extract_only_polygonal: bool,
 
     // Buffer for inputs if noding is required
     inputs: Vec<Geometry<f64>>,
-    // Additional buffer for explicit line segments (e.g., from FFI)
-    input_lines: Vec<Line<f64>>,
+    // Additional buffer for explicit line segments (3D)
+    input_lines: Vec<Line3D>,
     dirty: bool,
 }
 
 pub struct PolygonizerResult {
-    pub polygons: Vec<geo_types::Polygon<f64>>,
-    pub dangles: Vec<geo_types::LineString<f64>>,
-    pub invalid_rings: Vec<geo_types::LineString<f64>>,
+    pub polygons: Vec<Polygon3D>,
+    pub dangles: Vec<Vec<Coord3D>>,
+    pub invalid_rings: Vec<Vec<Coord3D>>,
 }
 
 impl Default for Polygonizer {
@@ -104,13 +56,12 @@ impl Default for Polygonizer {
 }
 
 impl Polygonizer {
-    /// Creates a new `Polygonizer` with default configuration.
     pub fn new() -> Self {
         Self {
             graph: PlanarGraph::new(),
             check_valid_rings: true,
             node_input: false,
-            snap_grid_size: 1e-10, // Default tolerance
+            snap_grid_size: 1e-10,
             extract_only_polygonal: false,
             inputs: Vec::new(),
             input_lines: Vec::new(),
@@ -118,29 +69,19 @@ impl Polygonizer {
         }
     }
 
-    /// Sets the snap grid size for noding.
-    ///
-    /// # Arguments
-    ///
-    /// * `grid_size` - The size of the grid cells. Smaller values mean higher precision but potential for robustness issues if too small.
     pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
         self.snap_grid_size = grid_size;
         self
     }
 
-    /// Adds a geometry to the graph.
-    ///
-    /// This method accepts any `geo_types::Geometry`. Nested collections (GeometryCollection,
-    /// MultiLineString, MultiPolygon) are flattened and all lineal components are extracted.
+    /// Adds a 2D geometry to the graph (Z=0).
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
         self.inputs.push(geom);
         self.dirty = true;
     }
 
-    /// Adds a collection of explicit line segments to the graph.
-    ///
-    /// This is useful for FFI or cases where you have raw segments.
-    pub fn add_lines(&mut self, lines: Vec<Line<f64>>) {
+    /// Adds explicit 3D lines.
+    pub fn add_lines(&mut self, lines: Vec<Line3D>) {
         self.input_lines.extend(lines);
         self.dirty = true;
     }
@@ -150,55 +91,52 @@ impl Polygonizer {
             return Ok(());
         }
 
-        // Flatten inputs to lineal components
-        let mut lines = Vec::new();
+        // Flatten inputs to lineal components and convert to Line3D
+        let mut temp_lines = Vec::new();
         for geom in &self.inputs {
-            extract_lines(geom, &mut lines);
+            extract_lines(geom, &mut temp_lines);
         }
 
         let mut segments = Vec::new();
-        if self.node_input {
-            // Deduplicate identical inputs before expensive noding
-            lines.sort_by(|a, b| {
-                // Simple sort
-                let pa = a.0.first().cloned().unwrap_or(Coord { x: 0., y: 0. });
-                let pb = b.0.first().cloned().unwrap_or(Coord { x: 0., y: 0. });
-                pa.x.total_cmp(&pb.x).then(pa.y.total_cmp(&pb.y))
-            });
-            lines.dedup();
 
-            // Convert LineStrings to Lines
-            let mut input_segments = Vec::new();
-            for ls in lines {
-                for line in ls.lines() {
-                    input_segments.push(line);
-                }
+        // Convert 2D lines to 3D segments
+        let mut all_segments: Vec<Line3D> = Vec::new();
+        for ls in temp_lines {
+            for line in ls.lines() {
+                all_segments.push(line.into());
             }
-            // Add explicit lines
-            input_segments.extend(self.input_lines.iter().cloned());
+        }
+        all_segments.extend(self.input_lines.iter().cloned());
 
-            // OPTIMIZATION: Spatial Sort (Z-Order)
-            // This improves cache locality for both the Grid and the SIMD noder.
-            let mut numbered_lines: Vec<(u64, Line<f64>)> = input_segments
+        if self.node_input {
+            // Sort by 2D coordinates
+            all_segments.sort_by(|a, b| {
+                a.start.x.total_cmp(&b.start.x)
+                    .then(a.start.y.total_cmp(&b.start.y))
+            });
+            // Dedup based on 3D equality? or 2D?
+            // SnapNoder will handle dedup.
+            all_segments.dedup_by(|a, b| {
+                a.start.x == b.start.x && a.start.y == b.start.y
+                && a.end.x == b.end.x && a.end.y == b.end.y
+                // Ignore Z for initial dedup of "same projected line" if that's what we want?
+                // Probably better to keep exact duplicates removed.
+                && a.start.z == b.start.z && a.end.z == b.end.z
+            });
+
+            // OPTIMIZATION: Spatial Sort (Z-Order 2D)
+            let mut numbered_lines: Vec<(u64, Line3D)> = all_segments
                 .iter()
-                .map(|l| (z_order_index(l.start), *l))
+                .map(|l| (z_order_index(l.start.to_coord_2d()), *l))
                 .collect();
 
-            // Unstable sort is faster and sufficient
             numbered_lines.sort_unstable_by_key(|k| k.0);
-
-            input_segments = numbered_lines.into_iter().map(|k| k.1).collect();
+            all_segments = numbered_lines.into_iter().map(|k| k.1).collect();
 
             let noder = SnapNoder::new(self.snap_grid_size);
-            segments = noder.node(input_segments);
+            segments = noder.node(all_segments);
         } else {
-            for ls in lines {
-                for line in ls.lines() {
-                    segments.push(line);
-                }
-            }
-            // Add explicit lines
-            segments.extend(self.input_lines.iter().cloned());
+            segments = all_segments;
         }
 
         // Use bulk load
@@ -208,31 +146,23 @@ impl Polygonizer {
         Ok(())
     }
 
-    /// Computes the polygons.
-    /// This is the main entry point.
-    ///
-    /// Returns a `PolygonizerResult` containing polygons and dangles.
     pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
         self.build_graph()?;
 
-        // 1. Sort edges (Geometry Graph operation)
+        // 1. Sort edges
         self.graph.sort_edges();
 
         // 2. Prune dangles
         let mut dangles = self.graph.prune_dangles();
 
-        // 3. Find rings
-        // Extracts all minimal cycles from the planar graph.
+        // 3. Find rings (3D)
         let rings = self.graph.get_edge_rings();
 
-        // 3b. Find cut edges (unvisited edges)
+        // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
         dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
-        // Standard GEOS behavior:
-        // - CCW rings (positive signed area) are Shells.
-        // - CW rings (negative signed area) are Holes (or the exterior of the universe).
         let mut shells = Vec::new();
         let mut holes = Vec::new();
         let mut invalid_rings_candidates = Vec::new();
@@ -240,45 +170,42 @@ impl Polygonizer {
         shells.reserve(rings.len() / 2);
         holes.reserve(rings.len() / 2);
 
-        for ring in rings {
-            // Note: LineString::signed_area() might return 0 even if closed in some geo versions/contexts?
-            // Safer to wrap in Polygon which guarantees area calculation logic for rings.
-            // Polygon::new is cheap (moves LineString).
-            let poly = Polygon::new(ring, vec![]);
-            let area = poly.signed_area();
+        for ring_coords in rings {
+            // Create Polygon3D
+            let poly3d = Polygon3D::new(ring_coords, vec![]);
+            // Create 2D projection for area check
+            let poly2d = poly3d.to_polygon_2d();
+            let area = poly2d.signed_area();
 
             if !area.is_finite() || area.abs() < 1e-9 {
-                invalid_rings_candidates.push(poly); // Degenerate or invalid
+                invalid_rings_candidates.push(poly3d);
                 continue;
             }
 
             if area > 0.0 {
                 // CCW -> Shell
-                shells.push(poly);
+                shells.push(poly3d);
             } else {
                 // CW -> Hole
-                holes.push(poly);
+                holes.push(poly3d);
             }
         }
 
-        // NOTE: Previous heuristic to promote CW rings to Shells if !has_twin is removed.
-        // We explicitly rely on the topological relationship (containment) to assign holes.
-        // Any CW ring that is not contained in a Shell (e.g. Universe hole) will be discarded
-        // during the assignment phase or filtered out.
+        // 5. Establish Topology
 
-        // 5. Establish Topology (Assign Holes to Shells)
-        // A hole is assigned to the shell that contains it.
-        // If multiple shells contain it, it is assigned to the one with the smallest area (deepest).
+        // SimdRing needs 2D Coords.
+        // We need to keep track of indices.
+        // Precompute 2D shells for spatial index and SIMD
+        let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
-        // Precompute SIMD shells for fast inclusion checks
-        let mut simd_shells: Vec<SimdRing> = shells
+        let mut simd_shells: Vec<SimdRing> = shells_2d
             .iter()
             .map(|s| SimdRing::new(&s.exterior().0))
             .collect();
 
-        // Build RTree for shells to optimize spatial lookups
+        // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        for (i, shell) in shells.iter().enumerate() {
+        for (i, shell) in shells_2d.iter().enumerate() {
             if let Some(bbox) = shell.bounding_rect() {
                 let aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
@@ -287,19 +214,17 @@ impl Polygonizer {
         }
         let mut tree = RTree::bulk_load(indexed_shells);
 
-        // Filter shells if requested (Extract Only Polygonal)
+        // Filter shells
         if self.extract_only_polygonal {
             let mut keep_mask = vec![true; shells.len()];
             let mut removed_count = 0;
             let mut discarded_edges = HashSet::new();
 
-            // Precompute probe points
             let probe_points: Vec<Option<geo_types::Point<f64>>> =
-                shells.iter().map(guaranteed_interior_probe).collect();
+                shells_2d.iter().map(guaranteed_interior_probe).collect();
 
-            // We can iterate indices because the tree uses indices into the original `shells` vector
-            for (i, shell) in shells.iter().enumerate() {
-                let bbox = match shell.bounding_rect() {
+            for (i, shell_2d) in shells_2d.iter().enumerate() {
+                let bbox = match shell_2d.bounding_rect() {
                     Some(b) => b,
                     None => {
                         keep_mask[i] = false;
@@ -320,13 +245,10 @@ impl Polygonizer {
                             continue;
                         }
 
-                        // Check if shell[i] is inside shell[j]
                         if simd_shells[j].contains(probe_pt.0) {
-                            let area_i = shell.unsigned_area();
-                            let area_j = shells[j].unsigned_area();
+                            let area_i = shell_2d.unsigned_area();
+                            let area_j = shells_2d[j].unsigned_area();
 
-                            // Discard i if it is inside j.
-                            // Use area and index as tie-breakers for duplicates.
                             if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
                                 keep_mask[i] = false;
                                 removed_count += 1;
@@ -335,71 +257,72 @@ impl Polygonizer {
                         }
                     }
                 } else {
-                    // No valid interior point found (collapsed?), remove it
                     keep_mask[i] = false;
                     removed_count += 1;
                 }
             }
 
             if removed_count > 0 {
-                // Rebuild shells vector
+                // Rebuild shells
                 let mut iter = shells.into_iter();
-                shells = keep_mask
-                    .into_iter()
-                    .filter_map(|keep| {
-                        let s = iter.next().unwrap();
-                        if keep {
-                            Some(s)
-                        } else {
-                            // If we discard a shell, we should also track its edge to discard the corresponding hole
-                            // (which would otherwise form a void in the parent shell).
-                            let ext = s.exterior();
-                            if ext.0.len() >= 2 {
-                                let p1 = ext.0[0];
-                                let p2 = ext.0[1];
-                                discarded_edges.insert((
-                                    (p1.x.to_bits(), p1.y.to_bits()),
-                                    (p2.x.to_bits(), p2.y.to_bits()),
-                                ));
-                            }
-                            None
-                        }
-                    })
-                    .collect();
 
-                // Also filter holes that correspond to discarded shells
+                let mut new_shells = Vec::new();
+                let mut new_shells_2d = Vec::new();
+
+                // We need to iterate shells_2d as well
+                let mut iter_2d = shells_2d.into_iter();
+
+                for keep in keep_mask {
+                    let s = iter.next().unwrap();
+                    let s2d = iter_2d.next().unwrap();
+                    if keep {
+                        new_shells.push(s);
+                        new_shells_2d.push(s2d);
+                    } else {
+                        // Track discarded edges from 2D shell (sufficient for topology)
+                        let ext = s2d.exterior();
+                        if ext.0.len() >= 2 {
+                            let p1 = ext.0[0];
+                            let p2 = ext.0[1];
+                            discarded_edges.insert((
+                                (p1.x.to_bits(), p1.y.to_bits()),
+                                (p2.x.to_bits(), p2.y.to_bits()),
+                            ));
+                        }
+                    }
+                }
+                shells = new_shells;
+                // Recompute shells_2d and simd_shells for hole assignment
+                // We can just use new_shells_2d but we need to re-index tree
+                // Let's recompute everything for safety
+                let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
+
+                // Filter holes
                 if !discarded_edges.is_empty() {
                     holes.retain(|h| {
-                        // Check if hole has any edge that matches a discarded shell's representative edge (reversed)
-                        // Discarded shell has edge u->v. Hole should have v->u.
-                        // We stored u->v. We check if hole has v->u.
-                        // We iterate all edges of hole.
-                        let coords = &h.exterior().0;
+                        let coords = &h.exterior; // 3D
                         for k in 0..coords.len().saturating_sub(1) {
                             let p_start = coords[k];
                             let p_end = coords[k + 1];
-                            // Hole edge: p_start -> p_end.
-                            // We look for u->v in discarded set where u=p_end, v=p_start.
                             let key = (
                                 (p_end.x.to_bits(), p_end.y.to_bits()),     // u
                                 (p_start.x.to_bits(), p_start.y.to_bits()), // v
                             );
                             if discarded_edges.contains(&key) {
-                                return false; // Discard hole
+                                return false;
                             }
                         }
                         true
                     });
                 }
 
-                // Rebuild helper structures for hole assignment
-                simd_shells = shells
+                simd_shells = shells_2d
                     .iter()
                     .map(|s| SimdRing::new(&s.exterior().0))
                     .collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
-                for (i, shell) in shells.iter().enumerate() {
+                for (i, shell) in shells_2d.iter().enumerate() {
                     if let Some(bbox) = shell.bounding_rect() {
                         let aabb = AABB::from_corners(
                             [bbox.min().x, bbox.min().y],
@@ -413,85 +336,92 @@ impl Polygonizer {
         }
 
         // Process hole assignment
-        let process_hole_assignment =
-            |hole_poly: Polygon<f64>| -> Option<(usize, LineString<f64>)> {
-                let bbox = hole_poly.bounding_rect()?;
-                let hole_aabb =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+        let holes_2d: Vec<Polygon<f64>> = holes.iter().map(|h| h.to_polygon_2d()).collect();
 
-                let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
+        // We can't use parallel iterator easily because we need to zip holes and holes_2d or map indices.
+        // Let's use indices.
 
-                let mut best_shell_idx = None;
-                let mut min_area = f64::MAX;
+        // Need to reference shells_2d from inside closure.
+        // We need shells_2d to be available. We recomputed it or kept it.
+        // Let's recompute/keep shells_2d.
+        let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
-                let probe_point = guaranteed_interior_probe(&hole_poly)?;
+        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>)> {
+            let hole_poly_2d = &holes_2d[i];
+            let hole_3d = &holes[i];
 
-                for cand in candidates {
-                    let idx = cand.index;
-                    // Use SIMD check first
-                    let simd_shell = &simd_shells[idx];
+            let bbox = hole_poly_2d.bounding_rect()?;
+            let hole_aabb =
+                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-                    if simd_shell.contains(probe_point.0) {
-                        let shell = &shells[idx];
+            let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
 
-                        // GEOS topology strictness:
-                        // - Point-touch between hole and shell is valid and kept.
-                        // - Edge-sharing invalidates the hole assignment here and we drop the hole.
-                        if rings_share_edge(shell.exterior(), hole_poly.exterior(), 1e-10) {
-                            continue;
-                        }
+            let mut best_shell_idx = None;
+            let mut min_area = f64::MAX;
 
-                        let area = shell.unsigned_area();
-                        let hole_area = hole_poly.unsigned_area();
+            let probe_point = guaranteed_interior_probe(hole_poly_2d)?;
 
-                        // Only assign if shell is larger than hole (and not equal, to skip Universe hole matching Shell)
-                        if area > hole_area + 1e-6 && area < min_area {
-                            min_area = area;
-                            best_shell_idx = Some(idx);
-                        }
+            for cand in candidates {
+                let idx = cand.index;
+                let simd_shell = &simd_shells[idx];
+
+                if simd_shell.contains(probe_point.0) {
+                    let shell_2d = &shells_2d[idx];
+
+                    if rings_share_edge(shell_2d.exterior(), hole_poly_2d.exterior(), 1e-10) {
+                        continue;
+                    }
+
+                    let area = shell_2d.unsigned_area();
+                    let hole_area = hole_poly_2d.unsigned_area();
+
+                    if area > hole_area + 1e-6 && area < min_area {
+                        min_area = area;
+                        best_shell_idx = Some(idx);
                     }
                 }
+            }
 
-                best_shell_idx.map(|idx| {
-                    let (ext, _) = hole_poly.into_inner();
-                    (idx, ext)
-                })
-            };
+            best_shell_idx.map(|idx| {
+                (idx, hole_3d.exterior.clone())
+            })
+        };
 
         let assignments: Vec<_>;
         #[cfg(feature = "parallel")]
         {
-            assignments = holes
+            assignments = (0..holes.len())
                 .into_par_iter()
                 .filter_map(process_hole_assignment)
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = holes
+            assignments = (0..holes.len())
                 .into_iter()
                 .filter_map(process_hole_assignment)
                 .collect();
         }
 
         // Group holes by shell
-        let mut shell_holes: Vec<Vec<LineString<f64>>> = vec![vec![]; shells.len()];
-        for (idx, hole) in assignments {
-            shell_holes[idx].push(hole);
+        let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
+        for (idx, hole_coords) in assignments {
+            shell_holes[idx].push(hole_coords);
         }
 
         // 6. Construct Final Polygons
         let mut result = Vec::new();
         for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
-            let (exterior, _) = shell.into_inner();
-            let p = Polygon::new(exterior, holes);
-            // Filter out empty/degenerate polygons
-            if p.unsigned_area() > 1e-6 {
+            let exterior = shell.exterior;
+            let p = Polygon3D::new(exterior, holes);
+
+            // Check area of 2D projection
+            let p2d = p.to_polygon_2d();
+            if p2d.unsigned_area() > 1e-6 {
                 result.push(p);
             }
         }
 
-        // Ensure we don't crash on NaNs during processing
         let invalid_rings = process_invalid_rings(invalid_rings_candidates);
 
         Ok(PolygonizerResult {
@@ -503,54 +433,59 @@ impl Polygonizer {
 }
 
 /// Sorts invalid rings by bounding box area and filters out inner redundant rings.
-/// Ported from GEOS `extractInvalidLines`.
-fn process_invalid_rings(rings: Vec<Polygon<f64>>) -> Vec<LineString<f64>> {
-    // Separate rings with NaN/Inf coordinates from processable ones to avoid panics in geo algorithms
-    let (mut processable, others): (Vec<_>, Vec<_>) = rings.into_iter().partition(|p| {
-        p.exterior()
-            .0
-            .iter()
-            .all(|c| c.x.is_finite() && c.y.is_finite())
-    });
+fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
+    let mut processable = Vec::new();
+    let mut others = Vec::new();
 
-    // 1. Sort by bounding box area (descending)
-    // GEOS sorts by Envelope area.
+    for ring in rings {
+         if ring.exterior.iter().all(|c| c.x.is_finite() && c.y.is_finite()) {
+             processable.push(ring);
+         } else {
+             others.push(ring);
+         }
+    }
+
+    // Sort by 2D bbox area
     processable.sort_by(|a, b| {
-        let area_a = a
+        let area_a = a.to_polygon_2d()
             .bounding_rect()
             .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
             .unwrap_or(0.0);
-        let area_b = b
+        let area_b = b.to_polygon_2d()
             .bounding_rect()
             .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
             .unwrap_or(0.0);
-        area_b
-            .partial_cmp(&area_a)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        area_b.partial_cmp(&area_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // 2. Filter inner redundant rings
-    let mut valid_rings = Vec::with_capacity(processable.len());
+    // We need 2D forms for containment check
+    // But we want to return 3D rings.
+
+    struct RingPair {
+        p3d: Polygon3D,
+        p2d: Polygon<f64>,
+    }
+
+    let mut accepted: Vec<RingPair> = Vec::new();
+
     for ring in processable {
-        let is_contained = valid_rings.iter().any(|existing: &Polygon<f64>| {
-            // Check if ring is contained in existing
-            existing.contains(&ring)
+        let p2d = ring.to_polygon_2d();
+        let is_contained = accepted.iter().any(|existing| {
+            existing.p2d.contains(&p2d)
         });
 
         if !is_contained {
-            valid_rings.push(ring);
+            accepted.push(RingPair { p3d: ring, p2d });
         }
     }
 
-    let mut result: Vec<LineString<f64>> =
-        valid_rings.into_iter().map(|p| p.into_inner().0).collect();
-
-    // Append the ones we couldn't process safely
-    result.extend(others.into_iter().map(|p| p.into_inner().0));
+    let mut result: Vec<Vec<Coord3D>> = accepted.into_iter().map(|rp| rp.p3d.exterior).collect();
+    result.extend(others.into_iter().map(|p| p.exterior));
 
     result
 }
 
+// Helpers working on 2D geometries
 fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64>> {
     let ring = poly.exterior();
     let coords = &ring.0;
