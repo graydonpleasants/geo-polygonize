@@ -33,15 +33,23 @@ fn polygonize<'py>(
             let end = offsets_slice[i + 1] as usize;
 
             if start > end || end * stride_usize > coords_slice.len() {
-                 return Err(pyo3::exceptions::PyValueError::new_err("Invalid offsets"));
+                return Err(pyo3::exceptions::PyValueError::new_err("Invalid offsets"));
             }
 
             for j in start..end.saturating_sub(1) {
                 let idx = j * stride_usize;
                 let jdx = (j + 1) * stride_usize;
 
-                let z1 = if stride == 3 { coords_slice[idx + 2] } else { 0.0 };
-                let z2 = if stride == 3 { coords_slice[jdx + 2] } else { 0.0 };
+                let z1 = if stride == 3 {
+                    coords_slice[idx + 2]
+                } else {
+                    0.0
+                };
+                let z2 = if stride == 3 {
+                    coords_slice[jdx + 2]
+                } else {
+                    0.0
+                };
 
                 let p1 = Coord3D::new(coords_slice[idx], coords_slice[idx + 1], z1);
                 let p2 = Coord3D::new(coords_slice[jdx], coords_slice[jdx + 1], z2);
@@ -56,9 +64,9 @@ fn polygonize<'py>(
     polygonizer.extract_only_polygonal = extract_only_polygonal;
     polygonizer.add_lines(lines);
 
-    let result = polygonizer
-        .polygonize()
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Polygonization error: {}", e)))?;
+    let result = polygonizer.polygonize().map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("Polygonization error: {}", e))
+    })?;
 
     // Flatten logic
     let mut flat_coords = Vec::new();
@@ -95,7 +103,10 @@ fn polygonize<'py>(
     let dict = PyDict::new_bound(py);
     dict.set_item("flat_coords", PyArray1::from_vec_bound(py, flat_coords))?;
     dict.set_item("ring_offsets", PyArray1::from_vec_bound(py, ring_offsets))?;
-    dict.set_item("polygon_offsets", PyArray1::from_vec_bound(py, polygon_offsets))?;
+    dict.set_item(
+        "polygon_offsets",
+        PyArray1::from_vec_bound(py, polygon_offsets),
+    )?;
     dict.set_item("stride", stride)?;
 
     Ok(dict.into())

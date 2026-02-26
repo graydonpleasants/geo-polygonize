@@ -59,18 +59,17 @@ pub fn polygonize_arrow(
                 .interiors
                 .into_iter()
                 .map(|ring| {
-                    geo::LineString::from(
-                        ring.into_iter()
-                            .map(|c| (c.x, c.y))
-                            .collect::<Vec<_>>(),
-                    )
+                    geo::LineString::from(ring.into_iter().map(|c| (c.x, c.y)).collect::<Vec<_>>())
                 })
                 .collect();
             geo::Polygon::new(exterior, interiors)
         })
         .collect();
 
-    let mut builder = PolygonBuilder::new(PolygonType::new(Dimension::XY, Arc::new(Default::default())));
+    let mut builder = PolygonBuilder::new(PolygonType::new(
+        Dimension::XY,
+        Arc::new(Default::default()),
+    ));
     for poly in geo_polygons {
         builder
             .push_polygon(Some(&poly))

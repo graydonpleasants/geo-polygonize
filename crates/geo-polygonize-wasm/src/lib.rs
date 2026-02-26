@@ -47,7 +47,7 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
             let geo_geom: geo::Geometry<f64> = g
                 .try_into()
                 .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
-                polygonizer.add_geometry(geo_geom);
+            polygonizer.add_geometry(geo_geom);
         }
     }
 
@@ -200,13 +200,15 @@ pub fn polygonize_geoarrow(
         }
     }
 
-    let geom_col_idx = geom_col_idx.ok_or_else(|| JsValue::from_str("No GeoArrow LineString column found"))?;
+    let geom_col_idx =
+        geom_col_idx.ok_or_else(|| JsValue::from_str("No GeoArrow LineString column found"))?;
     let field = schema.field(geom_col_idx).clone();
 
     // Collect batches
     let mut arrays = Vec::new();
     for batch_result in reader {
-        let batch = batch_result.map_err(|e| JsValue::from_str(&format!("Failed reading batch: {e}")))?;
+        let batch =
+            batch_result.map_err(|e| JsValue::from_str(&format!("Failed reading batch: {e}")))?;
         arrays.push(batch.column(geom_col_idx).clone());
     }
 
@@ -215,7 +217,8 @@ pub fn polygonize_geoarrow(
     }
 
     let arrays_ref: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
-    let combined_array = concat(&arrays_ref).map_err(|e| JsValue::from_str(&format!("Failed to concat arrays: {e}")))?;
+    let combined_array = concat(&arrays_ref)
+        .map_err(|e| JsValue::from_str(&format!("Failed to concat arrays: {e}")))?;
 
     let options = PolygonizerOptions {
         node_input,
@@ -230,7 +233,8 @@ pub fn polygonize_geoarrow(
     let mut output_buffer = Vec::new();
     {
         // Use data_type().clone().into() to get arrow DataType
-        let field = arrow::datatypes::Field::new("geometry", result_array.data_type().clone().into(), true);
+        let field =
+            arrow::datatypes::Field::new("geometry", result_array.data_type().clone().into(), true);
         let schema = Arc::new(arrow::datatypes::Schema::new(vec![field]));
 
         let mut writer = FileWriter::try_new(&mut output_buffer, &schema)
@@ -238,11 +242,16 @@ pub fn polygonize_geoarrow(
 
         let batch = arrow::record_batch::RecordBatch::try_new(
             schema.clone(),
-            vec![result_array.into_array_ref()]
-        ).map_err(|e| JsValue::from_str(&format!("Failed to create RecordBatch: {e}")))?;
+            vec![result_array.into_array_ref()],
+        )
+        .map_err(|e| JsValue::from_str(&format!("Failed to create RecordBatch: {e}")))?;
 
-        writer.write(&batch).map_err(|e| JsValue::from_str(&format!("Failed to write batch: {e}")))?;
-        writer.finish().map_err(|e| JsValue::from_str(&format!("Failed to finish writer: {e}")))?;
+        writer
+            .write(&batch)
+            .map_err(|e| JsValue::from_str(&format!("Failed to write batch: {e}")))?;
+        writer
+            .finish()
+            .map_err(|e| JsValue::from_str(&format!("Failed to finish writer: {e}")))?;
     }
 
     Ok(output_buffer)
