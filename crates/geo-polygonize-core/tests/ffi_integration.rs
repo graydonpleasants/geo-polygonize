@@ -56,7 +56,7 @@ fn test_ffi_noding() {
     let coords = vec![
         0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0, // Frame
         0.0, 0.0, 10.0, 10.0, // Diag 1
-        0.0, 10.0, 10.0, 0.0  // Diag 2
+        0.0, 10.0, 10.0, 0.0, // Diag 2
     ];
     let offsets = vec![0, 5, 7, 9]; // 3 lines
 
@@ -126,7 +126,8 @@ fn test_ffi_null_pointers() {
         extract_only_polygonal: 0,
     };
 
-    let result_ptr = unsafe { polygonize_ffi(std::ptr::null(), 0, 2, std::ptr::null(), 0, &options) };
+    let result_ptr =
+        unsafe { polygonize_ffi(std::ptr::null(), 0, 2, std::ptr::null(), 0, &options) };
     assert!(!result_ptr.is_null());
     assert_eq!(unsafe { polygonize_result_get_count(result_ptr) }, 0);
     unsafe { polygonize_result_free(result_ptr) };

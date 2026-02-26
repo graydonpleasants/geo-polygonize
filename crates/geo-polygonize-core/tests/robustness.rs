@@ -1,5 +1,5 @@
 use geo::Geometry;
-use geo_polygonize_core::{Polygonizer, Line3D, Coord3D};
+use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
 use geo_types::{Coord, LineString};
 
 #[test]
@@ -69,8 +69,30 @@ fn test_nan_handling_in_snap_noder() {
 
     // Create lines with NaN coordinates
     let lines = vec![
-        Line3D::new(Coord3D { x: 0.0, y: 0.0, z: 0.0 }, Coord3D { x: 10.0, y: 10.0, z: 0.0 }),
-        Line3D::new(Coord3D { x: 0.0, y: 10.0, z: 0.0 }, Coord3D { x: 10.0, y: 0.0, z: 0.0 }),
+        Line3D::new(
+            Coord3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Coord3D {
+                x: 10.0,
+                y: 10.0,
+                z: 0.0,
+            },
+        ),
+        Line3D::new(
+            Coord3D {
+                x: 0.0,
+                y: 10.0,
+                z: 0.0,
+            },
+            Coord3D {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ),
         // Line with NaN
         Line3D::new(
             Coord3D {
@@ -78,7 +100,11 @@ fn test_nan_handling_in_snap_noder() {
                 y: 0.0,
                 z: 0.0,
             },
-            Coord3D { x: 5.0, y: 5.0, z: 0.0 },
+            Coord3D {
+                x: 5.0,
+                y: 5.0,
+                z: 0.0,
+            },
         ),
     ];
 
