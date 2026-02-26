@@ -538,44 +538,29 @@ impl PlanarGraph {
         cuts
     }
 
-    /// Extracts rings from the graph using the Next-CCW rule.
+    /// Extracts rings from the graph following the GEOS flow:
+    /// 1) compute maximal edge-ring next pointers (CW linking via symmetric edges),
+    /// 2) label maximal rings,
+    /// 3) convert maximal rings into minimal rings by relinking at intersection nodes,
+    /// 4) traverse minimal rings.
     pub fn get_edge_rings(&mut self) -> Vec<LineString<f64>> {
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
             next_pointers.clear();
-            // Ensure next_pointers is large enough and initialized with MAX.
-            // We use resize to fill with MAX, ensuring safety if we encounter a marked edge.
             next_pointers.resize(self.directed_edges.len(), usize::MAX);
 
+            let mut labels = vec![-1_i64; self.directed_edges.len()];
+
+            // Step 1: computeNextCWEdges over every node.
+            // Edges in nodes_outgoing are in CCW order. For each pair of consecutive outgoing
+            // edges (prev, curr), set next(sym(prev)) = curr, and close the cycle.
             let mut valid_edges = Vec::new();
-            for (i, degree) in self.nodes_degree.iter().enumerate() {
-                if *degree == 0 {
-                    continue;
-                }
-
-                let outgoing = &self.nodes_outgoing[i];
-
-                // OPTIMIZATION: If no edges are marked (common case), skip filtering/allocation.
-                // This avoids verifying `is_marked` for every edge, which saves a random memory access.
-                if *degree == outgoing.len() {
-                    let len = outgoing.len();
-                    for k in 0..len {
-                        let curr = outgoing[k];
-                        // Left-most turn (CCW traversal) uses the previous edge in sorted CCW list.
-                        // (Current impl uses (k+1)%len which is Right-most turn / CW traversal)
-                        let next = outgoing[(k + len - 1) % len];
-                        next_pointers[curr] = next;
-                    }
-                    continue;
-                }
-
-                // Filter out marked edges from the adjacency list
-                // Hoisted allocation to reduce memory overhead
+            for outgoing in &self.nodes_outgoing {
                 valid_edges.clear();
                 valid_edges.extend(
                     outgoing
                         .iter()
-                        .cloned()
+                        .copied()
                         .filter(|&idx| !self.directed_edges[idx].is_marked),
                 );
 
@@ -583,12 +568,113 @@ impl PlanarGraph {
                     continue;
                 }
 
-                // Link them circular
                 for k in 0..valid_edges.len() {
                     let curr = valid_edges[k];
-                    // Left-most turn
                     let next = valid_edges[(k + valid_edges.len() - 1) % valid_edges.len()];
                     next_pointers[curr] = next;
+                }
+            }
+
+            // Step 2: find and label maximal rings.
+            let mut maximal_ring_starts = Vec::new();
+            let mut curr_label = 1_i64;
+            for start_de_idx in 0..self.directed_edges.len() {
+                if self.directed_edges[start_de_idx].is_marked || labels[start_de_idx] >= 0 {
+                    continue;
+                }
+
+                maximal_ring_starts.push(start_de_idx);
+                let mut curr = start_de_idx;
+                loop {
+                    if labels[curr] >= 0 {
+                        break;
+                    }
+                    labels[curr] = curr_label;
+
+                    let next = next_pointers[self.directed_edges[curr].sym_idx];
+                    if next == usize::MAX || next == start_de_idx {
+                        break;
+                    }
+                    curr = next;
+                }
+                curr_label += 1;
+            }
+
+            // Step 3: convert maximal to minimal rings by relinking intersection nodes.
+            // findIntersectionNodes + computeNextCCWEdges, scoped by ring label.
+            let mut intersection_nodes = Vec::<NodeId>::new();
+            let mut seen_intersection_nodes = vec![false; self.nodes_x.len()];
+
+            for &start_de_idx in &maximal_ring_starts {
+                let ring_label = labels[start_de_idx];
+                if ring_label < 0 {
+                    continue;
+                }
+
+                intersection_nodes.clear();
+
+                // findIntersectionNodes(startDE, label)
+                let mut curr = start_de_idx;
+                loop {
+                    let node = self.directed_edges[curr].src;
+
+                    // Degree of this node within the current ring label.
+                    let mut degree_for_label = 0;
+                    for &out_de in &self.nodes_outgoing[node] {
+                        if labels[out_de] == ring_label {
+                            degree_for_label += 1;
+                        }
+                    }
+
+                    if degree_for_label > 1 && !seen_intersection_nodes[node] {
+                        seen_intersection_nodes[node] = true;
+                        intersection_nodes.push(node);
+                    }
+
+                    let next = next_pointers[self.directed_edges[curr].sym_idx];
+                    if next == usize::MAX || next == start_de_idx {
+                        break;
+                    }
+                    curr = next;
+                }
+
+                // computeNextCCWEdges(node, label)
+                for &node in &intersection_nodes {
+                    let outgoing = &self.nodes_outgoing[node];
+                    let mut first_out: Option<DirEdgeId> = None;
+                    let mut prev_in: Option<DirEdgeId> = None;
+
+                    // Traverse node star in reverse to process CCW linking semantics.
+                    for &de_idx in outgoing.iter().rev() {
+                        let sym_idx = self.directed_edges[de_idx].sym_idx;
+
+                        let out_de = (labels[de_idx] == ring_label).then_some(de_idx);
+                        let in_de = (labels[sym_idx] == ring_label).then_some(sym_idx);
+
+                        if out_de.is_none() && in_de.is_none() {
+                            continue;
+                        }
+
+                        if let Some(in_de_idx) = in_de {
+                            prev_in = Some(in_de_idx);
+                        }
+
+                        if let Some(out_de_idx) = out_de {
+                            if let Some(prev_in_idx) = prev_in.take() {
+                                next_pointers[self.directed_edges[prev_in_idx].sym_idx] =
+                                    out_de_idx;
+                            }
+                            if first_out.is_none() {
+                                first_out = Some(out_de_idx);
+                            }
+                        }
+                    }
+
+                    if let (Some(prev_in_idx), Some(first_out_idx)) = (prev_in, first_out) {
+                        next_pointers[self.directed_edges[prev_in_idx].sym_idx] = first_out_idx;
+                    }
+
+                    seen_intersection_nodes[node] = false;
                 }
             }
 
@@ -616,8 +702,7 @@ impl PlanarGraph {
                     curr_de.is_visited = true;
                     ring_edges.push(curr_de_idx);
 
-                    let sym_idx = curr_de.sym_idx;
-                    let next_de_idx = next_pointers[sym_idx];
+                    let next_de_idx = next_pointers[self.directed_edges[curr_de_idx].sym_idx];
 
                     if next_de_idx == usize::MAX {
                         is_valid_ring = false;
