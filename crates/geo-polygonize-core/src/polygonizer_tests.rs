@@ -3,7 +3,7 @@ mod tests {
     use crate::Polygonizer;
     use geo::bounding_rect::BoundingRect;
     use geo::Area;
-    use geo_types::LineString;
+    use geo_types::{LineString, Polygon};
 
     #[test]
     fn test_polygonize_simple_triangle() {
@@ -14,9 +14,10 @@ mod tests {
 
         let polygons = poly.polygonize().unwrap().polygons;
         assert!(polygons.len() >= 1);
-        let triangle = polygons
-            .iter()
-            .find(|p| p.unsigned_area() > 49.0 && p.unsigned_area() < 51.0);
+        let triangle = polygons.iter().find(|p| {
+            let p2d = p.to_polygon_2d();
+            p2d.unsigned_area() > 49.0 && p2d.unsigned_area() < 51.0
+        });
         assert!(triangle.is_some());
     }
 
@@ -57,13 +58,13 @@ mod tests {
 
         let donut = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 64.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 64.0).abs() < 1.0);
         assert!(donut.is_some(), "Donut polygon not found");
-        assert_eq!(donut.unwrap().interiors().len(), 1);
+        assert_eq!(donut.unwrap().interiors.len(), 1);
 
         let island = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 36.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
     }
 
@@ -111,7 +112,7 @@ mod tests {
         );
         let triangles_count = polygons
             .iter()
-            .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
+            .filter(|p| (p.to_polygon_2d().unsigned_area() - 25.0).abs() < 1e-6)
             .count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
@@ -145,7 +146,7 @@ mod tests {
         // Should find the rectangle of area 50.
         let rect = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 50.0).abs() < 1e-6);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 50.0).abs() < 1e-6);
         assert!(
             rect.is_some(),
             "Expected rectangle of area 50 from collinear overlap"
@@ -261,12 +262,12 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 72.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 72.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Expected outer shell area near 72 with assigned concave hole"
         );
-        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+        assert_eq!(shell_with_hole.unwrap().interiors.len(), 1);
     }
 
     #[test]
@@ -293,12 +294,12 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 98.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 98.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Point-touch hole should be retained on parent shell"
         );
-        assert_eq!(shell_with_hole.unwrap().interiors().len(), 1);
+        assert_eq!(shell_with_hole.unwrap().interiors.len(), 1);
     }
 
     #[test]
@@ -332,12 +333,12 @@ mod tests {
 
         let outer = polygons
             .iter()
-            .find(|p| (p.unsigned_area() - 100.0).abs() < 1.0);
+            .find(|p| (p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1.0);
         assert!(
             outer.is_some(),
             "Edge-touch hole should not be assigned to the parent shell"
         );
-        assert_eq!(outer.unwrap().interiors().len(), 0);
+        assert_eq!(outer.unwrap().interiors.len(), 0);
     }
 
     #[test]
@@ -375,8 +376,8 @@ mod tests {
         // Default behavior would return 2 polygons.
         // With extract_only_polygonal=true, the inner shell should be discarded.
         assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
-        assert!((polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
-        assert_eq!(polygons[0].interiors().len(), 0);
+        assert!((polygons[0].to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors.len(), 0);
     }
 
     #[test]
@@ -496,8 +497,10 @@ mod tests {
 
         // Verify it is ring A
         let captured = &result.invalid_rings[0];
-        // Bounding box of captured should match Ring A.
-        let bbox = captured.bounding_rect().unwrap();
+        // Convert to LineString for bounding box check
+        let ls = LineString(captured.iter().map(|c| c.to_coord_2d()).collect());
+
+        let bbox = ls.bounding_rect().unwrap();
         // Ring A max x is 1e-5. Ring B max x is 0.8e-5.
         // If we captured Ring A, max x should be close to 1e-5.
         assert!((bbox.max().x - 1e-5).abs() < 1e-12);

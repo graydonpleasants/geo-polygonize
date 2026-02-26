@@ -54,12 +54,12 @@ fn test_nested_holes() {
 
     let donut = polygons
         .iter()
-        .find(|p| (p.unsigned_area() - 6400.0).abs() < 1e-6);
+        .find(|p| (p.to_polygon_2d().unsigned_area() - 6400.0).abs() < 1e-6);
     assert!(donut.is_some(), "Donut polygon with area 6400 not found");
 
     let filled_hole = polygons
         .iter()
-        .find(|p| (p.unsigned_area() - 3200.0).abs() < 1e-6);
+        .find(|p| (p.to_polygon_2d().unsigned_area() - 3200.0).abs() < 1e-6);
     assert!(
         filled_hole.is_some(),
         "Filled hole polygon with area 3200 not found"
@@ -67,7 +67,7 @@ fn test_nested_holes() {
 
     let island = polygons
         .iter()
-        .find(|p| (p.unsigned_area() - 400.0).abs() < 1e-6);
+        .find(|p| (p.to_polygon_2d().unsigned_area() - 400.0).abs() < 1e-6);
     assert!(island.is_some(), "Island polygon with area 400 not found");
 }
 
@@ -113,7 +113,7 @@ fn test_touching_polygons() {
 
     let squares_count = polygons
         .iter()
-        .filter(|p| (p.unsigned_area() - 2500.0).abs() < 1e-6)
+        .filter(|p| (p.to_polygon_2d().unsigned_area() - 2500.0).abs() < 1e-6)
         .count();
     assert_eq!(squares_count, 2, "Expected 2 squares of area 2500");
 }
@@ -138,7 +138,7 @@ fn test_dangles() {
 
     let result = poly.polygonize().unwrap();
     assert_eq!(result.polygons.len(), 1);
-    assert!((result.polygons[0].unsigned_area() - 100.0).abs() < 1e-6);
+    assert!((result.polygons[0].to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
     assert_eq!(result.dangles.len(), 1);
 }
 
@@ -171,7 +171,7 @@ fn test_bowtie() {
 
     let triangles = polygons
         .iter()
-        .filter(|p| (p.unsigned_area() - 25.0).abs() < 1e-6)
+        .filter(|p| (p.to_polygon_2d().unsigned_area() - 25.0).abs() < 1e-6)
         .count();
     assert_eq!(triangles, 2);
 }
@@ -276,7 +276,7 @@ fn test_touching_full_edge() {
     assert_eq!(polygons.len(), 2, "Expected 2 squares");
 
     for p in &polygons {
-        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+        assert!((p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
     }
 }
 
@@ -319,7 +319,7 @@ fn test_touching_partial_edge() {
 
     let area_100 = polygons
         .iter()
-        .filter(|p| (p.unsigned_area() - 100.0).abs() < 1e-6)
+        .filter(|p| (p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6)
         .count();
     assert_eq!(area_100, 2);
 }
@@ -397,12 +397,12 @@ fn test_touching_t_junction() {
     // Check areas: S1 is 100, S2 is 6*10 = 60
     let s1 = polygons
         .iter()
-        .find(|p| (p.unsigned_area() - 100.0).abs() < 1e-6);
+        .find(|p| (p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
     assert!(s1.is_some(), "Square 1 not found");
 
     let s2 = polygons
         .iter()
-        .find(|p| (p.unsigned_area() - 60.0).abs() < 1e-6);
+        .find(|p| (p.to_polygon_2d().unsigned_area() - 60.0).abs() < 1e-6);
     assert!(s2.is_some(), "Square 2 not found");
 }
 
@@ -465,6 +465,6 @@ fn test_grid_2x2() {
     assert_eq!(polygons.len(), 4);
 
     for p in &polygons {
-        assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+        assert!((p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
     }
 }

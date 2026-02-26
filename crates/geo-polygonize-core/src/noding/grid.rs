@@ -1,7 +1,8 @@
 use crate::noding::snap::SnapNoder;
+use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
-use geo::{Coord, Line};
+use geo::Coord;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -22,7 +23,7 @@ pub struct UniformGrid {
 }
 
 impl UniformGrid {
-    pub fn new(lines: &[Line<f64>]) -> Self {
+    pub fn new(lines: &[Line3D]) -> Self {
         if lines.is_empty() {
             return Self::empty();
         }
@@ -181,9 +182,9 @@ impl UniformGrid {
     /// Returns a flat list of (line_index, point) tuples.
     pub fn find_splits(
         &self,
-        lines: &[Line<f64>],
+        lines: &[Line3D],
         snap_noder: &SnapNoder,
-    ) -> Vec<(usize, Coord<f64>)> {
+    ) -> Vec<(usize, Coord3D)> {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
@@ -236,14 +237,14 @@ impl UniformGrid {
 
     fn process_global_lines(
         &self,
-        lines: &[Line<f64>],
+        lines: &[Line3D],
         snap_noder: &SnapNoder,
         soa: &SoALines,
-    ) -> Vec<(usize, Coord<f64>)> {
+    ) -> Vec<(usize, Coord3D)> {
         let global_lines = &self.global_lines;
 
         // Helper to process a single global line against all others
-        let process_one_global = |g_idx: usize| -> Vec<(usize, Coord<f64>)> {
+        let process_one_global = |g_idx: usize| -> Vec<(usize, Coord3D)> {
             let mut events = Vec::new();
             let query_line = lines[g_idx];
 
@@ -321,10 +322,10 @@ impl UniformGrid {
         r: usize,
         c: usize,
         cell_indices: &[u32],
-        lines: &[Line<f64>],
+        lines: &[Line3D],
         snap_noder: &SnapNoder,
         soa: &SoALines,
-        splits: &mut Vec<(usize, Coord<f64>)>,
+        splits: &mut Vec<(usize, Coord3D)>,
     ) {
         if cell_indices.len() < 2 {
             return;
@@ -362,7 +363,10 @@ impl UniformGrid {
                     let l1 = lines[idx1];
                     let l2 = lines[idx2];
 
-                    if let Some(res) = line_intersection(l1, l2) {
+                    let l1_2d = l1.to_line_2d();
+                    let l2_2d = l2.to_line_2d();
+
+                    if let Some(res) = line_intersection(l1_2d, l2_2d) {
                         match res {
                             LineIntersection::SinglePoint {
                                 intersection: pt, ..
@@ -395,7 +399,9 @@ impl UniformGrid {
                                 intersection: overlap,
                             } => {
                                 // Collinear is rare. Just process start/end and let HashMap dedup later.
-                                let p1 = snap_noder.snap(overlap.start);
+                                // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
+                                // We construct dummy 3D coords (Z=0).
+                                let p1 = snap_noder.snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0)).to_coord_2d();
                                 // Simplified ownership: Check if p1 is in cell
                                 let p1_in = p1.x >= cell_min_x
                                     && p1.x < cell_max_x
@@ -426,8 +432,12 @@ impl UniformGrid {
 mod tests {
     use super::*;
     use crate::noding::snap::SnapNoder;
+    use crate::types::{Coord3D, Line3D};
     use approx::assert_relative_eq;
-    use geo::{Coord, Line};
+
+    fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
+    }
 
     #[test]
     fn test_empty_grid() {
@@ -449,10 +459,10 @@ mod tests {
     #[test]
     fn test_grid_dimensions() {
         let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
-            Line::new(Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
-            Line::new(Coord { x: 10.0, y: 10.0 }, Coord { x: 0.0, y: 10.0 }),
-            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 0.0, y: 0.0 }),
+            make_line(0.0, 0.0, 10.0, 0.0),
+            make_line(10.0, 0.0, 10.0, 10.0),
+            make_line(10.0, 10.0, 0.0, 10.0),
+            make_line(0.0, 10.0, 0.0, 0.0),
         ];
 
         let grid = UniformGrid::new(&lines);
@@ -474,8 +484,8 @@ mod tests {
     fn test_cell_population() {
         // Create 2 disjoint lines far apart
         let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }), // Bottom-left
-            Line::new(Coord { x: 9.0, y: 9.0 }, Coord { x: 10.0, y: 10.0 }), // Top-right
+            make_line(0.0, 0.0, 1.0, 1.0), // Bottom-left
+            make_line(9.0, 9.0, 10.0, 10.0), // Top-right
         ];
 
         let grid = UniformGrid::new(&lines);
@@ -515,8 +525,8 @@ mod tests {
     #[test]
     fn test_find_splits_intersection() {
         let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }), // Diagonal /
-            Line::new(Coord { x: 0.0, y: 10.0 }, Coord { x: 10.0, y: 0.0 }), // Diagonal \
+            make_line(0.0, 0.0, 10.0, 10.0), // Diagonal /
+            make_line(0.0, 10.0, 10.0, 0.0), // Diagonal \
         ];
 
         let grid = UniformGrid::new(&lines);
@@ -524,7 +534,7 @@ mod tests {
 
         let splits = grid.find_splits(&lines, &noder);
 
-        // Expect 2 events: (0, (5,5)) and (1, (5,5))
+        // Expect 2 events: (0, (5,5,0)) and (1, (5,5,0))
         assert_eq!(splits.len(), 2);
 
         // Order is not guaranteed, sort by index
@@ -546,8 +556,8 @@ mod tests {
     #[test]
     fn test_find_splits_no_intersection() {
         let lines = vec![
-            Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }),
-            Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 10.0, y: 1.0 }),
+            make_line(0.0, 0.0, 10.0, 0.0),
+            make_line(0.0, 1.0, 10.0, 1.0),
         ];
 
         let grid = UniformGrid::new(&lines);
@@ -561,10 +571,7 @@ mod tests {
     fn test_boundary_handling() {
         // Line crossing multiple cells horizontally
         // This should trigger the "Global Line" heuristic and be excluded from grid cells.
-        let lines = vec![Line::new(
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 100.0, y: 0.0 },
-        )];
+        let lines = vec![make_line(0.0, 0.0, 100.0, 0.0)];
 
         let grid = UniformGrid::new(&lines);
 
@@ -602,15 +609,9 @@ mod tests {
         // l1: Local line intersecting l0 (x=1000, y=-0.01..0.01)
         // l2: Global line intersecting l0 (x=0..2000, y crossing 0 at x=1000)
 
-        let l0 = Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2000.0, y: 0.0 });
-        let l1 = Line::new(
-            Coord {
-                x: 1000.0,
-                y: -0.01,
-            },
-            Coord { x: 1000.0, y: 0.01 },
-        );
-        let l2 = Line::new(Coord { x: 0.0, y: 1.0 }, Coord { x: 2000.0, y: -1.0 });
+        let l0 = make_line(0.0, 0.0, 2000.0, 0.0);
+        let l1 = make_line(1000.0, -0.01, 1000.0, 0.01);
+        let l2 = make_line(0.0, 1.0, 2000.0, -1.0);
 
         let lines = vec![l0, l1, l2];
         let grid = UniformGrid::new(&lines);

@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
+    use crate::types::{Coord3D, Line3D};
     use geo_types::{Coord, LineString};
 
     #[test]
@@ -139,7 +140,8 @@ mod tests {
 
         // 2. Bulk graph
         let mut graph_bulk = PlanarGraph::new();
-        graph_bulk.bulk_load(segments.clone());
+        let segments_3d: Vec<Line3D> = segments.iter().map(|l| (*l).into()).collect();
+        graph_bulk.bulk_load(segments_3d);
 
         // 3. Comparisons
 

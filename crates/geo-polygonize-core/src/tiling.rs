@@ -1,9 +1,10 @@
+use crate::types::Polygon3D;
 use crate::Polygonizer;
 use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
 use geo::Area;
-use geo_types::{Coord, Geometry, Polygon, Rect};
+use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -33,7 +34,7 @@ impl TiledPolygonizer {
         self.geometries.push(geom);
     }
 
-    fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon<f64>> {
+    fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
         let mut local_poly = Polygonizer::new();
         local_poly.node_input = true;
 
@@ -71,9 +72,12 @@ impl TiledPolygonizer {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
-                if let Some(pt) = poly.centroid() {
+                // Use 2D projection for geometric checks
+                let poly_2d = poly.to_polygon_2d();
+
+                if let Some(pt) = poly_2d.centroid() {
                     let c = pt;
-                    let area = poly.unsigned_area();
+                    let area = poly_2d.unsigned_area();
 
                     // Filter slivers
                     if area < 1e-6 {
@@ -131,11 +135,11 @@ impl TiledPolygonizer {
         tiles
     }
 
-    pub fn polygonize(&self) -> Vec<Polygon<f64>> {
+    pub fn polygonize(&self) -> Vec<Polygon3D> {
         let tiles = self.generate_tiles();
 
         // Process tiles in parallel or sequential
-        let result_polygons: Vec<Polygon<f64>>;
+        let result_polygons: Vec<Polygon3D>;
         #[cfg(feature = "parallel")]
         {
             result_polygons = tiles

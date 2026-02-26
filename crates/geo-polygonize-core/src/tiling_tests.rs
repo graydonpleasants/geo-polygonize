@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Coord, Geometry, LineString, Rect};
+    use geo::{Area, Coord, Geometry, LineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -61,8 +61,7 @@ mod tests {
 
         // Check areas
         for p in polys {
-            use geo::Area;
-            assert!((p.unsigned_area() - 100.0).abs() < 1e-6);
+            assert!((p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
         }
     }
 
