@@ -54,8 +54,17 @@ jobs:
         run: bun install
 
       - name: Create planning session
+        id: plan
         working-directory: scripts/fleet
         env:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           FLEET_BASE_BRANCH: ${{ inputs.base_branch || 'main' }}
         run: bun fleet-plan.ts
+
+      - name: Dispatch agents
+        working-directory: scripts/fleet
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          FLEET_BASE_BRANCH: ${{ inputs.base_branch || 'main' }}
+          FLEET_ID: ${{ steps.plan.outputs.fleet_id }}
+        run: bun fleet-dispatch.ts

@@ -306,6 +306,7 @@ Issues that require changes outside this repository (backend API, infrastructure
 8. **Test files must be in the ownership matrix.** For every source file a task modifies, include its corresponding test file(s) in both the task's \`test_files\` array and the \`file_ownership\` map. No test file may appear in more than one task.
 9. **Test boundary: tasks must not touch files outside their ownership.** Each task's prompt must instruct the agent to ONLY modify files listed in its \`files\`, \`new_files\`, and \`test_files\` arrays. If a test outside the boundary fails, the agent must make its implementation backward-compatible rather than modifying the unowned test.
 10. **Target linked PRs.** If an issue has a linked open PR (indicated in the input), you MUST set the \`target_branch\` field in the task to that PR's branch name. The task prompt should then instruct the agent to "continue work on the existing PR by stacking changes on top of branch 'branch_name'".
+11. **Avoid shared file conflicts.** Be extremely cautious with global shared files like \`package.json\`, \`Cargo.toml\`, or root \`index.ts\`. If multiple tasks need to modify these files (e.g., adding dependencies), this will cause merge conflicts. Prefer merging these tasks into a single task, or design the solution to avoid modifying shared configuration files if possible.
 
 ---
 
