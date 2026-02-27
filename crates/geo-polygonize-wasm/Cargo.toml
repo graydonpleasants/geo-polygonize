@@ -19,6 +19,7 @@ wasm-bindgen-rayon = { version = "1.0", optional = true }
 geo-traits = "0.3.0"
 geoarrow = "0.7.0"
 arrow-ipc = "57"
+arrow = "57"
 
 [features]
 default = ["console_error_panic_hook"]
