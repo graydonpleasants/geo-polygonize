@@ -8,6 +8,7 @@
 //! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
 //! - **Wasm**: Optimized for WebAssembly environments.
 
+pub mod arrow_api;
 pub mod error;
 pub mod ffi;
 pub mod graph;

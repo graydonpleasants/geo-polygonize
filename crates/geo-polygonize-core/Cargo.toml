@@ -19,6 +19,9 @@ float_next_after = "1.0"
 smallvec = "1.11"
 pyo3 = { version = "0.21", features = ["extension-module", "abi3-py37"], optional = true }
 numpy = { version = "0.21", optional = true }
+arrow = { version = "57", features = ["ffi"] }
+geoarrow = "0.7.0"
+geo-traits = "0.3.0"
 
 [dev-dependencies]
 approx = "0.5"
