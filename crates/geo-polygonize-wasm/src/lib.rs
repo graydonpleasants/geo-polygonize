@@ -1,11 +1,14 @@
+use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
+use arrow_ipc::writer::FileWriter;
+use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
-use geo_traits::to_geo::ToGeoLineString;
-use geoarrow::array::{GeoArrowArrayAccessor, LineStringArray};
+use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
 use std::io::Cursor;
 use std::str::FromStr;
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "threads")]
@@ -162,6 +165,7 @@ pub fn polygonize_buffers(
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
+                0,
             ));
         }
     }
@@ -176,45 +180,82 @@ pub fn polygonize_geoarrow(
     ipc_bytes: &[u8],
     node_input: bool,
     snap_grid_size: f64,
-) -> Result<WasmPolygonResult, JsValue> {
+    extract_only_polygonal: bool,
+) -> Result<Vec<u8>, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = node_input;
-    polygonizer.snap_grid_size = snap_grid_size;
-
-    let mut reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
+    let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
         .map_err(|e| JsValue::from_str(&format!("Invalid Arrow IPC stream: {e}")))?;
 
-    let mut found_lines = false;
-    for batch_result in &mut reader {
-        let batch = batch_result
-            .map_err(|e| JsValue::from_str(&format!("Failed reading Arrow IPC batch: {e}")))?;
+    let schema = reader.schema();
 
-        for (array, field) in batch.columns().iter().zip(batch.schema().fields().iter()) {
-            let lines = match LineStringArray::try_from((array.as_ref(), field.as_ref())) {
-                Ok(lines) => lines,
-                Err(_) => continue,
-            };
-
-            found_lines = true;
-            for scalar_result in lines.iter_values() {
-                let line = scalar_result.map_err(|e| {
-                    JsValue::from_str(&format!("Failed to decode GeoArrow LineString: {e}"))
-                })?;
-                polygonizer.add_geometry(geo::Geometry::LineString(line.to_line_string()));
+    // Find geometry column
+    let mut geom_col_idx = None;
+    for (i, field) in schema.fields().iter().enumerate() {
+        if let Some(metadata) = field.metadata().get("ARROW:extension:name") {
+            if metadata.starts_with("ogc.geoarrow.linestring") {
+                geom_col_idx = Some(i);
+                break;
             }
         }
     }
 
-    if !found_lines {
-        return Err(JsValue::from_str(
-            "No GeoArrow LineString extension columns were found in the IPC stream",
-        ));
+    let geom_col_idx =
+        geom_col_idx.ok_or_else(|| JsValue::from_str("No GeoArrow LineString column found"))?;
+    let field = schema.field(geom_col_idx).clone();
+
+    // Collect batches
+    let mut arrays = Vec::new();
+    for batch_result in reader {
+        let batch =
+            batch_result.map_err(|e| JsValue::from_str(&format!("Failed reading batch: {e}")))?;
+        arrays.push(batch.column(geom_col_idx).clone());
     }
 
-    polygonize_and_flatten(polygonizer, 2)
+    if arrays.is_empty() {
+        return Err(JsValue::from_str("No data found"));
+    }
+
+    let arrays_ref: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
+    let combined_array = concat(&arrays_ref)
+        .map_err(|e| JsValue::from_str(&format!("Failed to concat arrays: {e}")))?;
+
+    let options = PolygonizerOptions {
+        node_input,
+        snap_grid_size,
+        extract_only_polygonal,
+    };
+
+    let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)
+        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {e}")))?;
+
+    // Serialize result to IPC
+    let mut output_buffer = Vec::new();
+    {
+        // Use data_type().clone().into() to get arrow DataType
+        let field =
+            arrow::datatypes::Field::new("geometry", result_array.data_type().clone().into(), true);
+        let schema = Arc::new(arrow::datatypes::Schema::new(vec![field]));
+
+        let mut writer = FileWriter::try_new(&mut output_buffer, &schema)
+            .map_err(|e| JsValue::from_str(&format!("Failed to create IPC writer: {e}")))?;
+
+        let batch = arrow::record_batch::RecordBatch::try_new(
+            schema.clone(),
+            vec![result_array.into_array_ref()],
+        )
+        .map_err(|e| JsValue::from_str(&format!("Failed to create RecordBatch: {e}")))?;
+
+        writer
+            .write(&batch)
+            .map_err(|e| JsValue::from_str(&format!("Failed to write batch: {e}")))?;
+        writer
+            .finish()
+            .map_err(|e| JsValue::from_str(&format!("Failed to finish writer: {e}")))?;
+    }
+
+    Ok(output_buffer)
 }
 
 fn polygonize_and_flatten(

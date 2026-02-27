@@ -124,7 +124,7 @@ fn bench_polygonize(c: &mut Criterion) {
                     let mut input_segments = Vec::new();
                     for ls in &lines {
                         for line in ls.lines() {
-                            input_segments.push(line);
+                            input_segments.push(line.into());
                         }
                     }
                     let noder = SnapNoder::new(1e-10); // Auto
@@ -142,7 +142,7 @@ fn bench_polygonize(c: &mut Criterion) {
                     let mut input_segments = Vec::new();
                     for ls in &lines {
                         for line in ls.lines() {
-                            input_segments.push(line);
+                            input_segments.push(line.into());
                         }
                     }
                     let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
@@ -162,7 +162,7 @@ fn bench_polygonize(c: &mut Criterion) {
                         let mut input_segments = Vec::new();
                         for ls in &lines {
                             for line in ls.lines() {
-                                input_segments.push(line);
+                                input_segments.push(line.into());
                             }
                         }
                         let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Simd);
@@ -196,7 +196,7 @@ fn bench_polygonize(c: &mut Criterion) {
         let mut input_segments = Vec::new();
         for ls in &lines {
             for line in ls.lines() {
-                input_segments.push(line);
+                input_segments.push(line.into());
             }
         }
         // Clone for setup to avoid overhead in loop?
@@ -248,7 +248,7 @@ fn bench_get_edge_rings_dangles(c: &mut Criterion) {
                 // Pruning dangles will mark some edges, causing nodes to have
                 // valid degree < outgoing.len(), forcing the slow path.
                 loop {
-                    if graph.prune_dangles() == 0 {
+                    if graph.prune_dangles().is_empty() {
                         break;
                     }
                 }

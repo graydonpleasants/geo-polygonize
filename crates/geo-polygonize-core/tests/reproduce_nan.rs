@@ -6,11 +6,20 @@ fn test_reproduce_nan_in_noder() {
     let noder = SnapNoder::new(1.0).with_strategy(NodingStrategy::Scalar);
 
     // Create lines with NaN coordinates
-    let l1: Line3D = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(10.0, 10.0, 0.0));
-    let l2: Line3D = Line3D::new(Coord3D::new(0.0, 10.0, 0.0), Coord3D::new(10.0, 0.0, 0.0));
+    let l1: Line3D = Line3D::new(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(10.0, 10.0, 0.0),
+        0,
+    );
+    let l2: Line3D = Line3D::new(
+        Coord3D::new(0.0, 10.0, 0.0),
+        Coord3D::new(10.0, 0.0, 0.0),
+        0,
+    );
     let l3: Line3D = Line3D::new(
         Coord3D::new(f64::NAN, 0.0, 0.0),
         Coord3D::new(5.0, 5.0, 0.0),
+        0,
     );
 
     let lines = vec![l1, l2, l3];
@@ -33,7 +42,7 @@ fn test_reproduce_nan_in_noder() {
     // So we expect (0,0)->(5,5) and (5,5)->(10,10)
     // l1 is Line3D. result contains Line3D.
 
-    let l1_part = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(5.0, 5.0, 0.0));
+    let l1_part = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(5.0, 5.0, 0.0), 0);
 
     // Check if l1_part is in result
     let found = result.iter().any(|l| {

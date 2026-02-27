@@ -391,7 +391,7 @@ impl PlanarGraph {
             self.directed_edges.push(de_v_u);
 
             self.edges.push(Edge {
-                line: Line3D::new(p0.into(), p1.into()),
+                line: Line3D::new(p0.into(), p1.into(), 0),
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
             });
@@ -545,7 +545,7 @@ impl PlanarGraph {
     }
 
     /// Extracts rings from the graph following the GEOS flow.
-    pub fn get_edge_rings(&mut self) -> Vec<Vec<Coord3D>> {
+    pub fn get_edge_rings(&mut self) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
             next_pointers.clear();
@@ -725,6 +725,7 @@ impl PlanarGraph {
 
                 if is_valid_ring && !ring_edges.is_empty() {
                     let mut coords = Vec::with_capacity(ring_edges.len() + 1);
+                    let mut ids = Vec::with_capacity(ring_edges.len());
                     let start_node_idx = self.directed_edges[ring_edges[0]].src;
                     coords.push(Coord3D {
                         x: self.nodes_x[start_node_idx],
@@ -734,6 +735,9 @@ impl PlanarGraph {
 
                     for &de_idx in &ring_edges {
                         let de = &self.directed_edges[de_idx];
+                        let edge_idx = de.edge_idx;
+                        ids.push(self.edges[edge_idx].line.line_id);
+
                         let dst_idx = de.dst;
                         coords.push(Coord3D {
                             x: self.nodes_x[dst_idx],
@@ -742,7 +746,7 @@ impl PlanarGraph {
                         });
                     }
 
-                    rings.push(coords);
+                    rings.push((coords, ids));
                 }
             }
             rings

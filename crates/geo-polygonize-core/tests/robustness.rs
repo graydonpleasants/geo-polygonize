@@ -80,6 +80,7 @@ fn test_nan_handling_in_snap_noder() {
                 y: 10.0,
                 z: 0.0,
             },
+            0,
         ),
         Line3D::new(
             Coord3D {
@@ -92,6 +93,7 @@ fn test_nan_handling_in_snap_noder() {
                 y: 0.0,
                 z: 0.0,
             },
+            0,
         ),
         // Line with NaN
         Line3D::new(
@@ -105,6 +107,7 @@ fn test_nan_handling_in_snap_noder() {
                 y: 5.0,
                 z: 0.0,
             },
+            0,
         ),
     ];
 

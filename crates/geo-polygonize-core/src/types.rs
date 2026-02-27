@@ -31,15 +31,26 @@ impl From<Coord<f64>> for Coord3D {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct Line3D {
     pub start: Coord3D,
     pub end: Coord3D,
+    pub line_id: u32,
+}
+
+impl PartialEq for Line3D {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.end == other.end
+    }
 }
 
 impl Line3D {
-    pub fn new(start: Coord3D, end: Coord3D) -> Self {
-        Self { start, end }
+    pub fn new(start: Coord3D, end: Coord3D, line_id: u32) -> Self {
+        Self {
+            start,
+            end,
+            line_id,
+        }
     }
 
     pub fn to_line_2d(self) -> Line<f64> {
@@ -52,6 +63,7 @@ impl From<Line<f64>> for Line3D {
         Self {
             start: l.start.into(),
             end: l.end.into(),
+            line_id: 0,
         }
     }
 }
@@ -60,13 +72,22 @@ impl From<Line<f64>> for Line3D {
 pub struct Polygon3D {
     pub exterior: Vec<Coord3D>,
     pub interiors: Vec<Vec<Coord3D>>,
+    pub exterior_ids: Vec<u32>,
+    pub interiors_ids: Vec<Vec<u32>>,
 }
 
 impl Polygon3D {
-    pub fn new(exterior: Vec<Coord3D>, interiors: Vec<Vec<Coord3D>>) -> Self {
+    pub fn new(
+        exterior: Vec<Coord3D>,
+        interiors: Vec<Vec<Coord3D>>,
+        exterior_ids: Vec<u32>,
+        interiors_ids: Vec<Vec<u32>>,
+    ) -> Self {
         Self {
             exterior,
             interiors,
+            exterior_ids,
+            interiors_ids,
         }
     }
 

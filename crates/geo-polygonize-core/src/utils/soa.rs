@@ -107,7 +107,7 @@ mod tests {
     use crate::types::{Coord3D, Line3D};
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
-        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0))
+        Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0), 0)
     }
 
     #[test]

@@ -13,6 +13,7 @@ use std::collections::HashSet;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::sync::OnceLock;
 
 // Wrapper for Polygon indexable by rstar (2D)
 struct IndexedEnvelope {
@@ -99,17 +100,9 @@ impl Polygonizer {
         }
 
         // Flatten inputs to lineal components and convert to Line3D
-        let mut temp_lines = Vec::new();
-        for geom in &self.inputs {
-            extract_lines(geom, &mut temp_lines);
-        }
-
-        // Convert 2D lines to 3D segments
         let mut all_segments: Vec<Line3D> = Vec::new();
-        for ls in temp_lines {
-            for line in ls.lines() {
-                all_segments.push(line.into());
-            }
+        for geom in &self.inputs {
+            extract_segments(geom, &mut all_segments);
         }
         all_segments.extend(self.input_lines.iter().cloned());
 
@@ -171,7 +164,7 @@ impl Polygonizer {
         let mut dangles = self.graph.prune_dangles();
 
         // 3. Find rings (3D)
-        let rings = self.graph.get_edge_rings();
+        let rings_with_ids = self.graph.get_edge_rings();
 
         // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
@@ -182,12 +175,12 @@ impl Polygonizer {
         let mut holes = Vec::new();
         let mut invalid_rings_candidates = Vec::new();
 
-        shells.reserve(rings.len() / 2);
-        holes.reserve(rings.len() / 2);
+        shells.reserve(rings_with_ids.len() / 2);
+        holes.reserve(rings_with_ids.len() / 2);
 
-        for ring_coords in rings {
+        for (ring_coords, ring_ids) in rings_with_ids {
             // Create Polygon3D
-            let poly3d = Polygon3D::new(ring_coords, vec![]);
+            let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
             // Create 2D projection for area check
             let poly2d = poly3d.to_polygon_2d();
             let area = poly2d.signed_area();
@@ -211,10 +204,8 @@ impl Polygonizer {
         // Precompute 2D shells for spatial index and SIMD
         let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
-        let mut simd_shells: Vec<SimdRing> = shells_2d
-            .iter()
-            .map(|s| SimdRing::new(&s.exterior().0))
-            .collect();
+        let mut simd_shells: Vec<OnceLock<SimdRing>> =
+            (0..shells.len()).map(|_| OnceLock::new()).collect();
 
         // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -260,7 +251,10 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        if simd_shells[j].contains(probe_pt.0) {
+                        let simd_shell = simd_shells[j]
+                            .get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
+
+                        if simd_shell.contains(probe_pt.0) {
                             let area_i = shell_2d.unsigned_area();
                             let area_j = shells_2d[j].unsigned_area();
 
@@ -330,10 +324,7 @@ impl Polygonizer {
                 }
 
                 // Rebuild helper structures
-                simd_shells = shells_2d_ref
-                    .iter()
-                    .map(|s| SimdRing::new(&s.exterior().0))
-                    .collect();
+                simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
                 for (i, shell) in shells_2d_ref.iter().enumerate() {
@@ -354,7 +345,7 @@ impl Polygonizer {
         let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         // Process hole assignment
-        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>)> {
+        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
             let hole_poly_2d = &holes_2d[i];
             let hole_3d = &holes[i];
 
@@ -371,7 +362,8 @@ impl Polygonizer {
 
             for cand in candidates {
                 let idx = cand.index;
-                let simd_shell = &simd_shells[idx];
+                let simd_shell =
+                    simd_shells[idx].get_or_init(|| SimdRing::new(&shells_2d[idx].exterior().0));
 
                 if simd_shell.contains(probe_point.0) {
                     let shell_2d = &shells_2d[idx];
@@ -390,7 +382,7 @@ impl Polygonizer {
                 }
             }
 
-            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone()))
+            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone(), hole_3d.exterior_ids.clone()))
         };
 
         let assignments: Vec<_>;
@@ -411,15 +403,22 @@ impl Polygonizer {
 
         // Group holes by shell
         let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
-        for (idx, hole_coords) in assignments {
+        let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
+
+        for (idx, hole_coords, hole_ids) in assignments {
             shell_holes[idx].push(hole_coords);
+            shell_holes_ids[idx].push(hole_ids);
         }
 
         // 6. Construct Final Polygons
         let mut result = Vec::new();
-        for (shell, holes) in shells.into_iter().zip(shell_holes.into_iter()) {
+        for (i, shell) in shells.into_iter().enumerate() {
             let exterior = shell.exterior;
-            let p = Polygon3D::new(exterior, holes);
+            let exterior_ids = shell.exterior_ids;
+            let holes = shell_holes[i].clone();
+            let holes_ids = shell_holes_ids[i].clone();
+
+            let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
             // Check area of 2D projection
             let p2d = p.to_polygon_2d();
@@ -645,25 +644,45 @@ fn segments_overlap_with_length(
     overlap_end - overlap_start > eps
 }
 
-fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
+fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
     match geom {
-        Geometry::LineString(ls) => out.push(ls.clone()),
+        Geometry::LineString(ls) => {
+            for line in ls.lines() {
+                out.push(line.into());
+            }
+        }
         Geometry::MultiLineString(mls) => {
-            out.extend(mls.0.clone());
+            for ls in &mls.0 {
+                for line in ls.lines() {
+                    out.push(line.into());
+                }
+            }
         }
         Geometry::Polygon(poly) => {
-            out.push(poly.exterior().clone());
-            out.extend(poly.interiors().iter().cloned());
+            for line in poly.exterior().lines() {
+                out.push(line.into());
+            }
+            for interior in poly.interiors() {
+                for line in interior.lines() {
+                    out.push(line.into());
+                }
+            }
         }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
-                out.push(poly.exterior().clone());
-                out.extend(poly.interiors().iter().cloned());
+                for line in poly.exterior().lines() {
+                    out.push(line.into());
+                }
+                for interior in poly.interiors() {
+                    for line in interior.lines() {
+                        out.push(line.into());
+                    }
+                }
             }
         }
         Geometry::GeometryCollection(gc) => {
             for g in gc {
-                extract_lines(g, out);
+                extract_segments(g, out);
             }
         }
         _ => {}
