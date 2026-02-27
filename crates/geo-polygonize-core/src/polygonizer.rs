@@ -13,6 +13,7 @@ use std::collections::HashSet;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::sync::OnceLock;
 
 // Wrapper for Polygon indexable by rstar (2D)
 struct IndexedEnvelope {
@@ -203,10 +204,8 @@ impl Polygonizer {
         // Precompute 2D shells for spatial index and SIMD
         let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
-        let mut simd_shells: Vec<SimdRing> = shells_2d
-            .iter()
-            .map(|s| SimdRing::new(&s.exterior().0))
-            .collect();
+        let mut simd_shells: Vec<OnceLock<SimdRing>> =
+            (0..shells.len()).map(|_| OnceLock::new()).collect();
 
         // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -252,7 +251,10 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        if simd_shells[j].contains(probe_pt.0) {
+                        let simd_shell =
+                            simd_shells[j].get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
+
+                        if simd_shell.contains(probe_pt.0) {
                             let area_i = shell_2d.unsigned_area();
                             let area_j = shells_2d[j].unsigned_area();
 
@@ -322,10 +324,7 @@ impl Polygonizer {
                 }
 
                 // Rebuild helper structures
-                simd_shells = shells_2d_ref
-                    .iter()
-                    .map(|s| SimdRing::new(&s.exterior().0))
-                    .collect();
+                simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
                 for (i, shell) in shells_2d_ref.iter().enumerate() {
@@ -363,7 +362,8 @@ impl Polygonizer {
 
             for cand in candidates {
                 let idx = cand.index;
-                let simd_shell = &simd_shells[idx];
+                let simd_shell =
+                    simd_shells[idx].get_or_init(|| SimdRing::new(&shells_2d[idx].exterior().0));
 
                 if simd_shell.contains(probe_point.0) {
                     let shell_2d = &shells_2d[idx];
