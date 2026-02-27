@@ -99,17 +99,9 @@ impl Polygonizer {
         }
 
         // Flatten inputs to lineal components and convert to Line3D
-        let mut temp_lines = Vec::new();
-        for geom in &self.inputs {
-            extract_lines(geom, &mut temp_lines);
-        }
-
-        // Convert 2D lines to 3D segments
         let mut all_segments: Vec<Line3D> = Vec::new();
-        for ls in temp_lines {
-            for line in ls.lines() {
-                all_segments.push(line.into());
-            }
+        for geom in &self.inputs {
+            extract_segments(geom, &mut all_segments);
         }
         all_segments.extend(self.input_lines.iter().cloned());
 
@@ -652,25 +644,45 @@ fn segments_overlap_with_length(
     overlap_end - overlap_start > eps
 }
 
-fn extract_lines(geom: &Geometry<f64>, out: &mut Vec<LineString<f64>>) {
+fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
     match geom {
-        Geometry::LineString(ls) => out.push(ls.clone()),
+        Geometry::LineString(ls) => {
+            for line in ls.lines() {
+                out.push(line.into());
+            }
+        }
         Geometry::MultiLineString(mls) => {
-            out.extend(mls.0.clone());
+            for ls in &mls.0 {
+                for line in ls.lines() {
+                    out.push(line.into());
+                }
+            }
         }
         Geometry::Polygon(poly) => {
-            out.push(poly.exterior().clone());
-            out.extend(poly.interiors().iter().cloned());
+            for line in poly.exterior().lines() {
+                out.push(line.into());
+            }
+            for interior in poly.interiors() {
+                for line in interior.lines() {
+                    out.push(line.into());
+                }
+            }
         }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
-                out.push(poly.exterior().clone());
-                out.extend(poly.interiors().iter().cloned());
+                for line in poly.exterior().lines() {
+                    out.push(line.into());
+                }
+                for interior in poly.interiors() {
+                    for line in interior.lines() {
+                        out.push(line.into());
+                    }
+                }
             }
         }
         Geometry::GeometryCollection(gc) => {
             for g in gc {
-                extract_lines(g, out);
+                extract_segments(g, out);
             }
         }
         _ => {}
