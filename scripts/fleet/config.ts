@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { findUpSync } from "find-up";
 
 // Use FLEET_ID environment variable if provided, otherwise generate default date-based ID
@@ -22,5 +23,10 @@ export const FLEET_ID = process.env.FLEET_ID || new Intl.DateTimeFormat("en-CA",
   day: "2-digit"
 }).format(new Date()).replaceAll("-", "_");
 
-export const ROOT_DIR = path.dirname(findUpSync(".git")!);
+// Fallback logic for finding repo root if .git is not found (e.g. in some CI environments or submodules)
+// If findUpSync returns undefined, we assume we are in scripts/fleet/ and go up two levels.
+const gitDir = findUpSync(".git");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export const ROOT_DIR = gitDir ? path.dirname(gitDir) : path.resolve(__dirname, "../..");
 export const FLEET_DIR = path.join(ROOT_DIR, ".fleet", FLEET_ID);
