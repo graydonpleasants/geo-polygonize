@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["bun-types"],
+    "noEmit": true
+  },
+  "include": [
+    "./*.ts",
+    "./github/*.ts",
+    "./prompts/*.ts"
+  ]
+}
