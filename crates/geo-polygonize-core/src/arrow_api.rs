@@ -34,40 +34,43 @@ pub fn polygonize_arrow(
     } else {
         // Fallback: Manually patch metadata.
         let mut new_metadata = field.metadata().clone();
-        new_metadata.insert("ARROW:extension:name".to_string(), "ogc.geoarrow.linestring".to_string());
+        new_metadata.insert(
+            "ARROW:extension:name".to_string(),
+            "ogc.geoarrow.linestring".to_string(),
+        );
         let new_field = field.clone().with_metadata(new_metadata);
 
         if let Ok(arr) = LineStringArray::try_from((array, &new_field)) {
             process_linestring_array(&arr, &mut lines);
         } else {
-             // Fallback 3: Try to treat as Generic ListArray directly
-             // Array::as_list returns &GenericListArray, not Option.
-             // We need to check data type first to be safe, or cast.
-             // as_list::<i32> panics if not List.
-             // But `arrow` 52+ uses `as_list` which returns reference.
-             // Wait, `arrow` 52+ `as_list` returns `&GenericListArray<O>`.
-             // Does it panic?
-             // Documentation says: "Downcast this to a GenericListArray. Panics if the array is not a GenericListArray."
+            // Fallback 3: Try to treat as Generic ListArray directly
+            // Array::as_list returns &GenericListArray, not Option.
+            // We need to check data type first to be safe, or cast.
+            // as_list::<i32> panics if not List.
+            // But `arrow` 52+ uses `as_list` which returns reference.
+            // Wait, `arrow` 52+ `as_list` returns `&GenericListArray<O>`.
+            // Does it panic?
+            // Documentation says: "Downcast this to a GenericListArray. Panics if the array is not a GenericListArray."
 
-             // We should check `data_type()` first.
+            // We should check `data_type()` first.
 
-             match array.data_type() {
-                 DataType::List(_) => {
-                     let list_arr = array.as_list::<i32>();
-                     process_list_array(list_arr, &mut lines)?;
-                 },
-                 DataType::LargeList(_) => {
-                     let list_arr = array.as_list::<i64>();
-                     process_list_array(list_arr, &mut lines)?;
-                 },
-                 _ => {
-                     return Err(format!(
+            match array.data_type() {
+                DataType::List(_) => {
+                    let list_arr = array.as_list::<i32>();
+                    process_list_array(list_arr, &mut lines)?;
+                }
+                DataType::LargeList(_) => {
+                    let list_arr = array.as_list::<i64>();
+                    process_list_array(list_arr, &mut lines)?;
+                }
+                _ => {
+                    return Err(format!(
                          "Failed to convert input array to LineStringArray and fallback failed. DataType: {:?}, Field: {:?}.",
                          array.data_type(),
                          field
                      ));
-                 }
-             }
+                }
+            }
         }
     }
 
@@ -126,7 +129,7 @@ fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) {
 // Manual fallback for GenericListArray<Offset>
 fn process_list_array<O: arrow::array::OffsetSizeTrait>(
     list_arr: &GenericListArray<O>,
-    lines: &mut Vec<Line3D>
+    lines: &mut Vec<Line3D>,
 ) -> Result<(), String> {
     // Values should be StructArray with x, y
     let values = list_arr.values();
@@ -135,30 +138,52 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
     // Get x and y columns
     // We assume field names "x" and "y" or indices 0 and 1
     // GeoArrow spec uses "x", "y".
-    let x_arr = struct_arr.column_by_name("x")
-        .or_else(|| if struct_arr.num_columns() > 0 { Some(struct_arr.column(0)) } else { None })
+    let x_arr = struct_arr
+        .column_by_name("x")
+        .or_else(|| {
+            if struct_arr.num_columns() > 0 {
+                Some(struct_arr.column(0))
+            } else {
+                None
+            }
+        })
         .ok_or("Struct missing 'x' column")?;
 
-    let y_arr = struct_arr.column_by_name("y")
-        .or_else(|| if struct_arr.num_columns() > 1 { Some(struct_arr.column(1)) } else { None })
+    let y_arr = struct_arr
+        .column_by_name("y")
+        .or_else(|| {
+            if struct_arr.num_columns() > 1 {
+                Some(struct_arr.column(1))
+            } else {
+                None
+            }
+        })
         .ok_or("Struct missing 'y' column")?;
 
-    let x_vals = x_arr.as_primitive_opt::<Float64Type>().ok_or("'x' column must be Float64")?;
-    let y_vals = y_arr.as_primitive_opt::<Float64Type>().ok_or("'y' column must be Float64")?;
+    let x_vals = x_arr
+        .as_primitive_opt::<Float64Type>()
+        .ok_or("'x' column must be Float64")?;
+    let y_vals = y_arr
+        .as_primitive_opt::<Float64Type>()
+        .ok_or("'y' column must be Float64")?;
 
     for i in 0..list_arr.len() {
-        if list_arr.is_null(i) { continue; }
+        if list_arr.is_null(i) {
+            continue;
+        }
         let start = list_arr.value_offsets()[i].to_usize().unwrap();
-        let end = list_arr.value_offsets()[i+1].to_usize().unwrap();
+        let end = list_arr.value_offsets()[i + 1].to_usize().unwrap();
 
-        if end <= start { continue; }
+        if end <= start {
+            continue;
+        }
 
         // Iterate points in the linestring
-        for j in start..end-1 {
+        for j in start..end - 1 {
             let x1 = x_vals.value(j);
             let y1 = y_vals.value(j);
-            let x2 = x_vals.value(j+1);
-            let y2 = y_vals.value(j+1);
+            let x2 = x_vals.value(j + 1);
+            let y2 = y_vals.value(j + 1);
 
             let p1 = Coord3D::new(x1, y1, 0.0);
             let p2 = Coord3D::new(x2, y2, 0.0);

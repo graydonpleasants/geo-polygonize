@@ -2,9 +2,9 @@ use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
-use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonArray};
 use geo_traits::LineStringTrait;
 use geo_traits::PolygonTrait;
+use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonArray};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -76,7 +76,10 @@ fn test_ffi_arrow_integration_square() {
     // So I should use "geoarrow.polygon".
 
     let mut metadata = std::collections::HashMap::new();
-    metadata.insert("ARROW:extension:name".to_string(), "geoarrow.polygon".to_string());
+    metadata.insert(
+        "ARROW:extension:name".to_string(),
+        "geoarrow.polygon".to_string(),
+    );
 
     let field = Field::new("geometry", output_arrow_array.data_type().clone(), true)
         .with_metadata(metadata);
@@ -87,8 +90,8 @@ fn test_ffi_arrow_integration_square() {
     assert_eq!(polygon_array.len(), 1);
 
     if let Ok(Some(poly)) = polygon_array.get(0) {
-         let exterior = poly.exterior().expect("Missing exterior");
-         assert_eq!(exterior.num_coords(), 5);
+        let exterior = poly.exterior().expect("Missing exterior");
+        assert_eq!(exterior.num_coords(), 5);
     } else {
         panic!("Missing polygon");
     }
