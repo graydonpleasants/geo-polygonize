@@ -12,6 +12,7 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 - **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and Zero-Copy data support (`geoarrow`).
 - **Performance**: Competitive with GEOS/Shapely (C++), outperforming it on random sparse inputs and scaling well on dense grids.
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
+- **GeoArrow Support**: Zero-copy data transfer via Arrow C Data Interface and Arrow IPC (Wasm).
 
 ## Usage
 
@@ -45,6 +46,16 @@ fn main() {
 }
 ```
 
+### GeoArrow Integration
+
+The library supports ingesting data directly from Arrow arrays via the `arrow_api` module and `ffi`.
+
+```rust
+use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
+// ... create Arrow array ...
+// let result = polygonize_arrow(&array, &field, options);
+```
+
 ### WebAssembly (WASM)
 
 This library supports WebAssembly with an ergonomic dual-build configuration that automatically utilizes SIMD instructions where available.
@@ -58,7 +69,7 @@ npm install geo-polygonize
 The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
 
 ```javascript
-import init, { polygonize } from "geo-polygonize";
+import init, { polygonize, polygonize_geoarrow } from "geo-polygonize";
 
 async function run() {
     await init();
@@ -73,9 +84,11 @@ async function run() {
     // Returns a GeoJSON FeatureCollection string
     const result = polygonize(JSON.stringify(geojson));
     console.log(JSON.parse(result));
-}
 
-run();
+    // Or use Arrow IPC bytes
+    // const ipcBuffer = ...;
+    // const arrowResult = polygonize_geoarrow(ipcBuffer, false, 1e-10, false);
+}
 ```
 
 **Slim Usage (Manual Loading):**
