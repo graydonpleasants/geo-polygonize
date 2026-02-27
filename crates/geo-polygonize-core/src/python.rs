@@ -40,12 +40,12 @@ fn polygonize<'py>(
 
             // Get line ID if provided
             let line_id = if let Some(ref ids) = line_ids {
-                 let ids_slice = ids.as_slice()?;
-                 if i < ids_slice.len() {
-                     ids_slice[i]
-                 } else {
-                     0
-                 }
+                let ids_slice = ids.as_slice()?;
+                if i < ids_slice.len() {
+                    ids_slice[i]
+                } else {
+                    0
+                }
             } else {
                 0
             };
@@ -117,9 +117,9 @@ fn polygonize<'py>(
                     flat_coords.push(c.z);
                 }
                 if k < poly.interiors_ids[h_idx].len() {
-                     flat_line_ids.push(poly.interiors_ids[h_idx][k]);
+                    flat_line_ids.push(poly.interiors_ids[h_idx][k]);
                 } else {
-                     flat_line_ids.push(0);
+                    flat_line_ids.push(0);
                 }
             }
         }
