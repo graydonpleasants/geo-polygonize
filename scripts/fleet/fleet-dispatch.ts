@@ -13,19 +13,14 @@
 // limitations under the License.
 
 import path from "node:path";
-import { findUpSync } from "find-up";
-import type { IssueAnalysis } from "./types.js";
 import { jules } from "@google/jules-sdk";
 import { getGitRepoInfo, getCurrentBranch } from "./github/git.js";
+import { FLEET_DIR } from "./config.js";
+import { IssueAnalysisSchema, type IssueAnalysis } from "./schema.js";
 
-const date = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" })
-  .format(new Date())
-  .replaceAll("-", "_");
-
-const root = path.dirname(findUpSync(".git")!);
-const fleetDir = path.join(root, ".fleet", date);
-const tasksPath = path.join(fleetDir, "issue_tasks.json");
-const analysis = await Bun.file(tasksPath).json() as IssueAnalysis;
+const tasksPath = path.join(FLEET_DIR, "issue_tasks.json");
+const rawAnalysis = await Bun.file(tasksPath).json();
+const analysis = IssueAnalysisSchema.parse(rawAnalysis);
 const { tasks } = analysis;
 
 // Resolve repo info dynamically from git remote
@@ -68,6 +63,6 @@ for await (const session of sessions) {
 }
 
 // Write session mapping for fleet-merge.ts
-const sessionsPath = path.join(fleetDir, "sessions.json");
+const sessionsPath = path.join(FLEET_DIR, "sessions.json");
 await Bun.write(sessionsPath, JSON.stringify(sessionResults, null, 2));
 console.log(`📝 Session mapping written to ${sessionsPath}`);

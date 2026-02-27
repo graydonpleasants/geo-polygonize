@@ -16,6 +16,7 @@ import { jules } from '@google/jules-sdk'
 import { analyzeIssuesPrompt } from './prompts/analyze-issues.js'
 import { getIssuesAsMarkdown } from './github/markdown.js'
 import { getGitRepoInfo, getCurrentBranch } from './github/git.js'
+import { FLEET_ID } from './config.js'
 
 const repoInfo = await getGitRepoInfo()
 const baseBranch = process.env.FLEET_BASE_BRANCH ?? await getCurrentBranch()
@@ -23,6 +24,13 @@ const issuesMarkdown = await getIssuesAsMarkdown()
 const prompt = analyzeIssuesPrompt({ issuesMarkdown, repoFullName: repoInfo.fullName })
 
 console.log(`🔍 Planning fleet for ${repoInfo.fullName} (branch: ${baseBranch})`)
+console.log(`🆔 Fleet ID: ${FLEET_ID}`);
+
+// Output FLEET_ID for GitHub Actions
+if (process.env.GITHUB_OUTPUT) {
+  const fs = await import("node:fs/promises");
+  await fs.appendFile(process.env.GITHUB_OUTPUT, `fleet_id=${FLEET_ID}\n`);
+}
 
 const session = await jules.session({
   prompt,

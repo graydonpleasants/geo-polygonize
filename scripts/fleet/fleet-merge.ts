@@ -13,10 +13,11 @@
 // limitations under the License.
 
 import path from "node:path";
-import { findUpSync } from "find-up";
-import type { IssueAnalysis, Task } from "./types.js";
-import { getGitRepoInfo, getCurrentBranch } from "./github/git.js";
+import { getGitRepoInfo } from "./github/git.js";
+import { CachedOctokit } from "./github/issues.js";
 import { jules } from "@google/jules-sdk";
+import { FLEET_DIR } from "./config.js";
+import { IssueAnalysisSchema, type IssueAnalysis, type Task } from "./schema.js";
 
 const repoInfo = await getGitRepoInfo();
 const OWNER = repoInfo.owner;
@@ -27,33 +28,24 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 // Re-dispatch configuration
 const MAX_RETRIES = Number(process.env.FLEET_MAX_RETRIES ?? 2);
 const PR_POLL_INTERVAL_MS = 30_000;
-const PR_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const PR_POLL_TIMEOUT_MS = Number(process.env.FLEET_PR_POLL_TIMEOUT_MS || 15 * 60 * 1000);
+const MAX_CI_WAIT_MS = Number(process.env.FLEET_MAX_CI_WAIT_MS || 10 * 60 * 1000);
 
 if (!GITHUB_TOKEN) {
   console.error("❌ GITHUB_TOKEN environment variable is required.");
   process.exit(1);
 }
 
-const headers = {
-  Authorization: `Bearer ${GITHUB_TOKEN}`,
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-} as const;
-
-const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
-
-const date = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" })
-  .format(new Date())
-  .replaceAll("-", "_");
-
-const root = path.dirname(findUpSync(".git")!);
-const fleetDir = path.join(root, ".fleet", date);
+const octokit = new CachedOctokit({
+  auth: GITHUB_TOKEN,
+});
 
 // Load task ordering (already sorted by risk in the analysis phase)
-const analysis = await Bun.file(path.join(fleetDir, "issue_tasks.json")).json() as IssueAnalysis;
+const rawAnalysis = await Bun.file(path.join(FLEET_DIR, "issue_tasks.json")).json();
+const analysis = IssueAnalysisSchema.parse(rawAnalysis);
 
 // Load session mapping written by fleet-dispatch.ts
-const sessions = await Bun.file(path.join(fleetDir, "sessions.json")).json() as Array<{
+const sessions = await Bun.file(path.join(FLEET_DIR, "sessions.json")).json() as Array<{
   taskId: string;
   sessionId: string;
 }>;
@@ -66,38 +58,47 @@ interface GitHubPR {
 
 // Find open PRs created by fleet sessions
 async function findFleetPRs() {
-  const res = await fetch(`${API}/pulls?state=open&per_page=100`, { headers });
-  const pulls = (await res.json()) as GitHubPR[];
+  const pulls = await octokit.paginate(octokit.rest.pulls.list, {
+    owner: OWNER,
+    repo: REPO,
+    state: "open",
+    per_page: 100,
+  });
 
   const prMap = new Map<string, GitHubPR>();
   for (const session of sessions) {
-    const matchingPR = pulls.find((pr: GitHubPR) =>
+    const matchingPR = pulls.find((pr) =>
       pr.head.ref.includes(session.sessionId) ||
       pr.body?.includes(session.sessionId)
     );
     if (matchingPR) {
-      prMap.set(session.taskId, matchingPR);
+      prMap.set(session.taskId, {
+        number: matchingPR.number,
+        head: { ref: matchingPR.head.ref },
+        body: matchingPR.body,
+      });
     }
   }
   return prMap;
 }
 
-interface CheckRun {
-  status: string;
-  conclusion: string | null;
-}
-
-async function waitForCI(prNumber: number, maxWaitMs = 10 * 60 * 1000): Promise<boolean> {
+async function waitForCI(prNumber: number, maxWaitMs = MAX_CI_WAIT_MS): Promise<boolean> {
   const start = Date.now();
 
   // First, get the head SHA for this PR
-  const prRes = await fetch(`${API}/pulls/${prNumber}`, { headers });
-  const prData = (await prRes.json()) as { head: { sha: string } };
+  const { data: prData } = await octokit.rest.pulls.get({
+    owner: OWNER,
+    repo: REPO,
+    pull_number: prNumber,
+  });
   const headSha = prData.head.sha;
 
   while (Date.now() - start < maxWaitMs) {
-    const res = await fetch(`${API}/commits/${headSha}/check-runs`, { headers });
-    const data = (await res.json()) as { check_runs: CheckRun[] };
+    const { data } = await octokit.rest.checks.listForRef({
+      owner: OWNER,
+      repo: REPO,
+      ref: headSha,
+    });
 
     // No CI configured — skip validation
     if (data.check_runs.length === 0) {
@@ -105,9 +106,13 @@ async function waitForCI(prNumber: number, maxWaitMs = 10 * 60 * 1000): Promise<
       return true;
     }
 
-    const allComplete = data.check_runs.every((run: CheckRun) => run.status === "completed");
-    const allPassed = data.check_runs.every((run: CheckRun) =>
-      run.conclusion === "success" || run.conclusion === "skipped"
+    const allComplete = data.check_runs.every((run) => run.status === "completed");
+
+    // Check for success, skipped, or neutral (which usually means success/irrelevant)
+    const allPassed = data.check_runs.every((run) =>
+      run.conclusion === "success" ||
+      run.conclusion === "skipped" ||
+      run.conclusion === "neutral"
     );
 
     if (allComplete && allPassed) return true;
@@ -120,26 +125,25 @@ async function waitForCI(prNumber: number, maxWaitMs = 10 * 60 * 1000): Promise<
   return false;
 }
 
-// Re-dispatch a task as a new Jules session against current main
+// Re-dispatch a task as a new Jules session against current base
 async function redispatchTask(
   task: Task,
   oldPr: GitHubPR,
 ): Promise<GitHubPR> {
   // Close the conflicting PR
   console.log(`  🔒 Closing conflicting PR #${oldPr.number}...`);
-  await fetch(`${API}/pulls/${oldPr.number}`, {
-    method: "PATCH",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      state: "closed",
-      body: `${oldPr.body ?? ""}\n\n---\n⚠️ Closed by fleet-merge: merge conflict detected. Task re-dispatched as a new session.`,
-    }),
+  await octokit.rest.pulls.update({
+    owner: OWNER,
+    repo: REPO,
+    pull_number: oldPr.number,
+    state: "closed",
+    body: `${oldPr.body ?? ""}\n\n---\n⚠️ Closed by fleet-merge: merge conflict detected. Task re-dispatched as a new session.`,
   });
 
   // Create a new Jules session with the same prompt
   const targetBranch = task.target_branch ?? BASE_BRANCH;
   console.log(`  🚀 Re-dispatching task "${task.id}" against ${targetBranch}...`);
-  const session = await jules.createSession({
+  const session = await jules.session({
     prompt: task.prompt,
     source: {
       github: `${OWNER}/${REPO}`,
@@ -152,7 +156,7 @@ async function redispatchTask(
   const sessionEntry = sessions.find(s => s.taskId === task.id);
   if (sessionEntry) {
     sessionEntry.sessionId = session.id;
-    const sessionsPath = path.join(fleetDir, "sessions.json");
+    const sessionsPath = path.join(FLEET_DIR, "sessions.json");
     await Bun.write(sessionsPath, JSON.stringify(sessions, null, 2));
   }
 
@@ -161,16 +165,26 @@ async function redispatchTask(
   const start = Date.now();
   while (Date.now() - start < PR_POLL_TIMEOUT_MS) {
     await new Promise(r => setTimeout(r, PR_POLL_INTERVAL_MS));
-    const res = await fetch(`${API}/pulls?state=open&per_page=100`, { headers });
-    const pulls = (await res.json()) as GitHubPR[];
+
+    const { data: pulls } = await octokit.rest.pulls.list({
+        owner: OWNER,
+        repo: REPO,
+        state: "open",
+        per_page: 100,
+    });
+
     const newPr = pulls.find(
-      (pr: GitHubPR) =>
+      (pr) =>
         pr.head.ref.includes(session.id) ||
         pr.body?.includes(session.id)
     );
     if (newPr) {
       console.log(`  ✅ New PR #${newPr.number} found (${newPr.head.ref})`);
-      return newPr;
+      return {
+          number: newPr.number,
+          head: { ref: newPr.head.ref },
+          body: newPr.body
+      };
     }
     console.log(`  ⏳ No PR yet... polling again in 30s`);
   }
@@ -206,13 +220,15 @@ for (const task of analysis.tasks) {
     // Update branch from base before merging (skip for first PR on first attempt)
     if (analysis.tasks.indexOf(task) > 0 || retryCount > 0) {
       console.log(`  🔄 Updating PR #${pr!.number} branch from ${BASE_BRANCH}...`);
-      const updateRes = await fetch(`${API}/pulls/${pr!.number}/update-branch`, {
-        method: "PUT",
-        headers: { ...headers, "Content-Type": "application/json" },
-      });
-      if (!updateRes.ok) {
-        const body = await updateRes.text();
-        if (updateRes.status === 422) {
+      try {
+        await octokit.rest.pulls.updateBranch({
+          owner: OWNER,
+          repo: REPO,
+          pull_number: pr!.number,
+        });
+      } catch (error: any) {
+         // GitHub API returns 422 for merge conflicts or unrelated histories
+        if (error.status === 422) {
           if (retryCount >= MAX_RETRIES) {
             console.error(`  ❌ Conflict persists after ${MAX_RETRIES} retries. Human intervention required.`);
             console.error(`  PR: https://github.com/${OWNER}/${REPO}/pull/${pr!.number}`);
@@ -223,7 +239,7 @@ for (const task of analysis.tasks) {
           retryCount++;
           continue;
         }
-        throw new Error(`Update branch failed (${updateRes.status}): ${body}`);
+        throw new Error(`Update branch failed (${error.status}): ${error.message}`);
       }
       // Wait for the update to propagate
       await new Promise(r => setTimeout(r, 5_000));
@@ -239,14 +255,15 @@ for (const task of analysis.tasks) {
 
     // Merge
     console.log(`  ✅ CI passed. Merging PR #${pr!.number}...`);
-    const mergeRes = await fetch(`${API}/pulls/${pr!.number}/merge`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ merge_method: "squash" }),
-    });
-    if (!mergeRes.ok) {
-      const body = await mergeRes.text();
-      console.error(`  ❌ Failed to merge PR #${pr!.number}: ${body}`);
+    try {
+        await octokit.rest.pulls.merge({
+            owner: OWNER,
+            repo: REPO,
+            pull_number: pr!.number,
+            merge_method: "squash",
+        });
+    } catch (error: any) {
+      console.error(`  ❌ Failed to merge PR #${pr!.number}: ${error.message}`);
       process.exit(1);
     }
     console.log(`  🎉 PR #${pr!.number} merged successfully.`);
