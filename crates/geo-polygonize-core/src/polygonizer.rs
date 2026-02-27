@@ -251,8 +251,8 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        let simd_shell =
-                            simd_shells[j].get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
+                        let simd_shell = simd_shells[j]
+                            .get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
 
                         if simd_shell.contains(probe_pt.0) {
                             let area_i = shell_2d.unsigned_area();
