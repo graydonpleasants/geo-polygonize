@@ -410,7 +410,10 @@ impl Polygonizer {
     }
 }
 
-fn process_invalid_rings(rings: Vec<Polygon3D>, valid_shells_2d: &[Polygon<f64>]) -> Vec<Vec<Coord3D>> {
+fn process_invalid_rings(
+    rings: Vec<Polygon3D>,
+    valid_shells_2d: &[Polygon<f64>],
+) -> Vec<Vec<Coord3D>> {
     let mut processable = Vec::new();
     let mut others = Vec::new();
 
