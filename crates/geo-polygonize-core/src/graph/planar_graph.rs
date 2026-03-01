@@ -628,7 +628,7 @@ impl PlanarGraph {
                         }
                     }
 
-                    if degree_for_label > 2 && !seen_intersection_nodes[node] {
+                    if degree_for_label > 1 && !seen_intersection_nodes[node] {
                         seen_intersection_nodes[node] = true;
                         intersection_nodes.push(node);
                     }
