@@ -226,6 +226,8 @@ impl Polygonizer {
             let probe_points: Vec<Option<geo_types::Point<f64>>> =
                 shells_2d.iter().map(guaranteed_interior_probe).collect();
 
+            let mut container_counts = vec![0; shells.len()];
+
             for (i, shell_2d) in shells_2d.iter().enumerate() {
                 let bbox = match shell_2d.bounding_rect() {
                     Some(b) => b,
@@ -256,15 +258,26 @@ impl Polygonizer {
                             let area_i = shell_2d.unsigned_area();
                             let area_j = shells_2d[j].unsigned_area();
 
-                            // Discard i if it is inside j.
+                            // If i is strictly contained inside j, increment container count
                             if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
-                                keep_mask[i] = false;
-                                removed_count += 1;
-                                break;
+                                if !rings_share_edge(
+                                    shells_2d[j].exterior(),
+                                    shell_2d.exterior(),
+                                    1e-10,
+                                ) {
+                                    container_counts[i] += 1;
+                                }
                             }
                         }
                     }
                 } else {
+                    keep_mask[i] = false;
+                    removed_count += 1;
+                }
+            }
+
+            for i in 0..shells.len() {
+                if keep_mask[i] && container_counts[i] % 2 != 0 {
                     keep_mask[i] = false;
                     removed_count += 1;
                 }
