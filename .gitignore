@@ -4,3 +4,5 @@ __pycache__/
 *.so
 *.pyd
 *.dylib
+venv/
+node_modules/

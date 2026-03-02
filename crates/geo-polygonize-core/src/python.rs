@@ -26,8 +26,8 @@ fn polygonize<'py>(
         ));
     }
 
-    let mut lines = Vec::new();
     let stride_usize = stride as usize;
+    let mut lines = Vec::with_capacity(coords_slice.len() / stride_usize);
 
     if !offsets_slice.is_empty() {
         for i in 0..offsets_slice.len() {
@@ -96,10 +96,22 @@ fn polygonize<'py>(
     })?;
 
     // Flatten logic
-    let mut flat_coords = Vec::new();
-    let mut ring_offsets = Vec::new();
-    let mut polygon_offsets = Vec::new();
-    let mut flat_line_ids = Vec::new();
+    let mut num_points = 0;
+    let mut num_rings = 0;
+    let num_polygons = result.polygons.len();
+
+    for poly in &result.polygons {
+        num_points += poly.exterior.len();
+        num_rings += 1 + poly.interiors.len();
+        for ring in &poly.interiors {
+            num_points += ring.len();
+        }
+    }
+
+    let mut flat_coords = Vec::with_capacity(num_points * stride_usize);
+    let mut ring_offsets = Vec::with_capacity(num_rings);
+    let mut polygon_offsets = Vec::with_capacity(num_polygons);
+    let mut flat_line_ids = Vec::with_capacity(num_points);
 
     for poly in result.polygons {
         polygon_offsets.push(ring_offsets.len() as u32);

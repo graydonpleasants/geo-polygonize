@@ -1,4 +1,101 @@
-import { startWorkers } from './snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js';
+/*
+ * Copyright 2022 Google Inc. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Note: we use `wasm_bindgen_worker_`-prefixed message types to make sure
+// we can handle bundling into other files, which might happen to have their
+// own `postMessage`/`onmessage` communication channels.
+//
+// If we didn't take that into the account, we could send much simpler signals
+// like just `0` or whatever, but the code would be less resilient.
+
+function waitForMsgType(target, type) {
+  return new Promise(resolve => {
+    target.addEventListener('message', function onMsg({ data }) {
+      if (data?.type !== type) return;
+      target.removeEventListener('message', onMsg);
+      resolve(data);
+    });
+  });
+}
+
+waitForMsgType(self, 'wasm_bindgen_worker_init').then(async ({ init, receiver }) => {
+  // # Note 1
+  // Our JS should have been generated in
+  // `[out-dir]/snippets/wasm-bindgen-rayon-[hash]/workerHelpers.js`,
+  // resolve the main module via `../../..`.
+  //
+  // This might need updating if the generated structure changes on wasm-bindgen
+  // side ever in the future, but works well with bundlers today. The whole
+  // point of this crate, after all, is to abstract away unstable features
+  // and temporary bugs so that you don't need to deal with them in your code.
+  //
+  // # Note 2
+  // This could be a regular import, but then some bundlers complain about
+  // circular deps.
+  //
+  // Dynamic import could be cheap if this file was inlined into the parent,
+  // which would require us just using `../../..` in `new Worker` below,
+  // but that doesn't work because wasm-pack unconditionally adds
+  // "sideEffects":false (see below).
+  //
+  // OTOH, even though it can't be inlined, it should be still reasonably
+  // cheap since the requested file is already in cache (it was loaded by
+  // the main thread).
+  const pkg = await Promise.resolve().then(function () { return geo_polygonize; });
+  await pkg.default(init);
+  postMessage({ type: 'wasm_bindgen_worker_ready' });
+  pkg.wbg_rayon_start_worker(receiver);
+});
+
+async function startWorkers(module, memory, builder) {
+  if (builder.numThreads() === 0) {
+    throw new Error(`num_threads must be > 0.`);
+  }
+
+  const workerInit = {
+    type: 'wasm_bindgen_worker_init',
+    init: { module_or_path: module, memory },
+    receiver: builder.receiver()
+  };
+
+  await Promise.all(
+    Array.from({ length: builder.numThreads() }, async () => {
+      // Self-spawn into a new Worker.
+      //
+      // TODO: while `new URL('...', import.meta.url) becomes a semi-standard
+      // way to get asset URLs relative to the module across various bundlers
+      // and browser, ideally we should switch to `import.meta.resolve`
+      // once it becomes a standard.
+      //
+      // Note: we could use `../../..` as the URL here to inline workerHelpers.js
+      // into the parent entry instead of creating another split point -
+      // this would be preferable from optimization perspective -
+      // however, Webpack then eliminates all message handler code
+      // because wasm-pack produces "sideEffects":false in package.json
+      // unconditionally.
+      //
+      // The only way to work around that is to have side effect code
+      // in an entry point such as Worker file itself.
+      const worker = new Worker(new URL('./workerHelpers.js', import.meta.url), {
+        type: 'module'
+      });
+      worker.postMessage(workerInit);
+      await waitForMsgType(worker, 'wasm_bindgen_worker_ready');
+      return worker;
+    })
+  );
+  builder.build();
+}
 
 let wasm;
 
@@ -151,7 +248,7 @@ if (!('encodeInto' in cachedTextEncoder)) {
             read: arg.length,
             written: buf.length
         };
-    }
+    };
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -164,7 +261,7 @@ const wbg_rayon_PoolBuilderFinalization = (typeof FinalizationRegistry === 'unde
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wbg_rayon_poolbuilder_free(ptr >>> 0, 1));
 
-export class WasmPolygonResult {
+class WasmPolygonResult {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(WasmPolygonResult.prototype);
@@ -238,7 +335,7 @@ if (Symbol.dispose) WasmPolygonResult.prototype[Symbol.dispose] = WasmPolygonRes
  * @param {number} num_threads
  * @returns {Promise<any>}
  */
-export function initThreadPool(num_threads) {
+function initThreadPool(num_threads) {
     const ret = wasm.initThreadPool(num_threads);
     return ret;
 }
@@ -247,7 +344,7 @@ export function initThreadPool(num_threads) {
  * @param {string} geojson_str
  * @returns {string}
  */
-export function polygonize(geojson_str) {
+function polygonize(geojson_str) {
     let deferred3_0;
     let deferred3_1;
     try {
@@ -276,7 +373,7 @@ export function polygonize(geojson_str) {
  * @param {number} snap_grid_size
  * @returns {WasmPolygonResult}
  */
-export function polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size) {
+function polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size) {
     const ptr0 = passArrayF64ToWasm0(coords, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(offsets, wasm.__wbindgen_malloc);
@@ -295,7 +392,7 @@ export function polygonize_buffers(coords, offsets, stride, node_input, snap_gri
  * @param {boolean} extract_only_polygonal
  * @returns {Uint8Array}
  */
-export function polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extract_only_polygonal) {
+function polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extract_only_polygonal) {
     const ptr0 = passArray8ToWasm0(ipc_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.polygonize_geoarrow(ptr0, len0, node_input, snap_grid_size, extract_only_polygonal);
@@ -307,7 +404,7 @@ export function polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extra
     return v2;
 }
 
-export class wbg_rayon_PoolBuilder {
+class wbg_rayon_PoolBuilder {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(wbg_rayon_PoolBuilder.prototype);
@@ -348,7 +445,7 @@ if (Symbol.dispose) wbg_rayon_PoolBuilder.prototype[Symbol.dispose] = wbg_rayon_
 /**
  * @param {number} receiver
  */
-export function wbg_rayon_start_worker(receiver) {
+function wbg_rayon_start_worker(receiver) {
     wasm.wbg_rayon_start_worker(receiver);
 }
 
@@ -499,9 +596,9 @@ function initSync(module) {
 
     if (typeof module !== 'undefined') {
         if (Object.getPrototypeOf(module) === Object.prototype) {
-            ({module} = module)
+            ({module} = module);
         } else {
-            console.warn('using deprecated parameters for `initSync()`; pass a single object instead')
+            console.warn('using deprecated parameters for `initSync()`; pass a single object instead');
         }
     }
 
@@ -519,9 +616,9 @@ async function __wbg_init(module_or_path) {
 
     if (typeof module_or_path !== 'undefined') {
         if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
-            ({module_or_path} = module_or_path)
+            ({module_or_path} = module_or_path);
         } else {
-            console.warn('using deprecated parameters for the initialization function; pass a single object instead')
+            console.warn('using deprecated parameters for the initialization function; pass a single object instead');
         }
     }
 
@@ -539,5 +636,17 @@ async function __wbg_init(module_or_path) {
     return __wbg_finalize_init(instance, module);
 }
 
-export { initSync };
-export default __wbg_init;
+var geo_polygonize = /*#__PURE__*/Object.freeze({
+  __proto__: null,
+  WasmPolygonResult: WasmPolygonResult,
+  default: __wbg_init,
+  initSync: initSync,
+  initThreadPool: initThreadPool,
+  polygonize: polygonize,
+  polygonize_buffers: polygonize_buffers,
+  polygonize_geoarrow: polygonize_geoarrow,
+  wbg_rayon_PoolBuilder: wbg_rayon_PoolBuilder,
+  wbg_rayon_start_worker: wbg_rayon_start_worker
+});
+
+export { WasmPolygonResult, __wbg_init as default, initSync, initThreadPool, polygonize, polygonize_buffers, polygonize_geoarrow, wbg_rayon_PoolBuilder, wbg_rayon_start_worker };

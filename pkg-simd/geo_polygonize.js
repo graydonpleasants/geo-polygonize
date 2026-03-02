@@ -1,12 +1,4 @@
-import { startWorkers } from './snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js';
-
 let wasm;
-
-function addToExternrefTable0(obj) {
-    const idx = wasm.__externref_table_alloc();
-    wasm.__wbindgen_externrefs.set(idx, obj);
-    return idx;
-}
 
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
@@ -48,19 +40,6 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
-}
-
-function handleError(f, args) {
-    try {
-        return f.apply(this, args);
-    } catch (e) {
-        const idx = addToExternrefTable0(e);
-        wasm.__wbindgen_exn_store(idx);
-    }
-}
-
-function isLikeNone(x) {
-    return x === undefined || x === null;
 }
 
 function passArray32ToWasm0(arg, malloc) {
@@ -160,10 +139,6 @@ const WasmPolygonResultFinalization = (typeof FinalizationRegistry === 'undefine
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmpolygonresult_free(ptr >>> 0, 1));
 
-const wbg_rayon_PoolBuilderFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_wbg_rayon_poolbuilder_free(ptr >>> 0, 1));
-
 export class WasmPolygonResult {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
@@ -235,15 +210,6 @@ export class WasmPolygonResult {
 if (Symbol.dispose) WasmPolygonResult.prototype[Symbol.dispose] = WasmPolygonResult.prototype.free;
 
 /**
- * @param {number} num_threads
- * @returns {Promise<any>}
- */
-export function initThreadPool(num_threads) {
-    const ret = wasm.initThreadPool(num_threads);
-    return ret;
-}
-
-/**
  * @param {string} geojson_str
  * @returns {string}
  */
@@ -307,51 +273,6 @@ export function polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extra
     return v2;
 }
 
-export class wbg_rayon_PoolBuilder {
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(wbg_rayon_PoolBuilder.prototype);
-        obj.__wbg_ptr = ptr;
-        wbg_rayon_PoolBuilderFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        wbg_rayon_PoolBuilderFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_wbg_rayon_poolbuilder_free(ptr, 0);
-    }
-    /**
-     * @returns {number}
-     */
-    numThreads() {
-        const ret = wasm.wbg_rayon_poolbuilder_numThreads(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    build() {
-        wasm.wbg_rayon_poolbuilder_build(this.__wbg_ptr);
-    }
-    /**
-     * @returns {number}
-     */
-    receiver() {
-        const ret = wasm.wbg_rayon_poolbuilder_receiver(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-}
-if (Symbol.dispose) wbg_rayon_PoolBuilder.prototype[Symbol.dispose] = wbg_rayon_PoolBuilder.prototype.free;
-
-/**
- * @param {number} receiver
- */
-export function wbg_rayon_start_worker(receiver) {
-    wasm.wbg_rayon_start_worker(receiver);
-}
-
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
 
 async function __wbg_load(module, imports) {
@@ -387,25 +308,9 @@ async function __wbg_load(module, imports) {
 function __wbg_get_imports() {
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbg___wbindgen_is_undefined_f6b95eab589e0269 = function(arg0) {
-        const ret = arg0 === undefined;
-        return ret;
-    };
-    imports.wbg.__wbg___wbindgen_memory_a342e963fbcabd68 = function() {
-        const ret = wasm.memory;
-        return ret;
-    };
-    imports.wbg.__wbg___wbindgen_module_967adef62ea6cbf8 = function() {
-        const ret = __wbg_init.__wbindgen_wasm_module;
-        return ret;
-    };
     imports.wbg.__wbg___wbindgen_throw_dd24417ed36fc46e = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));
     };
-    imports.wbg.__wbg_call_abb4ff46ce38be40 = function() { return handleError(function (arg0, arg1) {
-        const ret = arg0.call(arg1);
-        return ret;
-    }, arguments) };
     imports.wbg.__wbg_error_7534b8e9a36f1ab4 = function(arg0, arg1) {
         let deferred0_0;
         let deferred0_1;
@@ -417,22 +322,8 @@ function __wbg_get_imports() {
             wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
         }
     };
-    imports.wbg.__wbg_instanceof_Window_b5cf7783caa68180 = function(arg0) {
-        let result;
-        try {
-            result = arg0 instanceof Window;
-        } catch (_) {
-            result = false;
-        }
-        const ret = result;
-        return ret;
-    };
     imports.wbg.__wbg_new_8a6f238a6ece86ea = function() {
         const ret = new Error();
-        return ret;
-    };
-    imports.wbg.__wbg_new_no_args_cb138f77cf6151ee = function(arg0, arg1) {
-        const ret = new Function(getStringFromWasm0(arg0, arg1));
         return ret;
     };
     imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
@@ -441,26 +332,6 @@ function __wbg_get_imports() {
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-    };
-    imports.wbg.__wbg_startWorkers_2ca11761e08ff5d5 = function(arg0, arg1, arg2) {
-        const ret = startWorkers(arg0, arg1, wbg_rayon_PoolBuilder.__wrap(arg2));
-        return ret;
-    };
-    imports.wbg.__wbg_static_accessor_GLOBAL_769e6b65d6557335 = function() {
-        const ret = typeof global === 'undefined' ? null : global;
-        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-    };
-    imports.wbg.__wbg_static_accessor_GLOBAL_THIS_60cf02db4de8e1c1 = function() {
-        const ret = typeof globalThis === 'undefined' ? null : globalThis;
-        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-    };
-    imports.wbg.__wbg_static_accessor_SELF_08f5a74c69739274 = function() {
-        const ret = typeof self === 'undefined' ? null : self;
-        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
-    };
-    imports.wbg.__wbg_static_accessor_WINDOW_a8924b26aa92d024 = function() {
-        const ret = typeof window === 'undefined' ? null : window;
-        return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
     };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.

@@ -14,24 +14,11 @@ export class WasmPolygonResult {
   stride(): number;
 }
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
 export function polygonize(geojson_str: string): string;
 
 export function polygonize_buffers(coords: Float64Array, offsets: Uint32Array, stride: number, node_input: boolean, snap_grid_size: number): WasmPolygonResult;
 
 export function polygonize_geoarrow(ipc_bytes: Uint8Array, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean): Uint8Array;
-
-export class wbg_rayon_PoolBuilder {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  numThreads(): number;
-  build(): void;
-  receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -49,18 +36,10 @@ export interface InitOutput {
   readonly wasmpolygonresult_ring_offsets_ptr: (a: number) => number;
   readonly wasmpolygonresult_stride: (a: number) => number;
   readonly polygonize_ffi: (a: number, b: number, c: number, d: number, e: number) => number;
-  readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-  readonly initThreadPool: (a: number) => any;
-  readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-  readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-  readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wbindgen_exn_store: (a: number) => void;
-  readonly __externref_table_alloc: () => number;
-  readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }
