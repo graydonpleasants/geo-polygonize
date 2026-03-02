@@ -6,3 +6,7 @@ __pycache__/
 *.dylib
 venv/
 node_modules/
+dist/
+pkg-scalar/
+pkg-simd/
+pkg-threads/
