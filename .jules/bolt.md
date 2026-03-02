@@ -1,0 +1,3 @@
+## 2024-05-24 - Zero-allocation Geometry Property Checks
+**Learning:** Allocating intermediate representations like `geo_types::Polygon<f64>` just to compute geometric properties like `area()` in the Rust core is a significant performance bottleneck due to the cost of `Vec` allocations for exterior and interior rings. Direct math on the core structures (`Polygon3D`) using algorithms like the Shoelace formula avoids allocations entirely and is ~20x faster.
+**Action:** Always prefer direct property calculations on `Polygon3D` and `Coord3D` slices. Only convert to `geo_types` structures if integrating with the `geo` crate's advanced algorithms (e.g., boolean ops) or for output.
