@@ -466,18 +466,20 @@ mod tests {
         );
 
         // Square 2: Middle (hole of Square 1), area 64
+        // Hole winding should be CW
         poly.add_geometry(
             LineString::from(vec![
                 (1.0, 1.0),
-                (9.0, 1.0),
-                (9.0, 9.0),
                 (1.0, 9.0),
+                (9.0, 9.0),
+                (9.0, 1.0),
                 (1.0, 1.0),
             ])
             .into(),
         );
 
         // Square 3: Inner (shell inside Square 2), area 36
+        // Shell winding should be CCW
         poly.add_geometry(
             LineString::from(vec![
                 (2.0, 2.0),
@@ -497,20 +499,65 @@ mod tests {
         // Square 2 is a hole.
         // Square 3 is a shell inside Square 2 (depth 1) -> dropped.
         assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
-        assert!((polygons[0].to_polygon_2d().unsigned_area() - 64.0).abs() < 1e-6);
-        assert_eq!(polygons[0].interiors.len(), 1);
+        assert!((polygons[0].to_polygon_2d().unsigned_area() - 36.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors.len(), 0);
 
         // Now, let's add a fourth square
         let mut poly2 = Polygonizer::new();
         poly2.extract_only_polygonal = true;
 
-        poly2.add_geometry(LineString::from(vec![(0.0,0.0), (10.0,0.0), (10.0,10.0), (0.0,10.0), (0.0,0.0)]).into());
-        poly2.add_geometry(LineString::from(vec![(1.0,1.0), (9.0,1.0), (9.0,9.0), (1.0,9.0), (1.0,1.0)]).into());
-        poly2.add_geometry(LineString::from(vec![(2.0,2.0), (8.0,2.0), (8.0,8.0), (2.0,8.0), (2.0,2.0)]).into());
+        poly2.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+        poly2.add_geometry(
+            LineString::from(vec![
+                (1.0, 1.0),
+                (1.0, 9.0),
+                (9.0, 9.0),
+                (9.0, 1.0),
+                (1.0, 1.0),
+            ])
+            .into(),
+        );
+        poly2.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (8.0, 2.0),
+                (8.0, 8.0),
+                (2.0, 8.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
         // Square 4: inner-most hole, area 16
-        poly2.add_geometry(LineString::from(vec![(3.0,3.0), (7.0,3.0), (7.0,7.0), (3.0,7.0), (3.0,3.0)]).into());
+        poly2.add_geometry(
+            LineString::from(vec![
+                (3.0, 3.0),
+                (3.0, 7.0),
+                (7.0, 7.0),
+                (7.0, 3.0),
+                (3.0, 3.0),
+            ])
+            .into(),
+        );
         // Square 5: innermost shell, area 4
-        poly2.add_geometry(LineString::from(vec![(4.0,4.0), (6.0,4.0), (6.0,6.0), (4.0,6.0), (4.0,4.0)]).into());
+        poly2.add_geometry(
+            LineString::from(vec![
+                (4.0, 4.0),
+                (6.0, 4.0),
+                (6.0, 6.0),
+                (4.0, 6.0),
+                (4.0, 4.0),
+            ])
+            .into(),
+        );
 
         let result2 = poly2.polygonize().expect("Polygonization failed");
         let polygons2 = result2.polygons;
@@ -519,10 +566,17 @@ mod tests {
         // Square 1 (depth 0) -> kept (has Square 2 as hole)
         // Square 3 (depth 1) -> dropped
         // Square 5 (depth 2) -> kept (has no holes)
-        assert_eq!(polygons2.len(), 2, "Expected 2 polygons (outermost and innermost)");
-        let areas: std::collections::HashSet<_> = polygons2.iter().map(|p| p.to_polygon_2d().unsigned_area() as i64).collect();
-        assert!(areas.contains(&100));
-        assert!(areas.contains(&4));
+        assert_eq!(
+            polygons2.len(),
+            2,
+            "Expected 2 polygons (outermost and innermost)"
+        );
+        let areas: std::collections::HashSet<_> = polygons2
+            .iter()
+            .map(|p| p.to_polygon_2d().unsigned_area() as i64)
+            .collect();
+        assert!(areas.contains(&16), "Areas: {:?}", areas);
+        assert!(areas.contains(&4), "Areas: {:?}", areas);
     }
 
     #[test]
