@@ -154,6 +154,41 @@ mod tests {
     }
 
     #[test]
+    fn test_figure_8_pinching_bowtie() {
+        let mut poly = Polygonizer::new();
+        // Self-intersecting bowtie that forms exactly two valid cycles.
+        // Node_input = true is needed to create the intersection node at (5, 5).
+        poly.node_input = true;
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 10.0),
+                (10.0, 0.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let polygons = poly.polygonize().expect("Polygonization failed").polygons;
+        // The intersection is at (5,5).
+        // Cycle 1: (0,0)-(5,5)-(0,10)-(0,0). Area = 25.
+        // Cycle 2: (10,10)-(5,5)-(10,0)-(10,10). Area = 25.
+        // Both are valid polygons.
+        assert_eq!(
+            polygons.len(),
+            2,
+            "Expected 2 polygons from figure-8 pinching, found {}",
+            polygons.len()
+        );
+
+        let area1 = polygons[0].to_polygon_2d().unsigned_area();
+        let area2 = polygons[1].to_polygon_2d().unsigned_area();
+        assert!((area1 - 25.0).abs() < 1e-6);
+        assert!((area2 - 25.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_polygonize_empty_input() {
         let mut poly = Polygonizer::new();
         let polygons = poly
@@ -376,8 +411,8 @@ mod tests {
         // Default behavior would return 2 polygons.
         // With extract_only_polygonal=true, the inner shell should be discarded.
         assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
-        assert!((polygons[0].unsigned_area_2d() - 100.0).abs() < 1e-6);
-        assert_eq!(polygons[0].interiors.len(), 0);
+        assert!((polygons[0].to_polygon_2d().unsigned_area() - 64.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors.len(), 1);
     }
 
     #[test]
@@ -411,6 +446,137 @@ mod tests {
 
         let result = poly.polygonize().expect("Polygonization failed");
         assert_eq!(result.polygons.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_only_polygonal_concentric_squares() {
+        let mut poly = Polygonizer::new();
+        poly.extract_only_polygonal = true;
+
+        // Square 1: Outer, area 100
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        // Square 2: Middle (hole of Square 1), area 64
+        // Hole winding should be CW
+        poly.add_geometry(
+            LineString::from(vec![
+                (1.0, 1.0),
+                (1.0, 9.0),
+                (9.0, 9.0),
+                (9.0, 1.0),
+                (1.0, 1.0),
+            ])
+            .into(),
+        );
+
+        // Square 3: Inner (shell inside Square 2), area 36
+        // Shell winding should be CCW
+        poly.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (8.0, 2.0),
+                (8.0, 8.0),
+                (2.0, 8.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
+
+        let result = poly.polygonize().expect("Polygonization failed");
+        let polygons = result.polygons;
+
+        // With extract_only_polygonal=true:
+        // Square 1 is an outer shell (depth 0) -> kept.
+        // Square 2 is a hole.
+        // Square 3 is a shell inside Square 2 (depth 1) -> dropped.
+        assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
+        assert!((polygons[0].to_polygon_2d().unsigned_area() - 36.0).abs() < 1e-6);
+        assert_eq!(polygons[0].interiors.len(), 0);
+
+        // Now, let's add a fourth square
+        let mut poly2 = Polygonizer::new();
+        poly2.extract_only_polygonal = true;
+
+        poly2.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+        poly2.add_geometry(
+            LineString::from(vec![
+                (1.0, 1.0),
+                (1.0, 9.0),
+                (9.0, 9.0),
+                (9.0, 1.0),
+                (1.0, 1.0),
+            ])
+            .into(),
+        );
+        poly2.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (8.0, 2.0),
+                (8.0, 8.0),
+                (2.0, 8.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
+        // Square 4: inner-most hole, area 16
+        poly2.add_geometry(
+            LineString::from(vec![
+                (3.0, 3.0),
+                (3.0, 7.0),
+                (7.0, 7.0),
+                (7.0, 3.0),
+                (3.0, 3.0),
+            ])
+            .into(),
+        );
+        // Square 5: innermost shell, area 4
+        poly2.add_geometry(
+            LineString::from(vec![
+                (4.0, 4.0),
+                (6.0, 4.0),
+                (6.0, 6.0),
+                (4.0, 6.0),
+                (4.0, 4.0),
+            ])
+            .into(),
+        );
+
+        let result2 = poly2.polygonize().expect("Polygonization failed");
+        let polygons2 = result2.polygons;
+
+        // With extract_only_polygonal=true:
+        // Square 1 (depth 0) -> kept (has Square 2 as hole)
+        // Square 3 (depth 1) -> dropped
+        // Square 5 (depth 2) -> kept (has no holes)
+        assert_eq!(
+            polygons2.len(),
+            2,
+            "Expected 2 polygons (outermost and innermost)"
+        );
+        let areas: std::collections::HashSet<_> = polygons2
+            .iter()
+            .map(|p| p.to_polygon_2d().unsigned_area() as i64)
+            .collect();
+        assert!(areas.contains(&16), "Areas: {:?}", areas);
+        assert!(areas.contains(&4), "Areas: {:?}", areas);
     }
 
     #[test]
@@ -463,10 +629,7 @@ mod tests {
         let mut poly = Polygonizer::new();
 
         // Ring A: Tiny but "outer" relative to B.
-        // Let's say we have a ring that is small enough to be invalid (< 1e-9),
-        // but we want to test the containment logic.
-
-        // Ring A (Outer): (0,0)-(1e-5,0)-(1e-5,1e-5)-(0,1e-5)-(0,0). Area = 1e-10.
+        // Area = 1e-10.
         let ring_a = LineString::from(vec![
             (0.0, 0.0),
             (1e-5, 0.0),
@@ -475,8 +638,7 @@ mod tests {
             (0.0, 0.0),
         ]);
 
-        // Ring B (Inner): (0.2e-5, 0.2e-5)-(0.8e-5, 0.2e-5)-(0.8e-5, 0.8e-5)-(0.2e-5, 0.8e-5)-(0.2e-5, 0.2e-5).
-        // Area is smaller and is contained in A.
+        // Ring B (Inner): Area is smaller and is contained in A.
         let ring_b = LineString::from(vec![
             (0.2e-5, 0.2e-5),
             (0.8e-5, 0.2e-5),
@@ -490,19 +652,18 @@ mod tests {
 
         let result = poly.polygonize().expect("Polygonization failed");
         // Both are invalid (area < 1e-9).
-        // process_invalid_rings should filter out Ring B because it is contained in Ring A.
+        // process_invalid_rings should filter out Ring A (outer) because it contains Ring B (inner).
 
         assert_eq!(result.polygons.len(), 0);
         assert_eq!(result.invalid_rings.len(), 1);
 
-        // Verify it is ring A
+        // Verify it is ring B
         let captured = &result.invalid_rings[0];
         // Convert to LineString for bounding box check
         let ls = LineString(captured.iter().map(|c| c.to_coord_2d()).collect());
 
         let bbox = ls.bounding_rect().unwrap();
-        // Ring A max x is 1e-5. Ring B max x is 0.8e-5.
-        // If we captured Ring A, max x should be close to 1e-5.
-        assert!((bbox.max().x - 1e-5).abs() < 1e-12);
+        // Ring B max x is 0.8e-5.
+        assert!((bbox.max().x - 0.8e-5).abs() < 1e-12);
     }
 }

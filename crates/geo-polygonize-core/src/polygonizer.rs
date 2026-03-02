@@ -9,7 +9,6 @@ use geo::Area;
 use geo::Contains;
 use geo_types::{Coord, Geometry, LineString, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
-use std::collections::HashSet;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -220,11 +219,12 @@ impl Polygonizer {
         if self.extract_only_polygonal {
             let mut keep_mask = vec![true; shells.len()];
             let mut removed_count = 0;
-            let mut discarded_edges = HashSet::new();
 
             // Precompute probe points
             let probe_points: Vec<Option<geo_types::Point<f64>>> =
                 shells_2d.iter().map(guaranteed_interior_probe).collect();
+
+            let mut container_counts = vec![0; shells.len()];
 
             for (i, shell_2d) in shells_2d.iter().enumerate() {
                 let bbox = match shell_2d.bounding_rect() {
@@ -256,15 +256,26 @@ impl Polygonizer {
                             let area_i = shell_2d.unsigned_area();
                             let area_j = shells_2d[j].unsigned_area();
 
-                            // Discard i if it is inside j.
-                            if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
-                                keep_mask[i] = false;
-                                removed_count += 1;
-                                break;
+                            // If i is strictly contained inside j, increment container count
+                            if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
+                                && !rings_share_edge(
+                                    shells_2d[j].exterior(),
+                                    shell_2d.exterior(),
+                                    1e-10,
+                                )
+                            {
+                                container_counts[i] += 1;
                             }
                         }
                     }
                 } else {
+                    keep_mask[i] = false;
+                    removed_count += 1;
+                }
+            }
+
+            for i in 0..shells.len() {
+                if keep_mask[i] && container_counts[i] % 2 != 0 {
                     keep_mask[i] = false;
                     removed_count += 1;
                 }
@@ -284,16 +295,8 @@ impl Polygonizer {
                         new_shells.push(s);
                         new_shells_2d.push(s2d);
                     } else {
-                        // Track discarded edges from 2D shell (sufficient for topology)
-                        let ext = s2d.exterior();
-                        if ext.0.len() >= 2 {
-                            let p1 = ext.0[0];
-                            let p2 = ext.0[1];
-                            discarded_edges.insert((
-                                (p1.x.to_bits(), p1.y.to_bits()),
-                                (p2.x.to_bits(), p2.y.to_bits()),
-                            ));
-                        }
+                        // We do not need to track discarded edges from 2D shells for topological hole assignment
+                        // because we already established nesting correctly using the container counts.
                     }
                 }
                 shells = new_shells;
@@ -302,24 +305,6 @@ impl Polygonizer {
                 // We can just use new_shells_2d but we need to re-index tree
                 let shells_2d_ref: Vec<Polygon<f64>> =
                     shells.iter().map(|s| s.to_polygon_2d()).collect();
-
-                if !discarded_edges.is_empty() {
-                    holes.retain(|h| {
-                        let coords = &h.exterior; // 3D
-                        for k in 0..coords.len().saturating_sub(1) {
-                            let p_start = coords[k];
-                            let p_end = coords[k + 1];
-                            let key = (
-                                (p_end.x.to_bits(), p_end.y.to_bits()),     // u
-                                (p_start.x.to_bits(), p_start.y.to_bits()), // v
-                            );
-                            if discarded_edges.contains(&key) {
-                                return false;
-                            }
-                        }
-                        true
-                    });
-                }
 
                 // Rebuild helper structures
                 simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
@@ -376,6 +361,7 @@ impl Polygonizer {
                     if area > hole_area + 1e-6 && area < min_area {
                         min_area = area;
                         best_shell_idx = Some(idx);
+                        println!("Hole {} assigned to shell {}", i, idx);
                     }
                 }
             }
@@ -425,7 +411,7 @@ impl Polygonizer {
         }
 
         // Ensure we don't crash on NaNs during processing
-        let invalid_rings = process_invalid_rings(invalid_rings_candidates);
+        let invalid_rings = process_invalid_rings(invalid_rings_candidates, &shells_2d);
 
         Ok(PolygonizerResult {
             polygons: result,
@@ -435,7 +421,10 @@ impl Polygonizer {
     }
 }
 
-fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
+fn process_invalid_rings(
+    rings: Vec<Polygon3D>,
+    valid_shells_2d: &[Polygon<f64>],
+) -> Vec<Vec<Coord3D>> {
     let mut processable = Vec::new();
     let mut others = Vec::new();
 
@@ -451,7 +440,7 @@ fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
         }
     }
 
-    // Sort by 2D bbox area
+    // Sort by 2D bbox area in ascending order
     processable.sort_by(|a, b| {
         let area_a = a
             .to_polygon_2d()
@@ -463,8 +452,8 @@ fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
             .bounding_rect()
             .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
             .unwrap_or(0.0);
-        area_b
-            .partial_cmp(&area_a)
+        area_a
+            .partial_cmp(&area_b)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -477,9 +466,12 @@ fn process_invalid_rings(rings: Vec<Polygon3D>) -> Vec<Vec<Coord3D>> {
 
     for ring in processable {
         let p2d = ring.to_polygon_2d();
-        let is_contained = accepted.iter().any(|existing| existing.p2d.contains(&p2d));
+        // Outer invalid rings are discarded if their linework is entirely contained
+        // by an already-processed (smaller) invalid ring or a valid ring.
+        let contains_invalid = accepted.iter().any(|existing| p2d.contains(&existing.p2d));
+        let contains_valid = valid_shells_2d.iter().any(|valid| p2d.contains(valid));
 
-        if !is_contained {
+        if !contains_invalid && !contains_valid {
             accepted.push(RingPair { p3d: ring, p2d });
         }
     }
