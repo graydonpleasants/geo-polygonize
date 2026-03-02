@@ -259,14 +259,14 @@ impl Polygonizer {
                             let area_j = shells_2d[j].unsigned_area();
 
                             // If i is strictly contained inside j, increment container count
-                            if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
-                                if !rings_share_edge(
+                            if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
+                                && !rings_share_edge(
                                     shells_2d[j].exterior(),
                                     shell_2d.exterior(),
                                     1e-10,
-                                ) {
-                                    container_counts[i] += 1;
-                                }
+                                )
+                            {
+                                container_counts[i] += 1;
                             }
                         }
                     }
