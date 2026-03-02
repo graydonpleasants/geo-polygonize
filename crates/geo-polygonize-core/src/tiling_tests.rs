@@ -61,7 +61,7 @@ mod tests {
 
         // Check areas
         for p in polys {
-            assert!((p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
+            assert!((p.unsigned_area_2d() - 100.0).abs() < 1e-6);
         }
     }
 

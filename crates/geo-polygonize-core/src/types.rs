@@ -100,6 +100,40 @@ impl Polygon3D {
             .collect();
         Polygon::new(ext, ints)
     }
+
+    /// Computes the signed 2D area directly without allocating intermediate geometry.
+    /// This assumes standard winding order (exterior CCW, interior CW) where interior areas are implicitly negative.
+    pub fn signed_area_2d(&self) -> f64 {
+        let mut area = Self::ring_signed_area_2d(&self.exterior);
+        for hole in &self.interiors {
+            area += Self::ring_signed_area_2d(hole);
+        }
+        area
+    }
+
+    /// Computes the unsigned 2D area directly without allocating intermediate geometry.
+    /// The unsigned area subtracts the absolute areas of the interiors from the absolute area of the exterior.
+    pub fn unsigned_area_2d(&self) -> f64 {
+        let mut area = Self::ring_signed_area_2d(&self.exterior).abs();
+        for hole in &self.interiors {
+            area -= Self::ring_signed_area_2d(hole).abs();
+        }
+        area
+    }
+
+    #[inline]
+    fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
+        if coords.len() < 3 {
+            return 0.0;
+        }
+        let mut twice_area = 0.0;
+        let mut j = coords.len() - 1;
+        for i in 0..coords.len() {
+            twice_area += (coords[j].x - coords[i].x) * (coords[j].y + coords[i].y);
+            j = i;
+        }
+        twice_area / 2.0
+    }
 }
 
 // Implement basic arithmetic for interpolation

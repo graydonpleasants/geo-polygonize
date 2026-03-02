@@ -181,9 +181,7 @@ impl Polygonizer {
         for (ring_coords, ring_ids) in rings_with_ids {
             // Create Polygon3D
             let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
-            // Create 2D projection for area check
-            let poly2d = poly3d.to_polygon_2d();
-            let area = poly2d.signed_area();
+            let area = poly3d.signed_area_2d();
 
             if !area.is_finite() || area.abs() < 1e-9 {
                 invalid_rings_candidates.push(poly3d);
@@ -421,8 +419,7 @@ impl Polygonizer {
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
             // Check area of 2D projection
-            let p2d = p.to_polygon_2d();
-            if p2d.unsigned_area() > 1e-6 {
+            if p.unsigned_area_2d() > 1e-6 {
                 result.push(p);
             }
         }

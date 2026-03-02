@@ -58,13 +58,13 @@ mod tests {
 
         let donut = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 64.0).abs() < 1.0);
+            .find(|p| (p.unsigned_area_2d() - 64.0).abs() < 1.0);
         assert!(donut.is_some(), "Donut polygon not found");
         assert_eq!(donut.unwrap().interiors.len(), 1);
 
         let island = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 36.0).abs() < 1.0);
+            .find(|p| (p.unsigned_area_2d() - 36.0).abs() < 1.0);
         assert!(island.is_some(), "Island polygon not found");
     }
 
@@ -112,7 +112,7 @@ mod tests {
         );
         let triangles_count = polygons
             .iter()
-            .filter(|p| (p.to_polygon_2d().unsigned_area() - 25.0).abs() < 1e-6)
+            .filter(|p| (p.unsigned_area_2d() - 25.0).abs() < 1e-6)
             .count();
         assert_eq!(triangles_count, 4, "Expected 4 triangles of area 25");
     }
@@ -146,7 +146,7 @@ mod tests {
         // Should find the rectangle of area 50.
         let rect = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 50.0).abs() < 1e-6);
+            .find(|p| (p.unsigned_area_2d() - 50.0).abs() < 1e-6);
         assert!(
             rect.is_some(),
             "Expected rectangle of area 50 from collinear overlap"
@@ -262,7 +262,7 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 72.0).abs() < 1.0);
+            .find(|p| (p.unsigned_area_2d() - 72.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Expected outer shell area near 72 with assigned concave hole"
@@ -294,7 +294,7 @@ mod tests {
 
         let shell_with_hole = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 98.0).abs() < 1.0);
+            .find(|p| (p.unsigned_area_2d() - 98.0).abs() < 1.0);
         assert!(
             shell_with_hole.is_some(),
             "Point-touch hole should be retained on parent shell"
@@ -333,7 +333,7 @@ mod tests {
 
         let outer = polygons
             .iter()
-            .find(|p| (p.to_polygon_2d().unsigned_area() - 100.0).abs() < 1.0);
+            .find(|p| (p.unsigned_area_2d() - 100.0).abs() < 1.0);
         assert!(
             outer.is_some(),
             "Edge-touch hole should not be assigned to the parent shell"
@@ -376,7 +376,7 @@ mod tests {
         // Default behavior would return 2 polygons.
         // With extract_only_polygonal=true, the inner shell should be discarded.
         assert_eq!(polygons.len(), 1, "Expected 1 polygon (outer)");
-        assert!((polygons[0].to_polygon_2d().unsigned_area() - 100.0).abs() < 1e-6);
+        assert!((polygons[0].unsigned_area_2d() - 100.0).abs() < 1e-6);
         assert_eq!(polygons[0].interiors.len(), 0);
     }
 
