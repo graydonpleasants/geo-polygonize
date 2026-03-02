@@ -21,12 +21,11 @@ def test_square():
     # Fix: Added 8 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
-    polys = polygonize(coords, offsets)
+    polys = polygonize(coords, offsets, return_polygons=True)
     print(f"Result count: {len(polys)}")
     assert len(polys) == 1
 
-    poly = polys[0]
-    shapely_poly = shape(poly.__geo_interface__)
+    shapely_poly = polys[0]
     print(f"Shapely area: {shapely_poly.area}")
     assert abs(shapely_poly.area - 100.0) < 1e-6
     print("Square test passed!")
@@ -49,7 +48,7 @@ def test_two_squares():
     # Fix: Added 16 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16], dtype=np.uint32)
 
-    polys = polygonize(coords, offsets)
+    polys = polygonize(coords, offsets, return_polygons=True)
     print(f"Result count: {len(polys)}")
     assert len(polys) == 2
     print("Two squares test passed!")
@@ -73,7 +72,7 @@ def test_square_with_hole():
     # Fix: Added 16 (range to 18) to close the last segment
     offsets = np.arange(0, 18, 2, dtype=np.uint32)
 
-    polys = polygonize(coords, offsets)
+    polys = polygonize(coords, offsets, return_polygons=True)
     print(f"Result count: {len(polys)}")
 
     # Polygonizer returns all possible polygons.
@@ -83,8 +82,7 @@ def test_square_with_hole():
 
     areas = []
     for p in polys:
-        sp = shape(p.__geo_interface__)
-        areas.append(sp.area)
+        areas.append(p.area)
 
     areas.sort()
     print(f"Areas: {areas}")
@@ -115,12 +113,11 @@ def test_3d_coordinates():
     # So end-1 = 4 => end = 5.
     offsets = np.array([0, 5], dtype=np.uint32)
 
-    polys = polygonize(coords, offsets)
+    polys = polygonize(coords, offsets, return_polygons=True)
     print(f"Result count: {len(polys)}")
     assert len(polys) == 1
 
-    poly = polys[0]
-    shapely_poly = shape(poly.__geo_interface__)
+    shapely_poly = polys[0]
     print(f"Shapely area: {shapely_poly.area}")
     assert abs(shapely_poly.area - 100.0) < 1e-6
     print("3D coordinates test passed!")
@@ -136,7 +133,7 @@ def test_odd_length_coordinates():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         print(f"Caught expected error: {e}")
-        assert "Coordinates array must have an even number of elements" in str(e)
+        assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
 if __name__ == "__main__":

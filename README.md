@@ -56,6 +56,40 @@ use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 // let result = polygonize_arrow(&array, &field, options);
 ```
 
+### Python
+
+The library provides native Python bindings via PyO3, packaged as `geo-polygonize`.
+
+```python
+import numpy as np
+from geo_polygonize import polygonize
+
+# 1. Using Shapely LineStrings or coordinate lists directly
+lines = [
+    [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)],
+    [(0, 0), (10, 10)]
+]
+
+# return_polygons=True returns a list of shapely.geometry.Polygon objects
+polygons = polygonize(lines=lines, return_polygons=True)
+for p in polygons:
+    print(p.area)
+
+# 2. Using High-Performance Flat Arrays
+# Perfect for zero-copy integrations or massive datasets
+coords = np.array([
+    0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0,
+    0.0, 0.0, 10.0, 10.0
+], dtype=np.float64)
+
+# Start indices for each line segment.
+# The final closing offset is computed implicitly.
+offsets = np.array([0, 5], dtype=np.uint32)
+
+# Returns a dictionary with 'flat_coords', 'ring_offsets', 'polygon_offsets', etc.
+result_dict = polygonize(coords=coords, offsets=offsets)
+```
+
 ### WebAssembly (WASM)
 
 This library supports WebAssembly with an ergonomic dual-build configuration that automatically utilizes SIMD instructions where available.

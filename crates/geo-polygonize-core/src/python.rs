@@ -29,13 +29,26 @@ fn polygonize<'py>(
     let mut lines = Vec::new();
     let stride_usize = stride as usize;
 
-    if offsets_slice.len() > 0 {
-        for i in 0..offsets_slice.len().saturating_sub(1) {
+    if !offsets_slice.is_empty() {
+        for i in 0..offsets_slice.len() {
             let start = offsets_slice[i] as usize;
-            let end = offsets_slice[i + 1] as usize;
+            let end = if i + 1 < offsets_slice.len() {
+                offsets_slice[i + 1] as usize
+            } else {
+                coords_slice.len() / stride_usize
+            };
 
-            if start > end || end * stride_usize > coords_slice.len() {
-                return Err(pyo3::exceptions::PyValueError::new_err("Invalid offsets"));
+            if start > end {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
+                    start, end, i
+                )));
+            }
+            if end * stride_usize > coords_slice.len() {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
+                    end * stride_usize, coords_slice.len(), stride_usize
+                )));
             }
 
             // Get line ID if provided

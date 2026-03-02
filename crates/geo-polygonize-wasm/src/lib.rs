@@ -146,14 +146,23 @@ pub fn polygonize_buffers(
 
     for i in 0..offsets.len() {
         let start = offsets[i] as usize;
-        let end = if i < offsets.len() - 1 {
+        let end = if i + 1 < offsets.len() {
             offsets[i + 1] as usize
         } else {
             coords.len() / stride as usize
         };
 
-        if start > end || end * stride as usize > coords.len() {
-            return Err(JsValue::from_str("Invalid offsets"));
+        if start > end {
+            return Err(JsValue::from_str(&format!(
+                "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
+                start, end, i
+            )));
+        }
+        if end * stride as usize > coords.len() {
+            return Err(JsValue::from_str(&format!(
+                "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
+                end * stride as usize, coords.len(), stride
+            )));
         }
 
         for j in start..end.saturating_sub(1) {
