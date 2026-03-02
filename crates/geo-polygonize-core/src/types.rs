@@ -169,3 +169,100 @@ impl Mul<f64> for Coord3D {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo_types::Coord;
+
+    #[test]
+    fn test_coord3d_new() {
+        let c = Coord3D::new(1.0, 2.0, 3.0);
+        assert_eq!(c.x, 1.0);
+        assert_eq!(c.y, 2.0);
+        assert_eq!(c.z, 3.0);
+    }
+
+    #[test]
+    fn test_coord3d_to_coord_2d() {
+        let c = Coord3D::new(1.0, 2.0, 3.0);
+        let c2d = c.to_coord_2d();
+        assert_eq!(c2d.x, 1.0);
+        assert_eq!(c2d.y, 2.0);
+    }
+
+    #[test]
+    fn test_coord3d_from_coord_2d() {
+        let c2d = Coord { x: 1.0, y: 2.0 };
+        let c3d: Coord3D = c2d.into();
+        assert_eq!(c3d.x, 1.0);
+        assert_eq!(c3d.y, 2.0);
+        assert_eq!(c3d.z, 0.0);
+    }
+
+    #[test]
+    fn test_coord3d_arithmetic() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(4.0, 5.0, 6.0);
+
+        // Add
+        let sum = c1 + c2;
+        assert_eq!(sum, Coord3D::new(5.0, 7.0, 9.0));
+
+        // Sub
+        let diff = c2 - c1;
+        assert_eq!(diff, Coord3D::new(3.0, 3.0, 3.0));
+
+        // Mul
+        let scaled = c1 * 2.0;
+        assert_eq!(scaled, Coord3D::new(2.0, 4.0, 6.0));
+
+        // Negative and zero
+        let c3 = Coord3D::new(-1.0, 0.0, 1.0);
+        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 4.0));
+        assert_eq!(c3 * -1.0, Coord3D::new(1.0, 0.0, -1.0));
+    }
+
+    #[test]
+    fn test_line3d() {
+        let start = Coord3D::new(0.0, 0.0, 0.0);
+        let end = Coord3D::new(1.0, 1.0, 1.0);
+        let line = Line3D::new(start, end);
+
+        let line2d = line.to_line_2d();
+        assert_eq!(line2d.start.x, 0.0);
+        assert_eq!(line2d.start.y, 0.0);
+        assert_eq!(line2d.end.x, 1.0);
+        assert_eq!(line2d.end.y, 1.0);
+
+        let geo_line = geo_types::Line::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 });
+        let line3d_from: Line3D = geo_line.into();
+        assert_eq!(line3d_from.start.z, 0.0);
+        assert_eq!(line3d_from.end.z, 0.0);
+    }
+
+    #[test]
+    fn test_polygon3d() {
+        let exterior = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        let interior = vec![
+            Coord3D::new(2.0, 2.0, 1.0),
+            Coord3D::new(2.0, 8.0, 1.0),
+            Coord3D::new(8.0, 8.0, 1.0),
+            Coord3D::new(8.0, 2.0, 1.0),
+            Coord3D::new(2.0, 2.0, 1.0),
+        ];
+
+        let poly = Polygon3D::new(exterior, vec![interior]);
+        let poly2d = poly.to_polygon_2d();
+
+        assert_eq!(poly2d.exterior().0.len(), 5);
+        assert_eq!(poly2d.interiors().len(), 1);
+        assert_eq!(poly2d.interiors()[0].0.len(), 5);
+    }
+}
