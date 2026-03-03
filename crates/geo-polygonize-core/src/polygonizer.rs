@@ -447,10 +447,18 @@ fn process_invalid_rings(
             let mut min_y = ring.exterior[0].y;
             let mut max_y = ring.exterior[0].y;
             for c in &ring.exterior[1..] {
-                if c.x < min_x { min_x = c.x; }
-                if c.x > max_x { max_x = c.x; }
-                if c.y < min_y { min_y = c.y; }
-                if c.y > max_y { max_y = c.y; }
+                if c.x < min_x {
+                    min_x = c.x;
+                }
+                if c.x > max_x {
+                    max_x = c.x;
+                }
+                if c.y < min_y {
+                    min_y = c.y;
+                }
+                if c.y > max_y {
+                    max_y = c.y;
+                }
             }
             (max_x - min_x) * (max_y - min_y)
         };
