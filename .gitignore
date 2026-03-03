@@ -4,3 +4,9 @@ __pycache__/
 *.so
 *.pyd
 *.dylib
+venv/
+node_modules/
+dist/
+pkg-scalar/
+pkg-simd/
+pkg-threads/
