@@ -8,5 +8,6 @@ venv/
 node_modules/
 dist/
 pkg-scalar/
+pkg-wrapper/
 pkg-simd/
 pkg-threads/
