@@ -1,4 +1,4 @@
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
 use rayon::prelude::*;
 
 pub const PARALLEL_THRESHOLD: usize = 1000;
