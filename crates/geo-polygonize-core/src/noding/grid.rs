@@ -286,8 +286,10 @@ impl UniformGrid {
             for r in 0..self.rows {
                 for c in 0..self.cols {
                     let idx = r * self.cols + c;
-                    if has_active_mask && !active_cells.unwrap()[idx] {
-                        continue;
+                    if let Some(mask) = active_mask {
+                        if !mask[idx] {
+                            continue;
+                        }
                     }
                     let start = self.cell_offsets[idx];
                     let end = self.cell_offsets[idx + 1];
