@@ -147,10 +147,7 @@ impl Polygon3D {
         if total_area.abs() < 1e-12 {
             None
         } else {
-            Some(geo_types::Point::new(
-                cx / total_area,
-                cy / total_area,
-            ))
+            Some(geo_types::Point::new(cx / total_area, cy / total_area))
         }
     }
 
