@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.0...v0.1.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* Hyper-optimize Core Noding & Parallelism Framework ([4f2c557](https://github.com/graydonpleasants/geo-polygonize/commit/4f2c5573207f22a0330a9849a6679c857e29ee4f))
+* Hyper-optimize Core Noding & Parallelism Framework ([53a7f6c](https://github.com/graydonpleasants/geo-polygonize/commit/53a7f6c15fe795a45c80cc92a3b849dccc9b3857))
+* Resolve active_cells unwrap panic ([d62f3bc](https://github.com/graydonpleasants/geo-polygonize/commit/d62f3bcb79a3d640facafa1a42ac9b7bd83c0970))
+* Resolve unwrap in `not(feature = "parallel")` path ([d70f234](https://github.com/graydonpleasants/geo-polygonize/commit/d70f234395fed98b0303e95ce36dd1285c9842a4))
+* use custom token for release-please to allow PR creation ([c11acb7](https://github.com/graydonpleasants/geo-polygonize/commit/c11acb7ed628313df18a770910797499fa9caa46))
+
 ## [0.1.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.0.1...v0.1.0) (2026-03-04)
 
 
