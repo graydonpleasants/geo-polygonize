@@ -100,11 +100,11 @@ impl UniformGrid {
                         let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
 
                         if num_cells > MAX_CELLS_PER_LINE {
-                            acc.0.1.push(i);
+                            acc.0 .1.push(i);
                         } else {
                             for r in row_min..=row_max {
                                 for c in col_min..=col_max {
-                                    acc.0.0[r * cols + c] += 1;
+                                    acc.0 .0[r * cols + c] += 1;
                                 }
                             }
                         }
@@ -113,14 +113,14 @@ impl UniformGrid {
                     .reduce(
                         || CachePadded((vec![0usize; cols * rows], Vec::new())),
                         |mut a, b| {
-                            for (i, v) in b.0.0.into_iter().enumerate() {
-                                a.0.0[i] += v;
+                            for (i, v) in b.0 .0.into_iter().enumerate() {
+                                a.0 .0[i] += v;
                             }
-                            a.0.1.extend(b.0.1);
+                            a.0 .1.extend(b.0 .1);
                             a
                         },
                     );
-                (reduced.0.0, reduced.0.1)
+                (reduced.0 .0, reduced.0 .1)
             } else {
                 Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
             }
