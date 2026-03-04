@@ -1,0 +1,162 @@
+--- crates/geo-polygonize-core/src/noding/snap.rs
++++ crates/geo-polygonize-core/src/noding/snap.rs
+@@ -107,6 +107,7 @@
+
+         // 2. Iterative Noding
+         let mut new_lines = Vec::new();
++        let mut active_mask = None; // For grid cell sleeping
+         for _iter in 0..self.max_iter {
+             let use_grid = match self.strategy {
+                 NodingStrategy::Auto => lines.len() >= 256,
+@@ -121,7 +122,8 @@
+             } else {
+                 // STRATEGY B: Large Input -> Uniform Grid
+                 let grid = UniformGrid::new(&lines);
+-                grid.find_splits(&lines, self)
++                let (splits, next_mask) = grid.find_splits(&lines, self, active_mask.as_deref());
++                active_mask = Some(next_mask);
++                splits
+             };
+
+             if events.is_empty() {
+--- crates/geo-polygonize-core/src/noding/grid.rs
++++ crates/geo-polygonize-core/src/noding/grid.rs
+@@ -181,14 +181,22 @@
+         }
+     }
+
+-    pub fn find_splits(&self, lines: &[Line3D], snap_noder: &SnapNoder) -> Vec<(usize, Coord3D)> {
++    pub fn find_splits(
++        &self,
++        lines: &[Line3D],
++        snap_noder: &SnapNoder,
++        active_cells: Option<&[bool]>,
++    ) -> (Vec<(usize, Coord3D)>, Vec<bool>) {
+         // Instantiate SoA structure for fast AABB checks
+         let soa = SoALines::new(lines);
+
++        let has_active_mask = active_cells.is_some() && active_cells.unwrap().len() == self.rows * self.cols;
++
+         #[cfg(feature = "parallel")]
+-        let mut splits = {
++        let (mut splits, next_mask) = {
+             (0..self.rows * self.cols)
+                 .into_par_iter()
+-                .fold(Vec::new, |mut acc, idx| {
++                .fold(|| (Vec::new(), vec![false; self.rows * self.cols]), |(mut acc_splits, mut acc_mask), idx| {
++                    if has_active_mask && !active_cells.unwrap()[idx] {
++                        return (acc_splits, acc_mask);
++                    }
+                     let start = self.cell_offsets[idx];
+                     let end = self.cell_offsets[idx + 1];
+                     let cell_indices = &self.cell_items[start..end];
+
+                     if cell_indices.len() >= 2 {
+                         let r = idx / self.cols;
+                         let c = idx % self.cols;
+-                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc);
++                        let initial_len = acc_splits.len();
++                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc_splits);
++                        if acc_splits.len() > initial_len {
++                            acc_mask[idx] = true;
++                            // Also wake up neighbors to be safe
++                            let r_min = r.saturating_sub(1);
++                            let r_max = (r + 1).min(self.rows - 1);
++                            let c_min = c.saturating_sub(1);
++                            let c_max = (c + 1).min(self.cols - 1);
++                            for nr in r_min..=r_max {
++                                for nc in c_min..=c_max {
++                                    acc_mask[nr * self.cols + nc] = true;
++                                }
++                            }
++                        }
+                     }
+-                    acc
++                    (acc_splits, acc_mask)
+                 })
+-                .reduce(Vec::new, |mut a, mut b| {
+-                    a.append(&mut b);
+-                    a
++                .reduce(|| (Vec::new(), vec![false; self.rows * self.cols]), |(mut sa, mut ma), (mut sb, mb)| {
++                    sa.append(&mut sb);
++                    for (i, v) in mb.into_iter().enumerate() {
++                        if v {
++                            ma[i] = true;
++                        }
++                    }
++                    (sa, ma)
+                 })
+         };
+
+         #[cfg(not(feature = "parallel"))]
+-        let mut splits = {
++        let (mut splits, next_mask) = {
+             let mut splits = Vec::new();
++            let mut next_mask = vec![false; self.rows * self.cols];
+             for r in 0..self.rows {
+                 for c in 0..self.cols {
+                     let idx = r * self.cols + c;
++                    if has_active_mask && !active_cells.unwrap()[idx] {
++                        continue;
++                    }
+                     let start = self.cell_offsets[idx];
+                     let end = self.cell_offsets[idx + 1];
+                     let cell_indices = &self.cell_items[start..end];
+
+-                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
++                    let initial_len = splits.len();
++                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
++                    if splits.len() > initial_len {
++                        next_mask[idx] = true;
++                        // Wake up neighbors
++                        let r_min = r.saturating_sub(1);
++                        let r_max = (r + 1).min(self.rows - 1);
++                        let c_min = c.saturating_sub(1);
++                        let c_max = (c + 1).min(self.cols - 1);
++                        for nr in r_min..=r_max {
++                            for nc in c_min..=c_max {
++                                next_mask[nr * self.cols + nc] = true;
++                            }
++                        }
++                    }
+                 }
+             }
+-            splits
++            (splits, next_mask)
+         };
+
+         // Process global lines against all other lines.
+         // Since global lines cross many cells, we fall back to a brute-force approach for them
+         // However, to optimize, we can use the SIMD BBox checks
++        // Global line intersection always happens. We should wake up all cells if there are global splits?
++        // Actually we don't have a great way to map global line splits to specific cells quickly here,
++        // so if a global line splits, we can just invalidate the whole mask.
++        let mut global_split_occurred = false;
+         for &g_idx in &self.global_lines {
+             let g_line = lines[g_idx];
+             for (other_idx, &other_line) in lines.iter().enumerate() {
+                 if g_idx == other_idx {
+                     continue;
+                 }
+                 // Avoid duplicate checks if both are global
+                 if other_idx < g_idx && self.global_lines.contains(&other_idx) {
+                     continue;
+                 }
+
++                let initial_len = splits.len();
+                 snap_noder.process_intersection(g_line, other_line, g_idx, other_idx, |idx, pt| {
+                     splits.push((idx, pt));
+                 });
++                if splits.len() > initial_len {
++                    global_split_occurred = true;
++                }
+             }
+         }
+
+-        splits
++        if global_split_occurred {
++            (splits, vec![true; self.rows * self.cols])
++        } else {
++            (splits, next_mask)
++        }
+     }

@@ -4,6 +4,7 @@ use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
 use wide::f64x4;
+use std::cell::RefCell;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -59,6 +60,8 @@ impl SnapNoder {
 
         // 2. Iterative Noding
         let mut new_lines = Vec::new();
+        let mut active_mask: Option<Vec<bool>> = None; // For grid cell sleeping
+
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -73,7 +76,9 @@ impl SnapNoder {
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                grid.find_splits(&lines, self)
+                let (splits, next_mask) = grid.find_splits(&lines, self, active_mask.as_deref());
+                active_mask = Some(next_mask);
+                splits
             };
 
             if events.is_empty() {
@@ -302,8 +307,7 @@ impl SnapNoder {
         #[cfg(feature = "parallel")]
         {
             // Rayon Heuristic: Thread spin-up dominates for small N.
-            // Use sequential loop if lines < 1000.
-            if lines.len() >= 1000 {
+            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
                 // Parallel execution: each thread processes a subset of query lines
                 // and returns a list of split events (line_index, point).
                 lines
@@ -365,7 +369,14 @@ impl SnapNoder {
         lines: &[Line3D],
         soa: &SoALines,
     ) -> Vec<(usize, Coord3D)> {
-        let mut events = Vec::new();
+        thread_local! {
+            static EVENTS_BUFFER: RefCell<Vec<(usize, Coord3D)>> = RefCell::new(Vec::with_capacity(64));
+        }
+
+        EVENTS_BUFFER.with(|buf| {
+            let mut events = buf.borrow_mut();
+            events.clear();
+
         // Start block to avoid duplicate checks (j > i)
         // We start checking at index i+1.
         // The SoA batching index `j` steps by 4.
@@ -429,7 +440,8 @@ impl SnapNoder {
                 }
             }
         }
-        events
+        events.clone()
+        })
     }
 
     #[inline]
@@ -484,7 +496,7 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let mut splits_grid = grid.find_splits(&lines, &noder);
+        let (mut splits_grid, _) = grid.find_splits(&lines, &noder, None);
 
         // SIMD Logic
         let mut splits_simd = noder.find_splits_simd(&lines);

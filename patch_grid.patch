@@ -1,0 +1,109 @@
+--- crates/geo-polygonize-core/src/noding/grid.rs
++++ crates/geo-polygonize-core/src/noding/grid.rs
+@@ -10,6 +10,10 @@
+ #[cfg(feature = "parallel")]
+ use rayon::prelude::*;
+
++#[repr(align(64))]
++#[derive(Clone)]
++struct CachePadded<T>(pub T);
++
+ pub struct UniformGrid {
+     /// Compressed Sparse Row (CSR) storage
+     /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
+@@ -66,35 +70,72 @@
+         let cols = ((width + 1e-9) / cell_size).ceil() as usize;
+         let rows = ((height + 1e-9) / cell_size).ceil() as usize;
+
+         // Pass 1: Count entries per cell & Identify Global Lines
+-        let mut counts = vec![0usize; cols * rows];
+-        let mut global_lines = Vec::new();
+         const MAX_CELLS_PER_LINE: usize = 50;
+
+-        for (i, line) in lines.iter().enumerate() {
+-            let l_min_x = line.start.x.min(line.end.x);
+-            let l_max_x = line.start.x.max(line.end.x);
+-            let l_min_y = line.start.y.min(line.end.y);
+-            let l_max_y = line.start.y.max(line.end.y);
+-
+-            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+-            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+-            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+-            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+-
+-            // Clamp
+-            let col_max = col_max.min(cols.saturating_sub(1));
+-            let row_max = row_max.min(rows.saturating_sub(1));
+-            let col_min = col_min.min(col_max);
+-            let row_min = row_min.min(row_max);
+-
+-            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+-
+-            if num_cells > MAX_CELLS_PER_LINE {
+-                global_lines.push(i);
+-                continue;
+-            }
+-
+-            for r in row_min..=row_max {
+-                for c in col_min..=col_max {
+-                    counts[r * cols + c] += 1;
+-                }
+-            }
++        let (counts, global_lines) = {
++            #[cfg(feature = "parallel")]
++            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
++                let init = || CachePadded((vec![0usize; cols * rows], Vec::new()));
++                let reduced = lines
++                    .par_iter()
++                    .enumerate()
++                    .fold(init, |mut acc, (i, line)| {
++                        let l_min_x = line.start.x.min(line.end.x);
++                        let l_max_x = line.start.x.max(line.end.x);
++                        let l_min_y = line.start.y.min(line.end.y);
++                        let l_max_y = line.start.y.max(line.end.y);
++
++                        let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
++                        let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
++                        let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
++                        let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
++
++                        let col_max = col_max.min(cols.saturating_sub(1));
++                        let row_max = row_max.min(rows.saturating_sub(1));
++                        let col_min = col_min.min(col_max);
++                        let row_min = row_min.min(row_max);
++
++                        let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
++
++                        if num_cells > MAX_CELLS_PER_LINE {
++                            acc.0.1.push(i);
++                        } else {
++                            for r in row_min..=row_max {
++                                for c in col_min..=col_max {
++                                    acc.0.0[r * cols + c] += 1;
++                                }
++                            }
++                        }
++                        acc
++                    })
++                    .reduce(init, |mut a, b| {
++                        for (i, v) in b.0.0.into_iter().enumerate() {
++                            a.0.0[i] += v;
++                        }
++                        a.0.1.extend(b.0.1);
++                        a
++                    });
++                (reduced.0.0, reduced.0.1)
++            } else {
++                Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
++            }
++
++            #[cfg(not(feature = "parallel"))]
++            Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
+         };
+
+         // Prefix Sum to create offsets
+@@ -107,6 +148,42 @@
+             sum += count;
+         }
+
++        // Continue Pass 2

@@ -8,6 +8,10 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+#[repr(align(64))]
+#[derive(Clone)]
+struct CachePadded<T>(pub T);
+
 pub struct UniformGrid {
     /// Compressed Sparse Row (CSR) storage
     /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
@@ -68,40 +72,64 @@ impl UniformGrid {
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
         // Pass 1: Count entries per cell & Identify Global Lines
-        let mut counts = vec![0usize; cols * rows];
-        let mut global_lines = Vec::new();
         const MAX_CELLS_PER_LINE: usize = 50;
 
-        for (i, line) in lines.iter().enumerate() {
-            let l_min_x = line.start.x.min(line.end.x);
-            let l_max_x = line.start.x.max(line.end.x);
-            let l_min_y = line.start.y.min(line.end.y);
-            let l_max_y = line.start.y.max(line.end.y);
+        let (counts, mut global_lines) = {
+            #[cfg(feature = "parallel")]
+            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
+                let init = || CachePadded((vec![0usize; cols * rows], Vec::new()));
+                let reduced = lines
+                    .par_iter()
+                    .enumerate()
+                    .fold(init, |mut acc, (i, line)| {
+                        let l_min_x = line.start.x.min(line.end.x);
+                        let l_max_x = line.start.x.max(line.end.x);
+                        let l_min_y = line.start.y.min(line.end.y);
+                        let l_max_y = line.start.y.max(line.end.y);
 
-            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+                        let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+                        let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+                        let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+                        let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
 
-            // Clamp
-            let col_max = col_max.min(cols.saturating_sub(1));
-            let row_max = row_max.min(rows.saturating_sub(1));
-            let col_min = col_min.min(col_max);
-            let row_min = row_min.min(row_max);
+                        let col_max = col_max.min(cols.saturating_sub(1));
+                        let row_max = row_max.min(rows.saturating_sub(1));
+                        let col_min = col_min.min(col_max);
+                        let row_min = row_min.min(row_max);
 
-            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+                        let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
 
-            if num_cells > MAX_CELLS_PER_LINE {
-                global_lines.push(i);
-                continue;
+                        if num_cells > MAX_CELLS_PER_LINE {
+                            acc.0.1.push(i);
+                        } else {
+                            for r in row_min..=row_max {
+                                for c in col_min..=col_max {
+                                    acc.0.0[r * cols + c] += 1;
+                                }
+                            }
+                        }
+                        acc
+                    })
+                    .reduce(
+                        || CachePadded((vec![0usize; cols * rows], Vec::new())),
+                        |mut a, b| {
+                            for (i, v) in b.0.0.into_iter().enumerate() {
+                                a.0.0[i] += v;
+                            }
+                            a.0.1.extend(b.0.1);
+                            a
+                        },
+                    );
+                (reduced.0.0, reduced.0.1)
+            } else {
+                Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
             }
-
-            for r in row_min..=row_max {
-                for c in col_min..=col_max {
-                    counts[r * cols + c] += 1;
-                }
+            #[cfg(not(feature = "parallel"))]
+            {
+                Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
             }
-        }
+        };
+        global_lines.sort_unstable(); // Ensure deterministic order
 
         // Prefix Sum to create offsets
         let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
@@ -180,55 +208,126 @@ impl UniformGrid {
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     /// Returns a flat list of (line_index, point) tuples.
-    pub fn find_splits(&self, lines: &[Line3D], snap_noder: &SnapNoder) -> Vec<(usize, Coord3D)> {
+    pub fn find_splits(
+        &self,
+        lines: &[Line3D],
+        snap_noder: &SnapNoder,
+        active_cells: Option<&[bool]>,
+    ) -> (Vec<(usize, Coord3D)>, Vec<bool>) {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
+        let has_active_mask =
+            active_cells.is_some() && active_cells.unwrap().len() == self.rows * self.cols;
+
         #[cfg(feature = "parallel")]
-        let mut splits = {
+        let (mut splits, next_mask) = {
             (0..self.rows * self.cols)
                 .into_par_iter()
-                .fold(Vec::new, |mut acc, idx| {
-                    let start = self.cell_offsets[idx];
-                    let end = self.cell_offsets[idx + 1];
-                    let cell_indices = &self.cell_items[start..end];
+                .fold(
+                    || (Vec::new(), vec![false; self.rows * self.cols]),
+                    |(mut acc_splits, mut acc_mask), idx| {
+                        if has_active_mask && !active_cells.unwrap()[idx] {
+                            return (acc_splits, acc_mask);
+                        }
+                        let start = self.cell_offsets[idx];
+                        let end = self.cell_offsets[idx + 1];
+                        let cell_indices = &self.cell_items[start..end];
 
-                    if cell_indices.len() >= 2 {
-                        let r = idx / self.cols;
-                        let c = idx % self.cols;
-                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc);
-                    }
-                    acc
-                })
-                .reduce(Vec::new, |mut a, mut b| {
-                    a.append(&mut b);
-                    a
-                })
+                        if cell_indices.len() >= 2 {
+                            let r = idx / self.cols;
+                            let c = idx % self.cols;
+                            let initial_len = acc_splits.len();
+                            self.process_cell(
+                                r,
+                                c,
+                                cell_indices,
+                                lines,
+                                snap_noder,
+                                &soa,
+                                &mut acc_splits,
+                            );
+                            if acc_splits.len() > initial_len {
+                                acc_mask[idx] = true;
+                                // Wake up neighbors
+                                let r_min = r.saturating_sub(1);
+                                let r_max = (r + 1).min(self.rows.saturating_sub(1));
+                                let c_min = c.saturating_sub(1);
+                                let c_max = (c + 1).min(self.cols.saturating_sub(1));
+                                for nr in r_min..=r_max {
+                                    for nc in c_min..=c_max {
+                                        acc_mask[nr * self.cols + nc] = true;
+                                    }
+                                }
+                            }
+                        }
+                        (acc_splits, acc_mask)
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), vec![false; self.rows * self.cols]),
+                    |(mut sa, mut ma), (mut sb, mb)| {
+                        sa.append(&mut sb);
+                        for (i, v) in mb.into_iter().enumerate() {
+                            if v {
+                                ma[i] = true;
+                            }
+                        }
+                        (sa, ma)
+                    },
+                )
         };
 
         #[cfg(not(feature = "parallel"))]
-        let mut splits = {
+        let (mut splits, next_mask) = {
             let mut splits = Vec::new();
+            let mut next_mask = vec![false; self.rows * self.cols];
             for r in 0..self.rows {
                 for c in 0..self.cols {
                     let idx = r * self.cols + c;
+                    if has_active_mask && !active_cells.unwrap()[idx] {
+                        continue;
+                    }
                     let start = self.cell_offsets[idx];
                     let end = self.cell_offsets[idx + 1];
                     let cell_indices = &self.cell_items[start..end];
 
+                    let initial_len = splits.len();
                     self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
+                    if splits.len() > initial_len {
+                        next_mask[idx] = true;
+                        // Wake up neighbors
+                        let r_min = r.saturating_sub(1);
+                        let r_max = (r + 1).min(self.rows.saturating_sub(1));
+                        let c_min = c.saturating_sub(1);
+                        let c_max = (c + 1).min(self.cols.saturating_sub(1));
+                        for nr in r_min..=r_max {
+                            for nc in c_min..=c_max {
+                                next_mask[nr * self.cols + nc] = true;
+                            }
+                        }
+                    }
                 }
             }
-            splits
+            (splits, next_mask)
         };
 
         // Process Global Lines (Brute Force against ALL lines)
+        let mut global_split_occurred = false;
         if !self.global_lines.is_empty() {
+            let initial_len = splits.len();
             let global_splits = self.process_global_lines(lines, snap_noder, &soa);
             splits.extend(global_splits);
+            if splits.len() > initial_len {
+                global_split_occurred = true;
+            }
         }
 
-        splits
+        if global_split_occurred {
+            (splits, vec![true; self.rows * self.cols])
+        } else {
+            (splits, next_mask)
+        }
     }
 
     fn process_global_lines(
@@ -450,7 +549,7 @@ mod tests {
     fn test_empty_grid_find_splits() {
         let grid = UniformGrid::new(&[]);
         let noder = SnapNoder::new(1e-6);
-        let splits = grid.find_splits(&[], &noder);
+        let (splits, _) = grid.find_splits(&[], &noder, None);
         assert!(splits.is_empty());
     }
 
@@ -530,7 +629,7 @@ mod tests {
         let grid = UniformGrid::new(&lines);
         let noder = SnapNoder::new(0.0); // Exact noding
 
-        let splits = grid.find_splits(&lines, &noder);
+        let (splits, _) = grid.find_splits(&lines, &noder, None);
 
         // Expect 2 events: (0, (5,5,0)) and (1, (5,5,0))
         assert_eq!(splits.len(), 2);
@@ -561,7 +660,7 @@ mod tests {
         let grid = UniformGrid::new(&lines);
         let noder = SnapNoder::new(0.0);
 
-        let splits = grid.find_splits(&lines, &noder);
+        let (splits, _) = grid.find_splits(&lines, &noder, None);
         assert!(splits.is_empty());
     }
 
@@ -620,7 +719,7 @@ mod tests {
         assert!(!grid.global_lines.contains(&1), "l1 should be local");
 
         let noder = SnapNoder::new(0.0);
-        let splits = grid.find_splits(&lines, &noder);
+        let (splits, _) = grid.find_splits(&lines, &noder, None);
 
         // Expected intersections:
         // l0 and l1 at (1000, 0)
@@ -650,5 +749,51 @@ mod tests {
             assert_relative_eq!(pt.x, 1000.0, epsilon = 1e-5);
             assert_relative_eq!(pt.y, 0.0, epsilon = 1e-5);
         }
+    }
+}
+impl UniformGrid {
+    fn sequential_pass1(
+        lines: &[Line3D],
+        min_x: f64,
+        min_y: f64,
+        cols: usize,
+        rows: usize,
+        cell_size: f64,
+    ) -> (Vec<usize>, Vec<usize>) {
+        let mut counts = vec![0usize; cols * rows];
+        let mut global_lines = Vec::new();
+        const MAX_CELLS_PER_LINE: usize = 50;
+
+        for (i, line) in lines.iter().enumerate() {
+            let l_min_x = line.start.x.min(line.end.x);
+            let l_max_x = line.start.x.max(line.end.x);
+            let l_min_y = line.start.y.min(line.end.y);
+            let l_max_y = line.start.y.max(line.end.y);
+
+            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+
+            // Clamp
+            let col_max = col_max.min(cols.saturating_sub(1));
+            let row_max = row_max.min(rows.saturating_sub(1));
+            let col_min = col_min.min(col_max);
+            let row_min = row_min.min(row_max);
+
+            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+
+            if num_cells > MAX_CELLS_PER_LINE {
+                global_lines.push(i);
+                continue;
+            }
+
+            for r in row_min..=row_max {
+                for c in col_min..=col_max {
+                    counts[r * cols + c] += 1;
+                }
+            }
+        }
+        (counts, global_lines)
     }
 }
