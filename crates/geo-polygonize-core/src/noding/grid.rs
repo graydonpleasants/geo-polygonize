@@ -8,6 +8,7 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+#[cfg(feature = "parallel")]
 #[repr(align(64))]
 #[derive(Clone)]
 struct CachePadded<T>(pub T);
@@ -72,6 +73,7 @@ impl UniformGrid {
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
         // Pass 1: Count entries per cell & Identify Global Lines
+        #[cfg(feature = "parallel")]
         const MAX_CELLS_PER_LINE: usize = 50;
 
         let (counts, mut global_lines) = {
