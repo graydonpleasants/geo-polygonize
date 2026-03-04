@@ -226,9 +226,11 @@ impl UniformGrid {
                 .fold(
                     || (Vec::new(), vec![false; self.rows * self.cols]),
                     |(mut acc_splits, mut acc_mask), idx| {
-                        if let Some(mask) = active_mask { if !mask[idx] {
-                            return (acc_splits, acc_mask);
-                        }}
+                        if let Some(mask) = active_mask {
+                            if !mask[idx] {
+                                return (acc_splits, acc_mask);
+                            }
+                        }
                         let start = self.cell_offsets[idx];
                         let end = self.cell_offsets[idx + 1];
                         let cell_indices = &self.cell_items[start..end];
