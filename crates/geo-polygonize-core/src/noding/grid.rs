@@ -8,6 +8,11 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+#[cfg(feature = "parallel")]
+#[repr(align(64))]
+#[derive(Clone)]
+struct CachePadded<T>(pub T);
+
 pub struct UniformGrid {
     /// Compressed Sparse Row (CSR) storage
     /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
@@ -70,6 +75,7 @@ impl UniformGrid {
         // Pass 1: Count entries per cell & Identify Global Lines
         let mut counts = vec![0usize; cols * rows];
         let mut global_lines = Vec::new();
+        #[cfg(feature = "parallel")]
         const MAX_CELLS_PER_LINE: usize = 50;
 
         for (i, line) in lines.iter().enumerate() {

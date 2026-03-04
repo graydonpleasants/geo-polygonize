@@ -17,8 +17,13 @@ fi
 
 # Install binaryen (wasm-opt) if needed
 if ! command -v wasm-opt &> /dev/null; then
-    echo "wasm-opt not found. Attempting to install via cargo..."
-    echo "Warning: wasm-opt not found. Build will proceed without optimization."
+    echo "wasm-opt not found. Attempting to install via npm..."
+    npm install -g wasm-opt
+    if ! command -v wasm-opt &> /dev/null; then
+        echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
+    else
+        echo "Successfully installed wasm-opt: $(wasm-opt --version)"
+    fi
 else
     echo "Found wasm-opt: $(wasm-opt --version)"
 fi

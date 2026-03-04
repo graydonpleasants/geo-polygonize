@@ -1,4 +1,4 @@
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
 use rayon::prelude::*;
 
 /// A trait to switch between parallel and sequential iterators
