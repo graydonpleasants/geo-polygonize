@@ -1,0 +1,30 @@
+--- crates/geo-polygonize-core/src/utils/parallel.rs
++++ crates/geo-polygonize-core/src/utils/parallel.rs
+@@ -2,6 +2,9 @@
+ use rayon::prelude::*;
+
++/// A constant defining the heuristic threshold for spinning up Rayon parallel iterators
++pub const PARALLEL_THRESHOLD: usize = 1000;
++
+ /// A trait to switch between parallel and sequential iterators
+ pub trait MaybeParIter<T> {
+     type Iter: Iterator<Item = T>;
+@@ -17,8 +20,7 @@
+ {
+     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+     {
+-        // Heuristic: Don't spin up Rayon for < 1000 items
+-        if collection.len() > 1000 {
++        if collection.len() > PARALLEL_THRESHOLD {
+             collection.par_iter().for_each(f);
+         } else {
+             collection.iter().for_each(f);
+@@ -38,7 +40,7 @@
+ {
+     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+     {
+-        if collection.len() > 1000 {
++        if collection.len() > PARALLEL_THRESHOLD {
+             collection.par_iter_mut().for_each(f);
+         } else {
+             collection.iter_mut().for_each(f);
