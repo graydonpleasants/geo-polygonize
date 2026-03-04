@@ -1,8 +1,6 @@
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-pub const PARALLEL_THRESHOLD: usize = 1000;
-
 /// A trait to switch between parallel and sequential iterators
 pub trait MaybeParIter<T> {
     type Iter: Iterator<Item = T>;
@@ -19,8 +17,8 @@ where
 {
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        // Heuristic: Don't spin up Rayon for < PARALLEL_THRESHOLD items
-        if collection.len() > PARALLEL_THRESHOLD {
+        // Heuristic: Don't spin up Rayon for < 1000 items
+        if collection.len() > 1000 {
             collection.par_iter().for_each(f);
         } else {
             collection.iter().for_each(f);
@@ -41,7 +39,7 @@ where
 {
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        if collection.len() > PARALLEL_THRESHOLD {
+        if collection.len() > 1000 {
             collection.par_iter_mut().for_each(f);
         } else {
             collection.iter_mut().for_each(f);
