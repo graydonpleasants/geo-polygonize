@@ -199,7 +199,7 @@ impl Polygonizer {
         // 5. Establish Topology
 
         // Precompute 2D shells for spatial index and SIMD
-        let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
+        let mut shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         let mut simd_shells: Vec<OnceLock<SimdRing>> =
             (0..shells.len()).map(|_| OnceLock::new()).collect();
@@ -302,15 +302,13 @@ impl Polygonizer {
                 shells = new_shells;
 
                 // Recompute shells_2d and simd_shells for hole assignment
-                // We can just use new_shells_2d but we need to re-index tree
-                let shells_2d_ref: Vec<Polygon<f64>> =
-                    shells.iter().map(|s| s.to_polygon_2d()).collect();
+                shells_2d = new_shells_2d;
 
                 // Rebuild helper structures
                 simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
-                for (i, shell) in shells_2d_ref.iter().enumerate() {
+                for (i, shell) in shells_2d.iter().enumerate() {
                     if let Some(bbox) = shell.bounding_rect() {
                         let aabb = AABB::from_corners(
                             [bbox.min().x, bbox.min().y],
@@ -324,8 +322,6 @@ impl Polygonizer {
         }
 
         let holes_2d: Vec<Polygon<f64>> = holes.iter().map(|h| h.to_polygon_2d()).collect();
-        // Need access to shells_2d for hole assignment (recompute to be safe)
-        let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         // Process hole assignment
         let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
@@ -442,16 +438,32 @@ fn process_invalid_rings(
 
     // Sort by 2D bbox area in ascending order
     processable.sort_by(|a, b| {
-        let area_a = a
-            .to_polygon_2d()
-            .bounding_rect()
-            .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
-            .unwrap_or(0.0);
-        let area_b = b
-            .to_polygon_2d()
-            .bounding_rect()
-            .map(|b| (b.max().x - b.min().x) * (b.max().y - b.min().y))
-            .unwrap_or(0.0);
+        let get_bbox_area = |ring: &Polygon3D| {
+            if ring.exterior.is_empty() {
+                return 0.0;
+            }
+            let mut min_x = ring.exterior[0].x;
+            let mut max_x = ring.exterior[0].x;
+            let mut min_y = ring.exterior[0].y;
+            let mut max_y = ring.exterior[0].y;
+            for c in &ring.exterior[1..] {
+                if c.x < min_x {
+                    min_x = c.x;
+                }
+                if c.x > max_x {
+                    max_x = c.x;
+                }
+                if c.y < min_y {
+                    min_y = c.y;
+                }
+                if c.y > max_y {
+                    max_y = c.y;
+                }
+            }
+            (max_x - min_x) * (max_y - min_y)
+        };
+        let area_a = get_bbox_area(a);
+        let area_b = get_bbox_area(b);
         area_a
             .partial_cmp(&area_b)
             .unwrap_or(std::cmp::Ordering::Equal)
