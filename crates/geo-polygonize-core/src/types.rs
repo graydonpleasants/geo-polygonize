@@ -121,6 +121,39 @@ impl Polygon3D {
         area
     }
 
+    /// Computes the 2D centroid directly without allocating intermediate geometry.
+    pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut total_area = 0.0;
+
+        let (ext_area, ext_cx, ext_cy) = Self::ring_area_and_centroid_2d(&self.exterior);
+        if ext_area.abs() < 1e-12 {
+            return None;
+        }
+        total_area += ext_area;
+        cx += ext_cx * ext_area;
+        cy += ext_cy * ext_area;
+
+        for hole in &self.interiors {
+            let (hole_area, hole_cx, hole_cy) = Self::ring_area_and_centroid_2d(hole);
+            // Hole area is expected to have opposite sign of exterior if CCW/CW conventions are met.
+            // We just add them up. If winding order isn't perfect, use signed area directly.
+            total_area += hole_area;
+            cx += hole_cx * hole_area;
+            cy += hole_cy * hole_area;
+        }
+
+        if total_area.abs() < 1e-12 {
+            None
+        } else {
+            Some(geo_types::Point::new(
+                cx / total_area,
+                cy / total_area,
+            ))
+        }
+    }
+
     #[inline]
     fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
@@ -133,6 +166,29 @@ impl Polygon3D {
             j = i;
         }
         twice_area / 2.0
+    }
+
+    #[inline]
+    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+        if coords.len() < 3 {
+            return (0.0, 0.0, 0.0);
+        }
+        let mut twice_area = 0.0;
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut j = coords.len() - 1;
+        for i in 0..coords.len() {
+            let f = coords[j].x * coords[i].y - coords[i].x * coords[j].y;
+            twice_area += f;
+            cx += (coords[j].x + coords[i].x) * f;
+            cy += (coords[j].y + coords[i].y) * f;
+            j = i;
+        }
+        let area = twice_area / 2.0;
+        if area == 0.0 {
+            return (0.0, 0.0, 0.0);
+        }
+        (area, cx / (3.0 * twice_area), cy / (3.0 * twice_area))
     }
 }
 
