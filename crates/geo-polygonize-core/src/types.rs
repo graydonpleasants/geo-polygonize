@@ -128,20 +128,21 @@ impl Polygon3D {
         let mut total_area = 0.0;
 
         let (ext_area, ext_cx, ext_cy) = Self::ring_area_and_centroid_2d(&self.exterior);
-        if ext_area.abs() < 1e-12 {
+        let ext_abs_area = ext_area.abs();
+        if ext_abs_area < 1e-12 {
             return None;
         }
-        total_area += ext_area;
-        cx += ext_cx * ext_area;
-        cy += ext_cy * ext_area;
+        total_area += ext_abs_area;
+        cx += ext_cx * ext_abs_area;
+        cy += ext_cy * ext_abs_area;
 
         for hole in &self.interiors {
             let (hole_area, hole_cx, hole_cy) = Self::ring_area_and_centroid_2d(hole);
-            // Hole area is expected to have opposite sign of exterior if CCW/CW conventions are met.
-            // We just add them up. If winding order isn't perfect, use signed area directly.
-            total_area += hole_area;
-            cx += hole_cx * hole_area;
-            cy += hole_cy * hole_area;
+            let hole_abs_area = hole_area.abs();
+            // Subtract holes based on their structural role, independent of winding order.
+            total_area -= hole_abs_area;
+            cx -= hole_cx * hole_abs_area;
+            cy -= hole_cy * hole_abs_area;
         }
 
         if total_area.abs() < 1e-12 {
@@ -170,22 +171,32 @@ impl Polygon3D {
         if coords.len() < 3 {
             return (0.0, 0.0, 0.0);
         }
+        let origin_x = coords[0].x;
+        let origin_y = coords[0].y;
         let mut twice_area = 0.0;
         let mut cx = 0.0;
         let mut cy = 0.0;
         let mut j = coords.len() - 1;
         for i in 0..coords.len() {
-            let f = coords[j].x * coords[i].y - coords[i].x * coords[j].y;
+            let p1_x = coords[j].x - origin_x;
+            let p1_y = coords[j].y - origin_y;
+            let p2_x = coords[i].x - origin_x;
+            let p2_y = coords[i].y - origin_y;
+            let f = p1_x * p2_y - p2_x * p1_y;
             twice_area += f;
-            cx += (coords[j].x + coords[i].x) * f;
-            cy += (coords[j].y + coords[i].y) * f;
+            cx += (p1_x + p2_x) * f;
+            cy += (p1_y + p2_y) * f;
             j = i;
         }
         let area = twice_area / 2.0;
         if area == 0.0 {
             return (0.0, 0.0, 0.0);
         }
-        (area, cx / (3.0 * twice_area), cy / (3.0 * twice_area))
+        (
+            area,
+            cx / (3.0 * twice_area) + origin_x,
+            cy / (3.0 * twice_area) + origin_y,
+        )
     }
 }
 
@@ -274,5 +285,61 @@ mod tests {
         let c3 = Coord3D::new(-1.0, 0.0, 1.0);
         assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 4.0));
         assert_eq!(c3 * -1.0, Coord3D::new(1.0, 0.0, -1.0));
+    }
+
+    #[test]
+    fn test_centroid_winding_independence() {
+        // Exterior is CCW (positive area)
+        let ext = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // Hole is also CCW (usually holes are CW, but we want to test independence)
+        let hole = vec![
+            Coord3D::new(2.0, 2.0, 0.0),
+            Coord3D::new(8.0, 2.0, 0.0),
+            Coord3D::new(8.0, 8.0, 0.0),
+            Coord3D::new(2.0, 8.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![hole], vec![], vec![vec![]]);
+        let centroid = poly.centroid_2d().unwrap();
+        // Since it's a symmetric hole in a symmetric square, the centroid should be exactly at the center (5, 5).
+        // If winding independence failed, it might add instead of subtract or produce a wildly wrong result.
+        assert!((centroid.x() - 5.0).abs() < 1e-6);
+        assert!((centroid.y() - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_centroid_numeric_stability_at_large_offsets() {
+        let offset = 10_000_000.0;
+        let ext = vec![
+            Coord3D::new(offset, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![], vec![], vec![]);
+        let centroid = poly.centroid_2d().unwrap();
+
+        // Centroid should be exactly at the center of the small square
+        let expected_x = offset + 0.0005;
+        let expected_y = offset + 0.0005;
+
+        // If there is catastrophic cancellation, the error will be large relative to the small dimensions.
+        println!(
+            "centroid = {:?}, expected = {:?}",
+            centroid,
+            (expected_x, expected_y)
+        );
+        assert!((centroid.x() - expected_x).abs() < 1e-8);
+        assert!((centroid.y() - expected_y).abs() < 1e-8);
     }
 }
