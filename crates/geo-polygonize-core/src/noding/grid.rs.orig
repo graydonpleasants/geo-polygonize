@@ -8,7 +8,6 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-#[cfg(feature = "parallel")]
 #[repr(align(64))]
 #[derive(Clone)]
 struct CachePadded<T>(pub T);
@@ -73,7 +72,6 @@ impl UniformGrid {
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
         // Pass 1: Count entries per cell & Identify Global Lines
-        #[cfg(feature = "parallel")]
         const MAX_CELLS_PER_LINE: usize = 50;
 
         let (counts, mut global_lines) = {
@@ -219,7 +217,8 @@ impl UniformGrid {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
-        let active_mask = active_cells.filter(|mask| mask.len() == self.rows * self.cols);
+        let has_active_mask =
+            active_cells.is_some() && active_cells.unwrap().len() == self.rows * self.cols;
 
         #[cfg(feature = "parallel")]
         let (mut splits, next_mask) = {
@@ -228,10 +227,8 @@ impl UniformGrid {
                 .fold(
                     || (Vec::new(), vec![false; self.rows * self.cols]),
                     |(mut acc_splits, mut acc_mask), idx| {
-                        if let Some(mask) = active_mask {
-                            if !mask[idx] {
-                                return (acc_splits, acc_mask);
-                            }
+                        if has_active_mask && !active_cells.unwrap()[idx] {
+                            return (acc_splits, acc_mask);
                         }
                         let start = self.cell_offsets[idx];
                         let end = self.cell_offsets[idx + 1];
@@ -288,10 +285,8 @@ impl UniformGrid {
             for r in 0..self.rows {
                 for c in 0..self.cols {
                     let idx = r * self.cols + c;
-                    if let Some(mask) = active_mask {
-                        if !mask[idx] {
-                            continue;
-                        }
+                    if has_active_mask && !active_cells.unwrap()[idx] {
+                        continue;
                     }
                     let start = self.cell_offsets[idx];
                     let end = self.cell_offsets[idx + 1];
