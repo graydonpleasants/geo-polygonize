@@ -5,9 +5,14 @@ on:
     branches:
       - main
       - develop
+  pull_request:
+    branches:
+      - main
+      - develop
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   maintenance:
@@ -33,13 +38,16 @@ jobs:
           bash crates/geo-polygonize-core/benches/run_comparison.sh
 
       - name: Update BENCHMARKS.md
+        if: github.event_name == 'push'
         run: |
           python3 crates/geo-polygonize-core/benches/compare_results.py --update
 
       - name: Generate llms.txt
+        if: github.event_name == 'push'
         run: python3 scripts/generate_llms_txt.py
 
       - name: Commit and push changes
+        if: github.event_name == 'push'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -50,3 +58,15 @@ jobs:
             git commit -m "Update benchmarks and llms.txt [skip ci]"
             git push origin HEAD:${{ github.ref }}
           fi
+
+      - name: Generate Benchmark Report
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 crates/geo-polygonize-core/benches/compare_results.py > benchmark_report.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body-file benchmark_report.md
