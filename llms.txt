@@ -24,6 +24,8 @@ The scope is **required** for every Pull Request. You must use one of the follow
 *   `wasm`: Modifications to the WASM bindings (`pkg-threads/`, `pkg-wrapper/`, `crates/geo-polygonize-wasm`).
 *   `fleet`: Modifications to the fleet automation tools (`scripts/fleet/`).
 *   `deps`: Dependency updates or modifications.
+*   `main`: Used for release PRs (e.g. `chore(main): release 0.1.2`).
+*   `github`: Modification to Github actions.
 
 If a PR spans multiple areas, try to pick the most significant one or consider if the PR should be split.
 
@@ -205,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000168 | 0.000678 | 4.04x |
-| 10 | 0.000356 | 0.002216 | 6.23x |
-| 20 | 0.000891 | 0.008273 | 9.28x |
-| 50 | 0.004633 | 0.051157 | 11.04x |
-| 100 | 0.017503 | 0.211182 | 12.07x |
+| 5 | 0.000164 | 0.000684 | 4.18x |
+| 10 | 0.000362 | 0.002217 | 6.13x |
+| 20 | 0.000901 | 0.008276 | 9.18x |
+| 50 | 0.004674 | 0.051146 | 10.94x |
+| 100 | 0.016772 | 0.207766 | 12.39x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000775 | 0.007675 | 9.90x |
-| 100 | 0.002821 | 0.025719 | 9.12x |
-| 200 | 0.010236 | 0.098041 | 9.58x |
+| 50 | 0.000788 | 0.007702 | 9.77x |
+| 100 | 0.002865 | 0.025647 | 8.95x |
+| 200 | 0.010366 | 0.097854 | 9.44x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -2639,36 +2641,24 @@ fn segments_overlap_with_length(
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
     match geom {
         Geometry::LineString(ls) => {
-            for line in ls.lines() {
-                out.push(line.into());
-            }
+            out.extend(ls.lines().map(Line3D::from));
         }
         Geometry::MultiLineString(mls) => {
             for ls in &mls.0 {
-                for line in ls.lines() {
-                    out.push(line.into());
-                }
+                out.extend(ls.lines().map(Line3D::from));
             }
         }
         Geometry::Polygon(poly) => {
-            for line in poly.exterior().lines() {
-                out.push(line.into());
-            }
+            out.extend(poly.exterior().lines().map(Line3D::from));
             for interior in poly.interiors() {
-                for line in interior.lines() {
-                    out.push(line.into());
-                }
+                out.extend(interior.lines().map(Line3D::from));
             }
         }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
-                for line in poly.exterior().lines() {
-                    out.push(line.into());
-                }
+                out.extend(poly.exterior().lines().map(Line3D::from));
                 for interior in poly.interiors() {
-                    for line in interior.lines() {
-                        out.push(line.into());
-                    }
+                    out.extend(interior.lines().map(Line3D::from));
                 }
             }
         }
