@@ -265,26 +265,49 @@ mod tests {
     }
 
     #[test]
-    fn test_coord3d_arithmetic() {
+    fn test_coord3d_add() {
         let c1 = Coord3D::new(1.0, 2.0, 3.0);
         let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c1 + c2, Coord3D::new(5.0, 7.0, 9.0));
 
-        // Add
-        let sum = c1 + c2;
-        assert_eq!(sum, Coord3D::new(5.0, 7.0, 9.0));
+        let c3 = Coord3D::new(-1.0, 0.0, -3.0);
+        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 0.0));
+    }
 
-        // Sub
-        let diff = c2 - c1;
-        assert_eq!(diff, Coord3D::new(3.0, 3.0, 3.0));
+    #[test]
+    fn test_coord3d_sub() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c2 - c1, Coord3D::new(3.0, 3.0, 3.0));
 
-        // Mul
-        let scaled = c1 * 2.0;
-        assert_eq!(scaled, Coord3D::new(2.0, 4.0, 6.0));
+        let c3 = Coord3D::new(1.0, 2.0, 3.0);
+        assert_eq!(c1 - c3, Coord3D::new(0.0, 0.0, 0.0));
+    }
 
-        // Negative and zero
-        let c3 = Coord3D::new(-1.0, 0.0, 1.0);
-        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 4.0));
-        assert_eq!(c3 * -1.0, Coord3D::new(1.0, 0.0, -1.0));
+    #[test]
+    fn test_coord3d_mul() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+
+        // Positive scalar
+        assert_eq!(c1 * 2.0, Coord3D::new(2.0, 4.0, 6.0));
+
+        // Negative scalar
+        assert_eq!(c1 * -1.5, Coord3D::new(-1.5, -3.0, -4.5));
+
+        // Zero scalar
+        assert_eq!(c1 * 0.0, Coord3D::new(0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_coord3d_arithmetic_chain() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(3.0, 2.0, 1.0);
+        let c3 = Coord3D::new(1.0, 1.0, 1.0);
+
+        // (c1 + c2) * 0.5 - c3
+        // (4, 4, 4) * 0.5 - (1, 1, 1) = (2, 2, 2) - (1, 1, 1) = (1, 1, 1)
+        let result = (c1 + c2) * 0.5 - c3;
+        assert_eq!(result, Coord3D::new(1.0, 1.0, 1.0));
     }
 
     #[test]
