@@ -17,6 +17,7 @@ The scope is **required** for every Pull Request. You must use one of the follow
 *   `fleet`: Modifications to the fleet automation tools (`scripts/fleet/`).
 *   `deps`: Dependency updates or modifications.
 *   `main`: Used for release PRs (e.g. `chore(main): release 0.1.2`).
+*   `github`: Modification to Github actions.
 
 If a PR spans multiple areas, try to pick the most significant one or consider if the PR should be split.
 
