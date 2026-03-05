@@ -1,0 +1,29 @@
+name: Lint PR Title
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+jobs:
+  main:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Define custom scopes
+          scopes: |
+            core
+            python
+            wasm
+            fleet
+            deps
+            main
+
+          # Require a scope to always be present
+          requireScope: true
