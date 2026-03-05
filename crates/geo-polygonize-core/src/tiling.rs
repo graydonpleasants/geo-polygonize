@@ -1,9 +1,7 @@
 use crate::types::Polygon3D;
 use crate::Polygonizer;
-use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
-use geo::Area;
 use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -72,12 +70,9 @@ impl TiledPolygonizer {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
-                // Use 2D projection for geometric checks
-                let poly_2d = poly.to_polygon_2d();
-
-                if let Some(pt) = poly_2d.centroid() {
+                if let Some(pt) = poly.centroid_2d() {
                     let c = pt;
-                    let area = poly_2d.unsigned_area();
+                    let area = poly.unsigned_area_2d();
 
                     // Filter slivers
                     if area < 1e-6 {

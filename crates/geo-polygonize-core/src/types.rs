@@ -121,6 +121,77 @@ impl Polygon3D {
         area
     }
 
+    pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
+        if self.exterior.is_empty() {
+            return None;
+        }
+
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut total_area = 0.0;
+
+        let ext_area = Self::ring_signed_area_2d(&self.exterior);
+        if ext_area.abs() < 1e-12 {
+            return None;
+        }
+
+        if let Some((cx, cy)) = Self::ring_centroid_2d(&self.exterior) {
+            sum_x += cx * ext_area;
+            sum_y += cy * ext_area;
+            total_area += ext_area;
+        }
+
+        for hole in &self.interiors {
+            let hole_area = Self::ring_signed_area_2d(hole);
+            if hole_area.abs() >= 1e-12 {
+                if let Some((hcx, hcy)) = Self::ring_centroid_2d(hole) {
+                    sum_x += hcx * hole_area;
+                    sum_y += hcy * hole_area;
+                    total_area += hole_area;
+                }
+            }
+        }
+
+        if total_area.abs() < 1e-12 {
+            return None;
+        }
+
+        Some(geo_types::Point::new(
+            sum_x / total_area,
+            sum_y / total_area,
+        ))
+    }
+
+    #[inline]
+    fn ring_centroid_2d(coords: &[Coord3D]) -> Option<(f64, f64)> {
+        if coords.len() < 4 {
+            if coords.is_empty() {
+                return None;
+            }
+            return Some((coords[0].x, coords[0].y));
+        }
+
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut twice_area = 0.0;
+        let mut j = coords.len() - 1;
+
+        for i in 0..coords.len() {
+            let temp = coords[j].x * coords[i].y - coords[i].x * coords[j].y;
+            twice_area += temp;
+            cx += (coords[j].x + coords[i].x) * temp;
+            cy += (coords[j].y + coords[i].y) * temp;
+            j = i;
+        }
+
+        if twice_area.abs() < 1e-12 {
+            return None;
+        }
+
+        let three_twice_area = 3.0 * twice_area;
+        Some((cx / three_twice_area, cy / three_twice_area))
+    }
+
     #[inline]
     fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
