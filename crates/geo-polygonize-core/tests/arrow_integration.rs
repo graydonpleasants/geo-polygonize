@@ -4,7 +4,7 @@ use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
 use geo_traits::LineStringTrait;
 use geo_traits::PolygonTrait;
-use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonArray};
+use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, PolygonArray};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
