@@ -76,7 +76,6 @@ impl UniformGrid {
         // Pass 1: Count entries per cell & Identify Global Lines
         let mut counts = vec![0usize; cols * rows];
         let mut global_lines = Vec::new();
-        #[cfg(feature = "parallel")]
         const MAX_CELLS_PER_LINE: usize = 50;
 
         for (i, line) in lines.iter().enumerate() {
