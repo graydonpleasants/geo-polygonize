@@ -3,7 +3,6 @@ use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
-use std::cell::RefCell;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -60,8 +59,6 @@ impl SnapNoder {
 
         // 2. Iterative Noding
         let mut new_lines = Vec::new();
-        let mut active_mask: Option<Vec<bool>> = None; // For grid cell sleeping
-
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -76,9 +73,7 @@ impl SnapNoder {
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                let (splits, next_mask) = grid.find_splits(&lines, self, active_mask.as_deref());
-                active_mask = Some(next_mask);
-                splits
+                grid.find_splits(&lines, self)
             };
 
             if events.is_empty() {
@@ -307,7 +302,8 @@ impl SnapNoder {
         #[cfg(feature = "parallel")]
         {
             // Rayon Heuristic: Thread spin-up dominates for small N.
-            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
+            // Use sequential loop if lines < 1000.
+            if lines.len() >= 1000 {
                 // Parallel execution: each thread processes a subset of query lines
                 // and returns a list of split events (line_index, point).
                 lines
@@ -369,83 +365,71 @@ impl SnapNoder {
         lines: &[Line3D],
         soa: &SoALines,
     ) -> Vec<(usize, Coord3D)> {
-        thread_local! {
-            static EVENTS_BUFFER: RefCell<Vec<(usize, Coord3D)>> = RefCell::new(Vec::with_capacity(64));
+        let mut events = Vec::new();
+        // Start block to avoid duplicate checks (j > i)
+        // We start checking at index i+1.
+        // The SoA batching index `j` steps by 4.
+        // We want `j` such that the batch covers indices > i.
+        // Ideally start `j` at next multiple of 4
+        // Round UP: (i + 1 + 3) / 4 * 4
+        let start_block = (i + 1 + 3) / 4 * 4;
+
+        // Handling unaligned start to be absolutely safe and avoid self-check artifacts
+        #[allow(clippy::needless_range_loop)]
+        for j in (i + 1)..start_block.min(lines.len()) {
+            let target_line = lines[j];
+            // Standard BBox check
+            let q_min_x = query_line.start.x.min(query_line.end.x);
+            let q_max_x = query_line.start.x.max(query_line.end.x);
+            let q_min_y = query_line.start.y.min(query_line.end.y);
+            let q_max_y = query_line.start.y.max(query_line.end.y);
+
+            let t_min_x = target_line.start.x.min(target_line.end.x);
+            let t_max_x = target_line.start.x.max(target_line.end.x);
+            let t_min_y = target_line.start.y.min(target_line.end.y);
+            let t_max_y = target_line.start.y.max(target_line.end.y);
+
+            if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
+            {
+                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
+                    events.push((idx, pt))
+                });
+            }
         }
 
-        EVENTS_BUFFER.with(|buf| {
-            let mut events = buf.borrow_mut();
-            events.clear();
+        // Pre-calculate query BBox splats
+        let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
+        let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
+        let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
+        let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
 
-            // Start block to avoid duplicate checks (j > i)
-            // We start checking at index i+1.
-            // The SoA batching index `j` steps by 4.
-            // We want `j` such that the batch covers indices > i.
-            // Ideally start `j` at next multiple of 4
-            // Round UP: (i + 1 + 3) / 4 * 4
-            let start_block = (i + 1 + 3) / 4 * 4;
+        for j in (start_block..soa.len()).step_by(4) {
+            let mask = soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
 
-            // Handling unaligned start to be absolutely safe and avoid self-check artifacts
-            #[allow(clippy::needless_range_loop)]
-            for j in (i + 1)..start_block.min(lines.len()) {
-                let target_line = lines[j];
-                // Standard BBox check
-                let q_min_x = query_line.start.x.min(query_line.end.x);
-                let q_max_x = query_line.start.x.max(query_line.end.x);
-                let q_min_y = query_line.start.y.min(query_line.end.y);
-                let q_max_y = query_line.start.y.max(query_line.end.y);
-
-                let t_min_x = target_line.start.x.min(target_line.end.x);
-                let t_max_x = target_line.start.x.max(target_line.end.x);
-                let t_min_y = target_line.start.y.min(target_line.end.y);
-                let t_max_y = target_line.start.y.max(target_line.end.y);
-
-                if q_max_x >= t_min_x
-                    && q_min_x <= t_max_x
-                    && q_max_y >= t_min_y
-                    && q_min_y <= t_max_y
-                {
-                    self.process_intersection(query_line, target_line, i, j, |idx, pt| {
-                        events.push((idx, pt))
-                    });
-                }
-            }
-
-            // Pre-calculate query BBox splats
-            let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
-            let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
-            let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
-            let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
-
-            for j in (start_block..soa.len()).step_by(4) {
-                let mask =
-                    soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
-
-                if mask != 0 {
-                    for k in 0..4 {
-                        if (mask & (1 << k)) != 0 {
-                            let target_idx = j + k;
-                            if target_idx >= lines.len() {
-                                continue;
-                            }
-                            if target_idx <= i {
-                                continue;
-                            } // Enforce i < j
-
-                            let target_line = lines[target_idx];
-                            self.process_intersection(
-                                query_line,
-                                target_line,
-                                i,
-                                target_idx,
-                                |idx, pt| events.push((idx, pt)),
-                            );
+            if mask != 0 {
+                for k in 0..4 {
+                    if (mask & (1 << k)) != 0 {
+                        let target_idx = j + k;
+                        if target_idx >= lines.len() {
+                            continue;
                         }
+                        if target_idx <= i {
+                            continue;
+                        } // Enforce i < j
+
+                        let target_line = lines[target_idx];
+                        self.process_intersection(
+                            query_line,
+                            target_line,
+                            i,
+                            target_idx,
+                            |idx, pt| events.push((idx, pt)),
+                        );
                     }
                 }
             }
-            events.clone()
-        })
+        }
+        events
     }
 
     #[inline]
@@ -500,7 +484,7 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let (mut splits_grid, _) = grid.find_splits(&lines, &noder, None);
+        let mut splits_grid = grid.find_splits(&lines, &noder);
 
         // SIMD Logic
         let mut splits_simd = noder.find_splits_simd(&lines);
