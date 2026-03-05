@@ -752,6 +752,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "geojson",
+ "getrandom 0.2.16",
  "log",
  "numpy",
  "pyo3",
