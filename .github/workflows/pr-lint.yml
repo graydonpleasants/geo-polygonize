@@ -23,6 +23,8 @@ jobs:
             wasm
             fleet
             deps
+            main
+            github
 
           # Require a scope to always be present
           requireScope: true
