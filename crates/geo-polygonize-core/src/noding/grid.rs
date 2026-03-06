@@ -319,6 +319,43 @@ impl UniformGrid {
 
     #[inline]
     #[allow(clippy::too_many_arguments)]
+    fn handle_collinear(
+        &self,
+        c: usize,
+        r: usize,
+        cell_min_x: f64,
+        cell_max_x: f64,
+        cell_min_y: f64,
+        cell_max_y: f64,
+        overlap: geo::Line<f64>,
+        snap_noder: &SnapNoder,
+        res: LineIntersection<f64>,
+        idx1: usize,
+        idx2: usize,
+        l1: Line3D,
+        l2: Line3D,
+        splits: &mut Vec<(usize, Coord3D)>,
+    ) {
+        // Collinear is rare. Just process start/end and let HashMap dedup later.
+        // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
+        // We construct dummy 3D coords (Z=0).
+        let p1 = snap_noder
+            .snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0))
+            .to_coord_2d();
+        // Simplified ownership: Check if p1 is in cell
+        let p1_in = p1.x >= cell_min_x
+            && p1.x < cell_max_x
+            && p1.y >= cell_min_y
+            && p1.y < cell_max_y;
+        if p1_in || (c == 0 && r == 0) {
+            snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
+                splits.push((idx, pt));
+            });
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn process_cell(
         &self,
         r: usize,
@@ -399,31 +436,10 @@ impl UniformGrid {
                             }
                             LineIntersection::Collinear {
                                 intersection: overlap,
-                            } => {
-                                // Collinear is rare. Just process start/end and let HashMap dedup later.
-                                // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
-                                // We construct dummy 3D coords (Z=0).
-                                let p1 = snap_noder
-                                    .snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0))
-                                    .to_coord_2d();
-                                // Simplified ownership: Check if p1 is in cell
-                                let p1_in = p1.x >= cell_min_x
-                                    && p1.x < cell_max_x
-                                    && p1.y >= cell_min_y
-                                    && p1.y < cell_max_y;
-                                if p1_in || (c == 0 && r == 0) {
-                                    snap_noder.handle_intersection(
-                                        res,
-                                        idx1,
-                                        idx2,
-                                        l1,
-                                        l2,
-                                        |idx, pt| {
-                                            splits.push((idx, pt));
-                                        },
-                                    );
-                                }
-                            }
+                            } => self.handle_collinear(
+                                c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap,
+                                snap_noder, res, idx1, idx2, l1, l2, splits,
+                            ),
                         }
                     }
                 }
