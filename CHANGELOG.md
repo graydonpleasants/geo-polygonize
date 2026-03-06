@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.0...geo-polygonize-v0.4.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **core:** remove debug print in polygonizer.rs ([6c77240](https://github.com/graydonpleasants/geo-polygonize/commit/6c772401865aa1d230e1c7fb1d1c14dfb07bc508))
+* **github:** support release-please component tags in publish workflows ([#207](https://github.com/graydonpleasants/geo-polygonize/issues/207)) ([b59cccd](https://github.com/graydonpleasants/geo-polygonize/commit/b59cccd116c8225257d2bacdc1f78c6dee8fe93a))
+
+
+### Performance Improvements
+
+* **core:** Eliminate intermediate polygon allocations ([#204](https://github.com/graydonpleasants/geo-polygonize/issues/204)) ([5329162](https://github.com/graydonpleasants/geo-polygonize/commit/5329162172980c3f6bc154c3ef7a9986b7fe2838))
+
 ## [0.4.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.1...geo-polygonize-v0.4.0) (2026-03-06)
 
 
