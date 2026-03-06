@@ -1,4 +1,5 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::measurement::Measurement;
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion};
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
@@ -59,12 +60,7 @@ fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
     lines
 }
 
-fn bench_polygonize(c: &mut Criterion) {
-    let mut group = c.benchmark_group("polygonize");
-    group.sample_size(10);
-    group.measurement_time(std::time::Duration::from_secs(10));
-
-    // Grid sizes
+fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let grid_sizes = [5, 10, 20, 50, 100];
     for &size in grid_sizes.iter() {
         group.bench_with_input(BenchmarkId::new("grid", size), &size, |b, &size| {
@@ -104,9 +100,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         }
     }
+}
 
-    // Stress Test: Bowtie/Dirty Grid
-    // Compare Strategies
+fn bench_bowtie_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let dirty_sizes = [10, 20, 50];
     for &size in dirty_sizes.iter() {
         let lines = generate_bowtie_grid(size);
@@ -117,10 +113,6 @@ fn bench_polygonize(c: &mut Criterion) {
             &size,
             |b, &_size| {
                 b.iter(|| {
-                    // Manual noding to inject strategy?
-                    // Polygonizer doesn't expose strategy directly, so we must node manually
-                    // or trust the auto behavior.
-                    // For explicit comparison, we will use SnapNoder directly here.
                     let mut input_segments = Vec::new();
                     for ls in &lines {
                         for line in ls.lines() {
@@ -152,7 +144,6 @@ fn bench_polygonize(c: &mut Criterion) {
         );
 
         // Force SIMD (Brute Force) - CAUTION: O(N^2)
-        // Only run for smaller sizes to avoid timeout
         if size <= 20 {
             group.bench_with_input(
                 BenchmarkId::new("bowtie_grid_force_simd", size),
@@ -172,9 +163,9 @@ fn bench_polygonize(c: &mut Criterion) {
             );
         }
     }
+}
 
-    // Random line counts
-    // Limiting to 200 as 500 takes too long in the current implementation
+fn bench_random_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let random_counts = [50, 100, 200];
     for &count in random_counts.iter() {
         group.bench_with_input(BenchmarkId::new("random", count), &count, |b, &count| {
@@ -189,8 +180,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         });
     }
+}
 
-    // Sparse/Parallel Lines Test (Large N, 0 Intersections)
+fn bench_parallel_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     group.bench_function("large_parallel_10k", |b| {
         let lines = generate_parallel_lines(10_000);
         let mut input_segments = Vec::new();
@@ -199,14 +191,22 @@ fn bench_polygonize(c: &mut Criterion) {
                 input_segments.push(line.into());
             }
         }
-        // Clone for setup to avoid overhead in loop?
-        // SnapNoder::node consumes lines? No, it takes Vec<Line>.
-        // So we clone in iter.
         b.iter(|| {
             let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
             noder.node(input_segments.clone());
         });
     });
+}
+
+fn bench_polygonize(c: &mut Criterion) {
+    let mut group = c.benchmark_group("polygonize");
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(10));
+
+    bench_grid_scenarios(&mut group);
+    bench_bowtie_scenarios(&mut group);
+    bench_random_scenarios(&mut group);
+    bench_parallel_scenarios(&mut group);
 
     group.finish();
 }
