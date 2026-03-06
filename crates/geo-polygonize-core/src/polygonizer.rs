@@ -688,3 +688,14 @@ fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_with_snap_grid() {
+        let polygonizer = Polygonizer::new().with_snap_grid(0.123);
+        assert_eq!(polygonizer.snap_grid_size, 0.123);
+    }
+}
