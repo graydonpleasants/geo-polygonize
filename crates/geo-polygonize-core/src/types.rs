@@ -365,4 +365,10 @@ mod tests {
         assert!((centroid.x() - expected_x).abs() < 1e-8);
         assert!((centroid.y() - expected_y).abs() < 1e-8);
     }
+
+    #[test]
+    fn test_centroid_empty_exterior() {
+        let poly = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        assert_eq!(poly.centroid_2d(), None);
+    }
 }
