@@ -8,7 +8,7 @@ if ! command -v wasm-pack &> /dev/null; then
 fi
 
 echo "Building Wasm Benchmark..."
-cd benches/wasm_bench
+cd "$(dirname "$0")/wasm_bench"
 wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
