@@ -149,7 +149,8 @@ impl Polygon3D {
 
         let three_twice_area = 3.0 * twice_area;
         Some((cx / three_twice_area, cy / three_twice_area))
-      
+    }
+
     /// Computes the 2D centroid directly without allocating intermediate geometry.
     pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
         let mut cx = 0.0;
