@@ -234,6 +234,25 @@ def test_invalid_input_status(mock_lib):
     print("Invalid input status test passed!")
 
 @patch('geo_polygonize.cffi_wrapper.lib', create=True)
+def test_null_result_pointer(mock_lib):
+    print("\nTesting null result pointer...")
+    import geo_polygonize.cffi_wrapper as cw
+
+    # Mock the return values
+    mock_lib.polygonize_ffi.return_value = cw.ffi.NULL
+
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    try:
+        cw.polygonize(coords, offsets)
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
+        print(f"Caught expected error: {e}")
+        assert "Polygonization failed (returned NULL)" in str(e)
+    print("Null result pointer test passed!")
+
+@patch('geo_polygonize.cffi_wrapper.lib', create=True)
 def test_internal_error_status(mock_lib):
     print("\nTesting internal error status (status == 2)...")
     import geo_polygonize.cffi_wrapper as cw
@@ -266,3 +285,4 @@ if __name__ == "__main__":
     test_library_not_found()
     test_invalid_input_status()
     test_internal_error_status()
+    test_null_result_pointer()
