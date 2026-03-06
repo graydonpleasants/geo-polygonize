@@ -10,7 +10,7 @@ pub struct TiledPolygonizer {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
-    geometries: Vec<Geometry<f64>>,
+    geometries: Vec<(Geometry<f64>, Option<Rect<f64>>)>,
 }
 
 impl TiledPolygonizer {
@@ -29,7 +29,8 @@ impl TiledPolygonizer {
     }
 
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        self.geometries.push(geom);
+        let bbox = geom.bounding_rect();
+        self.geometries.push((geom, bbox));
     }
 
     fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
@@ -50,12 +51,8 @@ impl TiledPolygonizer {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
-        for geom in &self.geometries {
-            if geom
-                .bounding_rect()
-                .map(|b| b.intersects(&buffered_bbox))
-                .unwrap_or(false)
-            {
+        for (geom, bbox) in &self.geometries {
+            if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
                 local_poly.add_geometry(geom.clone());
                 relevant_lines += 1;
             }
