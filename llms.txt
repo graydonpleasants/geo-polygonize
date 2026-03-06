@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000160 | 0.000669 | - | 4.19x | - | - |
-| 10 | 0.000360 | 0.002216 | 0.000310 | 6.15x | 7.15x | 0.86x |
-| 20 | 0.000903 | 0.008299 | 0.000220 | 9.19x | 37.72x | 0.24x |
-| 50 | 0.004352 | 0.051922 | 0.000430 | 11.93x | 120.75x | 0.10x |
-| 100 | 0.018072 | 0.217769 | - | 12.05x | - | - |
+| 5 | 0.000167 | 0.000678 | - | 4.05x | - | - |
+| 10 | 0.000354 | 0.002203 | 0.000300 | 6.23x | 7.34x | 0.85x |
+| 20 | 0.000887 | 0.008199 | 0.000310 | 9.25x | 26.45x | 0.35x |
+| 50 | 0.004534 | 0.050847 | 0.000440 | 11.21x | 115.56x | 0.10x |
+| 100 | 0.017741 | 0.206930 | - | 11.66x | - | - |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000782 | 0.008037 | - | 10.28x | - | - |
-| 100 | 0.002833 | 0.025830 | - | 9.12x | - | - |
-| 200 | 0.010387 | 0.100801 | - | 9.70x | - | - |
+| 50 | 0.000770 | 0.007927 | - | 10.29x | - | - |
+| 100 | 0.002789 | 0.025740 | - | 9.23x | - | - |
+| 200 | 0.010157 | 0.098547 | - | 9.70x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -597,6 +597,32 @@ fn main() {
     }
 }
 ```
+
+### Choosing `node_input` and `snap_grid_size`
+
+Polygonization quality is heavily influenced by input noding strategy.
+
+- **`node_input = false`** (default): Fastest path. Use this when your input linework is already noded (all intersections are explicit vertices).
+- **`node_input = true`**: Enables Iterated Snap Rounding (ISR). Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections.
+- **`snap_grid_size`** controls how aggressively coordinates are snapped during robust noding:
+  - Start with `1e-10` for high-precision projected data.
+  - Increase to `1e-8` or `1e-6` when near-duplicate vertices prevent clean topology.
+  - Avoid very large values unless your coordinate units are coarse; oversnapping can collapse narrow features.
+
+Practical workflow:
+1. Run with `node_input = false` first on trusted data.
+2. If you observe missing polygons, sliver artifacts, or unresolved intersections, enable `node_input`.
+3. Tune `snap_grid_size` upward incrementally until topology stabilizes.
+
+### Output semantics
+
+The polygonizer intentionally returns only valid polygonal areas that can be formed from closed cycles:
+
+- **Dangles are removed**: dead-end edges do not appear in output polygons.
+- **Cut edges are excluded**: edges that are connected but cannot bound a face are ignored.
+- **Holes and nested shells are preserved** when enough boundary information is present.
+
+This behavior matches classical JTS/GEOS polygonization semantics and is useful for cleaning linework before area analysis.
 
 ### GeoArrow Integration
 
@@ -3713,7 +3739,7 @@ pub struct TiledPolygonizer {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
-    geometries: Vec<Geometry<f64>>,
+    geometries: Vec<(Geometry<f64>, Option<Rect<f64>>)>,
 }
 
 impl TiledPolygonizer {
@@ -3732,7 +3758,8 @@ impl TiledPolygonizer {
     }
 
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        self.geometries.push(geom);
+        let bbox = geom.bounding_rect();
+        self.geometries.push((geom, bbox));
     }
 
     fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
@@ -3753,12 +3780,8 @@ impl TiledPolygonizer {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
-        for geom in &self.geometries {
-            if geom
-                .bounding_rect()
-                .map(|b| b.intersects(&buffered_bbox))
-                .unwrap_or(false)
-            {
+        for (geom, bbox) in &self.geometries {
+            if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
                 local_poly.add_geometry(geom.clone());
                 relevant_lines += 1;
             }
@@ -8343,7 +8366,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { version = "0.3.0", path = "../geo-polygonize-core", default-features = false }
+geo-polygonize-core = { version = "0.3.1", path = "../geo-polygonize-core", default-features = false }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
