@@ -10,3 +10,4 @@ dist/
 pkg-scalar/
 pkg-simd/
 pkg-threads/
+test_venv

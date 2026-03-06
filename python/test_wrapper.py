@@ -5,7 +5,7 @@ import shapely
 from shapely.geometry import shape
 
 # Add python directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__)))
+# sys.path.append(os.path.join(os.path.dirname(__file__)))
 
 from geo_polygonize import polygonize
 
