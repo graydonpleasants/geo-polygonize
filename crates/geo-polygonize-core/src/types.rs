@@ -153,7 +153,7 @@ impl Polygon3D {
     }
 
     #[inline]
-    fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
+    pub fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
             return 0.0;
         }
@@ -167,7 +167,7 @@ impl Polygon3D {
     }
 
     #[inline]
-    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+    pub fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
         if coords.len() < 3 {
             return (0.0, 0.0, 0.0);
         }
