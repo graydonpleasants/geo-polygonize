@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.1...geo-polygonize-v0.4.0) (2026-03-06)
+
+
+### Features
+
+* **core:** trigger release for bounding_rect optimization ([854e4ce](https://github.com/graydonpleasants/geo-polygonize/commit/854e4ce1162d8f414e531624629d700df4b42318))
+* **deps:** configure commitlint to strictly enforce conventional commits ([#203](https://github.com/graydonpleasants/geo-polygonize/issues/203)) ([23c6d13](https://github.com/graydonpleasants/geo-polygonize/commit/23c6d13020e4f45861657547e729dd06f93fd672))
+
+
+### Bug Fixes
+
+* **ci:** bump internal workspace dependencies during release-please sync ([#205](https://github.com/graydonpleasants/geo-polygonize/issues/205)) ([a26648c](https://github.com/graydonpleasants/geo-polygonize/commit/a26648c23d7f03137fa7c65dac3c265f58fb401d))
+
 ## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.0...geo-polygonize-v0.3.1) (2026-03-06)
 
 
