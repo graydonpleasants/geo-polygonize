@@ -178,11 +178,19 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
         if list_arr.is_null(i) {
             continue;
         }
-        let start = list_arr.value_offsets()[i].to_usize().unwrap();
-        let end = list_arr.value_offsets()[i + 1].to_usize().unwrap();
+        let start = list_arr.value_offsets()[i]
+            .to_usize()
+            .ok_or("Invalid start offset: cannot convert to usize")?;
+        let end = list_arr.value_offsets()[i + 1]
+            .to_usize()
+            .ok_or("Invalid end offset: cannot convert to usize")?;
 
         if end <= start {
             continue;
+        }
+
+        if end > x_vals.len() || end > y_vals.len() {
+            return Err("Offset out of bounds for x/y coordinate arrays".to_string());
         }
 
         // Iterate points in the linestring
