@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "./scripts/build_wasm.sh",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "husky"
   },
   "files": [
     "dist"
@@ -34,10 +35,13 @@
   },
   "types": "./dist/standard/es/index.d.ts",
   "devDependencies": {
+    "@commitlint/cli": "^20.4.3",
+    "@commitlint/config-conventional": "^20.4.3",
     "@rollup/plugin-commonjs": "^25.0.0",
     "@rollup/plugin-node-resolve": "^15.0.0",
     "@rollup/plugin-typescript": "^11.0.0",
     "@rollup/plugin-url": "^8.0.2",
+    "husky": "^9.1.7",
     "rollup": "^4.0.0",
     "tslib": "^2.6.0",
     "typescript": "^5.0.0",
