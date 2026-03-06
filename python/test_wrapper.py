@@ -19,7 +19,6 @@ def test_square():
         0.0, 10.0, 0.0, 0.0
     ], dtype=np.float64)
     # Offsets in POINTS (pairs of doubles)
-    # Fix: Added 8 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
@@ -46,7 +45,6 @@ def test_two_squares():
         20.0, 10.0, 20.0, 0.0
     ], dtype=np.float64)
 
-    # Fix: Added 16 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16], dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
@@ -70,7 +68,6 @@ def test_square_with_hole():
     ], dtype=np.float64)
 
     # 32 floats = 16 points
-    # Fix: Added 16 (range to 18) to close the last segment
     offsets = np.arange(0, 18, 2, dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
