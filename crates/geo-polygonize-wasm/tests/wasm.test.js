@@ -70,4 +70,52 @@ describe('WASM Polygonizer', () => {
         });
         expect(() => polygonize(input2)).toThrow(/Invalid GeoJSON/);
     });
+
+    it('should behave differently with explicit options (parity with backend)', async () => {
+        await init();
+
+        // Cross without a node at [5, 5]
+        const input = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[0, 0], [10, 10]]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[0, 10], [10, 0]]
+                    }
+                },
+                // Add a bounding box to close the shape
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+                    }
+                }
+            ]
+        };
+
+        // Default behavior (node_input = false): The crossing lines are not noded,
+        // so no smaller polygons are found, just the outer bounding box and maybe dangles.
+        const defaultResultJson = polygonize(JSON.stringify(input));
+        const defaultResult = JSON.parse(defaultResultJson);
+
+        // Explicit parity behavior (node_input = true, snap_grid_size = 0.5):
+        // The crossing lines are correctly noded at the intersection,
+        // yielding 4 separate triangle polygons.
+        const parityResultJson = polygonize(JSON.stringify(input), true, 0.5, false);
+        const parityResult = JSON.parse(parityResultJson);
+
+        // With node_input=true, we expect to find the 4 quadrants formed by the crossed square
+        expect(parityResult.features.length).toBeGreaterThan(defaultResult.features.length);
+        expect(parityResult.features.length).toBe(4);
+    });
 });

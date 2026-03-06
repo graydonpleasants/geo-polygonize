@@ -8,6 +8,11 @@ function addToExternrefTable0(obj) {
     return idx;
 }
 
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
@@ -61,6 +66,13 @@ function isLikeNone(x) {
 function passArray32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -212,6 +224,13 @@ export class WasmPolygonResult {
         const ret = wasm.wasmpolygonresult_polygon_offsets_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
+    /**
+     * @returns {number}
+     */
+    stride() {
+        const ret = wasm.wasmpolygonresult_stride(this.__wbg_ptr);
+        return ret;
+    }
 }
 if (Symbol.dispose) WasmPolygonResult.prototype[Symbol.dispose] = WasmPolygonResult.prototype.free;
 
@@ -226,15 +245,18 @@ export function initThreadPool(num_threads) {
 
 /**
  * @param {string} geojson_str
+ * @param {boolean | null} [node_input]
+ * @param {number | null} [snap_grid_size]
+ * @param {boolean | null} [extract_only_polygonal]
  * @returns {string}
  */
-export function polygonize(geojson_str) {
+export function polygonize(geojson_str, node_input, snap_grid_size, extract_only_polygonal) {
     let deferred3_0;
     let deferred3_1;
     try {
         const ptr0 = passStringToWasm0(geojson_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.polygonize(ptr0, len0);
+        const ret = wasm.polygonize(ptr0, len0, isLikeNone(node_input) ? 0xFFFFFF : node_input ? 1 : 0, !isLikeNone(snap_grid_size), isLikeNone(snap_grid_size) ? 0 : snap_grid_size, isLikeNone(extract_only_polygonal) ? 0xFFFFFF : extract_only_polygonal ? 1 : 0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
@@ -252,20 +274,40 @@ export function polygonize(geojson_str) {
 /**
  * @param {Float64Array} coords
  * @param {Uint32Array} offsets
+ * @param {number} stride
  * @param {boolean} node_input
  * @param {number} snap_grid_size
  * @returns {WasmPolygonResult}
  */
-export function polygonize_buffers(coords, offsets, node_input, snap_grid_size) {
+export function polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size) {
     const ptr0 = passArrayF64ToWasm0(coords, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(offsets, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.polygonize_buffers(ptr0, len0, ptr1, len1, node_input, snap_grid_size);
+    const ret = wasm.polygonize_buffers(ptr0, len0, ptr1, len1, stride, node_input, snap_grid_size);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return WasmPolygonResult.__wrap(ret[0]);
+}
+
+/**
+ * @param {Uint8Array} ipc_bytes
+ * @param {boolean} node_input
+ * @param {number} snap_grid_size
+ * @param {boolean} extract_only_polygonal
+ * @returns {Uint8Array}
+ */
+export function polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extract_only_polygonal) {
+    const ptr0 = passArray8ToWasm0(ipc_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.polygonize_geoarrow(ptr0, len0, node_input, snap_grid_size, extract_only_polygonal);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
 }
 
 export class wbg_rayon_PoolBuilder {

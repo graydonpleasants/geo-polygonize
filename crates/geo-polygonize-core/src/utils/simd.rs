@@ -279,13 +279,35 @@ mod tests {
                 // Geo's contains is strict (false for boundary).
                 // SimdRing is strict-ish (false for most boundary, true for some vertices).
                 // We skip points too close to boundary to avoid flaky tests on undefined behavior.
-                use geo::EuclideanDistance;
                 // Convert test_point to Point for distance check
-                let point_geo = geo::Point(test_point);
+                // let point_geo = geo::Point(test_point);
                 // Check distance to boundary
                 let boundary = poly.exterior();
+
+                let mut min_dist = f64::MAX;
+                for i in 0..boundary.0.len() - 1 {
+                    let a = boundary.0[i];
+                    let b = boundary.0[i+1];
+                    let p = test_point;
+
+                    let l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+                    let d = if l2 == 0.0 {
+                        ((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)).sqrt()
+                    } else {
+                        let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+                        let t = t.clamp(0.0, 1.0);
+                        let proj_x = a.x + t * (b.x - a.x);
+                        let proj_y = a.y + t * (b.y - a.y);
+                        ((p.x - proj_x) * (p.x - proj_x) + (p.y - proj_y) * (p.y - proj_y)).sqrt()
+                    };
+
+                    if d < min_dist {
+                        min_dist = d;
+                    }
+                }
+
                 // Check distance using Euclidean distance
-                if boundary.euclidean_distance(&point_geo) < 1e-5 {
+                if min_dist < 1e-5 {
                     continue;
                 }
 

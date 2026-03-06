@@ -27,7 +27,7 @@ fn test_reproduce_nan_in_noder() {
     // This should not panic or hang, and should filter out the invalid line
     let result = noder.node(lines);
 
-    assert!(result.len() > 0, "Should return valid lines");
+    assert!(!result.is_empty(), "Should return valid lines");
 
     // Just verify no NaNs
     for line in &result {

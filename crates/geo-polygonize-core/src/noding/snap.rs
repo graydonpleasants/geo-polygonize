@@ -523,10 +523,10 @@ mod tests {
 
     #[test]
     fn test_scalar_strategy_simple() {
-        let mut lines = Vec::new();
-        // Intersection at (5, 5)
-        lines.push(make_line(0.0, 0.0, 10.0, 10.0));
-        lines.push(make_line(0.0, 10.0, 10.0, 0.0));
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 10.0),
+            make_line(0.0, 10.0, 10.0, 0.0)
+        ];
 
         let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
         let noded = noder.node(lines);

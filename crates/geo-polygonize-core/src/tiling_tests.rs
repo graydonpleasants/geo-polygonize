@@ -1,7 +1,8 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Area, Coord, Geometry, LineString, Rect};
+    use geo::{Coord, Geometry, LineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -12,35 +13,35 @@ mod tests {
         //  |     |      |
         // 0,20- 10,20- 20,20
 
-        let mut geoms = Vec::new();
+        let geoms = vec![
+            // Horizontals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 20.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 10.0 },
+                Coord { x: 20.0, y: 10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 20.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
 
-        // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 20.0, y: 0.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 20.0, y: 10.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 20.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
-
-        // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 0.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 10.0, y: 0.0 },
-            Coord { x: 10.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 20.0, y: 0.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
+            // Verticals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 0.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 10.0, y: 0.0 },
+                Coord { x: 10.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 20.0, y: 0.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+        ];
 
         // BBox covers 0,0 to 20,20
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
@@ -70,34 +71,35 @@ mod tests {
         // Tile size 10, lines on 10.
         // This tests the "ownership" logic at boundaries.
 
-        let mut geoms = Vec::new();
-        // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 20.0, y: 0.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 20.0, y: 10.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 20.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
+        let geoms = vec![
+            // Horizontals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 20.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 10.0 },
+                Coord { x: 20.0, y: 10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 20.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
 
-        // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 0.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 10.0, y: 0.0 },
-            Coord { x: 10.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 20.0, y: 0.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
+            // Verticals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 0.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 10.0, y: 0.0 },
+                Coord { x: 10.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 20.0, y: 0.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+        ];
 
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
 
@@ -122,14 +124,13 @@ mod tests {
         // BBox passed is 0,0 -> 20,20.
         // This simulates a polygon on the edge of the world.
 
-        let mut geoms = Vec::new();
-        geoms.push(Geometry::LineString(LineString::new(vec![
+        let geoms = vec![Geometry::LineString(LineString::new(vec![
             Coord { x: 19.0, y: 0.0 },
             Coord { x: 21.0, y: 0.0 },
             Coord { x: 21.0, y: 10.0 },
             Coord { x: 19.0, y: 10.0 },
             Coord { x: 19.0, y: 0.0 },
-        ])));
+        ]))];
 
         // BBox 0,0 -> 20,20.
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
