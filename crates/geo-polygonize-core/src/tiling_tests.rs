@@ -27,7 +27,6 @@ mod tests {
                 Coord { x: 0.0, y: 20.0 },
                 Coord { x: 20.0, y: 20.0 },
             ])),
-
             // Verticals
             Geometry::LineString(LineString::new(vec![
                 Coord { x: 0.0, y: 0.0 },
@@ -85,7 +84,6 @@ mod tests {
                 Coord { x: 0.0, y: 20.0 },
                 Coord { x: 20.0, y: 20.0 },
             ])),
-
             // Verticals
             Geometry::LineString(LineString::new(vec![
                 Coord { x: 0.0, y: 0.0 },

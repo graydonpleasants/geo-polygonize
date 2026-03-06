@@ -525,7 +525,7 @@ mod tests {
     fn test_scalar_strategy_simple() {
         let lines = vec![
             make_line(0.0, 0.0, 10.0, 10.0),
-            make_line(0.0, 10.0, 10.0, 0.0)
+            make_line(0.0, 10.0, 10.0, 0.0),
         ];
 
         let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);

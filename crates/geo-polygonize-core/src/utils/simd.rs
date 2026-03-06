@@ -287,7 +287,7 @@ mod tests {
                 let mut min_dist = f64::MAX;
                 for i in 0..boundary.0.len() - 1 {
                     let a = boundary.0[i];
-                    let b = boundary.0[i+1];
+                    let b = boundary.0[i + 1];
                     let p = test_point;
 
                     let l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
