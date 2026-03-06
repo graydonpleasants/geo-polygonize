@@ -3,6 +3,7 @@ import os
 import numpy as np
 import shapely
 from shapely.geometry import shape
+from unittest.mock import patch
 
 # Add python directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__)))
@@ -165,6 +166,24 @@ def test_return_polygons_without_shapely():
             print(f"Caught expected error: {e}")
             assert "return_polygons=True requires 'shapely' to be installed." in str(e)
     print("ImportError fallback test passed!")
+    
+@patch('os.path.exists')
+@patch('glob.glob')
+def test_library_not_found(mock_glob, mock_exists):
+    print("\nTesting missing shared library...")
+    # Mock exists to always return False and glob to return empty list
+    mock_exists.return_value = False
+    mock_glob.return_value = []
+
+    import geo_polygonize.cffi_wrapper as cffi_wrapper
+
+    try:
+        cffi_wrapper.find_library()
+        assert False, "Should have raised FileNotFoundError"
+    except FileNotFoundError as e:
+        print(f"Caught expected error: {e}")
+        assert "Could not find geo_polygonize_core shared library" in str(e)
+    print("Missing library test passed!")
 
 if __name__ == "__main__":
     test_square()
@@ -173,3 +192,4 @@ if __name__ == "__main__":
     test_3d_coordinates()
     test_odd_length_coordinates()
     test_return_polygons_without_shapely()
+    test_library_not_found()
