@@ -648,36 +648,24 @@ fn segments_overlap_with_length(
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
     match geom {
         Geometry::LineString(ls) => {
-            for line in ls.lines() {
-                out.push(line.into());
-            }
+            out.extend(ls.lines().map(Line3D::from));
         }
         Geometry::MultiLineString(mls) => {
             for ls in &mls.0 {
-                for line in ls.lines() {
-                    out.push(line.into());
-                }
+                out.extend(ls.lines().map(Line3D::from));
             }
         }
         Geometry::Polygon(poly) => {
-            for line in poly.exterior().lines() {
-                out.push(line.into());
-            }
+            out.extend(poly.exterior().lines().map(Line3D::from));
             for interior in poly.interiors() {
-                for line in interior.lines() {
-                    out.push(line.into());
-                }
+                out.extend(interior.lines().map(Line3D::from));
             }
         }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
-                for line in poly.exterior().lines() {
-                    out.push(line.into());
-                }
+                out.extend(poly.exterior().lines().map(Line3D::from));
                 for interior in poly.interiors() {
-                    for line in interior.lines() {
-                        out.push(line.into());
-                    }
+                    out.extend(interior.lines().map(Line3D::from));
                 }
             }
         }
