@@ -3,9 +3,11 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "geo_polygonize"
-version = "0.1.0"
+name = "geo-polygonize-py"
+version = "0.3.0"
 requires-python = ">=3.7"
+description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
+license = {text = "MIT OR Apache-2.0"}
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",

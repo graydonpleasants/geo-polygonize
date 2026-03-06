@@ -116,7 +116,12 @@ async function run() {
     };
 
     // Returns a GeoJSON FeatureCollection string
-    const result = polygonize(JSON.stringify(geojson));
+    // Pass explicitly matching backend configuration if desired
+    const result = polygonize(
+        JSON.stringify(geojson),
+        true, // node_input
+        0.5   // snap_grid_size
+    );
     console.log(JSON.parse(result));
 
     // Or use Arrow IPC bytes

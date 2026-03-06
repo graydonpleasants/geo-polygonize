@@ -70,6 +70,7 @@ impl TiledPolygonizer {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
+                // Fast path avoiding geometry allocation
                 if let Some(pt) = poly.centroid_2d() {
                     let c = pt;
                     let area = poly.unsigned_area_2d();

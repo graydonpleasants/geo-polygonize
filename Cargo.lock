@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "approx",
  "arrow",
@@ -752,6 +752,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "geojson",
+ "getrandom 0.2.16",
  "log",
  "numpy",
  "pyo3",
@@ -768,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-wasm"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "arrow",
  "arrow-ipc",

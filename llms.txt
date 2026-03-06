@@ -4,6 +4,53 @@ cognitive-complexity-threshold = 25
 
 ```
 
+File: AGENTS.md
+```
+# AI Agent Instructions
+
+## Pull Request and Commit Standards
+
+### PR Titles
+The PR title **must** follow the Conventional Commits specification. This ensures that `release-please` functions correctly and changelogs are generated accurately.
+
+When creating a Pull Request, the title must be in the following format:
+`<type>(<scope>): <short description>`
+
+#### Allowed Scopes
+The scope is **required** for every Pull Request. You must use one of the following scopes depending on what part of the repository you are modifying:
+
+*   `core`: Modifications to the Rust core implementation (`crates/geo-polygonize-core`).
+*   `python`: Modifications to the Python bindings (`python/`, `crates/geo-polygonize-core/src/python.rs`).
+*   `wasm`: Modifications to the WASM bindings (`pkg-threads/`, `pkg-wrapper/`, `crates/geo-polygonize-wasm`).
+*   `fleet`: Modifications to the fleet automation tools (`scripts/fleet/`).
+*   `deps`: Dependency updates or modifications.
+*   `main`: Used for release PRs (e.g. `chore(main): release 0.1.2`).
+*   `github`: Modifications to GitHub Actions workflows and configuration (`.github/`).
+
+If a PR spans multiple areas, try to pick the most significant one or consider if the PR should be split.
+
+#### Allowed Types
+Standard Conventional Commit types apply:
+*   `feat`: A new feature.
+*   `fix`: A bug fix.
+*   `docs`: Documentation only changes.
+*   `style`: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc).
+*   `refactor`: A code change that neither fixes a bug nor adds a feature.
+*   `perf`: A code change that improves performance.
+*   `test`: Adding missing tests or correcting existing tests.
+*   `build`: Changes that affect the build system or external dependencies (example scopes: gulp, broccoli, npm).
+*   `ci`: Changes to our CI configuration files and scripts.
+*   `chore`: Other changes that don't modify src or test files.
+*   `revert`: Reverts a previous commit.
+
+#### Examples
+*   `feat(core): implement SIMD intersection checks`
+*   `fix(python): resolve memory leak in FFI translation`
+*   `docs(wasm): update README for threads package`
+*   `chore(deps): update rayon to 1.10.0`
+
+```
+
 File: ARCHITECTURE.md
 ```
 # Architecture & Optimizations
@@ -158,21 +205,21 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 ### Grid Topology (Intersecting Lines)
 
-| Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 5 | 0.000173 | 0.000678 | 3.92x |
-| 10 | 0.000355 | 0.002232 | 6.29x |
-| 20 | 0.000942 | 0.008275 | 8.79x |
-| 50 | 0.004811 | 0.050936 | 10.59x |
-| 100 | 0.022058 | 0.214482 | 9.72x |
+| Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 5 | 0.000141 | 0.000615 | - | 4.35x | - | - |
+| 10 | 0.000325 | 0.002071 | 0.000300 | 6.36x | 6.90x | 0.92x |
+| 20 | 0.000893 | 0.007573 | 0.000320 | 8.48x | 23.67x | 0.36x |
+| 50 | 0.004858 | 0.049009 | 0.000390 | 10.09x | 125.66x | 0.08x |
+| 100 | 0.018993 | 0.216655 | - | 11.41x | - | - |
 
 ### Random Lines
 
-| Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 50 | 0.000817 | 0.008006 | 9.80x |
-| 100 | 0.003099 | 0.025988 | 8.39x |
-| 200 | 0.011347 | 0.101305 | 8.93x |
+| Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 50 | 0.000770 | 0.007538 | - | 9.78x | - | - |
+| 100 | 0.002870 | 0.024239 | - | 8.44x | - | - |
+| 200 | 0.010937 | 0.098917 | - | 9.04x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -205,6 +252,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.3.0...v0.3.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **github:** track version updates for python and rust crates ([#192](https://github.com/graydonpleasants/geo-polygonize/issues/192)) ([35e5684](https://github.com/graydonpleasants/geo-polygonize/commit/35e56849174f1efd8e8a6f52bf2fb87e0049af53))
+* **python:** explicitly codesign macOS wheels to prevent EXC_BAD_ACCESS ([#190](https://github.com/graydonpleasants/geo-polygonize/issues/190)) ([c6129aa](https://github.com/graydonpleasants/geo-polygonize/commit/c6129aa651428fd732e7dcb477272075231f3aad))
+
+## [0.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.2.1...v0.3.0) (2026-03-06)
+
+
+### Features
+
+* **core:** post benchmark results on PRs ([#176](https://github.com/graydonpleasants/geo-polygonize/issues/176)) ([b69e6a0](https://github.com/graydonpleasants/geo-polygonize/commit/b69e6a0418c2505d8f263e34f2849ba03222d107))
+
+
+### Bug Fixes
+
+* **core:** prevent potential panic by using safe zip iteration ([#186](https://github.com/graydonpleasants/geo-polygonize/issues/186)) ([29ce3ad](https://github.com/graydonpleasants/geo-polygonize/commit/29ce3ad9c6051f905e32629d60ea704d8d566783))
+
+
+### Performance Improvements
+
+* **core:** optimize polygon construction loop by avoiding clones ([#187](https://github.com/graydonpleasants/geo-polygonize/issues/187)) ([8ae1e7d](https://github.com/graydonpleasants/geo-polygonize/commit/8ae1e7d0d347b7938538c055e321bb3e2c97d7e6))
+
+## [0.2.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.2.0...v0.2.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **github:** use trusted publishing for npm ([#181](https://github.com/graydonpleasants/geo-polygonize/issues/181)) ([57a47f3](https://github.com/graydonpleasants/geo-polygonize/commit/57a47f3a84ae9846d2dcc4f906643f26759f1513))
+* **python:** rename python package to geo-polygonize-py to avoid PyPI name collision ([#180](https://github.com/graydonpleasants/geo-polygonize/issues/180)) ([a24e862](https://github.com/graydonpleasants/geo-polygonize/commit/a24e86282117cdfc874e470c1ee7134b461d7718))
+
+## [0.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.1...v0.2.0) (2026-03-06)
+
+
+### Features
+
+* **core:** Optimize geometry extraction by pre-allocating capacity using extend ([#172](https://github.com/graydonpleasants/geo-polygonize/issues/172)) ([922db67](https://github.com/graydonpleasants/geo-polygonize/commit/922db67c3540f6d15935579beaa82d1a7d503740))
+
+
+### Bug Fixes
+
+* add missing version to geo-polygonize-core dependency ([9f8d31d](https://github.com/graydonpleasants/geo-polygonize/commit/9f8d31d2639deef94bb8c95c0629526f435d4253))
+* **python:** remove invalid `--release` argument from maturin publish command ([#179](https://github.com/graydonpleasants/geo-polygonize/issues/179)) ([b147494](https://github.com/graydonpleasants/geo-polygonize/commit/b147494649fd0a24e79061b9e747539ba8e0d11c))
 
 ## [0.1.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.0...v0.1.1) (2026-03-04)
 
@@ -348,6 +441,9 @@ File: Cargo.toml
 members = [
     "crates/geo-polygonize-core",
     "crates/geo-polygonize-wasm"
+]
+exclude = [
+    "crates/geo-polygonize-core/benches/wasm_bench"
 ]
 resolver = "2"
 
@@ -703,9 +799,11 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "geo_polygonize"
+name = "geo-polygonize-py"
 version = "0.1.0"
 requires-python = ">=3.7"
+description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
+license = {text = "MIT OR Apache-2.0"}
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -742,6 +840,8 @@ File: crates/geo-polygonize-core/Cargo.toml
 name = "geo-polygonize-core"
 version = "0.1.0"
 edition = "2021"
+description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -784,6 +884,9 @@ harness = false
 [[example]]
 name = "polygonize"
 path = "../../examples/polygonize.rs"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 ```
 
@@ -944,6 +1047,28 @@ def parse_python_output(filename):
                     pass
     return results
 
+def parse_wasm_output(filename):
+    results = {}
+    if not os.path.exists(filename):
+        print(f"Warning: {filename} not found.")
+        return results
+
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("|") and "x" in line:
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 2:
+                    try:
+                        size_str = parts[0]
+                        size = int(size_str.split('x')[0])
+                        poly_ms = float(parts[1])
+                        # The JS benchmark outputs ms. Convert to seconds.
+                        results[("grid", size)] = poly_ms / 1000.0
+                    except ValueError:
+                        pass
+    return results
+
 def skip_table_lines(lines, i):
     """Skips the existing table in the markdown lines starting from index i."""
     i += 1
@@ -961,35 +1086,46 @@ def skip_table_lines(lines, i):
         i += 1
     return i
 
-def generate_table(category, display_name, col1_name, rust_results, python_results):
+def generate_table(category, display_name, col1_name, rust_results, python_results, wasm_results):
     lines = []
     lines.append(f"### {display_name}")
     lines.append("")
-    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-    lines.append(f"|---|---|---|---|")
+    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |")
+    lines.append(f"|---|---|---|---|---|---|---|")
 
-    all_keys = set(rust_results.keys()) | set(python_results.keys())
+    all_keys = set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys())
     keys_in_cat = sorted([k for k in all_keys if k[0] == category], key=lambda x: x[1])
 
     for k in keys_in_cat:
         size = k[1]
         r_time = rust_results.get(k, None)
         p_time = python_results.get(k, None)
+        w_time = wasm_results.get(k, None)
 
         r_str = f"{r_time:.6f}" if r_time is not None else "-"
         p_str = f"{p_time:.6f}" if p_time is not None else "-"
+        w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
         if r_time and p_time:
-            ratio = p_time / r_time
-            ratio_str = f"{ratio:.2f}x"
+            ratio_py_rs = f"{(p_time / r_time):.2f}x"
         else:
-            ratio_str = "-"
+            ratio_py_rs = "-"
 
-        lines.append(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+        if w_time and p_time:
+            ratio_py_w = f"{(p_time / w_time):.2f}x"
+        else:
+            ratio_py_w = "-"
+
+        if r_time and w_time:
+            ratio_w_rs = f"{(w_time / r_time):.2f}x"
+        else:
+            ratio_w_rs = "-"
+
+        lines.append(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_py_rs} | {ratio_py_w} | {ratio_w_rs} |")
 
     return lines
 
-def update_markdown(filename, rust_results, python_results):
+def update_markdown(filename, rust_results, python_results, wasm_results):
     if not os.path.exists(filename):
         print(f"Error: {filename} not found.")
         return
@@ -1004,7 +1140,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Grid Table
         if "### Grid Topology" in line:
-            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results)
+            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -1013,7 +1149,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Random Table
         if "### Random Lines" in line:
-            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results)
+            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -1026,19 +1162,19 @@ def update_markdown(filename, rust_results, python_results):
     with open(filename, 'w') as f:
         f.writelines(new_lines)
 
-def print_original_summary(rust_results, python_results):
-    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()))
+def print_original_summary(rust_results, python_results, wasm_results):
+    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys()))
 
     # Group by category
     categories = sorted(list(set(k[0] for k in all_keys)))
 
-    print("# Benchmark Comparison (Rust vs Python/Shapely)")
+    print("# Benchmark Comparison (Rust vs Python/Shapely vs Wasm)")
     print("")
 
     for cat in categories:
         print(f"## Category: {cat}")
-        print(f"| Input Size | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-        print(f"|---|---|---|---|")
+        print(f"| Input Size | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) |")
+        print(f"|---|---|---|---|---|")
 
         keys_in_cat = sorted([k for k in all_keys if k[0] == cat], key=lambda x: x[1])
 
@@ -1046,9 +1182,11 @@ def print_original_summary(rust_results, python_results):
             size = k[1]
             r_time = rust_results.get(k, None)
             p_time = python_results.get(k, None)
+            w_time = wasm_results.get(k, None)
 
             r_str = f"{r_time:.6f}" if r_time is not None else "-"
             p_str = f"{p_time:.6f}" if p_time is not None else "-"
+            w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
             if r_time and p_time:
                 ratio = p_time / r_time
@@ -1056,7 +1194,7 @@ def print_original_summary(rust_results, python_results):
             else:
                 ratio_str = "-"
 
-            print(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+            print(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_str} |")
         print("")
 
 def main():
@@ -1066,12 +1204,13 @@ def main():
 
     rust_results = parse_rust_output("rust_bench_output.txt")
     python_results = parse_python_output("python_bench_output.txt")
+    wasm_results = parse_wasm_output("wasm_bench_output.txt")
 
     if args.update:
         print("Updating BENCHMARKS.md...")
-        update_markdown("BENCHMARKS.md", rust_results, python_results)
+        update_markdown("BENCHMARKS.md", rust_results, python_results, wasm_results)
     else:
-        print_original_summary(rust_results, python_results)
+        print_original_summary(rust_results, python_results, wasm_results)
 
 if __name__ == "__main__":
     main()
@@ -1080,7 +1219,8 @@ if __name__ == "__main__":
 
 File: crates/geo-polygonize-core/benches/polygonize_bench.rs
 ```
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::measurement::Measurement;
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion};
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
@@ -1141,12 +1281,7 @@ fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
     lines
 }
 
-fn bench_polygonize(c: &mut Criterion) {
-    let mut group = c.benchmark_group("polygonize");
-    group.sample_size(10);
-    group.measurement_time(std::time::Duration::from_secs(10));
-
-    // Grid sizes
+fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let grid_sizes = [5, 10, 20, 50, 100];
     for &size in grid_sizes.iter() {
         group.bench_with_input(BenchmarkId::new("grid", size), &size, |b, &size| {
@@ -1186,9 +1321,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         }
     }
+}
 
-    // Stress Test: Bowtie/Dirty Grid
-    // Compare Strategies
+fn bench_bowtie_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let dirty_sizes = [10, 20, 50];
     for &size in dirty_sizes.iter() {
         let lines = generate_bowtie_grid(size);
@@ -1199,10 +1334,6 @@ fn bench_polygonize(c: &mut Criterion) {
             &size,
             |b, &_size| {
                 b.iter(|| {
-                    // Manual noding to inject strategy?
-                    // Polygonizer doesn't expose strategy directly, so we must node manually
-                    // or trust the auto behavior.
-                    // For explicit comparison, we will use SnapNoder directly here.
                     let mut input_segments = Vec::new();
                     for ls in &lines {
                         for line in ls.lines() {
@@ -1234,7 +1365,6 @@ fn bench_polygonize(c: &mut Criterion) {
         );
 
         // Force SIMD (Brute Force) - CAUTION: O(N^2)
-        // Only run for smaller sizes to avoid timeout
         if size <= 20 {
             group.bench_with_input(
                 BenchmarkId::new("bowtie_grid_force_simd", size),
@@ -1254,9 +1384,9 @@ fn bench_polygonize(c: &mut Criterion) {
             );
         }
     }
+}
 
-    // Random line counts
-    // Limiting to 200 as 500 takes too long in the current implementation
+fn bench_random_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let random_counts = [50, 100, 200];
     for &count in random_counts.iter() {
         group.bench_with_input(BenchmarkId::new("random", count), &count, |b, &count| {
@@ -1271,8 +1401,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         });
     }
+}
 
-    // Sparse/Parallel Lines Test (Large N, 0 Intersections)
+fn bench_parallel_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     group.bench_function("large_parallel_10k", |b| {
         let lines = generate_parallel_lines(10_000);
         let mut input_segments = Vec::new();
@@ -1281,14 +1412,22 @@ fn bench_polygonize(c: &mut Criterion) {
                 input_segments.push(line.into());
             }
         }
-        // Clone for setup to avoid overhead in loop?
-        // SnapNoder::node consumes lines? No, it takes Vec<Line>.
-        // So we clone in iter.
         b.iter(|| {
             let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
             noder.node(input_segments.clone());
         });
     });
+}
+
+fn bench_polygonize(c: &mut Criterion) {
+    let mut group = c.benchmark_group("polygonize");
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(10));
+
+    bench_grid_scenarios(&mut group);
+    bench_bowtie_scenarios(&mut group);
+    bench_random_scenarios(&mut group);
+    bench_parallel_scenarios(&mut group);
 
     group.finish();
 }
@@ -1367,6 +1506,9 @@ cargo bench -p geo-polygonize-core --bench polygonize_bench > rust_bench_output.
 echo "Running Python benchmarks..."
 python3 crates/geo-polygonize-core/benches/bench_shapely.py > python_bench_output.txt
 
+echo "Running Wasm benchmarks..."
+bash crates/geo-polygonize-core/benches/run_wasm_bench.sh > wasm_bench_output.txt
+
 echo "Processing results..."
 # Here I could write a python script to parse both output files and produce a combined table.
 python3 crates/geo-polygonize-core/benches/compare_results.py
@@ -1387,7 +1529,7 @@ if ! command -v wasm-pack &> /dev/null; then
 fi
 
 echo "Building Wasm Benchmark..."
-cd benches/wasm_bench
+cd "$(dirname "$0")/wasm_bench"
 wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
@@ -1484,6 +1626,8 @@ name = "wasm-bench"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -1509,7 +1653,7 @@ File: crates/geo-polygonize-core/benches/wasm_bench/src/lib.rs
 ```
 use wasm_bindgen::prelude::*;
 use geo::{LineString, Geometry};
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geoarrow::array::{GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{LineStringType, Dimension};
 use std::convert::TryInto;
@@ -1556,7 +1700,7 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
@@ -1575,7 +1719,7 @@ pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsVal
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
@@ -2228,12 +2372,7 @@ impl Polygonizer {
                 let mut new_shells = Vec::new();
                 let mut new_shells_2d = Vec::new();
 
-                let mut iter = shells.into_iter();
-                let mut iter_2d = shells_2d.into_iter();
-
-                for keep in keep_mask {
-                    let s = iter.next().unwrap();
-                    let s2d = iter_2d.next().unwrap();
+                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
                     if keep {
                         new_shells.push(s);
                         new_shells_2d.push(s2d);
@@ -2334,12 +2473,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
-        let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
+        let mut result = Vec::with_capacity(shells.len());
+        for ((shell, holes), holes_ids) in shells
+            .into_iter()
+            .zip(shell_holes.into_iter())
+            .zip(shell_holes_ids.into_iter())
+        {
             let exterior = shell.exterior;
             let exterior_ids = shell.exterior_ids;
-            let holes = shell_holes[i].clone();
-            let holes_ids = shell_holes_ids[i].clone();
 
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
@@ -2591,36 +2732,24 @@ fn segments_overlap_with_length(
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
     match geom {
         Geometry::LineString(ls) => {
-            for line in ls.lines() {
-                out.push(line.into());
-            }
+            out.extend(ls.lines().map(Line3D::from));
         }
         Geometry::MultiLineString(mls) => {
             for ls in &mls.0 {
-                for line in ls.lines() {
-                    out.push(line.into());
-                }
+                out.extend(ls.lines().map(Line3D::from));
             }
         }
         Geometry::Polygon(poly) => {
-            for line in poly.exterior().lines() {
-                out.push(line.into());
-            }
+            out.extend(poly.exterior().lines().map(Line3D::from));
             for interior in poly.interiors() {
-                for line in interior.lines() {
-                    out.push(line.into());
-                }
+                out.extend(interior.lines().map(Line3D::from));
             }
         }
         Geometry::MultiPolygon(mpoly) => {
             for poly in mpoly {
-                for line in poly.exterior().lines() {
-                    out.push(line.into());
-                }
+                out.extend(poly.exterior().lines().map(Line3D::from));
                 for interior in poly.interiors() {
-                    for line in interior.lines() {
-                        out.push(line.into());
-                    }
+                    out.extend(interior.lines().map(Line3D::from));
                 }
             }
         }
@@ -3488,10 +3617,8 @@ File: crates/geo-polygonize-core/src/tiling.rs
 ```
 use crate::types::Polygon3D;
 use crate::Polygonizer;
-use geo::algorithm::centroid::Centroid;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
-use geo::Area;
 use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -3560,12 +3687,10 @@ impl TiledPolygonizer {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
-                // Use 2D projection for geometric checks
-                let poly_2d = poly.to_polygon_2d();
-
-                if let Some(pt) = poly_2d.centroid() {
+                // Fast path avoiding geometry allocation
+                if let Some(pt) = poly.centroid_2d() {
                     let c = pt;
-                    let area = poly_2d.unsigned_area();
+                    let area = poly.unsigned_area_2d();
 
                     // Filter slivers
                     if area < 1e-6 {
@@ -3935,6 +4060,37 @@ impl Polygon3D {
         area
     }
 
+    /// Computes the 2D centroid directly without allocating intermediate geometry.
+    pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut total_area = 0.0;
+
+        let (ext_area, ext_cx, ext_cy) = Self::ring_area_and_centroid_2d(&self.exterior);
+        let ext_abs_area = ext_area.abs();
+        if ext_abs_area < 1e-12 {
+            return None;
+        }
+        total_area += ext_abs_area;
+        cx += ext_cx * ext_abs_area;
+        cy += ext_cy * ext_abs_area;
+
+        for hole in &self.interiors {
+            let (hole_area, hole_cx, hole_cy) = Self::ring_area_and_centroid_2d(hole);
+            let hole_abs_area = hole_area.abs();
+            // Subtract holes based on their structural role, independent of winding order.
+            total_area -= hole_abs_area;
+            cx -= hole_cx * hole_abs_area;
+            cy -= hole_cy * hole_abs_area;
+        }
+
+        if total_area.abs() < 1e-12 {
+            None
+        } else {
+            Some(geo_types::Point::new(cx / total_area, cy / total_area))
+        }
+    }
+
     #[inline]
     fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
@@ -3947,6 +4103,39 @@ impl Polygon3D {
             j = i;
         }
         twice_area / 2.0
+    }
+
+    #[inline]
+    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+        if coords.len() < 3 {
+            return (0.0, 0.0, 0.0);
+        }
+        let origin_x = coords[0].x;
+        let origin_y = coords[0].y;
+        let mut twice_area = 0.0;
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut j = coords.len() - 1;
+        for i in 0..coords.len() {
+            let p1_x = coords[j].x - origin_x;
+            let p1_y = coords[j].y - origin_y;
+            let p2_x = coords[i].x - origin_x;
+            let p2_y = coords[i].y - origin_y;
+            let f = p1_x * p2_y - p2_x * p1_y;
+            twice_area += f;
+            cx += (p1_x + p2_x) * f;
+            cy += (p1_y + p2_y) * f;
+            j = i;
+        }
+        let area = twice_area / 2.0;
+        if area == 0.0 {
+            return (0.0, 0.0, 0.0);
+        }
+        (
+            area,
+            cx / (3.0 * twice_area) + origin_x,
+            cy / (3.0 * twice_area) + origin_y,
+        )
     }
 }
 
@@ -4015,26 +4204,105 @@ mod tests {
     }
 
     #[test]
-    fn test_coord3d_arithmetic() {
+    fn test_coord3d_add() {
         let c1 = Coord3D::new(1.0, 2.0, 3.0);
         let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c1 + c2, Coord3D::new(5.0, 7.0, 9.0));
 
-        // Add
-        let sum = c1 + c2;
-        assert_eq!(sum, Coord3D::new(5.0, 7.0, 9.0));
+        let c3 = Coord3D::new(-1.0, 0.0, -3.0);
+        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 0.0));
+    }
 
-        // Sub
-        let diff = c2 - c1;
-        assert_eq!(diff, Coord3D::new(3.0, 3.0, 3.0));
+    #[test]
+    fn test_coord3d_sub() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c2 - c1, Coord3D::new(3.0, 3.0, 3.0));
 
-        // Mul
-        let scaled = c1 * 2.0;
-        assert_eq!(scaled, Coord3D::new(2.0, 4.0, 6.0));
+        let c3 = Coord3D::new(1.0, 2.0, 3.0);
+        assert_eq!(c1 - c3, Coord3D::new(0.0, 0.0, 0.0));
+    }
 
-        // Negative and zero
-        let c3 = Coord3D::new(-1.0, 0.0, 1.0);
-        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 4.0));
-        assert_eq!(c3 * -1.0, Coord3D::new(1.0, 0.0, -1.0));
+    #[test]
+    fn test_coord3d_mul() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+
+        // Positive scalar
+        assert_eq!(c1 * 2.0, Coord3D::new(2.0, 4.0, 6.0));
+
+        // Negative scalar
+        assert_eq!(c1 * -1.5, Coord3D::new(-1.5, -3.0, -4.5));
+
+        // Zero scalar
+        assert_eq!(c1 * 0.0, Coord3D::new(0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_coord3d_arithmetic_chain() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(3.0, 2.0, 1.0);
+        let c3 = Coord3D::new(1.0, 1.0, 1.0);
+
+        // (c1 + c2) * 0.5 - c3
+        // (4, 4, 4) * 0.5 - (1, 1, 1) = (2, 2, 2) - (1, 1, 1) = (1, 1, 1)
+        let result = (c1 + c2) * 0.5 - c3;
+        assert_eq!(result, Coord3D::new(1.0, 1.0, 1.0));
+    }
+
+    #[test]
+    fn test_centroid_winding_independence() {
+        // Exterior is CCW (positive area)
+        let ext = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // Hole is also CCW (usually holes are CW, but we want to test independence)
+        let hole = vec![
+            Coord3D::new(2.0, 2.0, 0.0),
+            Coord3D::new(8.0, 2.0, 0.0),
+            Coord3D::new(8.0, 8.0, 0.0),
+            Coord3D::new(2.0, 8.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![hole], vec![], vec![vec![]]);
+        let centroid = poly.centroid_2d().unwrap();
+        // Since it's a symmetric hole in a symmetric square, the centroid should be exactly at the center (5, 5).
+        // If winding independence failed, it might add instead of subtract or produce a wildly wrong result.
+        assert!((centroid.x() - 5.0).abs() < 1e-6);
+        assert!((centroid.y() - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_centroid_numeric_stability_at_large_offsets() {
+        let offset = 10_000_000.0;
+        let ext = vec![
+            Coord3D::new(offset, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![], vec![], vec![]);
+        let centroid = poly.centroid_2d().unwrap();
+
+        // Centroid should be exactly at the center of the small square
+        let expected_x = offset + 0.0005;
+        let expected_y = offset + 0.0005;
+
+        // If there is catastrophic cancellation, the error will be large relative to the small dimensions.
+        println!(
+            "centroid = {:?}, expected = {:?}",
+            centroid,
+            (expected_x, expected_y)
+        );
+        assert!((centroid.x() - expected_x).abs() < 1e-8);
+        assert!((centroid.y() - expected_y).abs() < 1e-8);
     }
 }
 
@@ -5058,6 +5326,7 @@ use rayon::prelude::*;
 #[cfg(feature = "parallel")]
 #[repr(align(64))]
 #[derive(Clone)]
+#[allow(dead_code)]
 struct CachePadded<T>(pub T);
 
 pub struct UniformGrid {
@@ -5120,65 +5389,40 @@ impl UniformGrid {
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
         // Pass 1: Count entries per cell & Identify Global Lines
-        #[cfg(feature = "parallel")]
+        let mut counts = vec![0usize; cols * rows];
+        let mut global_lines = Vec::new();
         const MAX_CELLS_PER_LINE: usize = 50;
 
-        let (counts, mut global_lines) = {
-            #[cfg(feature = "parallel")]
-            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
-                let init = || CachePadded((vec![0usize; cols * rows], Vec::new()));
-                let reduced = lines
-                    .par_iter()
-                    .enumerate()
-                    .fold(init, |mut acc, (i, line)| {
-                        let l_min_x = line.start.x.min(line.end.x);
-                        let l_max_x = line.start.x.max(line.end.x);
-                        let l_min_y = line.start.y.min(line.end.y);
-                        let l_max_y = line.start.y.max(line.end.y);
+        for (i, line) in lines.iter().enumerate() {
+            let l_min_x = line.start.x.min(line.end.x);
+            let l_max_x = line.start.x.max(line.end.x);
+            let l_min_y = line.start.y.min(line.end.y);
+            let l_max_y = line.start.y.max(line.end.y);
 
-                        let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-                        let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-                        let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-                        let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
 
-                        let col_max = col_max.min(cols.saturating_sub(1));
-                        let row_max = row_max.min(rows.saturating_sub(1));
-                        let col_min = col_min.min(col_max);
-                        let row_min = row_min.min(row_max);
+            // Clamp
+            let col_max = col_max.min(cols.saturating_sub(1));
+            let row_max = row_max.min(rows.saturating_sub(1));
+            let col_min = col_min.min(col_max);
+            let row_min = row_min.min(row_max);
 
-                        let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
 
-                        if num_cells > MAX_CELLS_PER_LINE {
-                            acc.0 .1.push(i);
-                        } else {
-                            for r in row_min..=row_max {
-                                for c in col_min..=col_max {
-                                    acc.0 .0[r * cols + c] += 1;
-                                }
-                            }
-                        }
-                        acc
-                    })
-                    .reduce(
-                        || CachePadded((vec![0usize; cols * rows], Vec::new())),
-                        |mut a, b| {
-                            for (i, v) in b.0 .0.into_iter().enumerate() {
-                                a.0 .0[i] += v;
-                            }
-                            a.0 .1.extend(b.0 .1);
-                            a
-                        },
-                    );
-                (reduced.0 .0, reduced.0 .1)
-            } else {
-                Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
+            if num_cells > MAX_CELLS_PER_LINE {
+                global_lines.push(i);
+                continue;
             }
-            #[cfg(not(feature = "parallel"))]
-            {
-                Self::sequential_pass1(lines, min_x, min_y, cols, rows, cell_size)
+
+            for r in row_min..=row_max {
+                for c in col_min..=col_max {
+                    counts[r * cols + c] += 1;
+                }
             }
-        };
-        global_lines.sort_unstable(); // Ensure deterministic order
+        }
 
         // Prefix Sum to create offsets
         let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
@@ -5257,129 +5501,55 @@ impl UniformGrid {
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.
     /// Returns a flat list of (line_index, point) tuples.
-    pub fn find_splits(
-        &self,
-        lines: &[Line3D],
-        snap_noder: &SnapNoder,
-        active_cells: Option<&[bool]>,
-    ) -> (Vec<(usize, Coord3D)>, Vec<bool>) {
+    pub fn find_splits(&self, lines: &[Line3D], snap_noder: &SnapNoder) -> Vec<(usize, Coord3D)> {
         // Instantiate SoA structure for fast AABB checks
         let soa = SoALines::new(lines);
 
-        let active_mask = active_cells.filter(|mask| mask.len() == self.rows * self.cols);
-
         #[cfg(feature = "parallel")]
-        let (mut splits, next_mask) = {
+        let mut splits = {
             (0..self.rows * self.cols)
                 .into_par_iter()
-                .fold(
-                    || (Vec::new(), vec![false; self.rows * self.cols]),
-                    |(mut acc_splits, mut acc_mask), idx| {
-                        if let Some(mask) = active_mask {
-                            if !mask[idx] {
-                                return (acc_splits, acc_mask);
-                            }
-                        }
-                        let start = self.cell_offsets[idx];
-                        let end = self.cell_offsets[idx + 1];
-                        let cell_indices = &self.cell_items[start..end];
-
-                        if cell_indices.len() >= 2 {
-                            let r = idx / self.cols;
-                            let c = idx % self.cols;
-                            let initial_len = acc_splits.len();
-                            self.process_cell(
-                                r,
-                                c,
-                                cell_indices,
-                                lines,
-                                snap_noder,
-                                &soa,
-                                &mut acc_splits,
-                            );
-                            if acc_splits.len() > initial_len {
-                                acc_mask[idx] = true;
-                                // Wake up neighbors
-                                let r_min = r.saturating_sub(1);
-                                let r_max = (r + 1).min(self.rows.saturating_sub(1));
-                                let c_min = c.saturating_sub(1);
-                                let c_max = (c + 1).min(self.cols.saturating_sub(1));
-                                for nr in r_min..=r_max {
-                                    for nc in c_min..=c_max {
-                                        acc_mask[nr * self.cols + nc] = true;
-                                    }
-                                }
-                            }
-                        }
-                        (acc_splits, acc_mask)
-                    },
-                )
-                .reduce(
-                    || (Vec::new(), vec![false; self.rows * self.cols]),
-                    |(mut sa, mut ma), (mut sb, mb)| {
-                        sa.append(&mut sb);
-                        for (i, v) in mb.into_iter().enumerate() {
-                            if v {
-                                ma[i] = true;
-                            }
-                        }
-                        (sa, ma)
-                    },
-                )
-        };
-
-        #[cfg(not(feature = "parallel"))]
-        let (mut splits, next_mask) = {
-            let mut splits = Vec::new();
-            let mut next_mask = vec![false; self.rows * self.cols];
-            for r in 0..self.rows {
-                for c in 0..self.cols {
-                    let idx = r * self.cols + c;
-                    if let Some(mask) = active_mask {
-                        if !mask[idx] {
-                            continue;
-                        }
-                    }
+                .fold(Vec::new, |mut acc, idx| {
                     let start = self.cell_offsets[idx];
                     let end = self.cell_offsets[idx + 1];
                     let cell_indices = &self.cell_items[start..end];
 
-                    let initial_len = splits.len();
-                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
-                    if splits.len() > initial_len {
-                        next_mask[idx] = true;
-                        // Wake up neighbors
-                        let r_min = r.saturating_sub(1);
-                        let r_max = (r + 1).min(self.rows.saturating_sub(1));
-                        let c_min = c.saturating_sub(1);
-                        let c_max = (c + 1).min(self.cols.saturating_sub(1));
-                        for nr in r_min..=r_max {
-                            for nc in c_min..=c_max {
-                                next_mask[nr * self.cols + nc] = true;
-                            }
-                        }
+                    if cell_indices.len() >= 2 {
+                        let r = idx / self.cols;
+                        let c = idx % self.cols;
+                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc);
                     }
+                    acc
+                })
+                .reduce(Vec::new, |mut a, mut b| {
+                    a.append(&mut b);
+                    a
+                })
+        };
+
+        #[cfg(not(feature = "parallel"))]
+        let mut splits = {
+            let mut splits = Vec::new();
+            for r in 0..self.rows {
+                for c in 0..self.cols {
+                    let idx = r * self.cols + c;
+                    let start = self.cell_offsets[idx];
+                    let end = self.cell_offsets[idx + 1];
+                    let cell_indices = &self.cell_items[start..end];
+
+                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
                 }
             }
-            (splits, next_mask)
+            splits
         };
 
         // Process Global Lines (Brute Force against ALL lines)
-        let mut global_split_occurred = false;
         if !self.global_lines.is_empty() {
-            let initial_len = splits.len();
             let global_splits = self.process_global_lines(lines, snap_noder, &soa);
             splits.extend(global_splits);
-            if splits.len() > initial_len {
-                global_split_occurred = true;
-            }
         }
 
-        if global_split_occurred {
-            (splits, vec![true; self.rows * self.cols])
-        } else {
-            (splits, next_mask)
-        }
+        splits
     }
 
     fn process_global_lines(
@@ -5601,7 +5771,7 @@ mod tests {
     fn test_empty_grid_find_splits() {
         let grid = UniformGrid::new(&[]);
         let noder = SnapNoder::new(1e-6);
-        let (splits, _) = grid.find_splits(&[], &noder, None);
+        let splits = grid.find_splits(&[], &noder);
         assert!(splits.is_empty());
     }
 
@@ -5681,7 +5851,7 @@ mod tests {
         let grid = UniformGrid::new(&lines);
         let noder = SnapNoder::new(0.0); // Exact noding
 
-        let (splits, _) = grid.find_splits(&lines, &noder, None);
+        let splits = grid.find_splits(&lines, &noder);
 
         // Expect 2 events: (0, (5,5,0)) and (1, (5,5,0))
         assert_eq!(splits.len(), 2);
@@ -5712,7 +5882,7 @@ mod tests {
         let grid = UniformGrid::new(&lines);
         let noder = SnapNoder::new(0.0);
 
-        let (splits, _) = grid.find_splits(&lines, &noder, None);
+        let splits = grid.find_splits(&lines, &noder);
         assert!(splits.is_empty());
     }
 
@@ -5771,7 +5941,7 @@ mod tests {
         assert!(!grid.global_lines.contains(&1), "l1 should be local");
 
         let noder = SnapNoder::new(0.0);
-        let (splits, _) = grid.find_splits(&lines, &noder, None);
+        let splits = grid.find_splits(&lines, &noder);
 
         // Expected intersections:
         // l0 and l1 at (1000, 0)
@@ -5803,52 +5973,6 @@ mod tests {
         }
     }
 }
-impl UniformGrid {
-    fn sequential_pass1(
-        lines: &[Line3D],
-        min_x: f64,
-        min_y: f64,
-        cols: usize,
-        rows: usize,
-        cell_size: f64,
-    ) -> (Vec<usize>, Vec<usize>) {
-        let mut counts = vec![0usize; cols * rows];
-        let mut global_lines = Vec::new();
-        const MAX_CELLS_PER_LINE: usize = 50;
-
-        for (i, line) in lines.iter().enumerate() {
-            let l_min_x = line.start.x.min(line.end.x);
-            let l_max_x = line.start.x.max(line.end.x);
-            let l_min_y = line.start.y.min(line.end.y);
-            let l_max_y = line.start.y.max(line.end.y);
-
-            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
-
-            // Clamp
-            let col_max = col_max.min(cols.saturating_sub(1));
-            let row_max = row_max.min(rows.saturating_sub(1));
-            let col_min = col_min.min(col_max);
-            let row_min = row_min.min(row_max);
-
-            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
-
-            if num_cells > MAX_CELLS_PER_LINE {
-                global_lines.push(i);
-                continue;
-            }
-
-            for r in row_min..=row_max {
-                for c in col_min..=col_max {
-                    counts[r * cols + c] += 1;
-                }
-            }
-        }
-        (counts, global_lines)
-    }
-}
 
 ```
 
@@ -5866,7 +5990,6 @@ use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
-use std::cell::RefCell;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -5923,8 +6046,6 @@ impl SnapNoder {
 
         // 2. Iterative Noding
         let mut new_lines = Vec::new();
-        let mut active_mask: Option<Vec<bool>> = None; // For grid cell sleeping
-
         for _iter in 0..self.max_iter {
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
@@ -5939,9 +6060,7 @@ impl SnapNoder {
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                let (splits, next_mask) = grid.find_splits(&lines, self, active_mask.as_deref());
-                active_mask = Some(next_mask);
-                splits
+                grid.find_splits(&lines, self)
             };
 
             if events.is_empty() {
@@ -6170,7 +6289,8 @@ impl SnapNoder {
         #[cfg(feature = "parallel")]
         {
             // Rayon Heuristic: Thread spin-up dominates for small N.
-            if lines.len() >= crate::utils::parallel::PARALLEL_THRESHOLD {
+            // Use sequential loop if lines < 1000.
+            if lines.len() >= 1000 {
                 // Parallel execution: each thread processes a subset of query lines
                 // and returns a list of split events (line_index, point).
                 lines
@@ -6232,83 +6352,71 @@ impl SnapNoder {
         lines: &[Line3D],
         soa: &SoALines,
     ) -> Vec<(usize, Coord3D)> {
-        thread_local! {
-            static EVENTS_BUFFER: RefCell<Vec<(usize, Coord3D)>> = RefCell::new(Vec::with_capacity(64));
+        let mut events = Vec::new();
+        // Start block to avoid duplicate checks (j > i)
+        // We start checking at index i+1.
+        // The SoA batching index `j` steps by 4.
+        // We want `j` such that the batch covers indices > i.
+        // Ideally start `j` at next multiple of 4
+        // Round UP: (i + 1 + 3) / 4 * 4
+        let start_block = (i + 1 + 3) / 4 * 4;
+
+        // Handling unaligned start to be absolutely safe and avoid self-check artifacts
+        #[allow(clippy::needless_range_loop)]
+        for j in (i + 1)..start_block.min(lines.len()) {
+            let target_line = lines[j];
+            // Standard BBox check
+            let q_min_x = query_line.start.x.min(query_line.end.x);
+            let q_max_x = query_line.start.x.max(query_line.end.x);
+            let q_min_y = query_line.start.y.min(query_line.end.y);
+            let q_max_y = query_line.start.y.max(query_line.end.y);
+
+            let t_min_x = target_line.start.x.min(target_line.end.x);
+            let t_max_x = target_line.start.x.max(target_line.end.x);
+            let t_min_y = target_line.start.y.min(target_line.end.y);
+            let t_max_y = target_line.start.y.max(target_line.end.y);
+
+            if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
+            {
+                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
+                    events.push((idx, pt))
+                });
+            }
         }
 
-        EVENTS_BUFFER.with(|buf| {
-            let mut events = buf.borrow_mut();
-            events.clear();
+        // Pre-calculate query BBox splats
+        let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
+        let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
+        let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
+        let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
 
-            // Start block to avoid duplicate checks (j > i)
-            // We start checking at index i+1.
-            // The SoA batching index `j` steps by 4.
-            // We want `j` such that the batch covers indices > i.
-            // Ideally start `j` at next multiple of 4
-            // Round UP: (i + 1 + 3) / 4 * 4
-            let start_block = (i + 1 + 3) / 4 * 4;
+        for j in (start_block..soa.len()).step_by(4) {
+            let mask = soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
 
-            // Handling unaligned start to be absolutely safe and avoid self-check artifacts
-            #[allow(clippy::needless_range_loop)]
-            for j in (i + 1)..start_block.min(lines.len()) {
-                let target_line = lines[j];
-                // Standard BBox check
-                let q_min_x = query_line.start.x.min(query_line.end.x);
-                let q_max_x = query_line.start.x.max(query_line.end.x);
-                let q_min_y = query_line.start.y.min(query_line.end.y);
-                let q_max_y = query_line.start.y.max(query_line.end.y);
-
-                let t_min_x = target_line.start.x.min(target_line.end.x);
-                let t_max_x = target_line.start.x.max(target_line.end.x);
-                let t_min_y = target_line.start.y.min(target_line.end.y);
-                let t_max_y = target_line.start.y.max(target_line.end.y);
-
-                if q_max_x >= t_min_x
-                    && q_min_x <= t_max_x
-                    && q_max_y >= t_min_y
-                    && q_min_y <= t_max_y
-                {
-                    self.process_intersection(query_line, target_line, i, j, |idx, pt| {
-                        events.push((idx, pt))
-                    });
-                }
-            }
-
-            // Pre-calculate query BBox splats
-            let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
-            let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
-            let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
-            let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
-
-            for j in (start_block..soa.len()).step_by(4) {
-                let mask =
-                    soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
-
-                if mask != 0 {
-                    for k in 0..4 {
-                        if (mask & (1 << k)) != 0 {
-                            let target_idx = j + k;
-                            if target_idx >= lines.len() {
-                                continue;
-                            }
-                            if target_idx <= i {
-                                continue;
-                            } // Enforce i < j
-
-                            let target_line = lines[target_idx];
-                            self.process_intersection(
-                                query_line,
-                                target_line,
-                                i,
-                                target_idx,
-                                |idx, pt| events.push((idx, pt)),
-                            );
+            if mask != 0 {
+                for k in 0..4 {
+                    if (mask & (1 << k)) != 0 {
+                        let target_idx = j + k;
+                        if target_idx >= lines.len() {
+                            continue;
                         }
+                        if target_idx <= i {
+                            continue;
+                        } // Enforce i < j
+
+                        let target_line = lines[target_idx];
+                        self.process_intersection(
+                            query_line,
+                            target_line,
+                            i,
+                            target_idx,
+                            |idx, pt| events.push((idx, pt)),
+                        );
                     }
                 }
             }
-            events.clone()
-        })
+        }
+        events
     }
 
     #[inline]
@@ -6363,7 +6471,7 @@ mod tests {
 
         // Grid Logic (Force use by calling directly)
         let grid = UniformGrid::new(&lines);
-        let (mut splits_grid, _) = grid.find_splits(&lines, &noder, None);
+        let mut splits_grid = grid.find_splits(&lines, &noder);
 
         // SIMD Logic
         let mut splits_simd = noder.find_splits_simd(&lines);
@@ -6570,8 +6678,6 @@ File: crates/geo-polygonize-core/src/utils/parallel.rs
 #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
 use rayon::prelude::*;
 
-pub const PARALLEL_THRESHOLD: usize = 1000;
-
 /// A trait to switch between parallel and sequential iterators
 pub trait MaybeParIter<T> {
     type Iter: Iterator<Item = T>;
@@ -6588,8 +6694,8 @@ where
 {
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        // Heuristic: Don't spin up Rayon for < PARALLEL_THRESHOLD items
-        if collection.len() > PARALLEL_THRESHOLD {
+        // Heuristic: Don't spin up Rayon for < 1000 items
+        if collection.len() > 1000 {
             collection.par_iter().for_each(f);
         } else {
             collection.iter().for_each(f);
@@ -6610,7 +6716,7 @@ where
 {
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
-        if collection.len() > PARALLEL_THRESHOLD {
+        if collection.len() > 1000 {
             collection.par_iter_mut().for_each(f);
         } else {
             collection.iter_mut().for_each(f);
@@ -8122,6 +8228,8 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 name = "geo-polygonize-wasm"
 version = "0.1.0"
 edition = "2021"
+description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]

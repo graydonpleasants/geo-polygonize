@@ -121,75 +121,35 @@ impl Polygon3D {
         area
     }
 
+    /// Computes the 2D centroid directly without allocating intermediate geometry.
     pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
-        if self.exterior.is_empty() {
-            return None;
-        }
-
-        let mut sum_x = 0.0;
-        let mut sum_y = 0.0;
+        let mut cx = 0.0;
+        let mut cy = 0.0;
         let mut total_area = 0.0;
 
-        let ext_area = Self::ring_signed_area_2d(&self.exterior);
-        if ext_area.abs() < 1e-12 {
+        let (ext_area, ext_cx, ext_cy) = Self::ring_area_and_centroid_2d(&self.exterior);
+        let ext_abs_area = ext_area.abs();
+        if ext_abs_area < 1e-12 {
             return None;
         }
-
-        if let Some((cx, cy)) = Self::ring_centroid_2d(&self.exterior) {
-            sum_x += cx * ext_area;
-            sum_y += cy * ext_area;
-            total_area += ext_area;
-        }
+        total_area += ext_abs_area;
+        cx += ext_cx * ext_abs_area;
+        cy += ext_cy * ext_abs_area;
 
         for hole in &self.interiors {
-            let hole_area = Self::ring_signed_area_2d(hole);
-            if hole_area.abs() >= 1e-12 {
-                if let Some((hcx, hcy)) = Self::ring_centroid_2d(hole) {
-                    sum_x += hcx * hole_area;
-                    sum_y += hcy * hole_area;
-                    total_area += hole_area;
-                }
-            }
+            let (hole_area, hole_cx, hole_cy) = Self::ring_area_and_centroid_2d(hole);
+            let hole_abs_area = hole_area.abs();
+            // Subtract holes based on their structural role, independent of winding order.
+            total_area -= hole_abs_area;
+            cx -= hole_cx * hole_abs_area;
+            cy -= hole_cy * hole_abs_area;
         }
 
         if total_area.abs() < 1e-12 {
-            return None;
+            None
+        } else {
+            Some(geo_types::Point::new(cx / total_area, cy / total_area))
         }
-
-        Some(geo_types::Point::new(
-            sum_x / total_area,
-            sum_y / total_area,
-        ))
-    }
-
-    #[inline]
-    fn ring_centroid_2d(coords: &[Coord3D]) -> Option<(f64, f64)> {
-        if coords.len() < 4 {
-            if coords.is_empty() {
-                return None;
-            }
-            return Some((coords[0].x, coords[0].y));
-        }
-
-        let mut cx = 0.0;
-        let mut cy = 0.0;
-        let mut twice_area = 0.0;
-        let mut j = coords.len() - 1;
-
-        for i in 0..coords.len() {
-            let temp = coords[j].x * coords[i].y - coords[i].x * coords[j].y;
-            twice_area += temp;
-            cx += (coords[j].x + coords[i].x) * temp;
-            cy += (coords[j].y + coords[i].y) * temp;
-            j = i;
-        }
-
-        if twice_area.abs() < 1e-12 {
-            return None;
-        }
-
-        let three_twice_area = 3.0 * twice_area;
-        Some((cx / three_twice_area, cy / three_twice_area))
     }
 
     #[inline]
@@ -204,6 +164,39 @@ impl Polygon3D {
             j = i;
         }
         twice_area / 2.0
+    }
+
+    #[inline]
+    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+        if coords.len() < 3 {
+            return (0.0, 0.0, 0.0);
+        }
+        let origin_x = coords[0].x;
+        let origin_y = coords[0].y;
+        let mut twice_area = 0.0;
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut j = coords.len() - 1;
+        for i in 0..coords.len() {
+            let p1_x = coords[j].x - origin_x;
+            let p1_y = coords[j].y - origin_y;
+            let p2_x = coords[i].x - origin_x;
+            let p2_y = coords[i].y - origin_y;
+            let f = p1_x * p2_y - p2_x * p1_y;
+            twice_area += f;
+            cx += (p1_x + p2_x) * f;
+            cy += (p1_y + p2_y) * f;
+            j = i;
+        }
+        let area = twice_area / 2.0;
+        if area == 0.0 {
+            return (0.0, 0.0, 0.0);
+        }
+        (
+            area,
+            cx / (3.0 * twice_area) + origin_x,
+            cy / (3.0 * twice_area) + origin_y,
+        )
     }
 }
 
@@ -272,25 +265,104 @@ mod tests {
     }
 
     #[test]
-    fn test_coord3d_arithmetic() {
+    fn test_coord3d_add() {
         let c1 = Coord3D::new(1.0, 2.0, 3.0);
         let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c1 + c2, Coord3D::new(5.0, 7.0, 9.0));
 
-        // Add
-        let sum = c1 + c2;
-        assert_eq!(sum, Coord3D::new(5.0, 7.0, 9.0));
+        let c3 = Coord3D::new(-1.0, 0.0, -3.0);
+        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 0.0));
+    }
 
-        // Sub
-        let diff = c2 - c1;
-        assert_eq!(diff, Coord3D::new(3.0, 3.0, 3.0));
+    #[test]
+    fn test_coord3d_sub() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(4.0, 5.0, 6.0);
+        assert_eq!(c2 - c1, Coord3D::new(3.0, 3.0, 3.0));
 
-        // Mul
-        let scaled = c1 * 2.0;
-        assert_eq!(scaled, Coord3D::new(2.0, 4.0, 6.0));
+        let c3 = Coord3D::new(1.0, 2.0, 3.0);
+        assert_eq!(c1 - c3, Coord3D::new(0.0, 0.0, 0.0));
+    }
 
-        // Negative and zero
-        let c3 = Coord3D::new(-1.0, 0.0, 1.0);
-        assert_eq!(c1 + c3, Coord3D::new(0.0, 2.0, 4.0));
-        assert_eq!(c3 * -1.0, Coord3D::new(1.0, 0.0, -1.0));
+    #[test]
+    fn test_coord3d_mul() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+
+        // Positive scalar
+        assert_eq!(c1 * 2.0, Coord3D::new(2.0, 4.0, 6.0));
+
+        // Negative scalar
+        assert_eq!(c1 * -1.5, Coord3D::new(-1.5, -3.0, -4.5));
+
+        // Zero scalar
+        assert_eq!(c1 * 0.0, Coord3D::new(0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_coord3d_arithmetic_chain() {
+        let c1 = Coord3D::new(1.0, 2.0, 3.0);
+        let c2 = Coord3D::new(3.0, 2.0, 1.0);
+        let c3 = Coord3D::new(1.0, 1.0, 1.0);
+
+        // (c1 + c2) * 0.5 - c3
+        // (4, 4, 4) * 0.5 - (1, 1, 1) = (2, 2, 2) - (1, 1, 1) = (1, 1, 1)
+        let result = (c1 + c2) * 0.5 - c3;
+        assert_eq!(result, Coord3D::new(1.0, 1.0, 1.0));
+    }
+
+    #[test]
+    fn test_centroid_winding_independence() {
+        // Exterior is CCW (positive area)
+        let ext = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // Hole is also CCW (usually holes are CW, but we want to test independence)
+        let hole = vec![
+            Coord3D::new(2.0, 2.0, 0.0),
+            Coord3D::new(8.0, 2.0, 0.0),
+            Coord3D::new(8.0, 8.0, 0.0),
+            Coord3D::new(2.0, 8.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![hole], vec![], vec![vec![]]);
+        let centroid = poly.centroid_2d().unwrap();
+        // Since it's a symmetric hole in a symmetric square, the centroid should be exactly at the center (5, 5).
+        // If winding independence failed, it might add instead of subtract or produce a wildly wrong result.
+        assert!((centroid.x() - 5.0).abs() < 1e-6);
+        assert!((centroid.y() - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_centroid_numeric_stability_at_large_offsets() {
+        let offset = 10_000_000.0;
+        let ext = vec![
+            Coord3D::new(offset, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset, 0.0),
+            Coord3D::new(offset + 0.001, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset + 0.001, 0.0),
+            Coord3D::new(offset, offset, 0.0),
+        ];
+
+        let poly = Polygon3D::new(ext, vec![], vec![], vec![]);
+        let centroid = poly.centroid_2d().unwrap();
+
+        // Centroid should be exactly at the center of the small square
+        let expected_x = offset + 0.0005;
+        let expected_y = offset + 0.0005;
+
+        // If there is catastrophic cancellation, the error will be large relative to the small dimensions.
+        println!(
+            "centroid = {:?}, expected = {:?}",
+            centroid,
+            (expected_x, expected_y)
+        );
+        assert!((centroid.x() - expected_x).abs() < 1e-8);
+        assert!((centroid.y() - expected_y).abs() < 1e-8);
     }
 }

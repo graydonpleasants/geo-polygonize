@@ -1,7 +1,9 @@
 [package]
 name = "geo-polygonize-core"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
+description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -44,3 +46,6 @@ harness = false
 [[example]]
 name = "polygonize"
 path = "../../examples/polygonize.rs"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
