@@ -579,15 +579,24 @@ mod tests {
 
         // i is out of bounds
         noder.check_intersection(&lines, 2, 0, &mut events);
-        assert!(events.is_empty(), "Events should be empty when i is out of bounds");
+        assert!(
+            events.is_empty(),
+            "Events should be empty when i is out of bounds"
+        );
 
         // j is out of bounds
         noder.check_intersection(&lines, 0, 2, &mut events);
-        assert!(events.is_empty(), "Events should be empty when j is out of bounds");
+        assert!(
+            events.is_empty(),
+            "Events should be empty when j is out of bounds"
+        );
 
         // Both are out of bounds
         noder.check_intersection(&lines, 2, 3, &mut events);
-        assert!(events.is_empty(), "Events should be empty when both are out of bounds");
+        assert!(
+            events.is_empty(),
+            "Events should be empty when both are out of bounds"
+        );
     }
 
     #[test]
@@ -607,7 +616,10 @@ mod tests {
         // If identical, the overlap is the whole line. The overlap endpoints ARE the line endpoints.
         // Therefore, handle_intersection will filter them out because p == l1_start_2d || p == l1_end_2d.
         // Let's verify events is empty.
-        assert!(events.is_empty(), "Identical lines should yield no internal split events");
+        assert!(
+            events.is_empty(),
+            "Identical lines should yield no internal split events"
+        );
     }
 
     #[test]
@@ -629,10 +641,18 @@ mod tests {
         // It should be 2 events total:
         // Event for i=0 (l1) at (5,5)
         // Event for j=1 (l2) at (10,10)
-        assert_eq!(events.len(), 2, "Overlapping lines should yield internal split events for both lines");
+        assert_eq!(
+            events.len(),
+            2,
+            "Overlapping lines should yield internal split events for both lines"
+        );
 
-        let has_5_5 = events.iter().any(|(idx, pt)| *idx == 0 && (pt.x - 5.0).abs() < 1e-10 && (pt.y - 5.0).abs() < 1e-10);
-        let has_10_10 = events.iter().any(|(idx, pt)| *idx == 1 && (pt.x - 10.0).abs() < 1e-10 && (pt.y - 10.0).abs() < 1e-10);
+        let has_5_5 = events
+            .iter()
+            .any(|(idx, pt)| *idx == 0 && (pt.x - 5.0).abs() < 1e-10 && (pt.y - 5.0).abs() < 1e-10);
+        let has_10_10 = events.iter().any(|(idx, pt)| {
+            *idx == 1 && (pt.x - 10.0).abs() < 1e-10 && (pt.y - 10.0).abs() < 1e-10
+        });
 
         assert!(has_5_5, "Expected split event for l1 at (5,5)");
         assert!(has_10_10, "Expected split event for l2 at (10,10)");
@@ -649,6 +669,9 @@ mod tests {
         noder.check_intersection(&lines, 0, 1, &mut events);
 
         // No intersection, events should be empty
-        assert!(events.is_empty(), "Disjoint lines should yield no intersection events");
+        assert!(
+            events.is_empty(),
+            "Disjoint lines should yield no intersection events"
+        );
     }
 }
