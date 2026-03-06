@@ -22,6 +22,5 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: publish
-          args: --release
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
