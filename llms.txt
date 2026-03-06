@@ -205,21 +205,21 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 ### Grid Topology (Intersecting Lines)
 
-| Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 5 | 0.000167 | 0.000621 | 3.72x |
-| 10 | 0.000384 | 0.002107 | 5.48x |
-| 20 | 0.000991 | 0.007899 | 7.97x |
-| 50 | 0.004769 | 0.049468 | 10.37x |
-| 100 | 0.020351 | 0.207512 | 10.20x |
+| Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 5 | 0.000158 | 0.000678 | - | 4.30x | - | - |
+| 10 | 0.000366 | 0.002212 | 0.000340 | 6.04x | 6.51x | 0.93x |
+| 20 | 0.000909 | 0.008296 | 0.000250 | 9.12x | 33.18x | 0.27x |
+| 50 | 0.005191 | 0.052136 | 0.000460 | 10.04x | 113.34x | 0.09x |
+| 100 | 0.020150 | 0.223456 | - | 11.09x | - | - |
 
 ### Random Lines
 
-| Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 50 | 0.000857 | 0.007886 | 9.20x |
-| 100 | 0.003098 | 0.025549 | 8.25x |
-| 200 | 0.011133 | 0.098019 | 8.80x |
+| Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 50 | 0.000793 | 0.008138 | - | 10.26x | - | - |
+| 100 | 0.002869 | 0.026223 | - | 9.14x | - | - |
+| 200 | 0.010637 | 0.102478 | - | 9.63x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.3.0...v0.3.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **github:** track version updates for python and rust crates ([#192](https://github.com/graydonpleasants/geo-polygonize/issues/192)) ([35e5684](https://github.com/graydonpleasants/geo-polygonize/commit/35e56849174f1efd8e8a6f52bf2fb87e0049af53))
+* **python:** explicitly codesign macOS wheels to prevent EXC_BAD_ACCESS ([#190](https://github.com/graydonpleasants/geo-polygonize/issues/190)) ([c6129aa](https://github.com/graydonpleasants/geo-polygonize/commit/c6129aa651428fd732e7dcb477272075231f3aad))
+
+## [0.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.2.1...v0.3.0) (2026-03-06)
+
+
+### Features
+
+* **core:** post benchmark results on PRs ([#176](https://github.com/graydonpleasants/geo-polygonize/issues/176)) ([b69e6a0](https://github.com/graydonpleasants/geo-polygonize/commit/b69e6a0418c2505d8f263e34f2849ba03222d107))
+
+
+### Bug Fixes
+
+* **core:** prevent potential panic by using safe zip iteration ([#186](https://github.com/graydonpleasants/geo-polygonize/issues/186)) ([29ce3ad](https://github.com/graydonpleasants/geo-polygonize/commit/29ce3ad9c6051f905e32629d60ea704d8d566783))
+
+
+### Performance Improvements
+
+* **core:** optimize polygon construction loop by avoiding clones ([#187](https://github.com/graydonpleasants/geo-polygonize/issues/187)) ([8ae1e7d](https://github.com/graydonpleasants/geo-polygonize/commit/8ae1e7d0d347b7938538c055e321bb3e2c97d7e6))
+
+## [0.2.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.2.0...v0.2.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **github:** use trusted publishing for npm ([#181](https://github.com/graydonpleasants/geo-polygonize/issues/181)) ([57a47f3](https://github.com/graydonpleasants/geo-polygonize/commit/57a47f3a84ae9846d2dcc4f906643f26759f1513))
+* **python:** rename python package to geo-polygonize-py to avoid PyPI name collision ([#180](https://github.com/graydonpleasants/geo-polygonize/issues/180)) ([a24e862](https://github.com/graydonpleasants/geo-polygonize/commit/a24e86282117cdfc874e470c1ee7134b461d7718))
 
 ## [0.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.1...v0.2.0) (2026-03-06)
 
@@ -408,6 +441,9 @@ File: Cargo.toml
 members = [
     "crates/geo-polygonize-core",
     "crates/geo-polygonize-wasm"
+]
+exclude = [
+    "crates/geo-polygonize-core/benches/wasm_bench"
 ]
 resolver = "2"
 
@@ -763,9 +799,11 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "geo_polygonize"
+name = "geo-polygonize-py"
 version = "0.1.0"
 requires-python = ">=3.7"
+description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
+license = {text = "MIT OR Apache-2.0"}
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -802,6 +840,8 @@ File: crates/geo-polygonize-core/Cargo.toml
 name = "geo-polygonize-core"
 version = "0.1.0"
 edition = "2021"
+description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -1007,6 +1047,28 @@ def parse_python_output(filename):
                     pass
     return results
 
+def parse_wasm_output(filename):
+    results = {}
+    if not os.path.exists(filename):
+        print(f"Warning: {filename} not found.")
+        return results
+
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("|") and "x" in line:
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 2:
+                    try:
+                        size_str = parts[0]
+                        size = int(size_str.split('x')[0])
+                        poly_ms = float(parts[1])
+                        # The JS benchmark outputs ms. Convert to seconds.
+                        results[("grid", size)] = poly_ms / 1000.0
+                    except ValueError:
+                        pass
+    return results
+
 def skip_table_lines(lines, i):
     """Skips the existing table in the markdown lines starting from index i."""
     i += 1
@@ -1024,35 +1086,46 @@ def skip_table_lines(lines, i):
         i += 1
     return i
 
-def generate_table(category, display_name, col1_name, rust_results, python_results):
+def generate_table(category, display_name, col1_name, rust_results, python_results, wasm_results):
     lines = []
     lines.append(f"### {display_name}")
     lines.append("")
-    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-    lines.append(f"|---|---|---|---|")
+    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |")
+    lines.append(f"|---|---|---|---|---|---|---|")
 
-    all_keys = set(rust_results.keys()) | set(python_results.keys())
+    all_keys = set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys())
     keys_in_cat = sorted([k for k in all_keys if k[0] == category], key=lambda x: x[1])
 
     for k in keys_in_cat:
         size = k[1]
         r_time = rust_results.get(k, None)
         p_time = python_results.get(k, None)
+        w_time = wasm_results.get(k, None)
 
         r_str = f"{r_time:.6f}" if r_time is not None else "-"
         p_str = f"{p_time:.6f}" if p_time is not None else "-"
+        w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
         if r_time and p_time:
-            ratio = p_time / r_time
-            ratio_str = f"{ratio:.2f}x"
+            ratio_py_rs = f"{(p_time / r_time):.2f}x"
         else:
-            ratio_str = "-"
+            ratio_py_rs = "-"
 
-        lines.append(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+        if w_time and p_time:
+            ratio_py_w = f"{(p_time / w_time):.2f}x"
+        else:
+            ratio_py_w = "-"
+
+        if r_time and w_time:
+            ratio_w_rs = f"{(w_time / r_time):.2f}x"
+        else:
+            ratio_w_rs = "-"
+
+        lines.append(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_py_rs} | {ratio_py_w} | {ratio_w_rs} |")
 
     return lines
 
-def update_markdown(filename, rust_results, python_results):
+def update_markdown(filename, rust_results, python_results, wasm_results):
     if not os.path.exists(filename):
         print(f"Error: {filename} not found.")
         return
@@ -1067,7 +1140,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Grid Table
         if "### Grid Topology" in line:
-            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results)
+            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -1076,7 +1149,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Random Table
         if "### Random Lines" in line:
-            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results)
+            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -1089,19 +1162,19 @@ def update_markdown(filename, rust_results, python_results):
     with open(filename, 'w') as f:
         f.writelines(new_lines)
 
-def print_original_summary(rust_results, python_results):
-    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()))
+def print_original_summary(rust_results, python_results, wasm_results):
+    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys()))
 
     # Group by category
     categories = sorted(list(set(k[0] for k in all_keys)))
 
-    print("# Benchmark Comparison (Rust vs Python/Shapely)")
+    print("# Benchmark Comparison (Rust vs Python/Shapely vs Wasm)")
     print("")
 
     for cat in categories:
         print(f"## Category: {cat}")
-        print(f"| Input Size | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-        print(f"|---|---|---|---|")
+        print(f"| Input Size | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) |")
+        print(f"|---|---|---|---|---|")
 
         keys_in_cat = sorted([k for k in all_keys if k[0] == cat], key=lambda x: x[1])
 
@@ -1109,9 +1182,11 @@ def print_original_summary(rust_results, python_results):
             size = k[1]
             r_time = rust_results.get(k, None)
             p_time = python_results.get(k, None)
+            w_time = wasm_results.get(k, None)
 
             r_str = f"{r_time:.6f}" if r_time is not None else "-"
             p_str = f"{p_time:.6f}" if p_time is not None else "-"
+            w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
             if r_time and p_time:
                 ratio = p_time / r_time
@@ -1119,7 +1194,7 @@ def print_original_summary(rust_results, python_results):
             else:
                 ratio_str = "-"
 
-            print(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+            print(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_str} |")
         print("")
 
 def main():
@@ -1129,12 +1204,13 @@ def main():
 
     rust_results = parse_rust_output("rust_bench_output.txt")
     python_results = parse_python_output("python_bench_output.txt")
+    wasm_results = parse_wasm_output("wasm_bench_output.txt")
 
     if args.update:
         print("Updating BENCHMARKS.md...")
-        update_markdown("BENCHMARKS.md", rust_results, python_results)
+        update_markdown("BENCHMARKS.md", rust_results, python_results, wasm_results)
     else:
-        print_original_summary(rust_results, python_results)
+        print_original_summary(rust_results, python_results, wasm_results)
 
 if __name__ == "__main__":
     main()
@@ -1143,7 +1219,8 @@ if __name__ == "__main__":
 
 File: crates/geo-polygonize-core/benches/polygonize_bench.rs
 ```
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::measurement::Measurement;
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion};
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
@@ -1204,12 +1281,7 @@ fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
     lines
 }
 
-fn bench_polygonize(c: &mut Criterion) {
-    let mut group = c.benchmark_group("polygonize");
-    group.sample_size(10);
-    group.measurement_time(std::time::Duration::from_secs(10));
-
-    // Grid sizes
+fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let grid_sizes = [5, 10, 20, 50, 100];
     for &size in grid_sizes.iter() {
         group.bench_with_input(BenchmarkId::new("grid", size), &size, |b, &size| {
@@ -1249,9 +1321,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         }
     }
+}
 
-    // Stress Test: Bowtie/Dirty Grid
-    // Compare Strategies
+fn bench_bowtie_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let dirty_sizes = [10, 20, 50];
     for &size in dirty_sizes.iter() {
         let lines = generate_bowtie_grid(size);
@@ -1262,10 +1334,6 @@ fn bench_polygonize(c: &mut Criterion) {
             &size,
             |b, &_size| {
                 b.iter(|| {
-                    // Manual noding to inject strategy?
-                    // Polygonizer doesn't expose strategy directly, so we must node manually
-                    // or trust the auto behavior.
-                    // For explicit comparison, we will use SnapNoder directly here.
                     let mut input_segments = Vec::new();
                     for ls in &lines {
                         for line in ls.lines() {
@@ -1297,7 +1365,6 @@ fn bench_polygonize(c: &mut Criterion) {
         );
 
         // Force SIMD (Brute Force) - CAUTION: O(N^2)
-        // Only run for smaller sizes to avoid timeout
         if size <= 20 {
             group.bench_with_input(
                 BenchmarkId::new("bowtie_grid_force_simd", size),
@@ -1317,9 +1384,9 @@ fn bench_polygonize(c: &mut Criterion) {
             );
         }
     }
+}
 
-    // Random line counts
-    // Limiting to 200 as 500 takes too long in the current implementation
+fn bench_random_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let random_counts = [50, 100, 200];
     for &count in random_counts.iter() {
         group.bench_with_input(BenchmarkId::new("random", count), &count, |b, &count| {
@@ -1334,8 +1401,9 @@ fn bench_polygonize(c: &mut Criterion) {
             });
         });
     }
+}
 
-    // Sparse/Parallel Lines Test (Large N, 0 Intersections)
+fn bench_parallel_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     group.bench_function("large_parallel_10k", |b| {
         let lines = generate_parallel_lines(10_000);
         let mut input_segments = Vec::new();
@@ -1344,14 +1412,22 @@ fn bench_polygonize(c: &mut Criterion) {
                 input_segments.push(line.into());
             }
         }
-        // Clone for setup to avoid overhead in loop?
-        // SnapNoder::node consumes lines? No, it takes Vec<Line>.
-        // So we clone in iter.
         b.iter(|| {
             let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
             noder.node(input_segments.clone());
         });
     });
+}
+
+fn bench_polygonize(c: &mut Criterion) {
+    let mut group = c.benchmark_group("polygonize");
+    group.sample_size(10);
+    group.measurement_time(std::time::Duration::from_secs(10));
+
+    bench_grid_scenarios(&mut group);
+    bench_bowtie_scenarios(&mut group);
+    bench_random_scenarios(&mut group);
+    bench_parallel_scenarios(&mut group);
 
     group.finish();
 }
@@ -1430,6 +1506,9 @@ cargo bench -p geo-polygonize-core --bench polygonize_bench > rust_bench_output.
 echo "Running Python benchmarks..."
 python3 crates/geo-polygonize-core/benches/bench_shapely.py > python_bench_output.txt
 
+echo "Running Wasm benchmarks..."
+bash crates/geo-polygonize-core/benches/run_wasm_bench.sh > wasm_bench_output.txt
+
 echo "Processing results..."
 # Here I could write a python script to parse both output files and produce a combined table.
 python3 crates/geo-polygonize-core/benches/compare_results.py
@@ -1450,7 +1529,7 @@ if ! command -v wasm-pack &> /dev/null; then
 fi
 
 echo "Building Wasm Benchmark..."
-cd benches/wasm_bench
+cd "$(dirname "$0")/wasm_bench"
 wasm-pack build --target nodejs --release
 
 echo "Running Wasm Benchmark (Node.js)..."
@@ -1547,6 +1626,8 @@ name = "wasm-bench"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+
 [lib]
 crate-type = ["cdylib"]
 
@@ -1572,7 +1653,7 @@ File: crates/geo-polygonize-core/benches/wasm_bench/src/lib.rs
 ```
 use wasm_bindgen::prelude::*;
 use geo::{LineString, Geometry};
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geoarrow::array::{GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{LineStringType, Dimension};
 use std::convert::TryInto;
@@ -1619,7 +1700,7 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
@@ -1638,7 +1719,7 @@ pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsVal
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
@@ -2291,12 +2372,7 @@ impl Polygonizer {
                 let mut new_shells = Vec::new();
                 let mut new_shells_2d = Vec::new();
 
-                let mut iter = shells.into_iter();
-                let mut iter_2d = shells_2d.into_iter();
-
-                for keep in keep_mask {
-                    let s = iter.next().unwrap();
-                    let s2d = iter_2d.next().unwrap();
+                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
                     if keep {
                         new_shells.push(s);
                         new_shells_2d.push(s2d);
@@ -2397,12 +2473,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
-        let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
+        let mut result = Vec::with_capacity(shells.len());
+        for ((shell, holes), holes_ids) in shells
+            .into_iter()
+            .zip(shell_holes.into_iter())
+            .zip(shell_holes_ids.into_iter())
+        {
             let exterior = shell.exterior;
             let exterior_ids = shell.exterior_ids;
-            let holes = shell_holes[i].clone();
-            let holes_ids = shell_holes_ids[i].clone();
 
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
@@ -8150,6 +8228,8 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 name = "geo-polygonize-wasm"
 version = "0.1.0"
 edition = "2021"
+description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]

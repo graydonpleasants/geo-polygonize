@@ -10,6 +10,9 @@ cargo bench -p geo-polygonize-core --bench polygonize_bench > rust_bench_output.
 echo "Running Python benchmarks..."
 python3 crates/geo-polygonize-core/benches/bench_shapely.py > python_bench_output.txt
 
+echo "Running Wasm benchmarks..."
+bash crates/geo-polygonize-core/benches/run_wasm_bench.sh > wasm_bench_output.txt
+
 echo "Processing results..."
 # Here I could write a python script to parse both output files and produce a combined table.
 python3 crates/geo-polygonize-core/benches/compare_results.py

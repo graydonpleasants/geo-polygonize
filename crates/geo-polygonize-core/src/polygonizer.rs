@@ -285,12 +285,7 @@ impl Polygonizer {
                 let mut new_shells = Vec::new();
                 let mut new_shells_2d = Vec::new();
 
-                let mut iter = shells.into_iter();
-                let mut iter_2d = shells_2d.into_iter();
-
-                for keep in keep_mask {
-                    let s = iter.next().unwrap();
-                    let s2d = iter_2d.next().unwrap();
+                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
                     if keep {
                         new_shells.push(s);
                         new_shells_2d.push(s2d);
@@ -391,12 +386,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
-        let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
+        let mut result = Vec::with_capacity(shells.len());
+        for ((shell, holes), holes_ids) in shells
+            .into_iter()
+            .zip(shell_holes.into_iter())
+            .zip(shell_holes_ids.into_iter())
+        {
             let exterior = shell.exterior;
             let exterior_ids = shell.exterior_ids;
-            let holes = shell_holes[i].clone();
-            let holes_ids = shell_holes_ids[i].clone();
 
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 

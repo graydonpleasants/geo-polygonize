@@ -40,21 +40,21 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 ### Grid Topology (Intersecting Lines)
 
-| Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 5 | 0.000167 | 0.000621 | 3.72x |
-| 10 | 0.000384 | 0.002107 | 5.48x |
-| 20 | 0.000991 | 0.007899 | 7.97x |
-| 50 | 0.004769 | 0.049468 | 10.37x |
-| 100 | 0.020351 | 0.207512 | 10.20x |
+| Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 5 | 0.000158 | 0.000678 | - | 4.30x | - | - |
+| 10 | 0.000366 | 0.002212 | 0.000340 | 6.04x | 6.51x | 0.93x |
+| 20 | 0.000909 | 0.008296 | 0.000250 | 9.12x | 33.18x | 0.27x |
+| 50 | 0.005191 | 0.052136 | 0.000460 | 10.04x | 113.34x | 0.09x |
+| 100 | 0.020150 | 0.223456 | - | 11.09x | - | - |
 
 ### Random Lines
 
-| Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
-|---|---|---|---|
-| 50 | 0.000857 | 0.007886 | 9.20x |
-| 100 | 0.003098 | 0.025549 | 8.25x |
-| 200 | 0.011133 | 0.098019 | 8.80x |
+| Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
+|---|---|---|---|---|---|---|
+| 50 | 0.000793 | 0.008138 | - | 10.26x | - | - |
+| 100 | 0.002869 | 0.026223 | - | 9.14x | - | - |
+| 200 | 0.010637 | 0.102478 | - | 9.63x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
