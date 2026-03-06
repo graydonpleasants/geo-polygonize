@@ -136,9 +136,40 @@ def test_odd_length_coordinates():
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
+def test_return_polygons_without_shapely():
+    print("\nTesting ImportError fallback in return_polygons...")
+    coords = np.array([
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0
+    ], dtype=np.float64)
+    offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
+
+    # Mock shapely.geometry not being available
+    import sys
+    import builtins
+    import unittest.mock
+
+    real_import = builtins.__import__
+    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == 'shapely.geometry' or name == 'shapely':
+            raise ImportError("Mocked ImportError")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with unittest.mock.patch('builtins.__import__', side_effect=mock_import):
+        try:
+            polygonize(coords, offsets, return_polygons=True)
+            assert False, "Should have raised ImportError"
+        except ImportError as e:
+            print(f"Caught expected error: {e}")
+            assert "return_polygons=True requires 'shapely' to be installed." in str(e)
+    print("ImportError fallback test passed!")
+
 if __name__ == "__main__":
     test_square()
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
     test_odd_length_coordinates()
+    test_return_polygons_without_shapely()
