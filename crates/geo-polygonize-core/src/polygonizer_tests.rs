@@ -3,7 +3,7 @@ mod tests {
     use crate::Polygonizer;
     use geo::bounding_rect::BoundingRect;
     use geo::Area;
-    use geo_types::{LineString, Polygon};
+    use geo_types::LineString;
 
     #[test]
     fn test_polygonize_simple_triangle() {
@@ -13,7 +13,7 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]).into());
 
         let polygons = poly.polygonize().unwrap().polygons;
-        assert!(polygons.len() >= 1);
+        assert!(!polygons.is_empty());
         let triangle = polygons.iter().find(|p| {
             let p2d = p.to_polygon_2d();
             p2d.unsigned_area() > 49.0 && p2d.unsigned_area() < 51.0

@@ -15,7 +15,12 @@ use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen]
-pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+pub fn polygonize(
+    geojson_str: &str,
+    node_input: Option<bool>,
+    snap_grid_size: Option<f64>,
+    extract_only_polygonal: Option<bool>,
+) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
@@ -23,6 +28,15 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
 
     let mut polygonizer = Polygonizer::new();
+    if let Some(ni) = node_input {
+        polygonizer.node_input = ni;
+    }
+    if let Some(sgs) = snap_grid_size {
+        polygonizer.snap_grid_size = sgs;
+    }
+    if let Some(eop) = extract_only_polygonal {
+        polygonizer.extract_only_polygonal = eop;
+    }
 
     match geojson {
         GeoJson::FeatureCollection(fc) => {
