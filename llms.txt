@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000141 | 0.000615 | - | 4.35x | - | - |
-| 10 | 0.000325 | 0.002071 | 0.000300 | 6.36x | 6.90x | 0.92x |
-| 20 | 0.000893 | 0.007573 | 0.000320 | 8.48x | 23.67x | 0.36x |
-| 50 | 0.004858 | 0.049009 | 0.000390 | 10.09x | 125.66x | 0.08x |
-| 100 | 0.018993 | 0.216655 | - | 11.41x | - | - |
+| 5 | 0.000160 | 0.000671 | - | 4.21x | - | - |
+| 10 | 0.000360 | 0.002208 | 0.000330 | 6.14x | 6.69x | 0.92x |
+| 20 | 0.000899 | 0.008198 | 0.000220 | 9.12x | 37.26x | 0.24x |
+| 50 | 0.004679 | 0.050851 | 0.000410 | 10.87x | 124.03x | 0.09x |
+| 100 | 0.018359 | 0.205752 | - | 11.21x | - | - |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000770 | 0.007538 | - | 9.78x | - | - |
-| 100 | 0.002870 | 0.024239 | - | 8.44x | - | - |
-| 200 | 0.010937 | 0.098917 | - | 9.04x | - | - |
+| 50 | 0.000780 | 0.007967 | - | 10.21x | - | - |
+| 100 | 0.002821 | 0.025689 | - | 9.11x | - | - |
+| 200 | 0.010289 | 0.098679 | - | 9.59x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.2.1...geo-polygonize-v0.3.0) (2026-03-06)
+
+
+### Features
+
+* adaptive parallelism, fast math, and Wasm memory optimizations ([c46c370](https://github.com/graydonpleasants/geo-polygonize/commit/c46c370d23aca7a49060c520d8f1ecf79d48f5a8))
+* Add PyO3 bindings and regenerate Cargo.lock ([a1e5602](https://github.com/graydonpleasants/geo-polygonize/commit/a1e560230e5bdc24d4c57dbdb696c76401c85c72))
+* Add WASM SIMD support and publication enhancements ([015597e](https://github.com/graydonpleasants/geo-polygonize/commit/015597e58306a9d81523f89e44998fc4c24c0865))
+* Add WASM SIMD support, feature detection, and publication pipeline ([32826e3](https://github.com/graydonpleasants/geo-polygonize/commit/32826e345b463473bff767f1a68d0a7bc7300b06))
+* add webapp demo and wasm support ([f0548e7](https://github.com/graydonpleasants/geo-polygonize/commit/f0548e7e419962e882759c0bee2e428b43fc4ad7))
+* Add zero-allocation area calculation methods to Polygon3D ([#155](https://github.com/graydonpleasants/geo-polygonize/issues/155)) ([c783c4a](https://github.com/graydonpleasants/geo-polygonize/commit/c783c4a85891dfb8d122c1925b837e7ca0fb3855))
+* architectural optimizations (ISR, SIMD, geo-index) ([95e58ca](https://github.com/graydonpleasants/geo-polygonize/commit/95e58ca3de5ce93e7af620ea97809534daea0fb9))
+* architectural optimizations (ISR, SIMD) ([3071bd7](https://github.com/graydonpleasants/geo-polygonize/commit/3071bd7f72b52ec4e20f49ccbfe5c00c9f5ee198))
+* architectural optimizations (ISR, SIMD) and robust benchmarking ([f4df36d](https://github.com/graydonpleasants/geo-polygonize/commit/f4df36dc601371578be053aeefe5d474cb7446c3))
+* architectural optimizations (ISR, SIMD) with robust fallbacks ([2760a09](https://github.com/graydonpleasants/geo-polygonize/commit/2760a094020a3e913a947d6bec3aa01b18503f3c))
+* architectural optimizations (ISR, SIMD) with robust fallbacks and clean dependencies ([23cd067](https://github.com/graydonpleasants/geo-polygonize/commit/23cd067e61c23021e8d71d2dc25f07a29b125369))
+* architectural optimizations (wasm benchmark, geoarrow, talc) ([b818bce](https://github.com/graydonpleasants/geo-polygonize/commit/b818bce6896d901696a542bc3c01c5a948a80c65))
+* Capture invalid rings in Polygonizer result ([987a1a6](https://github.com/graydonpleasants/geo-polygonize/commit/987a1a66be62d43b43c1c67c1c6fb312b12f995e))
+* Capture invalid rings in Polygonizer result ([4a9f685](https://github.com/graydonpleasants/geo-polygonize/commit/4a9f6854179148389c9a633d3fe9de11f8f6025d))
+* **core:** Optimize geometry extraction by pre-allocating capacity using extend ([#172](https://github.com/graydonpleasants/geo-polygonize/issues/172)) ([922db67](https://github.com/graydonpleasants/geo-polygonize/commit/922db67c3540f6d15935579beaa82d1a7d503740))
+* **core:** post benchmark results on PRs ([#176](https://github.com/graydonpleasants/geo-polygonize/issues/176)) ([b69e6a0](https://github.com/graydonpleasants/geo-polygonize/commit/b69e6a0418c2505d8f263e34f2849ba03222d107))
+* Document and verify `valid_edges` hoisting optimization in PlanarGraph ([a0797fe](https://github.com/graydonpleasants/geo-polygonize/commit/a0797fed4a0174e0c5c84acf4612149dddc9b3a9))
+* expand differential testing suite with 6 new generators ([ee7f983](https://github.com/graydonpleasants/geo-polygonize/commit/ee7f983dcc4eeb53e8145e02b0265ed1eb83e15f))
+* implement spatial tiling and scale optimizations ([20ffdb4](https://github.com/graydonpleasants/geo-polygonize/commit/20ffdb4938bb0d8d86f54398864dc6ed47e64a7e))
+* implement Uniform Grid noding and spatial sorting ([416a23a](https://github.com/graydonpleasants/geo-polygonize/commit/416a23a882830337a93739b4d2946375b4a0c5a7))
+* Improve python bindings ergonomics and error handling ([#158](https://github.com/graydonpleasants/geo-polygonize/issues/158)) ([8d02115](https://github.com/graydonpleasants/geo-polygonize/commit/8d0211595eebfffea2a70ebc7b8871dbfa5b0559))
+* Integrate FFI improvements and Python bindings ([25b210f](https://github.com/graydonpleasants/geo-polygonize/commit/25b210fa4c108d138fb26dd86d91f53477b257e3))
+* memory pooling optimizations and parallel cfg fix ([17d0a8a](https://github.com/graydonpleasants/geo-polygonize/commit/17d0a8aafb22723f00e729b6728e9443e02a021a))
+* optimize bulk data preparation with parallel iterators ([7650038](https://github.com/graydonpleasants/geo-polygonize/commit/76500389787e0dbb8a82816a72e2036e641cf922))
+* **python:** add safety checks for 3D and odd-length coords in python wrapper ([f6b0ec4](https://github.com/graydonpleasants/geo-polygonize/commit/f6b0ec4f8780e15eb3a50cd089eaf56727da5476))
+* Refactor Wasm build pipeline and exports ([667fb1f](https://github.com/graydonpleasants/geo-polygonize/commit/667fb1ffbd180c6801e4f9e5184bdba78ff76df5))
+* Setup fleet issue automation with stacked PR support ([b4855fe](https://github.com/graydonpleasants/geo-polygonize/commit/b4855fe94a3e78b15b5d7249a4370bef48fe27ab))
+* Setup fleet issue automation with stacked PR support ([abf1b66](https://github.com/graydonpleasants/geo-polygonize/commit/abf1b66406746a6701fcdef25f2d8b7941b15c39))
+* Setup fleet issue automation with stacked PR support ([a988eff](https://github.com/graydonpleasants/geo-polygonize/commit/a988effd089490b4b38c610567adab79fb409f89))
+* Setup fleet issue automation with stacked PR support ([#148](https://github.com/graydonpleasants/geo-polygonize/issues/148)) ([0996161](https://github.com/graydonpleasants/geo-polygonize/commit/0996161ba610424b787c33627c8f00b94c83892a))
+* stress test noding and verify benchmarks ([afdf207](https://github.com/graydonpleasants/geo-polygonize/commit/afdf207bb034147cbb9a05af1b903af52ba0ba52))
+* **test:** add robust WASM malformed JSON tests ([abe0614](https://github.com/graydonpleasants/geo-polygonize/commit/abe061416e1896a6c8dbee2cc407cf5acace2d95))
+* Wasm optimizations, benchmarks, and docs ([71d8e85](https://github.com/graydonpleasants/geo-polygonize/commit/71d8e8588f525f877bb5f749f7d8f9d1f2a294b7))
+* **wasm:** Expose explicit parity flags and document API ([#195](https://github.com/graydonpleasants/geo-polygonize/issues/195)) ([1271918](https://github.com/graydonpleasants/geo-polygonize/commit/12719182193a15b3cd97d55ed5cefdda736c45d7))
+
+
+### Bug Fixes
+
+* add missing version to geo-polygonize-core dependency ([9f8d31d](https://github.com/graydonpleasants/geo-polygonize/commit/9f8d31d2639deef94bb8c95c0629526f435d4253))
+* Apply cargo fmt to resolve CI failure in ffi.rs ([f951b18](https://github.com/graydonpleasants/geo-polygonize/commit/f951b18212228814b455f1f56938261efa430982))
+* Apply cargo fmt to src/polygonizer.rs ([791d994](https://github.com/graydonpleasants/geo-polygonize/commit/791d994573b9a9fc45442ad37f3b598cc079f61f))
+* cargo fmt ([9996fad](https://github.com/graydonpleasants/geo-polygonize/commit/9996fad2fad65e2794d7843c969ef9333ba6f4ca))
+* cargo fmt in benches ([668edec](https://github.com/graydonpleasants/geo-polygonize/commit/668edecd3ecca2e0a4217c9e95481011051277be))
+* **core:** prevent potential panic by using safe zip iteration ([#186](https://github.com/graydonpleasants/geo-polygonize/issues/186)) ([29ce3ad](https://github.com/graydonpleasants/geo-polygonize/commit/29ce3ad9c6051f905e32629d60ea704d8d566783))
+* **github:** track version updates for python and rust crates ([#192](https://github.com/graydonpleasants/geo-polygonize/issues/192)) ([35e5684](https://github.com/graydonpleasants/geo-polygonize/commit/35e56849174f1efd8e8a6f52bf2fb87e0049af53))
+* **github:** track version updates for python and rust crates with manifest config ([#193](https://github.com/graydonpleasants/geo-polygonize/issues/193)) ([bf5a7a0](https://github.com/graydonpleasants/geo-polygonize/commit/bf5a7a0f1518224446960decb46831d759ecd52b))
+* **github:** use trusted publishing for npm ([#181](https://github.com/graydonpleasants/geo-polygonize/issues/181)) ([57a47f3](https://github.com/graydonpleasants/geo-polygonize/commit/57a47f3a84ae9846d2dcc4f906643f26759f1513))
+* Hyper-optimize Core Noding & Parallelism Framework ([4f2c557](https://github.com/graydonpleasants/geo-polygonize/commit/4f2c5573207f22a0330a9849a6679c857e29ee4f))
+* Hyper-optimize Core Noding & Parallelism Framework ([53a7f6c](https://github.com/graydonpleasants/geo-polygonize/commit/53a7f6c15fe795a45c80cc92a3b849dccc9b3857))
+* Improve Python error handling by checking CPolygonStatus ([7531506](https://github.com/graydonpleasants/geo-polygonize/commit/7531506f2ed5dc1053416515b88b3ff6e3818c1d))
+* **python:** explicitly codesign macOS wheels to prevent EXC_BAD_ACCESS ([#190](https://github.com/graydonpleasants/geo-polygonize/issues/190)) ([c6129aa](https://github.com/graydonpleasants/geo-polygonize/commit/c6129aa651428fd732e7dcb477272075231f3aad))
+* **python:** remove invalid `--release` argument from maturin publish command ([#179](https://github.com/graydonpleasants/geo-polygonize/issues/179)) ([b147494](https://github.com/graydonpleasants/geo-polygonize/commit/b147494649fd0a24e79061b9e747539ba8e0d11c))
+* **python:** rename python package to geo-polygonize-py to avoid PyPI name collision ([#180](https://github.com/graydonpleasants/geo-polygonize/issues/180)) ([a24e862](https://github.com/graydonpleasants/geo-polygonize/commit/a24e86282117cdfc874e470c1ee7134b461d7718))
+* Resolve active_cells unwrap panic ([d62f3bc](https://github.com/graydonpleasants/geo-polygonize/commit/d62f3bcb79a3d640facafa1a42ac9b7bd83c0970))
+* resolve clippy warnings in noding/snap.rs ([03e41e2](https://github.com/graydonpleasants/geo-polygonize/commit/03e41e2ebea101de93c1d9ac6f0b6aa623416f0e))
+* Resolve unwrap in `not(feature = "parallel")` path ([d70f234](https://github.com/graydonpleasants/geo-polygonize/commit/d70f234395fed98b0303e95ce36dd1285c9842a4))
+* **security:** prevent panic in hole assignment ([9e27230](https://github.com/graydonpleasants/geo-polygonize/commit/9e272307df8d8ddf5bf0d120174eb7d1d0cc2dbe))
+* use custom token for release-please to allow PR creation ([c11acb7](https://github.com/graydonpleasants/geo-polygonize/commit/c11acb7ed628313df18a770910797499fa9caa46))
+
+
+### Performance Improvements
+
+* **core:** optimize polygon construction loop by avoiding clones ([#187](https://github.com/graydonpleasants/geo-polygonize/issues/187)) ([8ae1e7d](https://github.com/graydonpleasants/geo-polygonize/commit/8ae1e7d0d347b7938538c055e321bb3e2c97d7e6))
+* optimize hot loops by reusing vectors and avoiding clones ([9f600d8](https://github.com/graydonpleasants/geo-polygonize/commit/9f600d82e98967452655b640191bfc9ce97e7b4f))
+* Optimize Polygonizer R-Tree allocation ([6322d6d](https://github.com/graydonpleasants/geo-polygonize/commit/6322d6dca95734c18eceafcdf4a5aa7ccee90347))
+* Optimize SnapNoder by removing splits instead of cloning ([494469a](https://github.com/graydonpleasants/geo-polygonize/commit/494469a4a3b6b389f1a27d5eb73352d681cc274d))
 
 ## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.3.0...v0.3.1) (2026-03-06)
 
@@ -587,7 +659,12 @@ async function run() {
     };
 
     // Returns a GeoJSON FeatureCollection string
-    const result = polygonize(JSON.stringify(geojson));
+    // Pass explicitly matching backend configuration if desired
+    const result = polygonize(
+        JSON.stringify(geojson),
+        true, // node_input
+        0.5   // snap_grid_size
+    );
     console.log(JSON.parse(result));
 
     // Or use Arrow IPC bytes
@@ -800,7 +877,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.1.0"
+version = "0.3.0"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = {text = "MIT OR Apache-2.0"}
@@ -838,7 +915,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2771,7 +2848,7 @@ mod tests {
     use crate::Polygonizer;
     use geo::bounding_rect::BoundingRect;
     use geo::Area;
-    use geo_types::{LineString, Polygon};
+    use geo_types::LineString;
 
     #[test]
     fn test_polygonize_simple_triangle() {
@@ -2781,7 +2858,7 @@ mod tests {
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]).into());
 
         let polygons = poly.polygonize().unwrap().polygons;
-        assert!(polygons.len() >= 1);
+        assert!(!polygons.is_empty());
         let triangle = polygons.iter().find(|p| {
             let p2d = p.to_polygon_2d();
             p2d.unsigned_area() > 49.0 && p2d.unsigned_area() < 51.0
@@ -3781,9 +3858,10 @@ mod tests;
 File: crates/geo-polygonize-core/src/tiling_tests.rs
 ```
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::TiledPolygonizer;
-    use geo::{Area, Coord, Geometry, LineString, Rect};
+    use geo::{Coord, Geometry, LineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -3794,35 +3872,34 @@ mod tests {
         //  |     |      |
         // 0,20- 10,20- 20,20
 
-        let mut geoms = Vec::new();
-
-        // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 20.0, y: 0.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 20.0, y: 10.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 20.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
-
-        // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 0.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 10.0, y: 0.0 },
-            Coord { x: 10.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 20.0, y: 0.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
+        let geoms = vec![
+            // Horizontals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 20.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 10.0 },
+                Coord { x: 20.0, y: 10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 20.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+            // Verticals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 0.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 10.0, y: 0.0 },
+                Coord { x: 10.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 20.0, y: 0.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+        ];
 
         // BBox covers 0,0 to 20,20
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
@@ -3852,34 +3929,34 @@ mod tests {
         // Tile size 10, lines on 10.
         // This tests the "ownership" logic at boundaries.
 
-        let mut geoms = Vec::new();
-        // Horizontals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 20.0, y: 0.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 10.0 },
-            Coord { x: 20.0, y: 10.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 20.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
-
-        // Verticals
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 0.0, y: 0.0 },
-            Coord { x: 0.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 10.0, y: 0.0 },
-            Coord { x: 10.0, y: 20.0 },
-        ])));
-        geoms.push(Geometry::LineString(LineString::new(vec![
-            Coord { x: 20.0, y: 0.0 },
-            Coord { x: 20.0, y: 20.0 },
-        ])));
+        let geoms = vec![
+            // Horizontals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 20.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 10.0 },
+                Coord { x: 20.0, y: 10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 20.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+            // Verticals
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 0.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 10.0, y: 0.0 },
+                Coord { x: 10.0, y: 20.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 20.0, y: 0.0 },
+                Coord { x: 20.0, y: 20.0 },
+            ])),
+        ];
 
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
 
@@ -3904,14 +3981,13 @@ mod tests {
         // BBox passed is 0,0 -> 20,20.
         // This simulates a polygon on the edge of the world.
 
-        let mut geoms = Vec::new();
-        geoms.push(Geometry::LineString(LineString::new(vec![
+        let geoms = vec![Geometry::LineString(LineString::new(vec![
             Coord { x: 19.0, y: 0.0 },
             Coord { x: 21.0, y: 0.0 },
             Coord { x: 21.0, y: 10.0 },
             Coord { x: 19.0, y: 10.0 },
             Coord { x: 19.0, y: 0.0 },
-        ])));
+        ]))];
 
         // BBox 0,0 -> 20,20.
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
@@ -5081,9 +5157,10 @@ impl PlanarGraph {
 File: crates/geo-polygonize-core/src/graph/tests.rs
 ```
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
-    use crate::types::{Coord3D, Line3D};
+    use crate::types::Line3D;
     use geo_types::{Coord, LineString};
 
     #[test]
@@ -6510,10 +6587,10 @@ mod tests {
 
     #[test]
     fn test_scalar_strategy_simple() {
-        let mut lines = Vec::new();
-        // Intersection at (5, 5)
-        lines.push(make_line(0.0, 0.0, 10.0, 10.0));
-        lines.push(make_line(0.0, 10.0, 10.0, 0.0));
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 10.0),
+            make_line(0.0, 10.0, 10.0, 0.0),
+        ];
 
         let noder = SnapNoder::new(1e-6).with_strategy(NodingStrategy::Scalar);
         let noded = noder.node(lines);
@@ -7083,13 +7160,35 @@ mod tests {
                 // Geo's contains is strict (false for boundary).
                 // SimdRing is strict-ish (false for most boundary, true for some vertices).
                 // We skip points too close to boundary to avoid flaky tests on undefined behavior.
-                use geo::EuclideanDistance;
                 // Convert test_point to Point for distance check
-                let point_geo = geo::Point(test_point);
+                // let point_geo = geo::Point(test_point);
                 // Check distance to boundary
                 let boundary = poly.exterior();
+
+                let mut min_dist = f64::MAX;
+                for i in 0..boundary.0.len() - 1 {
+                    let a = boundary.0[i];
+                    let b = boundary.0[i + 1];
+                    let p = test_point;
+
+                    let l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+                    let d = if l2 == 0.0 {
+                        ((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)).sqrt()
+                    } else {
+                        let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+                        let t = t.clamp(0.0, 1.0);
+                        let proj_x = a.x + t * (b.x - a.x);
+                        let proj_y = a.y + t * (b.y - a.y);
+                        ((p.x - proj_x) * (p.x - proj_x) + (p.y - proj_y) * (p.y - proj_y)).sqrt()
+                    };
+
+                    if d < min_dist {
+                        min_dist = d;
+                    }
+                }
+
                 // Check distance using Euclidean distance
-                if boundary.euclidean_distance(&point_geo) < 1e-5 {
+                if min_dist < 1e-5 {
                     continue;
                 }
 
@@ -7393,7 +7492,7 @@ use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
 use geo_traits::LineStringTrait;
 use geo_traits::PolygonTrait;
-use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonArray};
+use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, PolygonArray};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -8054,7 +8153,7 @@ fn test_reproduce_nan_in_noder() {
     // This should not panic or hang, and should filter out the invalid line
     let result = noder.node(lines);
 
-    assert!(result.len() > 0, "Should return valid lines");
+    assert!(!result.is_empty(), "Should return valid lines");
 
     // Just verify no NaNs
     for line in &result {
@@ -8226,7 +8325,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -8235,7 +8334,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { version = "0.1.0", path = "../geo-polygonize-core", default-features = false }
+geo-polygonize-core = { version = "0.3.0", path = "../geo-polygonize-core", default-features = false }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -8274,7 +8373,12 @@ use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen]
-pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
+pub fn polygonize(
+    geojson_str: &str,
+    node_input: Option<bool>,
+    snap_grid_size: Option<f64>,
+    extract_only_polygonal: Option<bool>,
+) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
@@ -8282,6 +8386,15 @@ pub fn polygonize(geojson_str: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
 
     let mut polygonizer = Polygonizer::new();
+    if let Some(ni) = node_input {
+        polygonizer.node_input = ni;
+    }
+    if let Some(sgs) = snap_grid_size {
+        polygonizer.snap_grid_size = sgs;
+    }
+    if let Some(eop) = extract_only_polygonal {
+        polygonizer.extract_only_polygonal = eop;
+    }
 
     match geojson {
         GeoJson::FeatureCollection(fc) => {
@@ -8572,6 +8685,85 @@ fn polygonize_and_flatten(
         stride,
     })
 }
+
+```
+
+File: docs/WASM_API.md
+```
+# Wasm API Documentation
+
+This document describes the WebAssembly (Wasm) API available in the `geo-polygonize` package.
+
+## Exported Functions
+
+### `polygonize(geojson_str, node_input?, snap_grid_size?, extract_only_polygonal?)`
+
+Polygonizes linework provided as a GeoJSON FeatureCollection, Feature, or Geometry string. Returns a GeoJSON FeatureCollection string containing the resulting polygons.
+
+*   `geojson_str` (string): The input GeoJSON as a string.
+*   `node_input` (boolean, optional): Whether to use robust Iterated Snap Rounding to find intersections between line segments before polygonization. Defaults to `false`.
+*   `snap_grid_size` (number, optional): The grid size used for snap rounding if `node_input` is true. Defaults to `1e-10`.
+*   `extract_only_polygonal` (boolean, optional): Whether to strictly extract only fully polygonal regions, discarding non-polygonal linework. Defaults to `false`.
+
+**Example:**
+
+```javascript
+import { polygonize } from "geo-polygonize";
+
+const geojson = {
+    type: "FeatureCollection",
+    features: [
+        {
+            type: "Feature",
+            geometry: {
+                type: "LineString",
+                coordinates: [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+            }
+        }
+    ]
+};
+
+// With explicit parameters to match backend configurations
+const resultStr = polygonize(JSON.stringify(geojson), true, 0.5);
+const result = JSON.parse(resultStr);
+```
+
+### `polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size)`
+
+Polygonizes raw coordinate arrays. This is an advanced API for high-performance integrations bypassing JSON serialization.
+
+*   `coords` (Float64Array): A flat array of coordinate values `[x1, y1, x2, y2, ...]`.
+*   `offsets` (Uint32Array): Start indices of each line segment in `coords` (measured in coordinate points, not flat floats).
+*   `stride` (number): Coordinate stride (2 for 2D, 3 for 3D). Must be `2` or `3`.
+*   `node_input` (boolean): Whether to perform node noding on the inputs.
+*   `snap_grid_size` (number): The grid size for snap noding.
+
+Returns a `WasmPolygonResult` object (see below).
+
+### `polygonize_geoarrow(ipc_bytes, node_input, snap_grid_size, extract_only_polygonal)`
+
+Polygonizes data provided as an Arrow IPC byte array representing a GeoArrow LineString column. Returns an Arrow IPC byte array of the resulting polygons.
+
+*   `ipc_bytes` (Uint8Array): The input Arrow IPC byte buffer.
+*   `node_input` (boolean): Whether to perform node noding on the inputs.
+*   `snap_grid_size` (number): The grid size for snap noding.
+*   `extract_only_polygonal` (boolean): Whether to extract only polygonal structures.
+
+## WasmPolygonResult Object
+
+Returned by `polygonize_buffers`.
+
+Methods:
+
+*   `coords_ptr()`: Pointer to the flat output coordinates array in Wasm memory.
+*   `coords_len()`: Length of the coordinates array.
+*   `ring_offsets_ptr()`: Pointer to the ring offsets array.
+*   `ring_offsets_len()`: Length of the ring offsets array.
+*   `polygon_offsets_ptr()`: Pointer to the polygon offsets array.
+*   `polygon_offsets_len()`: Length of the polygon offsets array.
+*   `stride()`: The stride of the output coordinates.
+
+You can construct standard JavaScript `Float64Array` and `Uint32Array` views over the Wasm memory using these pointers and lengths to access the raw data with zero-copy overhead.
 
 ```
 
