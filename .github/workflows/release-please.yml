@@ -16,9 +16,3 @@ jobs:
       - uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          release-type: node
-          package-name: "geo-polygonize"
-          extra-files: |
-            pyproject.toml
-            crates/geo-polygonize-core/Cargo.toml
-            crates/geo-polygonize-wasm/Cargo.toml
