@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 5 | 0.000167 | 0.000679 | 4.07x |
-| 10 | 0.000357 | 0.002252 | 6.31x |
-| 20 | 0.000893 | 0.008284 | 9.27x |
-| 50 | 0.004508 | 0.051809 | 11.49x |
-| 100 | 0.019347 | 0.220253 | 11.38x |
+| 5 | 0.000167 | 0.000621 | 3.72x |
+| 10 | 0.000384 | 0.002107 | 5.48x |
+| 20 | 0.000991 | 0.007899 | 7.97x |
+| 50 | 0.004769 | 0.049468 | 10.37x |
+| 100 | 0.020351 | 0.207512 | 10.20x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |
 |---|---|---|---|
-| 50 | 0.000771 | 0.007800 | 10.11x |
-| 100 | 0.002808 | 0.025672 | 9.14x |
-| 200 | 0.010299 | 0.099256 | 9.64x |
+| 50 | 0.000857 | 0.007886 | 9.20x |
+| 100 | 0.003098 | 0.025549 | 8.25x |
+| 200 | 0.011133 | 0.098019 | 8.80x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.1...v0.2.0) (2026-03-06)
+
+
+### Features
+
+* **core:** Optimize geometry extraction by pre-allocating capacity using extend ([#172](https://github.com/graydonpleasants/geo-polygonize/issues/172)) ([922db67](https://github.com/graydonpleasants/geo-polygonize/commit/922db67c3540f6d15935579beaa82d1a7d503740))
+
+
+### Bug Fixes
+
+* add missing version to geo-polygonize-core dependency ([9f8d31d](https://github.com/graydonpleasants/geo-polygonize/commit/9f8d31d2639deef94bb8c95c0629526f435d4253))
+* **python:** remove invalid `--release` argument from maturin publish command ([#179](https://github.com/graydonpleasants/geo-polygonize/issues/179)) ([b147494](https://github.com/graydonpleasants/geo-polygonize/commit/b147494649fd0a24e79061b9e747539ba8e0d11c))
 
 ## [0.1.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.0...v0.1.1) (2026-03-04)
 
