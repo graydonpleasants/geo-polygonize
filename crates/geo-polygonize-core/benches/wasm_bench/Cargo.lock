@@ -232,6 +232,9 @@ name = "arrow-schema"
 version = "57.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d27609cd7dd45f006abae27995c2729ef6f4b9361cde1ddd019dc31a5aa017e0"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "arrow-select"
@@ -557,12 +560,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "geo-polygonize"
+name = "geo-polygonize-core"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "float_next_after",
  "geo",
+ "geo-traits",
  "geo-types",
+ "geoarrow",
+ "getrandom 0.2.16",
  "log",
  "rayon",
  "robust",
@@ -1513,7 +1520,7 @@ dependencies = [
  "arrow",
  "console_error_panic_hook",
  "geo",
- "geo-polygonize",
+ "geo-polygonize-core",
  "geo-types",
  "geoarrow",
  "geojson",

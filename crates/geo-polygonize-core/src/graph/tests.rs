@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
     use crate::types::Line3D;

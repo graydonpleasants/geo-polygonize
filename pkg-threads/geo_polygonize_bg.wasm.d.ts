@@ -2,23 +2,17 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmpolygonresult_free: (a: number, b: number) => void;
-export const polygonize: (a: number, b: number) => [number, number, number, number];
-export const polygonize_buffers: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const polygonize: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const polygonize_buffers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+export const polygonize_geoarrow: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const wasmpolygonresult_coords_len: (a: number) => number;
 export const wasmpolygonresult_coords_ptr: (a: number) => number;
 export const wasmpolygonresult_polygon_offsets_len: (a: number) => number;
 export const wasmpolygonresult_polygon_offsets_ptr: (a: number) => number;
 export const wasmpolygonresult_ring_offsets_len: (a: number) => number;
 export const wasmpolygonresult_ring_offsets_ptr: (a: number) => number;
+export const wasmpolygonresult_stride: (a: number) => number;
 export const polygonize_ffi: (a: number, b: number, c: number, d: number, e: number) => number;
-export const polygonize_result_free: (a: number) => void;
-export const polygonize_result_get_count: (a: number) => number;
-export const polygonize_result_get_hole_count: (a: number, b: number) => number;
-export const polygonize_result_get_hole_point_count: (a: number, b: number, c: number) => number;
-export const polygonize_result_get_hole_points: (a: number, b: number, c: number, d: number) => void;
-export const polygonize_result_get_shell_point_count: (a: number, b: number) => number;
-export const polygonize_result_get_shell_points: (a: number, b: number, c: number) => void;
-export const polygonize_result_get_status: (a: number) => number;
 export const __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
 export const initThreadPool: (a: number) => any;
 export const wbg_rayon_poolbuilder_build: (a: number) => void;
