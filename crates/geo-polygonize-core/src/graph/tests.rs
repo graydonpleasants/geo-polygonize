@@ -226,4 +226,18 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_bulk_load_empty() {
+        let mut graph = PlanarGraph::new();
+        let lines: Vec<Line3D> = vec![];
+
+        graph.bulk_load(lines);
+
+        assert!(graph.nodes_x.is_empty());
+        assert!(graph.edges.is_empty());
+        assert!(graph.directed_edges.is_empty());
+        assert!(graph.nodes_outgoing.is_empty());
+        assert!(graph.node_map.is_empty());
+    }
 }
