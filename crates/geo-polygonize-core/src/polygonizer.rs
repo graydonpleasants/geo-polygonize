@@ -337,7 +337,6 @@ impl Polygonizer {
                     if area > hole_area + 1e-6 && area < min_area {
                         min_area = area;
                         best_shell_idx = Some(idx);
-                        println!("Hole {} assigned to shell {}", i, idx);
                     }
                 }
             }
