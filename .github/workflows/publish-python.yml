@@ -63,10 +63,8 @@ jobs:
           pattern: wheels-*
           merge-multiple: true
 
-      - name: Publish wheels
-        uses: PyO3/maturin-action@v1
+      - name: Publish Wheels
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          command: upload
-          args: --skip-existing dist/*
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist
