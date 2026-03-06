@@ -343,10 +343,8 @@ impl UniformGrid {
             .snap(Coord3D::new(overlap.start.x, overlap.start.y, 0.0))
             .to_coord_2d();
         // Simplified ownership: Check if p1 is in cell
-        let p1_in = p1.x >= cell_min_x
-            && p1.x < cell_max_x
-            && p1.y >= cell_min_y
-            && p1.y < cell_max_y;
+        let p1_in =
+            p1.x >= cell_min_x && p1.x < cell_max_x && p1.y >= cell_min_y && p1.y < cell_max_y;
         if p1_in || (c == 0 && r == 0) {
             snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
                 splits.push((idx, pt));
