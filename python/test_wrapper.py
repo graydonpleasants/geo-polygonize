@@ -175,15 +175,61 @@ def test_library_not_found(mock_glob, mock_exists):
     mock_exists.return_value = False
     mock_glob.return_value = []
 
-    import geo_polygonize.cffi_wrapper as cffi_wrapper
+    import sys
+    if 'geo_polygonize.cffi_wrapper' in sys.modules:
+        del sys.modules['geo_polygonize.cffi_wrapper']
 
     try:
-        cffi_wrapper.find_library()
+        import geo_polygonize.cffi_wrapper as cffi_wrapper
         assert False, "Should have raised FileNotFoundError"
     except FileNotFoundError as e:
         print(f"Caught expected error: {e}")
         assert "Could not find geo_polygonize_core shared library" in str(e)
     print("Missing library test passed!")
+
+@patch('geo_polygonize.cffi_wrapper.lib', create=True)
+def test_invalid_input_status(mock_lib):
+    print("\nTesting invalid input status (status == 1)...")
+    import geo_polygonize.cffi_wrapper as cw
+
+    # Mock the return values
+    mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
+    mock_lib.polygonize_result_get_status.return_value = 1
+    mock_lib.polygonize_result_free.return_value = None
+
+    # Valid-looking arrays to pass python-side checks
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    try:
+        cw.polygonize(coords, offsets)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        print(f"Caught expected error: {e}")
+        assert "Invalid input provided to polygonize" in str(e)
+    print("Invalid input status test passed!")
+
+@patch('geo_polygonize.cffi_wrapper.lib', create=True)
+def test_internal_error_status(mock_lib):
+    print("\nTesting internal error status (status == 2)...")
+    import geo_polygonize.cffi_wrapper as cw
+
+    # Mock the return values
+    mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
+    mock_lib.polygonize_result_get_status.return_value = 2
+    mock_lib.polygonize_result_free.return_value = None
+
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    try:
+        cw.polygonize(coords, offsets)
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
+        print(f"Caught expected error: {e}")
+        assert "Internal error during polygonization: 2" in str(e)
+    print("Internal error status test passed!")
+
 
 if __name__ == "__main__":
     test_square()
@@ -193,3 +239,5 @@ if __name__ == "__main__":
     test_odd_length_coordinates()
     test_return_polygons_without_shapely()
     test_library_not_found()
+    test_invalid_input_status()
+    test_internal_error_status()
