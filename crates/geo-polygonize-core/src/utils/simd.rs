@@ -28,7 +28,6 @@ impl SimdRing {
         Self { x, y, len }
     }
 
-
     pub fn new_3d(coords: &[crate::types::Coord3D]) -> Self {
         let len = coords.len();
 

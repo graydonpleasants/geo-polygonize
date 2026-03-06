@@ -218,8 +218,10 @@ impl Polygonizer {
             let mut removed_count = 0;
 
             // Precompute probe points
-            let probe_points: Vec<Option<geo_types::Point<f64>>> =
-                shells.iter().map(|s| guaranteed_interior_probe(&s.exterior)).collect();
+            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
+                .iter()
+                .map(|s| guaranteed_interior_probe(&s.exterior))
+                .collect();
 
             let mut container_counts = vec![0; shells.len()];
 
@@ -246,8 +248,8 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        let simd_shell = simd_shells[j]
-                            .get_or_init(|| SimdRing::new_3d(&shells[j].exterior));
+                        let simd_shell =
+                            simd_shells[j].get_or_init(|| SimdRing::new_3d(&shells[j].exterior));
 
                         if simd_shell.contains(probe_pt.0) {
                             let area_i = shell.unsigned_area_2d();
@@ -255,11 +257,7 @@ impl Polygonizer {
 
                             // If i is strictly contained inside j, increment container count
                             if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
-                                && !rings_share_edge(
-                                    &shells[j].exterior,
-                                    &shell.exterior,
-                                    1e-10,
-                                )
+                                && !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
                             {
                                 container_counts[i] += 1;
                             }
@@ -492,10 +490,18 @@ fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
     let mut min_y = coords[0].y;
     let mut max_y = coords[0].y;
     for c in &coords[1..] {
-        if c.x < min_x { min_x = c.x; }
-        if c.x > max_x { max_x = c.x; }
-        if c.y < min_y { min_y = c.y; }
-        if c.y > max_y { max_y = c.y; }
+        if c.x < min_x {
+            min_x = c.x;
+        }
+        if c.x > max_x {
+            max_x = c.x;
+        }
+        if c.y < min_y {
+            min_y = c.y;
+        }
+        if c.y > max_y {
+            max_y = c.y;
+        }
     }
     Some(geo::Rect::new(
         geo::Coord { x: min_x, y: min_y },
