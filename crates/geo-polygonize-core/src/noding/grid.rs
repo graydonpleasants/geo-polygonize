@@ -461,6 +461,22 @@ mod tests {
     }
 
     #[test]
+    fn test_new_with_empty_lines() {
+        let lines: Vec<Line3D> = Vec::new();
+        let grid = UniformGrid::new(&lines);
+
+        // Ensure that the empty path initializes variables correctly
+        assert_eq!(grid.rows, 0);
+        assert_eq!(grid.cols, 0);
+        assert_eq!(grid.cell_offsets, vec![0]);
+        assert_eq!(grid.cell_items.len(), 0);
+        assert_eq!(grid.global_lines.len(), 0);
+        assert_relative_eq!(grid.cell_size, 1.0);
+        assert_relative_eq!(grid.bounds_min.x, 0.0);
+        assert_relative_eq!(grid.bounds_min.y, 0.0);
+    }
+
+    #[test]
     fn test_grid_dimensions() {
         let lines = vec![
             make_line(0.0, 0.0, 10.0, 0.0),

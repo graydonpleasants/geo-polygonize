@@ -161,6 +161,36 @@ def test_import_error_fallback():
     importlib.reload(geo_polygonize.cffi_wrapper)
     importlib.reload(geo_polygonize)
 
+def test_return_polygons_without_shapely():
+    print("\nTesting ImportError fallback in return_polygons...")
+    coords = np.array([
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0
+    ], dtype=np.float64)
+    offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
+
+    # Mock shapely.geometry not being available
+    import sys
+    import builtins
+    import unittest.mock
+
+    real_import = builtins.__import__
+    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == 'shapely.geometry' or name == 'shapely':
+            raise ImportError("Mocked ImportError")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with unittest.mock.patch('builtins.__import__', side_effect=mock_import):
+        try:
+            polygonize(coords, offsets, return_polygons=True)
+            assert False, "Should have raised ImportError"
+        except ImportError as e:
+            print(f"Caught expected error: {e}")
+            assert "return_polygons=True requires 'shapely' to be installed." in str(e)
+    print("ImportError fallback test passed!")
+    
 @patch('os.path.exists')
 @patch('glob.glob')
 def test_library_not_found(mock_glob, mock_exists):
@@ -186,4 +216,5 @@ if __name__ == "__main__":
     test_3d_coordinates()
     test_odd_length_coordinates()
     test_import_error_fallback()
+    test_return_polygons_without_shapely()
     test_library_not_found()

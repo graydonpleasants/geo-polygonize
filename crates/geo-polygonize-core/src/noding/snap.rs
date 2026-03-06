@@ -567,4 +567,111 @@ mod tests {
         assert!((p.x - 5.0).abs() < 1e-10);
         assert!((p.y - 5.0).abs() < 1e-10);
     }
+
+    #[test]
+    fn test_check_intersection_out_of_bounds() {
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 10.0),
+            make_line(0.0, 10.0, 10.0, 0.0),
+        ];
+        let mut events = Vec::new();
+        let noder = SnapNoder::new(0.0);
+
+        // i is out of bounds
+        noder.check_intersection(&lines, 2, 0, &mut events);
+        assert!(
+            events.is_empty(),
+            "Events should be empty when i is out of bounds"
+        );
+
+        // j is out of bounds
+        noder.check_intersection(&lines, 0, 2, &mut events);
+        assert!(
+            events.is_empty(),
+            "Events should be empty when j is out of bounds"
+        );
+
+        // Both are out of bounds
+        noder.check_intersection(&lines, 2, 3, &mut events);
+        assert!(
+            events.is_empty(),
+            "Events should be empty when both are out of bounds"
+        );
+    }
+
+    #[test]
+    fn test_check_intersection_identical_lines() {
+        let l1 = make_line(0.0, 0.0, 10.0, 10.0);
+        let lines = vec![l1, l1];
+        let mut events = Vec::new();
+        let noder = SnapNoder::new(0.0);
+
+        noder.check_intersection(&lines, 0, 1, &mut events);
+
+        // Identical lines will be collinear and overlap exactly.
+        // Expecting endpoints to be generated as intersection points.
+        // It returns endpoints of overlap, excluding endpoints if they match original start/end perfectly.
+        // Wait, handle_intersection logic for Collinear:
+        // if p != l1_start_2d && p != l1_end_2d { ... }
+        // If identical, the overlap is the whole line. The overlap endpoints ARE the line endpoints.
+        // Therefore, handle_intersection will filter them out because p == l1_start_2d || p == l1_end_2d.
+        // Let's verify events is empty.
+        assert!(
+            events.is_empty(),
+            "Identical lines should yield no internal split events"
+        );
+    }
+
+    #[test]
+    fn test_check_intersection_overlapping_lines() {
+        // l1: (0,0) to (10,10)
+        // l2: (5,5) to (15,15)
+        let l1 = make_line(0.0, 0.0, 10.0, 10.0);
+        let l2 = make_line(5.0, 5.0, 15.0, 15.0);
+        let lines = vec![l1, l2];
+        let mut events = Vec::new();
+        let noder = SnapNoder::new(0.0);
+
+        noder.check_intersection(&lines, 0, 1, &mut events);
+
+        // Overlap is (5,5) to (10,10).
+        // For l1, (10,10) is an endpoint, so it shouldn't be added to l1's events. (5,5) is internal, should be added.
+        // For l2, (5,5) is an endpoint, so it shouldn't be added to l2's events. (10,10) is internal, should be added.
+        // Let's see how many events are generated.
+        // It should be 2 events total:
+        // Event for i=0 (l1) at (5,5)
+        // Event for j=1 (l2) at (10,10)
+        assert_eq!(
+            events.len(),
+            2,
+            "Overlapping lines should yield internal split events for both lines"
+        );
+
+        let has_5_5 = events
+            .iter()
+            .any(|(idx, pt)| *idx == 0 && (pt.x - 5.0).abs() < 1e-10 && (pt.y - 5.0).abs() < 1e-10);
+        let has_10_10 = events.iter().any(|(idx, pt)| {
+            *idx == 1 && (pt.x - 10.0).abs() < 1e-10 && (pt.y - 10.0).abs() < 1e-10
+        });
+
+        assert!(has_5_5, "Expected split event for l1 at (5,5)");
+        assert!(has_10_10, "Expected split event for l2 at (10,10)");
+    }
+
+    #[test]
+    fn test_check_intersection_disjoint_lines() {
+        let l1 = make_line(0.0, 0.0, 10.0, 10.0);
+        let l2 = make_line(0.0, 10.0, 5.0, 15.0);
+        let lines = vec![l1, l2];
+        let mut events = Vec::new();
+        let noder = SnapNoder::new(0.0);
+
+        noder.check_intersection(&lines, 0, 1, &mut events);
+
+        // No intersection, events should be empty
+        assert!(
+            events.is_empty(),
+            "Disjoint lines should yield no intersection events"
+        );
+    }
 }
