@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000163 | 0.000678 | - | 4.15x | - | - |
-| 10 | 0.000357 | 0.002226 | 0.000290 | 6.24x | 7.68x | 0.81x |
-| 20 | 0.000881 | 0.008306 | 0.000300 | 9.43x | 27.69x | 0.34x |
-| 50 | 0.004819 | 0.051786 | 0.000460 | 10.75x | 112.58x | 0.10x |
-| 100 | 0.018171 | 0.220074 | - | 12.11x | - | - |
+| 5 | 0.000148 | 0.000596 | - | 4.03x | - | - |
+| 10 | 0.000331 | 0.002017 | 0.000330 | 6.09x | 6.11x | 1.00x |
+| 20 | 0.000888 | 0.007621 | 0.000340 | 8.58x | 22.41x | 0.38x |
+| 50 | 0.004673 | 0.049542 | 0.000430 | 10.60x | 115.21x | 0.09x |
+| 100 | 0.018826 | 0.221356 | - | 11.76x | - | - |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000776 | 0.008051 | - | 10.38x | - | - |
-| 100 | 0.002746 | 0.026260 | - | 9.56x | - | - |
-| 200 | 0.010006 | 0.101364 | - | 10.13x | - | - |
+| 50 | 0.000758 | 0.007983 | - | 10.53x | - | - |
+| 100 | 0.002789 | 0.025174 | - | 9.03x | - | - |
+| 200 | 0.010626 | 0.106171 | - | 9.99x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.0...geo-polygonize-v0.4.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **core:** remove debug print in polygonizer.rs ([6c77240](https://github.com/graydonpleasants/geo-polygonize/commit/6c772401865aa1d230e1c7fb1d1c14dfb07bc508))
+* **github:** support release-please component tags in publish workflows ([#207](https://github.com/graydonpleasants/geo-polygonize/issues/207)) ([b59cccd](https://github.com/graydonpleasants/geo-polygonize/commit/b59cccd116c8225257d2bacdc1f78c6dee8fe93a))
+
+
+### Performance Improvements
+
+* **core:** Eliminate intermediate polygon allocations ([#204](https://github.com/graydonpleasants/geo-polygonize/issues/204)) ([5329162](https://github.com/graydonpleasants/geo-polygonize/commit/5329162172980c3f6bc154c3ef7a9986b7fe2838))
 
 ## [0.4.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.1...geo-polygonize-v0.4.0) (2026-03-06)
 
@@ -925,7 +938,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.4.0"
+version = "0.4.1"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = {text = "MIT OR Apache-2.0"}
@@ -963,7 +976,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2054,11 +2067,19 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
         if list_arr.is_null(i) {
             continue;
         }
-        let start = list_arr.value_offsets()[i].to_usize().unwrap();
-        let end = list_arr.value_offsets()[i + 1].to_usize().unwrap();
+        let start = list_arr.value_offsets()[i]
+            .to_usize()
+            .ok_or("Invalid start offset: cannot convert to usize")?;
+        let end = list_arr.value_offsets()[i + 1]
+            .to_usize()
+            .ok_or("Invalid end offset: cannot convert to usize")?;
 
         if end <= start {
             continue;
+        }
+
+        if end > x_vals.len() || end > y_vals.len() {
+            return Err("Offset out of bounds for x/y coordinate arrays".to_string());
         }
 
         // Iterate points in the linestring
@@ -2549,7 +2570,6 @@ impl Polygonizer {
                     if area > hole_area + 1e-6 && area < min_area {
                         min_area = area;
                         best_shell_idx = Some(idx);
-                        println!("Hole {} assigned to shell {}", i, idx);
                     }
                 }
             }
@@ -4440,6 +4460,12 @@ mod tests {
         assert!((centroid.x() - expected_x).abs() < 1e-8);
         assert!((centroid.y() - expected_y).abs() < 1e-8);
     }
+
+    #[test]
+    fn test_centroid_empty_exterior() {
+        let poly = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        assert_eq!(poly.centroid_2d(), None);
+    }
 }
 
 ```
@@ -5443,6 +5469,20 @@ mod tests {
                 point
             );
         }
+    }
+
+    #[test]
+    fn test_bulk_load_empty() {
+        let mut graph = PlanarGraph::new();
+        let lines: Vec<Line3D> = vec![];
+
+        graph.bulk_load(lines);
+
+        assert!(graph.nodes_x.is_empty());
+        assert!(graph.edges.is_empty());
+        assert!(graph.directed_edges.is_empty());
+        assert!(graph.nodes_outgoing.is_empty());
+        assert!(graph.node_map.is_empty());
     }
 }
 
@@ -8404,7 +8444,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -8413,7 +8453,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { version = "0.4.0", path = "../geo-polygonize-core", default-features = false }
+geo-polygonize-core = { version = "0.4.1", path = "../geo-polygonize-core", default-features = false }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -9105,6 +9145,7 @@ import os
 import numpy as np
 import shapely
 from shapely.geometry import shape
+from unittest.mock import patch
 
 # Add python directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__)))
@@ -9238,12 +9279,31 @@ def test_odd_length_coordinates():
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
+@patch('os.path.exists')
+@patch('glob.glob')
+def test_library_not_found(mock_glob, mock_exists):
+    print("\nTesting missing shared library...")
+    # Mock exists to always return False and glob to return empty list
+    mock_exists.return_value = False
+    mock_glob.return_value = []
+
+    import geo_polygonize.cffi_wrapper as cffi_wrapper
+
+    try:
+        cffi_wrapper.find_library()
+        assert False, "Should have raised FileNotFoundError"
+    except FileNotFoundError as e:
+        print(f"Caught expected error: {e}")
+        assert "Could not find geo_polygonize_core shared library" in str(e)
+    print("Missing library test passed!")
+
 if __name__ == "__main__":
     test_square()
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
     test_odd_length_coordinates()
+    test_library_not_found()
 
 ```
 
