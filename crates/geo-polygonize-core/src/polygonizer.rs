@@ -391,12 +391,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
-        let mut result = Vec::new();
-        for (i, shell) in shells.into_iter().enumerate() {
+        let mut result = Vec::with_capacity(shells.len());
+        for ((shell, holes), holes_ids) in shells
+            .into_iter()
+            .zip(shell_holes.into_iter())
+            .zip(shell_holes_ids.into_iter())
+        {
             let exterior = shell.exterior;
             let exterior_ids = shell.exterior_ids;
-            let holes = shell_holes[i].clone();
-            let holes_ids = shell_holes_ids[i].clone();
 
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
