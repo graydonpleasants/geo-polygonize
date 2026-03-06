@@ -137,6 +137,30 @@ def test_odd_length_coordinates():
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
+def test_import_error_fallback():
+    print("\nTesting ImportError fallback in __init__.py...")
+    import importlib
+    import builtins
+    import geo_polygonize
+
+    real_import = builtins.__import__
+
+    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if 'geo_polygonize_core' in name or (fromlist and 'geo_polygonize_core' in fromlist):
+            raise ImportError("Mocked ImportError for testing")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with patch('builtins.__import__', side_effect=mock_import):
+        importlib.reload(geo_polygonize)
+
+        import geo_polygonize.cffi_wrapper as cffi_wrapper
+        assert geo_polygonize._polygonize_impl is cffi_wrapper.polygonize
+        print("ImportError fallback test passed!")
+
+    # Reload again to restore the module state for other tests
+    importlib.reload(geo_polygonize.cffi_wrapper)
+    importlib.reload(geo_polygonize)
+
 def test_return_polygons_without_shapely():
     print("\nTesting ImportError fallback in return_polygons...")
     coords = np.array([
@@ -237,6 +261,7 @@ if __name__ == "__main__":
     test_square_with_hole()
     test_3d_coordinates()
     test_odd_length_coordinates()
+    test_import_error_fallback()
     test_return_polygons_without_shapely()
     test_library_not_found()
     test_invalid_input_status()
