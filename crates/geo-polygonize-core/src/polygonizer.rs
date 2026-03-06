@@ -285,12 +285,7 @@ impl Polygonizer {
                 let mut new_shells = Vec::new();
                 let mut new_shells_2d = Vec::new();
 
-                let mut iter = shells.into_iter();
-                let mut iter_2d = shells_2d.into_iter();
-
-                for keep in keep_mask {
-                    let s = iter.next().unwrap();
-                    let s2d = iter_2d.next().unwrap();
+                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
                     if keep {
                         new_shells.push(s);
                         new_shells_2d.push(s2d);
