@@ -331,7 +331,9 @@ mod tests {
         ];
 
         let poly = Polygon3D::new(ext, vec![hole], vec![], vec![vec![]]);
-        let centroid = poly.centroid_2d().unwrap();
+        let Some(centroid) = poly.centroid_2d() else {
+            panic!("Centroid calculation failed and returned None");
+        };
         // Since it's a symmetric hole in a symmetric square, the centroid should be exactly at the center (5, 5).
         // If winding independence failed, it might add instead of subtract or produce a wildly wrong result.
         assert!((centroid.x() - 5.0).abs() < 1e-6);
@@ -350,7 +352,9 @@ mod tests {
         ];
 
         let poly = Polygon3D::new(ext, vec![], vec![], vec![]);
-        let centroid = poly.centroid_2d().unwrap();
+        let Some(centroid) = poly.centroid_2d() else {
+            panic!("Centroid calculation failed and returned None");
+        };
 
         // Centroid should be exactly at the center of the small square
         let expected_x = offset + 0.0005;
@@ -369,6 +373,12 @@ mod tests {
     #[test]
     fn test_centroid_empty_exterior() {
         let poly = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        assert_eq!(poly.centroid_2d(), None);
+    }
+
+    #[test]
+    fn test_centroid_empty_polygon() {
+        let poly = Polygon3D::new(vec![], vec![vec![]], vec![], vec![vec![]]);
         assert_eq!(poly.centroid_2d(), None);
     }
 }
