@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.0...geo-polygonize-v0.3.1) (2026-03-06)
+
+
+### Build System
+
+* **github:** unhide build commits in release-please config ([#198](https://github.com/graydonpleasants/geo-polygonize/issues/198)) ([913fb9c](https://github.com/graydonpleasants/geo-polygonize/commit/913fb9c3ed932dac1c80f0da488d76201d3f753b))
+* update geo-polygonize-core version in wasm Cargo.toml ([#196](https://github.com/graydonpleasants/geo-polygonize/issues/196)) ([0322e06](https://github.com/graydonpleasants/geo-polygonize/commit/0322e066c74a7f707196b3e2155c539d13b62f2d))
+* **wasm:** update geo-polygonize-core version in Cargo.toml ([#197](https://github.com/graydonpleasants/geo-polygonize/issues/197)) ([d2a47c7](https://github.com/graydonpleasants/geo-polygonize/commit/d2a47c78034bed0d15b7649f42189118ad034f05))
+
 ## [0.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.2.1...geo-polygonize-v0.3.0) (2026-03-06)
 
 
