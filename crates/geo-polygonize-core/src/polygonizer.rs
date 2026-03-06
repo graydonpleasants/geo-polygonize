@@ -4,10 +4,8 @@ use crate::noding::snap::SnapNoder;
 use crate::types::{Coord3D, Line3D, Polygon3D};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
-use geo::bounding_rect::BoundingRect;
-use geo::Area;
 use geo::Contains;
-use geo_types::{Coord, Geometry, LineString, Polygon};
+use geo_types::{Coord, Geometry, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 
 #[cfg(feature = "parallel")]
@@ -199,15 +197,14 @@ impl Polygonizer {
         // 5. Establish Topology
 
         // Precompute 2D shells for spatial index and SIMD
-        let mut shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         let mut simd_shells: Vec<OnceLock<SimdRing>> =
             (0..shells.len()).map(|_| OnceLock::new()).collect();
 
         // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        for (i, shell) in shells_2d.iter().enumerate() {
-            if let Some(bbox) = shell.bounding_rect() {
+        for (i, shell) in shells.iter().enumerate() {
+            if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                 let aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
@@ -221,13 +218,15 @@ impl Polygonizer {
             let mut removed_count = 0;
 
             // Precompute probe points
-            let probe_points: Vec<Option<geo_types::Point<f64>>> =
-                shells_2d.iter().map(guaranteed_interior_probe).collect();
+            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
+                .iter()
+                .map(|s| guaranteed_interior_probe(&s.exterior))
+                .collect();
 
             let mut container_counts = vec![0; shells.len()];
 
-            for (i, shell_2d) in shells_2d.iter().enumerate() {
-                let bbox = match shell_2d.bounding_rect() {
+            for (i, shell) in shells.iter().enumerate() {
+                let bbox = match bounding_rect_3d(&shell.exterior) {
                     Some(b) => b,
                     None => {
                         keep_mask[i] = false;
@@ -249,20 +248,16 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        let simd_shell = simd_shells[j]
-                            .get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
+                        let simd_shell =
+                            simd_shells[j].get_or_init(|| SimdRing::new_3d(&shells[j].exterior));
 
                         if simd_shell.contains(probe_pt.0) {
-                            let area_i = shell_2d.unsigned_area();
-                            let area_j = shells_2d[j].unsigned_area();
+                            let area_i = shell.unsigned_area_2d();
+                            let area_j = shells[j].unsigned_area_2d();
 
                             // If i is strictly contained inside j, increment container count
                             if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
-                                && !rings_share_edge(
-                                    shells_2d[j].exterior(),
-                                    shell_2d.exterior(),
-                                    1e-10,
-                                )
+                                && !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
                             {
                                 container_counts[i] += 1;
                             }
@@ -283,12 +278,10 @@ impl Polygonizer {
 
             if removed_count > 0 {
                 let mut new_shells = Vec::new();
-                let mut new_shells_2d = Vec::new();
 
-                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
+                for (keep, s) in keep_mask.into_iter().zip(shells) {
                     if keep {
                         new_shells.push(s);
-                        new_shells_2d.push(s2d);
                     } else {
                         // We do not need to track discarded edges from 2D shells for topological hole assignment
                         // because we already established nesting correctly using the container counts.
@@ -296,15 +289,12 @@ impl Polygonizer {
                 }
                 shells = new_shells;
 
-                // Recompute shells_2d and simd_shells for hole assignment
-                shells_2d = new_shells_2d;
-
                 // Rebuild helper structures
                 simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
-                for (i, shell) in shells_2d.iter().enumerate() {
-                    if let Some(bbox) = shell.bounding_rect() {
+                for (i, shell) in shells.iter().enumerate() {
+                    if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                         let aabb = AABB::from_corners(
                             [bbox.min().x, bbox.min().y],
                             [bbox.max().x, bbox.max().y],
@@ -316,14 +306,11 @@ impl Polygonizer {
             }
         }
 
-        let holes_2d: Vec<Polygon<f64>> = holes.iter().map(|h| h.to_polygon_2d()).collect();
-
         // Process hole assignment
         let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-            let hole_poly_2d = &holes_2d[i];
             let hole_3d = &holes[i];
 
-            let bbox = hole_poly_2d.bounding_rect()?;
+            let bbox = bounding_rect_3d(&hole_3d.exterior)?;
             let hole_aabb =
                 AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
@@ -332,22 +319,20 @@ impl Polygonizer {
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            let probe_point = guaranteed_interior_probe(hole_poly_2d)?;
+            let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
 
             for cand in candidates {
                 let idx = cand.index;
                 let simd_shell =
-                    simd_shells[idx].get_or_init(|| SimdRing::new(&shells_2d[idx].exterior().0));
+                    simd_shells[idx].get_or_init(|| SimdRing::new_3d(&shells[idx].exterior));
 
                 if simd_shell.contains(probe_point.0) {
-                    let shell_2d = &shells_2d[idx];
-
-                    if rings_share_edge(shell_2d.exterior(), hole_poly_2d.exterior(), 1e-10) {
+                    if rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
                         continue;
                     }
 
-                    let area = shell_2d.unsigned_area();
-                    let hole_area = hole_poly_2d.unsigned_area();
+                    let area = shells[idx].unsigned_area_2d();
+                    let hole_area = hole_3d.unsigned_area_2d();
 
                     if area > hole_area + 1e-6 && area < min_area {
                         min_area = area;
@@ -386,6 +371,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
+        // Ensure we don't crash on NaNs during processing
+        let invalid_rings = if invalid_rings_candidates.is_empty() {
+            Vec::new()
+        } else {
+            let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
+            process_invalid_rings(invalid_rings_candidates, &shells_2d)
+        };
+
         let mut result = Vec::with_capacity(shells.len());
         for ((shell, holes), holes_ids) in shells
             .into_iter()
@@ -402,9 +395,6 @@ impl Polygonizer {
                 result.push(p);
             }
         }
-
-        // Ensure we don't crash on NaNs during processing
-        let invalid_rings = process_invalid_rings(invalid_rings_candidates, &shells_2d);
 
         Ok(PolygonizerResult {
             polygons: result,
@@ -491,9 +481,35 @@ fn process_invalid_rings(
     result
 }
 
-fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64>> {
-    let ring = poly.exterior();
-    let coords = &ring.0;
+fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
+    if coords.is_empty() {
+        return None;
+    }
+    let mut min_x = coords[0].x;
+    let mut max_x = coords[0].x;
+    let mut min_y = coords[0].y;
+    let mut max_y = coords[0].y;
+    for c in &coords[1..] {
+        if c.x < min_x {
+            min_x = c.x;
+        }
+        if c.x > max_x {
+            max_x = c.x;
+        }
+        if c.y < min_y {
+            min_y = c.y;
+        }
+        if c.y > max_y {
+            max_y = c.y;
+        }
+    }
+    Some(geo::Rect::new(
+        geo::Coord { x: min_x, y: min_y },
+        geo::Coord { x: max_x, y: max_y },
+    ))
+}
+
+fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
     if coords.len() < 4 {
         return None;
     }
@@ -503,14 +519,13 @@ fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64
         return None;
     }
 
-    let area = poly.signed_area();
+    let area = Polygon3D::ring_signed_area_2d(coords);
     if !area.is_finite() || area.abs() < 1e-12 {
         return None;
     }
 
-    let hole_simd = SimdRing::new(coords);
-    let diag = poly
-        .bounding_rect()
+    let hole_simd = SimdRing::new_3d(coords);
+    let diag = bounding_rect_3d(coords)
         .map(|b| {
             let dx = b.max().x - b.min().x;
             let dy = b.max().y - b.min().y;
@@ -583,23 +598,23 @@ fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64
         }
     }
 
-    Some(geo_types::Point(coords[0]))
+    Some(geo_types::Point(coords[0].to_coord_2d()))
 }
 
-fn rings_share_edge(shell: &LineString<f64>, hole: &LineString<f64>, eps: f64) -> bool {
-    if shell.0.len() < 2 || hole.0.len() < 2 {
+fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+    if shell.len() < 2 || hole.len() < 2 {
         return false;
     }
 
-    let shell_n = shell.0.len() - 1;
-    let hole_n = hole.0.len() - 1;
+    let shell_n = shell.len() - 1;
+    let hole_n = hole.len() - 1;
 
     for i in 0..shell_n {
-        let a1 = shell.0[i];
-        let a2 = shell.0[i + 1];
+        let a1 = shell[i].to_coord_2d();
+        let a2 = shell[i + 1].to_coord_2d();
         for j in 0..hole_n {
-            let b1 = hole.0[j];
-            let b2 = hole.0[j + 1];
+            let b1 = hole[j].to_coord_2d();
+            let b2 = hole[j + 1].to_coord_2d();
             if segments_overlap_with_length(a1, a2, b1, b2, eps) {
                 return true;
             }
