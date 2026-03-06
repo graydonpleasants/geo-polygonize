@@ -121,36 +121,6 @@ impl Polygon3D {
         area
     }
 
-    #[inline]
-    fn ring_centroid_2d(coords: &[Coord3D]) -> Option<(f64, f64)> {
-        if coords.len() < 4 {
-            if coords.is_empty() {
-                return None;
-            }
-            return Some((coords[0].x, coords[0].y));
-        }
-
-        let mut cx = 0.0;
-        let mut cy = 0.0;
-        let mut twice_area = 0.0;
-        let mut j = coords.len() - 1;
-
-        for i in 0..coords.len() {
-            let temp = coords[j].x * coords[i].y - coords[i].x * coords[j].y;
-            twice_area += temp;
-            cx += (coords[j].x + coords[i].x) * temp;
-            cy += (coords[j].y + coords[i].y) * temp;
-            j = i;
-        }
-
-        if twice_area.abs() < 1e-12 {
-            return None;
-        }
-
-        let three_twice_area = 3.0 * twice_area;
-        Some((cx / three_twice_area, cy / three_twice_area))
-    }
-
     /// Computes the 2D centroid directly without allocating intermediate geometry.
     pub fn centroid_2d(&self) -> Option<geo_types::Point<f64>> {
         let mut cx = 0.0;
