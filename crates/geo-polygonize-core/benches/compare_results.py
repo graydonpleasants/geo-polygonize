@@ -64,6 +64,28 @@ def parse_python_output(filename):
                     pass
     return results
 
+def parse_wasm_output(filename):
+    results = {}
+    if not os.path.exists(filename):
+        print(f"Warning: {filename} not found.")
+        return results
+
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("|") and "x" in line:
+                parts = [p.strip() for p in line.split('|') if p.strip()]
+                if len(parts) >= 2:
+                    try:
+                        size_str = parts[0]
+                        size = int(size_str.split('x')[0])
+                        poly_ms = float(parts[1])
+                        # The JS benchmark outputs ms. Convert to seconds.
+                        results[("grid", size)] = poly_ms / 1000.0
+                    except ValueError:
+                        pass
+    return results
+
 def skip_table_lines(lines, i):
     """Skips the existing table in the markdown lines starting from index i."""
     i += 1
@@ -81,35 +103,46 @@ def skip_table_lines(lines, i):
         i += 1
     return i
 
-def generate_table(category, display_name, col1_name, rust_results, python_results):
+def generate_table(category, display_name, col1_name, rust_results, python_results, wasm_results):
     lines = []
     lines.append(f"### {display_name}")
     lines.append("")
-    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-    lines.append(f"|---|---|---|---|")
+    lines.append(f"| {col1_name} | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |")
+    lines.append(f"|---|---|---|---|---|---|---|")
 
-    all_keys = set(rust_results.keys()) | set(python_results.keys())
+    all_keys = set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys())
     keys_in_cat = sorted([k for k in all_keys if k[0] == category], key=lambda x: x[1])
 
     for k in keys_in_cat:
         size = k[1]
         r_time = rust_results.get(k, None)
         p_time = python_results.get(k, None)
+        w_time = wasm_results.get(k, None)
 
         r_str = f"{r_time:.6f}" if r_time is not None else "-"
         p_str = f"{p_time:.6f}" if p_time is not None else "-"
+        w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
         if r_time and p_time:
-            ratio = p_time / r_time
-            ratio_str = f"{ratio:.2f}x"
+            ratio_py_rs = f"{(p_time / r_time):.2f}x"
         else:
-            ratio_str = "-"
+            ratio_py_rs = "-"
 
-        lines.append(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+        if w_time and p_time:
+            ratio_py_w = f"{(p_time / w_time):.2f}x"
+        else:
+            ratio_py_w = "-"
+
+        if r_time and w_time:
+            ratio_w_rs = f"{(w_time / r_time):.2f}x"
+        else:
+            ratio_w_rs = "-"
+
+        lines.append(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_py_rs} | {ratio_py_w} | {ratio_w_rs} |")
 
     return lines
 
-def update_markdown(filename, rust_results, python_results):
+def update_markdown(filename, rust_results, python_results, wasm_results):
     if not os.path.exists(filename):
         print(f"Error: {filename} not found.")
         return
@@ -124,7 +157,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Grid Table
         if "### Grid Topology" in line:
-            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results)
+            table_lines = generate_table("grid", "Grid Topology (Intersecting Lines)", "Input Size (NxN)", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -133,7 +166,7 @@ def update_markdown(filename, rust_results, python_results):
 
         # Detect Random Table
         if "### Random Lines" in line:
-            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results)
+            table_lines = generate_table("random", "Random Lines", "Count", rust_results, python_results, wasm_results)
             for l in table_lines:
                 new_lines.append(l + "\n")
 
@@ -146,19 +179,19 @@ def update_markdown(filename, rust_results, python_results):
     with open(filename, 'w') as f:
         f.writelines(new_lines)
 
-def print_original_summary(rust_results, python_results):
-    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()))
+def print_original_summary(rust_results, python_results, wasm_results):
+    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys()))
 
     # Group by category
     categories = sorted(list(set(k[0] for k in all_keys)))
 
-    print("# Benchmark Comparison (Rust vs Python/Shapely)")
+    print("# Benchmark Comparison (Rust vs Python/Shapely vs Wasm)")
     print("")
 
     for cat in categories:
         print(f"## Category: {cat}")
-        print(f"| Input Size | Rust Time (s) | Python Time (s) | Speedup (Py/Rs) |")
-        print(f"|---|---|---|---|")
+        print(f"| Input Size | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) |")
+        print(f"|---|---|---|---|---|")
 
         keys_in_cat = sorted([k for k in all_keys if k[0] == cat], key=lambda x: x[1])
 
@@ -166,9 +199,11 @@ def print_original_summary(rust_results, python_results):
             size = k[1]
             r_time = rust_results.get(k, None)
             p_time = python_results.get(k, None)
+            w_time = wasm_results.get(k, None)
 
             r_str = f"{r_time:.6f}" if r_time is not None else "-"
             p_str = f"{p_time:.6f}" if p_time is not None else "-"
+            w_str = f"{w_time:.6f}" if w_time is not None else "-"
 
             if r_time and p_time:
                 ratio = p_time / r_time
@@ -176,7 +211,7 @@ def print_original_summary(rust_results, python_results):
             else:
                 ratio_str = "-"
 
-            print(f"| {size} | {r_str} | {p_str} | {ratio_str} |")
+            print(f"| {size} | {r_str} | {p_str} | {w_str} | {ratio_str} |")
         print("")
 
 def main():
@@ -186,12 +221,13 @@ def main():
 
     rust_results = parse_rust_output("rust_bench_output.txt")
     python_results = parse_python_output("python_bench_output.txt")
+    wasm_results = parse_wasm_output("wasm_bench_output.txt")
 
     if args.update:
         print("Updating BENCHMARKS.md...")
-        update_markdown("BENCHMARKS.md", rust_results, python_results)
+        update_markdown("BENCHMARKS.md", rust_results, python_results, wasm_results)
     else:
-        print_original_summary(rust_results, python_results)
+        print_original_summary(rust_results, python_results, wasm_results)
 
 if __name__ == "__main__":
     main()
