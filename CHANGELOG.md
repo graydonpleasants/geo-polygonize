@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.1...v0.2.0) (2026-03-06)
+
+
+### Features
+
+* **core:** Optimize geometry extraction by pre-allocating capacity using extend ([#172](https://github.com/graydonpleasants/geo-polygonize/issues/172)) ([922db67](https://github.com/graydonpleasants/geo-polygonize/commit/922db67c3540f6d15935579beaa82d1a7d503740))
+
+
+### Bug Fixes
+
+* add missing version to geo-polygonize-core dependency ([9f8d31d](https://github.com/graydonpleasants/geo-polygonize/commit/9f8d31d2639deef94bb8c95c0629526f435d4253))
+* **python:** remove invalid `--release` argument from maturin publish command ([#179](https://github.com/graydonpleasants/geo-polygonize/issues/179)) ([b147494](https://github.com/graydonpleasants/geo-polygonize/commit/b147494649fd0a24e79061b9e747539ba8e0d11c))
+
 ## [0.1.1](https://github.com/graydonpleasants/geo-polygonize/compare/v0.1.0...v0.1.1) (2026-03-04)
 
 
