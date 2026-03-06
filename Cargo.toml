@@ -3,6 +3,9 @@ members = [
     "crates/geo-polygonize-core",
     "crates/geo-polygonize-wasm"
 ]
+exclude = [
+    "crates/geo-polygonize-core/benches/wasm_bench"
+]
 resolver = "2"
 
 [profile.release]

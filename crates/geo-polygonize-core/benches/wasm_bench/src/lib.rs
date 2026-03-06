@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 use geo::{LineString, Geometry};
-use geo_polygonize::Polygonizer;
+use geo_polygonize_core::Polygonizer;
 use geoarrow::array::{GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{LineStringType, Dimension};
 use std::convert::TryInto;
@@ -47,7 +47,7 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
@@ -66,7 +66,7 @@ pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsVal
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
-    Ok(JsValue::from(results_vec.len()))
+    Ok(JsValue::from(results_vec.polygons.len()))
 }
 
 #[wasm_bindgen]
