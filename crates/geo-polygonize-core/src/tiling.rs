@@ -53,7 +53,7 @@ impl TiledPolygonizer {
         let mut relevant_lines = 0;
         for (geom, bbox) in &self.geometries {
             if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
-                local_poly.add_geometry(geom.clone());
+                local_poly.add_borrowed_geometry(geom);
                 relevant_lines += 1;
             }
         }
