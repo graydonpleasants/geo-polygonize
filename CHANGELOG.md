@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.0...geo-polygonize-v0.6.1) (2026-03-07)
+
+
+### Bug Fixes
+
+* **core:** resolve clippy collapsible_if and thread_local lints ([635af15](https://github.com/graydonpleasants/geo-polygonize/commit/635af15f499472824999e2ff36d9ee1a4ae98fb1))
+* **github:** upgrade npm before trusted npm publish ([bfab447](https://github.com/graydonpleasants/geo-polygonize/commit/bfab447544b64e06e99d09dcc432d7600b67ba54))
+
+
+### Performance Improvements
+
+* **core:** eliminate unnecessary clone of hole coordinates in assignment ([08a51ba](https://github.com/graydonpleasants/geo-polygonize/commit/08a51ba41543981fd870f12ccc4cb5109c0bda5a))
+* **core:** optimize extract_segments by using iterative SmallVec stack and pre-allocating segment vectors ([6a8447b](https://github.com/graydonpleasants/geo-polygonize/commit/6a8447b12d4907d751f6b0162b039ec96e6e144d))
+* **core:** optimize rings_share_edge evaluation and simd_shells filtering ([db8d3c1](https://github.com/graydonpleasants/geo-polygonize/commit/db8d3c1e75405fbe8e672a70f57e503e66789379))
+
+
+### Build System
+
+* **core:** fix formatting in extract_bench.rs ([85bf807](https://github.com/graydonpleasants/geo-polygonize/commit/85bf80760d7d0b7679d3a270bdc0087cf7800917))
+
 ## [0.6.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.5.0...geo-polygonize-v0.6.0) (2026-03-07)
 
 
