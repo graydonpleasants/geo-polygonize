@@ -1,3 +1,4 @@
+import pytest
 import sys
 import os
 import numpy as np
@@ -208,6 +209,16 @@ def test_library_not_found(mock_glob, mock_exists):
         assert "Could not find geo_polygonize_core shared library" in str(e)
     print("Missing library test passed!")
 
+def test_invalid_shape_mismatch():
+    print("\nTesting invalid shape mismatch...")
+    # 2D coords with shape (1, 4) but stride=2
+    coords = np.array([[0.0, 0.0, 1.0, 1.0]], dtype=np.float64)
+    offsets = np.array([0], dtype=np.uint32)
+
+    with pytest.raises(ValueError, match=r"Input shape \(1, 4\) does not match stride 2"):
+        polygonize(coords, offsets, stride=2)
+    print("Invalid shape mismatch test passed!")
+
 @patch('geo_polygonize.cffi_wrapper.lib', create=True)
 def test_invalid_input_status(mock_lib):
     print("\nTesting invalid input status (status == 1)...")
@@ -280,6 +291,7 @@ if __name__ == "__main__":
     test_import_error_fallback()
     test_return_polygons_without_shapely()
     test_library_not_found()
+    test_invalid_shape_mismatch()
     test_invalid_input_status()
     test_internal_error_status()
     test_null_result_pointer()
