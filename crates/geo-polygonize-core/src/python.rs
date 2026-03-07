@@ -156,7 +156,8 @@ fn polygonize<'py>(
     let py_polygons = PyList::empty_bound(py);
 
     // Attempt to import the Python class `SimplePolygon`
-    let simple_polygon_cls = py.import_bound("geo_polygonize.types")?
+    let simple_polygon_cls = py
+        .import_bound("geo_polygonize.types")?
         .getattr("SimplePolygon")?;
 
     for poly in &result.polygons {
@@ -223,7 +224,6 @@ fn polygonize<'py>(
         }
         py_invalid_rings.append(PyTuple::new_bound(py, invalid_pts))?;
     }
-
 
     let dict = PyDict::new_bound(py);
     dict.set_item("flat_coords", PyArray1::from_vec_bound(py, flat_coords))?;
