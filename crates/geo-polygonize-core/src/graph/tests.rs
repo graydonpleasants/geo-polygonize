@@ -240,4 +240,68 @@ mod tests {
         assert!(graph.nodes_outgoing.is_empty());
         assert!(graph.node_map.is_empty());
     }
+
+    #[test]
+    fn test_get_cut_edges() {
+        let mut graph = PlanarGraph::new();
+        // Triangle 1
+        graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
+        graph.add_line_string(LineString::from(vec![(10.0, 0.0), (0.0, 10.0)]));
+        graph.add_line_string(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]));
+
+        // Bridge (Cut Edge)
+        graph.add_line_string(LineString::from(vec![(10.0, 0.0), (20.0, 0.0)]));
+
+        // Triangle 2
+        graph.add_line_string(LineString::from(vec![(20.0, 0.0), (30.0, 0.0)]));
+        graph.add_line_string(LineString::from(vec![(30.0, 0.0), (20.0, 10.0)]));
+        graph.add_line_string(LineString::from(vec![(20.0, 10.0), (20.0, 0.0)]));
+
+        graph.sort_edges();
+
+        let dangles = graph.prune_dangles();
+        assert_eq!(dangles.len(), 0);
+
+        // Before extracting rings, all edges are unvisited and unmarked.
+        let cut_edges_before = graph.get_cut_edges();
+        // Total edges: 3 (Tri 1) + 1 (Bridge) + 3 (Tri 2) = 7 edges.
+        assert_eq!(cut_edges_before.len(), 7);
+
+        let rings = graph.get_edge_rings();
+        assert_eq!(rings.len(), 2);
+
+        // After ring extraction, the bridge is marked as visited due to being traversed
+        // forward and back as a degenerate ring in GEOS/JTS.
+        // Therefore, it does not show up in get_cut_edges.
+        let cut_edges_after = graph.get_cut_edges();
+        assert_eq!(cut_edges_after.len(), 0);
+    }
+
+    #[test]
+    fn test_get_cut_edges_simple() {
+        let mut graph = PlanarGraph::new();
+
+        // Add a single line which doesn't form a ring
+        graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
+
+        // It's unvisited and unmarked, so it's a cut edge.
+        let cut_edges = graph.get_cut_edges();
+        assert_eq!(cut_edges.len(), 1);
+
+        let edge = &cut_edges[0];
+        assert_eq!(edge.len(), 2);
+
+        let c1 = edge[0];
+        let c2 = edge[1];
+
+        assert!(
+            (c1.x == 0.0 && c1.y == 0.0 && c2.x == 10.0 && c2.y == 0.0)
+                || (c1.x == 10.0 && c1.y == 0.0 && c2.x == 0.0 && c2.y == 0.0)
+        );
+
+        // If we prune it as a dangle, it will be marked and should not be returned by get_cut_edges.
+        graph.prune_dangles();
+        let cut_edges_after_prune = graph.get_cut_edges();
+        assert_eq!(cut_edges_after_prune.len(), 0);
+    }
 }

@@ -35,9 +35,7 @@ pub struct Polygonizer {
     pub snap_grid_size: f64,
     pub extract_only_polygonal: bool,
 
-    // Buffer for inputs if noding is required
-    inputs: Vec<Geometry<f64>>,
-    // Additional buffer for explicit line segments (3D)
+    // Buffer for explicit line segments (3D)
     input_lines: Vec<Line3D>,
     dirty: bool,
 }
@@ -63,7 +61,6 @@ impl Polygonizer {
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
             extract_only_polygonal: false,
-            inputs: Vec::new(),
             input_lines: Vec::new(),
             dirty: false,
         }
@@ -81,7 +78,13 @@ impl Polygonizer {
 
     /// Adds a 2D geometry to the graph (Z=0).
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        self.inputs.push(geom);
+        extract_segments(&geom, &mut self.input_lines);
+        self.dirty = true;
+    }
+
+    /// Adds a 2D geometry to the graph (Z=0) from a reference.
+    pub fn add_borrowed_geometry(&mut self, geom: &Geometry<f64>) {
+        extract_segments(geom, &mut self.input_lines);
         self.dirty = true;
     }
 
@@ -96,12 +99,7 @@ impl Polygonizer {
             return Ok(());
         }
 
-        // Flatten inputs to lineal components and convert to Line3D
-        let mut all_segments: Vec<Line3D> = Vec::new();
-        for geom in &self.inputs {
-            extract_segments(geom, &mut all_segments);
-        }
-        all_segments.extend(self.input_lines.iter().cloned());
+        let mut all_segments: Vec<Line3D> = self.input_lines.clone();
 
         let segments;
 
@@ -686,5 +684,16 @@ fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_with_snap_grid() {
+        let polygonizer = Polygonizer::new().with_snap_grid(0.123);
+        assert_eq!(polygonizer.snap_grid_size, 0.123);
     }
 }

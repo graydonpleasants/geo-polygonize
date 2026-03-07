@@ -19,7 +19,6 @@ def test_square():
         0.0, 10.0, 0.0, 0.0
     ], dtype=np.float64)
     # Offsets in POINTS (pairs of doubles)
-    # Fix: Added 8 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
@@ -46,7 +45,6 @@ def test_two_squares():
         20.0, 10.0, 20.0, 0.0
     ], dtype=np.float64)
 
-    # Fix: Added 16 to close the last segment
     offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16], dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
@@ -70,7 +68,6 @@ def test_square_with_hole():
     ], dtype=np.float64)
 
     # 32 floats = 16 points
-    # Fix: Added 16 (range to 18) to close the last segment
     offsets = np.arange(0, 18, 2, dtype=np.uint32)
 
     polys = polygonize(coords, offsets, return_polygons=True)
@@ -136,6 +133,30 @@ def test_odd_length_coordinates():
         print(f"Caught expected error: {e}")
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
+
+def test_import_error_fallback():
+    print("\nTesting ImportError fallback in __init__.py...")
+    import importlib
+    import builtins
+    import geo_polygonize
+
+    real_import = builtins.__import__
+
+    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if 'geo_polygonize_core' in name or (fromlist and 'geo_polygonize_core' in fromlist):
+            raise ImportError("Mocked ImportError for testing")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with patch('builtins.__import__', side_effect=mock_import):
+        importlib.reload(geo_polygonize)
+
+        import geo_polygonize.cffi_wrapper as cffi_wrapper
+        assert geo_polygonize._polygonize_impl is cffi_wrapper.polygonize
+        print("ImportError fallback test passed!")
+
+    # Reload again to restore the module state for other tests
+    importlib.reload(geo_polygonize.cffi_wrapper)
+    importlib.reload(geo_polygonize)
 
 def test_return_polygons_without_shapely():
     print("\nTesting ImportError fallback in return_polygons...")
@@ -210,6 +231,25 @@ def test_invalid_input_status(mock_lib):
     print("Invalid input status test passed!")
 
 @patch('geo_polygonize.cffi_wrapper.lib', create=True)
+def test_null_result_pointer(mock_lib):
+    print("\nTesting null result pointer...")
+    import geo_polygonize.cffi_wrapper as cw
+
+    # Mock the return values
+    mock_lib.polygonize_ffi.return_value = cw.ffi.NULL
+
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    try:
+        cw.polygonize(coords, offsets)
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
+        print(f"Caught expected error: {e}")
+        assert "Polygonization failed (returned NULL)" in str(e)
+    print("Null result pointer test passed!")
+
+@patch('geo_polygonize.cffi_wrapper.lib', create=True)
 def test_internal_error_status(mock_lib):
     print("\nTesting internal error status (status == 2)...")
     import geo_polygonize.cffi_wrapper as cw
@@ -237,7 +277,9 @@ if __name__ == "__main__":
     test_square_with_hole()
     test_3d_coordinates()
     test_odd_length_coordinates()
+    test_import_error_fallback()
     test_return_polygons_without_shapely()
     test_library_not_found()
     test_invalid_input_status()
     test_internal_error_status()
+    test_null_result_pointer()
