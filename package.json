@@ -34,6 +34,10 @@
     "./*": "./dist/*"
   },
   "types": "./dist/standard/es/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/graydonpleasants/geo-polygonize"
+  },
   "devDependencies": {
     "@commitlint/cli": "^20.4.3",
     "@commitlint/config-conventional": "^20.4.3",
