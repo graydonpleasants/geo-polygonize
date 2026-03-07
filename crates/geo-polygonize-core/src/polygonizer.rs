@@ -676,35 +676,51 @@ fn segments_overlap_with_length(
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
-    match geom {
-        Geometry::LineString(ls) => {
-            out.extend(ls.lines().map(Line3D::from));
-        }
-        Geometry::MultiLineString(mls) => {
-            for ls in &mls.0 {
+    let mut stack = smallvec::SmallVec::<[&Geometry<f64>; 16]>::new();
+    stack.push(geom);
+    while let Some(current) = stack.pop() {
+        match current {
+            Geometry::LineString(ls) => {
+                let len = ls.0.len().saturating_sub(1);
+                out.reserve(len);
                 out.extend(ls.lines().map(Line3D::from));
             }
-        }
-        Geometry::Polygon(poly) => {
-            out.extend(poly.exterior().lines().map(Line3D::from));
-            for interior in poly.interiors() {
-                out.extend(interior.lines().map(Line3D::from));
+            Geometry::MultiLineString(mls) => {
+                for ls in &mls.0 {
+                    let len = ls.0.len().saturating_sub(1);
+                    out.reserve(len);
+                    out.extend(ls.lines().map(Line3D::from));
+                }
             }
-        }
-        Geometry::MultiPolygon(mpoly) => {
-            for poly in mpoly {
-                out.extend(poly.exterior().lines().map(Line3D::from));
+            Geometry::Polygon(poly) => {
+                let ext = poly.exterior();
+                let len = ext.0.len().saturating_sub(1);
+                out.reserve(len);
+                out.extend(ext.lines().map(Line3D::from));
                 for interior in poly.interiors() {
+                    let len = interior.0.len().saturating_sub(1);
+                    out.reserve(len);
                     out.extend(interior.lines().map(Line3D::from));
                 }
             }
-        }
-        Geometry::GeometryCollection(gc) => {
-            for g in gc {
-                extract_segments(g, out);
+            Geometry::MultiPolygon(mpoly) => {
+                for poly in mpoly {
+                    let ext = poly.exterior();
+                    let len = ext.0.len().saturating_sub(1);
+                    out.reserve(len);
+                    out.extend(ext.lines().map(Line3D::from));
+                    for interior in poly.interiors() {
+                        let len = interior.0.len().saturating_sub(1);
+                        out.reserve(len);
+                        out.extend(interior.lines().map(Line3D::from));
+                    }
+                }
             }
+            Geometry::GeometryCollection(gc) => {
+                stack.extend(gc.0.iter().rev());
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
 
