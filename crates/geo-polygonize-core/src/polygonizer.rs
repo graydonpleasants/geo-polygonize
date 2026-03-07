@@ -10,7 +10,6 @@ use rstar::{RTree, RTreeObject, AABB};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::sync::OnceLock;
 
 // Wrapper for Polygon indexable by rstar (2D)
 struct IndexedEnvelope {
@@ -196,8 +195,21 @@ impl Polygonizer {
 
         // Precompute 2D shells for spatial index and SIMD
 
-        let mut simd_shells: Vec<OnceLock<SimdRing>> =
-            (0..shells.len()).map(|_| OnceLock::new()).collect();
+        let mut simd_shells: Vec<SimdRing>;
+        #[cfg(feature = "parallel")]
+        {
+            simd_shells = shells
+                .par_iter()
+                .map(|s| SimdRing::new_3d(&s.exterior))
+                .collect();
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            simd_shells = shells
+                .iter()
+                .map(|s| SimdRing::new_3d(&s.exterior))
+                .collect();
+        }
 
         // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -246,8 +258,7 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        let simd_shell =
-                            simd_shells[j].get_or_init(|| SimdRing::new_3d(&shells[j].exterior));
+                        let simd_shell = &simd_shells[j];
 
                         if simd_shell.contains(probe_pt.0) {
                             let area_i = shell.unsigned_area_2d();
@@ -288,7 +299,20 @@ impl Polygonizer {
                 shells = new_shells;
 
                 // Rebuild helper structures
-                simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
+                #[cfg(feature = "parallel")]
+                {
+                    simd_shells = shells
+                        .par_iter()
+                        .map(|s| SimdRing::new_3d(&s.exterior))
+                        .collect();
+                }
+                #[cfg(not(feature = "parallel"))]
+                {
+                    simd_shells = shells
+                        .iter()
+                        .map(|s| SimdRing::new_3d(&s.exterior))
+                        .collect();
+                }
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
                 for (i, shell) in shells.iter().enumerate() {
@@ -321,8 +345,7 @@ impl Polygonizer {
 
             for cand in candidates {
                 let idx = cand.index;
-                let simd_shell =
-                    simd_shells[idx].get_or_init(|| SimdRing::new_3d(&shells[idx].exterior));
+                let simd_shell = &simd_shells[idx];
 
                 if simd_shell.contains(probe_point.0) {
                     if rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
@@ -695,5 +718,22 @@ mod tests {
     fn test_with_snap_grid() {
         let polygonizer = Polygonizer::new().with_snap_grid(0.123);
         assert_eq!(polygonizer.snap_grid_size, 0.123);
+    }
+
+    #[test]
+    fn test_add_lines() {
+        let mut polygonizer = Polygonizer::new();
+        assert!(!polygonizer.dirty);
+        assert!(polygonizer.input_lines.is_empty());
+
+        let l1 = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 0);
+        let l2 = Line3D::new(Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 1);
+
+        polygonizer.add_lines(vec![l1, l2]);
+
+        assert!(polygonizer.dirty);
+        assert_eq!(polygonizer.input_lines.len(), 2);
+        assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
+        assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
     }
 }

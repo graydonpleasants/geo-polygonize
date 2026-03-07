@@ -67,8 +67,9 @@ pub fn polygonize_tiled(lines: JsValue, size: f64) -> Result<JsValue, JsValue> {
     let tile_size = size / 2.0;
 
     let mut tiler = TiledPolygonizer::new(bbox, tile_size).with_buffer(1.0);
-    for line in &lines {
-        tiler.add_geometry(Geometry::LineString(line.clone()));
+    let geoms: Vec<Geometry<f64>> = lines.into_iter().map(|l| Geometry::LineString(l)).collect();
+    for geom in &geoms {
+        tiler.add_geometry(geom);
     }
     let results = tiler.polygonize();
 

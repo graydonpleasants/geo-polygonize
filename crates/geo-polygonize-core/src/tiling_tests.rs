@@ -50,7 +50,7 @@ mod tests {
         // Add buffer of 5.0 to ensure full polygons are captured in each tile
         let mut tiler = TiledPolygonizer::new(bbox, 15.0).with_buffer(5.0);
 
-        for g in geoms {
+        for g in &geoms {
             tiler.add_geometry(g);
         }
 
@@ -105,7 +105,7 @@ mod tests {
         // Tiles: [0,10]x[0,10], [10,20]x[0,10], etc.
         let mut tiler = TiledPolygonizer::new(bbox, 10.0);
 
-        for g in geoms {
+        for g in &geoms {
             tiler.add_geometry(g);
         }
 
@@ -137,7 +137,7 @@ mod tests {
         // Tiles: [0,10) and [10,20).
         let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(5.0);
 
-        for g in geoms {
+        for g in &geoms {
             tiler.add_geometry(g);
         }
 

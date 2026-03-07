@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.5.0...geo-polygonize-v0.6.0) (2026-03-07)
+
+
+### Features
+
+* **python:** return SimplePolygon directly from PyO3 bindings ([#236](https://github.com/graydonpleasants/geo-polygonize/issues/236)) ([9977e68](https://github.com/graydonpleasants/geo-polygonize/commit/9977e6841c0157f1c5576235629b94b2cbe55c13))
+
+
+### Performance Improvements
+
+* **core:** Avoid cloning geometries inside TiledPolygonizer ([fdf513d](https://github.com/graydonpleasants/geo-polygonize/commit/fdf513d180e8c8a246963a78fc6cad09e6ca621e))
+* **core:** Avoid cloning geometries inside TiledPolygonizer ([5f33624](https://github.com/graydonpleasants/geo-polygonize/commit/5f336249fb6048ed1ee12e9755e1322af05a7a7f))
+* **core:** eager initialization of SimdRing objects over OnceLock ([628bfdd](https://github.com/graydonpleasants/geo-polygonize/commit/628bfdd7400c3bcf9be57c6f49eacc28b8ed0cad))
+
 ## [0.5.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.2...geo-polygonize-v0.5.0) (2026-03-07)
 
 
