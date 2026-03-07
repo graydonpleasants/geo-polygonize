@@ -95,45 +95,10 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
         except ImportError:
             raise ImportError("return_polygons=True requires 'shapely' to be installed.")
 
-        # PyO3 bindings return dict but cffi bindings return a custom SimplePolygon objects.
-        # We need to handle both cases to construct Shapely polygons.
         shapely_polys = []
-        if 'polygons' in result and all(isinstance(p, SimplePolygon) for p in result['polygons']):
+        if 'polygons' in result:
             for sp in result['polygons']:
                 shapely_polys.append(Polygon(sp.shell, sp.holes))
-        else:
-            # We are using native PyO3 core returned dict.
-            flat_coords = result["flat_coords"]
-            ring_offsets = result["ring_offsets"]
-            polygon_offsets = result["polygon_offsets"]
-            out_stride = result["stride"]
-
-            for p_idx in range(len(polygon_offsets)):
-                ring_start = polygon_offsets[p_idx]
-                ring_end = polygon_offsets[p_idx+1] if p_idx + 1 < len(polygon_offsets) else len(ring_offsets)
-
-                shell = None
-                holes = []
-
-                for r in range(ring_start, ring_end):
-                    point_start = ring_offsets[r]
-                    point_end = ring_offsets[r+1] if r + 1 < len(ring_offsets) else (len(flat_coords) // out_stride)
-
-                    ring_coords = []
-                    for i in range(point_start, point_end):
-                        idx = i * out_stride
-                        if out_stride == 3:
-                            ring_coords.append((flat_coords[idx], flat_coords[idx+1], flat_coords[idx+2]))
-                        else:
-                            ring_coords.append((flat_coords[idx], flat_coords[idx+1]))
-
-                    if shell is None:
-                        shell = ring_coords
-                    else:
-                        holes.append(ring_coords)
-
-                if shell:
-                    shapely_polys.append(Polygon(shell, holes))
 
         return shapely_polys
 
