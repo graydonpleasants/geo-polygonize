@@ -513,13 +513,7 @@ mod tests {
 
         for (e_g, e_s) in splits_grid.iter().zip(splits_simd.iter()) {
             assert_eq!(e_g.0, e_s.0, "Index mismatch");
-            assert!(
-                (e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10,
-                "Point mismatch at index {}: {:?} vs {:?}",
-                e_g.0,
-                e_g.1,
-                e_s.1
-            );
+            assert!((e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10);
         }
     }
 
