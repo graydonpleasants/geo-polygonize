@@ -719,4 +719,21 @@ mod tests {
         let polygonizer = Polygonizer::new().with_snap_grid(0.123);
         assert_eq!(polygonizer.snap_grid_size, 0.123);
     }
+
+    #[test]
+    fn test_add_lines() {
+        let mut polygonizer = Polygonizer::new();
+        assert!(!polygonizer.dirty);
+        assert!(polygonizer.input_lines.is_empty());
+
+        let l1 = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 0);
+        let l2 = Line3D::new(Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 1);
+
+        polygonizer.add_lines(vec![l1, l2]);
+
+        assert!(polygonizer.dirty);
+        assert_eq!(polygonizer.input_lines.len(), 2);
+        assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
+        assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
+    }
 }
