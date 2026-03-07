@@ -8,12 +8,6 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-#[cfg(feature = "parallel")]
-#[repr(align(64))]
-#[derive(Clone)]
-#[allow(dead_code)]
-struct CachePadded<T>(pub T);
-
 pub struct UniformGrid {
     /// Compressed Sparse Row (CSR) storage
     /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
