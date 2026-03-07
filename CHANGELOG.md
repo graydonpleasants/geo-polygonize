@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.2...geo-polygonize-v0.5.0) (2026-03-07)
+
+
+### Features
+
+* **core:** optimize noding float sorting & dedup logic ([#232](https://github.com/graydonpleasants/geo-polygonize/issues/232)) ([a458c15](https://github.com/graydonpleasants/geo-polygonize/commit/a458c154e3d28f2a684b0f296cd72f218b56c2b1))
+* **github:** add automerge workflow for graydonpleasants ([1f79ec0](https://github.com/graydonpleasants/geo-polygonize/commit/1f79ec0e67b45f25f7288ec057864d501a6ad89b))
+* **github:** Add manual `workflow_dispatch` release with version input to release-please workflow ([#231](https://github.com/graydonpleasants/geo-polygonize/issues/231)) ([a8177ce](https://github.com/graydonpleasants/geo-polygonize/commit/a8177ce4b5a6e0b4b343221e61839287099fe25a))
+
 ## [0.4.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.1...geo-polygonize-v0.4.2) (2026-03-06)
 
 
