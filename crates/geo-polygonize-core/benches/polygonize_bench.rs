@@ -79,7 +79,8 @@ fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
         if size >= 50 {
             group.bench_with_input(BenchmarkId::new("grid_tiled", size), &size, |b, &size| {
                 let lines = generate_grid(size);
-                let geometries: Vec<geo_types::Geometry<f64>> = lines.into_iter().map(Into::into).collect();
+                let geometries: Vec<geo_types::Geometry<f64>> =
+                    lines.into_iter().map(Into::into).collect();
                 // BBox is roughly 0,0 to size,size
                 let bbox = Rect::new(
                     Coord { x: 0.0, y: 0.0 },
