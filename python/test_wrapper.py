@@ -121,6 +121,22 @@ def test_3d_coordinates():
     assert abs(shapely_poly.area - 100.0) < 1e-6
     print("3D coordinates test passed!")
 
+def test_missing_args():
+    print("\nTesting missing arguments...")
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize()
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize(coords=coords)
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize(offsets=offsets)
+
+    print("Missing arguments test passed!")
+
 def test_odd_length_coordinates():
     print("\nTesting odd length coordinates...")
     # Flat array with 3 elements (1.5 points)
@@ -287,6 +303,7 @@ if __name__ == "__main__":
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
+    test_missing_args()
     test_odd_length_coordinates()
     test_import_error_fallback()
     test_return_polygons_without_shapely()
