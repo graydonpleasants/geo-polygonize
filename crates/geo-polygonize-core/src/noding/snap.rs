@@ -491,15 +491,17 @@ mod tests {
 
         // Both return Vec<(usize, Coord3D)>
         // Sort both by index, then coordinate
-        splits_grid.sort_by(|a, b| {
+        splits_grid.sort_unstable_by(|a, b| {
             a.0.cmp(&b.0)
-                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+                .then(a.1.x.total_cmp(&b.1.x))
+                .then(a.1.y.total_cmp(&b.1.y))
         });
         splits_grid.dedup_by(|a, b| a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y);
 
-        splits_simd.sort_by(|a, b| {
+        splits_simd.sort_unstable_by(|a, b| {
             a.0.cmp(&b.0)
-                .then_with(|| (a.1.x, a.1.y).partial_cmp(&(b.1.x, b.1.y)).unwrap())
+                .then(a.1.x.total_cmp(&b.1.x))
+                .then(a.1.y.total_cmp(&b.1.y))
         });
         splits_simd.dedup_by(|a, b| a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y);
 
