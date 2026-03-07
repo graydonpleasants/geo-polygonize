@@ -1,10 +1,10 @@
 use crate::arrow_api::{polygonize_arrow, PolygonizerOptions as ArrowOptions};
+use arrow::datatypes::DataType;
 use arrow::datatypes::Field;
+use arrow::error::ArrowError;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use geoarrow::array::GeoArrowArray;
 use std::convert::TryFrom;
-use arrow::error::ArrowError;
-use arrow::datatypes::DataType;
 
 #[repr(C)]
 pub struct PolygonizerOptions {
@@ -43,7 +43,9 @@ impl SchemaExporter for MockSchemaExporter {
     fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError> {
         let should_error = MOCK_SCHEMA_ERROR.with(|f| *f.borrow());
         if should_error {
-            Err(ArrowError::CDataInterface("Mocked schema export error".to_string()))
+            Err(ArrowError::CDataInterface(
+                "Mocked schema export error".to_string(),
+            ))
         } else {
             FFI_ArrowSchema::try_from(data_type)
         }
@@ -112,8 +114,8 @@ pub unsafe extern "C" fn polygonize_ffi(
 mod tests {
     use super::*;
     use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-    use geoarrow::datatypes::{Dimension, LineStringType};
     use geoarrow::array::GeoArrowArray;
+    use geoarrow::datatypes::{Dimension, LineStringType};
     use std::sync::Arc;
 
     struct MockGuard;
