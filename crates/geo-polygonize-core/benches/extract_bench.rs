@@ -6,7 +6,10 @@ fn generate_deep_geometry(depth: usize) -> Geometry<f64> {
     let ls = LineString::from(vec![(0.0, 0.0), (1.0, 1.0)]);
     let mut geom = Geometry::LineString(ls.clone());
     for _ in 0..depth {
-        geom = Geometry::GeometryCollection(GeometryCollection::new_from(vec![geom, Geometry::LineString(ls.clone())]));
+        geom = Geometry::GeometryCollection(GeometryCollection::new_from(vec![
+            geom,
+            Geometry::LineString(ls.clone()),
+        ]));
     }
     geom
 }
@@ -48,6 +51,9 @@ fn bench_extract_segments_shallow(c: &mut Criterion) {
     group.finish();
 }
 
-
-criterion_group!(benches, bench_extract_segments, bench_extract_segments_shallow);
+criterion_group!(
+    benches,
+    bench_extract_segments,
+    bench_extract_segments_shallow
+);
 criterion_main!(benches);
