@@ -347,16 +347,14 @@ impl Polygonizer {
                     let simd_shell = &simd_shells[idx];
 
                     if simd_shell.contains(probe_point.0) {
-                        if rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
-                            continue;
-                        }
-
                         let area = shells[idx].unsigned_area_2d();
                         let hole_area = hole_3d.unsigned_area_2d();
 
                         if area > hole_area + 1e-6 && area < min_area {
-                            min_area = area;
-                            best_shell_idx = Some(idx);
+                            if !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
+                                min_area = area;
+                                best_shell_idx = Some(idx);
+                            }
                         }
                     }
                 }
