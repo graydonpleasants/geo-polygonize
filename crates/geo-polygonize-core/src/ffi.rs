@@ -3,12 +3,51 @@ use arrow::datatypes::Field;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use geoarrow::array::GeoArrowArray;
 use std::convert::TryFrom;
+use arrow::error::ArrowError;
+use arrow::datatypes::DataType;
 
 #[repr(C)]
 pub struct PolygonizerOptions {
     pub node_input: u8,
     pub snap_grid_size: f64,
     pub extract_only_polygonal: u8,
+}
+
+pub trait SchemaExporter {
+    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError>;
+}
+
+pub struct RealSchemaExporter;
+
+impl SchemaExporter for RealSchemaExporter {
+    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError> {
+        FFI_ArrowSchema::try_from(data_type)
+    }
+}
+
+#[cfg(not(test))]
+type DefaultSchemaExporter = RealSchemaExporter;
+#[cfg(test)]
+type DefaultSchemaExporter = MockSchemaExporter;
+
+#[cfg(test)]
+thread_local! {
+    pub static MOCK_SCHEMA_ERROR: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
+}
+
+#[cfg(test)]
+pub struct MockSchemaExporter;
+
+#[cfg(test)]
+impl SchemaExporter for MockSchemaExporter {
+    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError> {
+        let should_error = MOCK_SCHEMA_ERROR.with(|f| *f.borrow());
+        if should_error {
+            Err(ArrowError::CDataInterface("Mocked schema export error".to_string()))
+        } else {
+            FFI_ArrowSchema::try_from(data_type)
+        }
+    }
 }
 
 /// # Safety
@@ -57,7 +96,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             let ffi_array = FFI_ArrowArray::new(&data);
             std::ptr::write(output_array, ffi_array);
 
-            let ffi_schema = match FFI_ArrowSchema::try_from(data.data_type()) {
+            let ffi_schema = match DefaultSchemaExporter::try_export(data.data_type()) {
                 Ok(s) => s,
                 Err(_) => return 4,
             };
@@ -66,5 +105,84 @@ pub unsafe extern "C" fn polygonize_ffi(
             0
         }
         Err(_) => 5,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
+    use geoarrow::datatypes::{Dimension, LineStringType};
+    use geoarrow::array::GeoArrowArray;
+    use std::sync::Arc;
+
+    struct MockGuard;
+
+    impl Drop for MockGuard {
+        fn drop(&mut self) {
+            MOCK_SCHEMA_ERROR.with(|f| *f.borrow_mut() = false);
+        }
+    }
+
+    fn set_mock_error() -> MockGuard {
+        MOCK_SCHEMA_ERROR.with(|f| *f.borrow_mut() = true);
+        MockGuard
+    }
+
+    #[test]
+    fn test_ffi_null_pointers() {
+        let mut array = FFI_ArrowArray::empty();
+        let mut schema = FFI_ArrowSchema::empty();
+        let options = PolygonizerOptions {
+            node_input: 0,
+            snap_grid_size: 1e-10,
+            extract_only_polygonal: 0,
+        };
+
+        let status = unsafe {
+            polygonize_ffi(
+                std::ptr::null_mut(),
+                &mut schema,
+                &mut array,
+                &mut schema,
+                &options,
+            )
+        };
+        assert_eq!(status, 1);
+    }
+
+    #[test]
+    fn test_ffi_schema_export_error() {
+        // Set mock to return error and use a drop guard to ensure it resets
+        let _guard = set_mock_error();
+
+        let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
+        let builder = geoarrow::array::LineStringBuilder::new(typ);
+        let input_arrow_array = builder.finish();
+
+        let array_ref = input_arrow_array.into_array_ref();
+        let (input_array, input_schema) = arrow::ffi::to_ffi(&array_ref.to_data()).unwrap();
+        let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array);
+        let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema);
+
+        let mut output_array = FFI_ArrowArray::empty();
+        let mut output_schema = FFI_ArrowSchema::empty();
+        let options = PolygonizerOptions {
+            node_input: 0,
+            snap_grid_size: 1e-10,
+            extract_only_polygonal: 0,
+        };
+
+        let status = unsafe {
+            polygonize_ffi(
+                &mut *input_array_ffi,
+                &mut *input_schema_ffi,
+                &mut output_array,
+                &mut output_schema,
+                &options,
+            )
+        };
+
+        assert_eq!(status, 4);
     }
 }
