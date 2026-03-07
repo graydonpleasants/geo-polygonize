@@ -15,28 +15,9 @@ class TestLineage(unittest.TestCase):
 
         result = geo_polygonize.polygonize(coords, offsets, line_ids=line_ids)
 
-        # The native implementation returns a dict with 'flat_line_ids'.
-        # 'polygons' is not directly populated by PyO3 impl, it seems I need to reconstruct it
-        # OR fix the PyO3 impl to return 'polygons'.
-        # Wait, the `cffi_wrapper.py` constructs `polygons`.
-        # But `geo_polygonize_core` (PyO3) only returns the raw arrays (see python.rs).
-        # Ah! `python.rs` returns `dict` but it does NOT construct `SimplePolygon` objects.
-
-        # The `cffi_wrapper` does construct them.
-        # This inconsistency needs to be addressed or I should adapt the test.
-        # Ideally, `python.rs` should also return `polygons`.
-        # However, constructing Python objects in Rust via PyO3 is possible but maybe the original author intended
-        # the wrapper to do it?
-        # Checking `python/geo_polygonize/__init__.py`: it just calls `_polygonize_impl`.
-
-        # If `_polygonize_impl` is the PyO3 module, it returns what `python.rs` defines.
-        # `python.rs` returns: `flat_coords`, `ring_offsets`, `polygon_offsets`, `flat_line_ids`, `stride`.
-        # It misses `polygons`, `dangles`, `invalid_rings`.
-
-        # I should probably update `python/geo_polygonize/__init__.py` to construct `polygons` if they are missing
-        # OR update `python.rs` to return them.
-        # Given I can't easily import `SimplePolygon` in Rust without more PyO3 boilerplate,
-        # I will update `__init__.py` to hydrate the result if needed.
+        polys = result.get('polygons')
+        self.assertIsNotNone(polys)
+        self.assertEqual(len(polys), 1)
 
         flat_line_ids = result.get('flat_line_ids')
         self.assertIsNotNone(flat_line_ids)
