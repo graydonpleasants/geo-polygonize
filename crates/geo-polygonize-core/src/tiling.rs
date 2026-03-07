@@ -6,14 +6,14 @@ use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-pub struct TiledPolygonizer {
+pub struct TiledPolygonizer<'a> {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
-    geometries: Vec<(Geometry<f64>, Option<Rect<f64>>)>,
+    geometries: Vec<(&'a Geometry<f64>, Option<Rect<f64>>)>,
 }
 
-impl TiledPolygonizer {
+impl<'a> TiledPolygonizer<'a> {
     pub fn new(bbox: Rect<f64>, tile_size: f64) -> Self {
         Self {
             bbox,
@@ -28,7 +28,7 @@ impl TiledPolygonizer {
         self
     }
 
-    pub fn add_geometry(&mut self, geom: Geometry<f64>) {
+    pub fn add_geometry(&mut self, geom: &'a Geometry<f64>) {
         let bbox = geom.bounding_rect();
         self.geometries.push((geom, bbox));
     }
