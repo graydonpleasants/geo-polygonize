@@ -32,7 +32,7 @@ type DefaultSchemaExporter = MockSchemaExporter;
 
 #[cfg(test)]
 thread_local! {
-    pub static MOCK_SCHEMA_ERROR: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
+    pub static MOCK_SCHEMA_ERROR: std::cell::RefCell<bool> = const { std::cell::RefCell::new(false) };
 }
 
 #[cfg(test)]
