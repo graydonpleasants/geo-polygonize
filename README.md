@@ -14,6 +14,10 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
 - **GeoArrow Support**: Zero-copy data transfer via Arrow C Data Interface and Arrow IPC (Wasm).
 
+## Engineering Roadmap
+
+For an ambitious, prioritized plan covering performance, security, API consistency, and maintainability, see [docs/roadmap.md](docs/roadmap.md).
+
 ## Usage
 
 ### Library
