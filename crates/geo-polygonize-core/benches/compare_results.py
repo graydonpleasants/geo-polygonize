@@ -71,17 +71,52 @@ def parse_wasm_output(filename):
         return results
 
     with open(filename, 'r') as f:
+        current_cat = None
         for line in f:
             line = line.strip()
-            if line.startswith("|") and "x" in line:
+            if "=== Grid Benchmark ===" in line:
+                current_cat = "grid"
+                continue
+            if "=== Bowtie Grid Benchmark ===" in line:
+                current_cat = "bowtie_grid_auto"
+                continue
+            if "=== Random Benchmark ===" in line:
+                current_cat = "random"
+                continue
+            if "=== Large Parallel Benchmark ===" in line:
+                current_cat = "large_parallel_10k"
+                continue
+            if "=== Planar Graph Benchmark ===" in line:
+                current_cat = "planar_graph"
+                continue
+            if "=== Planar Graph Dangles Benchmark ===" in line:
+                current_cat = "planar_graph_dangles"
+                continue
+
+            if line.startswith("|") and not line.startswith("|---") and not "Polygonize" in line and not "Bowtie" in line and not "Robust" in line and not "Get Edge Rings" in line:
                 parts = [p.strip() for p in line.split('|') if p.strip()]
                 if len(parts) >= 2:
                     try:
                         size_str = parts[0]
-                        size = int(size_str.split('x')[0])
+                        if "x" in size_str:
+                            size = int(size_str.split('x')[0])
+                        else:
+                            size = int(size_str)
+
                         poly_ms = float(parts[1])
                         # The JS benchmark outputs ms. Convert to seconds.
-                        results[("grid", size)] = poly_ms / 1000.0
+                        if current_cat == "bowtie_grid_auto":
+                            results[("bowtie_grid_auto", size)] = float(parts[1]) / 1000.0
+                            results[("bowtie_grid_force_grid", size)] = float(parts[2]) / 1000.0
+                            if parts[3] != '-':
+                                results[("bowtie_grid_force_simd", size)] = float(parts[3]) / 1000.0
+                        elif current_cat == "grid":
+                            results[("grid", size)] = float(parts[1]) / 1000.0
+                            if parts[2] != '-':
+                                results[("grid_tiled", size)] = float(parts[2]) / 1000.0
+                        else:
+                            if current_cat:
+                                results[(current_cat, size)] = poly_ms / 1000.0
                     except ValueError:
                         pass
     return results
