@@ -219,6 +219,15 @@ def test_invalid_shape_mismatch():
         polygonize(coords, offsets, stride=2)
     print("Invalid shape mismatch test passed!")
 
+def test_invalid_stride():
+    print("\nTesting invalid stride...")
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    with pytest.raises(ValueError, match="stride must be 2 or 3"):
+        polygonize(coords, offsets, stride=4)
+    print("Invalid stride test passed!")
+
 @patch('geo_polygonize.cffi_wrapper.lib', create=True)
 def test_invalid_input_status(mock_lib):
     print("\nTesting invalid input status (status == 1)...")
@@ -292,6 +301,7 @@ if __name__ == "__main__":
     test_return_polygons_without_shapely()
     test_library_not_found()
     test_invalid_shape_mismatch()
+    test_invalid_stride()
     test_invalid_input_status()
     test_internal_error_status()
     test_null_result_pointer()
