@@ -329,53 +329,51 @@ impl Polygonizer {
         }
 
         // Process hole assignment
-        let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-            let hole_3d = &holes[i];
+        let process_hole_assignment =
+            |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
+                let bbox = bounding_rect_3d(&hole_3d.exterior)?;
+                let hole_aabb =
+                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-            let bbox = bounding_rect_3d(&hole_3d.exterior)?;
-            let hole_aabb =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+                let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
 
-            let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
+                let mut best_shell_idx = None;
+                let mut min_area = f64::MAX;
 
-            let mut best_shell_idx = None;
-            let mut min_area = f64::MAX;
+                let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
 
-            let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
+                for cand in candidates {
+                    let idx = cand.index;
+                    let simd_shell = &simd_shells[idx];
 
-            for cand in candidates {
-                let idx = cand.index;
-                let simd_shell = &simd_shells[idx];
+                    if simd_shell.contains(probe_point.0) {
+                        let area = shells[idx].unsigned_area_2d();
+                        let hole_area = hole_3d.unsigned_area_2d();
 
-                if simd_shell.contains(probe_point.0) {
-                    if rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
-                        continue;
-                    }
-
-                    let area = shells[idx].unsigned_area_2d();
-                    let hole_area = hole_3d.unsigned_area_2d();
-
-                    if area > hole_area + 1e-6 && area < min_area {
-                        min_area = area;
-                        best_shell_idx = Some(idx);
+                        if area > hole_area + 1e-6
+                            && area < min_area
+                            && !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
+                        {
+                            min_area = area;
+                            best_shell_idx = Some(idx);
+                        }
                     }
                 }
-            }
 
-            best_shell_idx.map(|idx| (idx, hole_3d.exterior.clone(), hole_3d.exterior_ids.clone()))
-        };
+                best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
+            };
 
         let assignments: Vec<_>;
         #[cfg(feature = "parallel")]
         {
-            assignments = (0..holes.len())
+            assignments = holes
                 .into_par_iter()
                 .filter_map(process_hole_assignment)
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = (0..holes.len())
+            assignments = holes
                 .into_iter()
                 .filter_map(process_hole_assignment)
                 .collect();
@@ -678,35 +676,51 @@ fn segments_overlap_with_length(
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
-    match geom {
-        Geometry::LineString(ls) => {
-            out.extend(ls.lines().map(Line3D::from));
-        }
-        Geometry::MultiLineString(mls) => {
-            for ls in &mls.0 {
+    let mut stack = smallvec::SmallVec::<[&Geometry<f64>; 16]>::new();
+    stack.push(geom);
+    while let Some(current) = stack.pop() {
+        match current {
+            Geometry::LineString(ls) => {
+                let len = ls.0.len().saturating_sub(1);
+                out.reserve(len);
                 out.extend(ls.lines().map(Line3D::from));
             }
-        }
-        Geometry::Polygon(poly) => {
-            out.extend(poly.exterior().lines().map(Line3D::from));
-            for interior in poly.interiors() {
-                out.extend(interior.lines().map(Line3D::from));
+            Geometry::MultiLineString(mls) => {
+                for ls in &mls.0 {
+                    let len = ls.0.len().saturating_sub(1);
+                    out.reserve(len);
+                    out.extend(ls.lines().map(Line3D::from));
+                }
             }
-        }
-        Geometry::MultiPolygon(mpoly) => {
-            for poly in mpoly {
-                out.extend(poly.exterior().lines().map(Line3D::from));
+            Geometry::Polygon(poly) => {
+                let ext = poly.exterior();
+                let len = ext.0.len().saturating_sub(1);
+                out.reserve(len);
+                out.extend(ext.lines().map(Line3D::from));
                 for interior in poly.interiors() {
+                    let len = interior.0.len().saturating_sub(1);
+                    out.reserve(len);
                     out.extend(interior.lines().map(Line3D::from));
                 }
             }
-        }
-        Geometry::GeometryCollection(gc) => {
-            for g in gc {
-                extract_segments(g, out);
+            Geometry::MultiPolygon(mpoly) => {
+                for poly in mpoly {
+                    let ext = poly.exterior();
+                    let len = ext.0.len().saturating_sub(1);
+                    out.reserve(len);
+                    out.extend(ext.lines().map(Line3D::from));
+                    for interior in poly.interiors() {
+                        let len = interior.0.len().saturating_sub(1);
+                        out.reserve(len);
+                        out.extend(interior.lines().map(Line3D::from));
+                    }
+                }
             }
+            Geometry::GeometryCollection(gc) => {
+                stack.extend(gc.0.iter().rev());
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
 

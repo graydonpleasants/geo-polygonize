@@ -121,6 +121,22 @@ def test_3d_coordinates():
     assert abs(shapely_poly.area - 100.0) < 1e-6
     print("3D coordinates test passed!")
 
+def test_missing_args():
+    print("\nTesting missing arguments...")
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize()
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize(coords=coords)
+
+    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
+        polygonize(offsets=offsets)
+
+    print("Missing arguments test passed!")
+
 def test_odd_length_coordinates():
     print("\nTesting odd length coordinates...")
     # Flat array with 3 elements (1.5 points)
@@ -219,6 +235,15 @@ def test_invalid_shape_mismatch():
         polygonize(coords, offsets, stride=2)
     print("Invalid shape mismatch test passed!")
 
+def test_invalid_stride():
+    print("\nTesting invalid stride...")
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([0, 2], dtype=np.uint32)
+
+    with pytest.raises(ValueError, match="stride must be 2 or 3"):
+        polygonize(coords, offsets, stride=4)
+    print("Invalid stride test passed!")
+
 @patch('geo_polygonize.cffi_wrapper.lib', create=True)
 def test_invalid_input_status(mock_lib):
     print("\nTesting invalid input status (status == 1)...")
@@ -287,11 +312,13 @@ if __name__ == "__main__":
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
+    test_missing_args()
     test_odd_length_coordinates()
     test_import_error_fallback()
     test_return_polygons_without_shapely()
     test_library_not_found()
     test_invalid_shape_mismatch()
+    test_invalid_stride()
     test_invalid_input_status()
     test_internal_error_status()
     test_null_result_pointer()

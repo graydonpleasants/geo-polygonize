@@ -22,6 +22,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Upgrade npm to support Trusted Publishing
+        run: npm install -g npm@latest
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
