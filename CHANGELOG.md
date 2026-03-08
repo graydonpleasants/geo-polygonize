@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.2...geo-polygonize-v0.6.3) (2026-03-08)
+
+
+### Performance Improvements
+
+* **core:** optimize area and centroid loop bounds-checking ([6e23dcc](https://github.com/graydonpleasants/geo-polygonize/commit/6e23dccda8c09cd455dd827d46c44f559991065d))
+
 ## [0.6.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.1...geo-polygonize-v0.6.2) (2026-03-07)
 
 
