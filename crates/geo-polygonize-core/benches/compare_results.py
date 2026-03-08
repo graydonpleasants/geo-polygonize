@@ -12,25 +12,33 @@ def parse_rust_output(filename):
     with open(filename, 'r') as f:
         content = f.read()
 
-    # Matches: polygonize/grid/5   time:   [... val unit ...]
-    pattern = re.compile(r'polygonize/([^/]+)/(\d+)\s+time:\s+\[[^\]]*\s([\d\.]+)\s([µms]+)\]')
+    def parse_seconds(raw_val, unit):
+        val = float(raw_val)
+        if unit == 'µs':
+            return val / 1_000_000
+        if unit == 'ms':
+            return val / 1_000
+        return val
 
-    for match in pattern.finditer(content):
+    # Matches: polygonize/grid/5   time:   [... val unit ...]
+    sized_pattern = re.compile(r'polygonize/([^/]+)/(\d+)\s+time:\s+\[[^\]]*\s([\d\.]+)\s(µs|ms|s)\]')
+    for match in sized_pattern.finditer(content):
         cat = match.group(1)
         size = int(match.group(2))
-        val = float(match.group(3))
-        unit = match.group(4)
-
-        if unit == 'µs':
-            seconds = val / 1_000_000
-        elif unit == 'ms':
-            seconds = val / 1_000
-        elif unit == 's':
-            seconds = val
-        else:
-            seconds = val
-
+        seconds = parse_seconds(match.group(3), match.group(4))
         results[(cat, size)] = seconds
+
+    # Matches benchmark names without explicit numeric size segment.
+    singleton_patterns = [
+        (r'polygonize/large_parallel_10k\s+time:\s+\[[^\]]*\s([\d\.]+)\s(µs|ms|s)\]', ('large_parallel_10k', 10000)),
+        (r'planar_graph/get_edge_rings\s+time:\s+\[[^\]]*\s([\d\.]+)\s(µs|ms|s)\]', ('planar_graph', 50)),
+        (r'planar_graph_dangles/get_edge_rings_with_dangles\s+time:\s+\[[^\]]*\s([\d\.]+)\s(µs|ms|s)\]', ('planar_graph_dangles', 500)),
+    ]
+
+    for pattern, key in singleton_patterns:
+        match = re.search(pattern, content)
+        if match:
+            results[key] = parse_seconds(match.group(1), match.group(2))
 
     return results
 
