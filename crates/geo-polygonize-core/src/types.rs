@@ -158,10 +158,10 @@ impl Polygon3D {
             return 0.0;
         }
         let mut twice_area = 0.0;
-        let mut j = coords.len() - 1;
-        for i in 0..coords.len() {
-            twice_area += (coords[j].x - coords[i].x) * (coords[j].y + coords[i].y);
-            j = i;
+        let mut prev = coords[coords.len() - 1];
+        for curr in coords {
+            twice_area += (prev.x - curr.x) * (prev.y + curr.y);
+            prev = *curr;
         }
         twice_area / 2.0
     }
@@ -176,17 +176,19 @@ impl Polygon3D {
         let mut twice_area = 0.0;
         let mut cx = 0.0;
         let mut cy = 0.0;
-        let mut j = coords.len() - 1;
-        for i in 0..coords.len() {
-            let p1_x = coords[j].x - origin_x;
-            let p1_y = coords[j].y - origin_y;
-            let p2_x = coords[i].x - origin_x;
-            let p2_y = coords[i].y - origin_y;
+        let prev = coords[coords.len() - 1];
+        let mut p1_x = prev.x - origin_x;
+        let mut p1_y = prev.y - origin_y;
+
+        for curr in coords {
+            let p2_x = curr.x - origin_x;
+            let p2_y = curr.y - origin_y;
             let f = p1_x * p2_y - p2_x * p1_y;
             twice_area += f;
             cx += (p1_x + p2_x) * f;
             cy += (p1_y + p2_y) * f;
-            j = i;
+            p1_x = p2_x;
+            p1_y = p2_y;
         }
         let area = twice_area / 2.0;
         if area == 0.0 {
