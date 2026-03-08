@@ -50,6 +50,18 @@ def parse_python_output(filename):
             if "=== Random Benchmark ===" in line:
                 current_cat = "random"
                 continue
+            if "=== Bowtie Grid Benchmark ===" in line:
+                current_cat = "bowtie_grid_auto"
+                continue
+            if "=== Large Parallel Benchmark ===" in line:
+                current_cat = "large_parallel_10k"
+                continue
+            if "=== Planar Graph Benchmark ===" in line:
+                current_cat = "planar_graph"
+                continue
+            if "=== Planar Graph Dangles Benchmark ===" in line:
+                current_cat = "planar_graph_dangles"
+                continue
             if line.startswith("Size") or line.startswith("Count") or line.startswith("-"):
                 continue
 
@@ -57,8 +69,19 @@ def parse_python_output(filename):
             if len(parts) >= 2:
                 try:
                     size = int(parts[0])
-                    time_s = float(parts[1])
-                    if current_cat:
+                    if current_cat == "grid":
+                        time_s = float(parts[1])
+                        results[("grid", size)] = time_s
+                        if len(parts) >= 3 and parts[2] != "-":
+                            results[("grid_tiled", size)] = float(parts[2])
+                    elif current_cat == "bowtie_grid_auto":
+                        results[("bowtie_grid_auto", size)] = float(parts[1])
+                        if len(parts) >= 3 and parts[2] != "-":
+                            results[("bowtie_grid_force_grid", size)] = float(parts[2])
+                        if len(parts) >= 4 and parts[3] != "-":
+                            results[("bowtie_grid_force_simd", size)] = float(parts[3])
+                    elif current_cat:
+                        time_s = float(parts[1])
                         results[(current_cat, size)] = time_s
                 except ValueError:
                     pass
