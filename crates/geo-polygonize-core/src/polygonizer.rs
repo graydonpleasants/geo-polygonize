@@ -440,7 +440,9 @@ impl Polygonizer {
             if line.len() > 1 {
                 let first = line.first().unwrap();
                 let last = line.last().unwrap();
-                let cmp = last.x.total_cmp(&first.x)
+                let cmp = last
+                    .x
+                    .total_cmp(&first.x)
                     .then(last.y.total_cmp(&first.y))
                     .then(last.z.total_cmp(&first.z));
                 if cmp == std::cmp::Ordering::Less {
