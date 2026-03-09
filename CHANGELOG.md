@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.7.0...geo-polygonize-v0.8.0) (2026-03-09)
+
+
+### Features
+
+* **core:** implement diagnostics collection and fix tests ([#266](https://github.com/graydonpleasants/geo-polygonize/issues/266)) ([44ef7f0](https://github.com/graydonpleasants/geo-polygonize/commit/44ef7f04fae06e16cdcb5ea8d92d5ae30bbfcbad))
+
+
+### Bug Fixes
+
+* **core:** apply ring rotation independently and fully order dangles ([202aa3a](https://github.com/graydonpleasants/geo-polygonize/commit/202aa3ac93a53989852e2772820bf38027384a17))
+* **core:** enforce strict golden fixture assertions ([f6fba68](https://github.com/graydonpleasants/geo-polygonize/commit/f6fba6827ed3db8c95406e5102b4f0904c272576))
+* **core:** enforce strict golden fixture assertions ([#272](https://github.com/graydonpleasants/geo-polygonize/issues/272)) ([fee9cd1](https://github.com/graydonpleasants/geo-polygonize/commit/fee9cd1c6f749fffbcaa1a8133e8f44fb26644bb))
+
 ## [0.7.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.3...geo-polygonize-v0.7.0) (2026-03-09)
 
 
