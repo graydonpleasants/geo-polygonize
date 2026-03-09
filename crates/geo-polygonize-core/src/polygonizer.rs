@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::snap::SnapNoder;
-use crate::types::{Coord3D, Line3D, Polygon3D};
+use crate::types::{Coord3D, DeterminismOptions, Line3D, Polygon3D};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use geo::Contains;
@@ -33,6 +33,7 @@ pub struct Polygonizer {
     pub node_input: bool,
     pub snap_grid_size: f64,
     pub extract_only_polygonal: bool,
+    pub determinism: DeterminismOptions,
 
     // Buffer for explicit line segments (3D)
     input_lines: Vec<Line3D>,
@@ -60,6 +61,7 @@ impl Polygonizer {
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
             extract_only_polygonal: false,
+            determinism: DeterminismOptions::default(),
             input_lines: Vec::new(),
             dirty: false,
         }
@@ -388,9 +390,68 @@ impl Polygonizer {
             shell_holes_ids[idx].push(hole_ids);
         }
 
+        // Helper to rotate a closed ring to its canonical start coordinate (lexicographically smallest)
+        // while preserving the association with edge IDs.
+        let canonicalize_ring = |ring: &mut Vec<Coord3D>, ids: Option<&mut Vec<u32>>| {
+            if ring.is_empty() {
+                return;
+            }
+            // A closed ring has first == last point. Ignore the duplicate last point for finding min.
+            let n = if ring.len() > 1 && ring.first() == ring.last() {
+                ring.len() - 1
+            } else {
+                ring.len()
+            };
+
+            let min_idx = (0..n)
+                .min_by(|&i, &j| {
+                    ring[i]
+                        .x
+                        .total_cmp(&ring[j].x)
+                        .then(ring[i].y.total_cmp(&ring[j].y))
+                        .then(ring[i].z.total_cmp(&ring[j].z))
+                })
+                .unwrap_or(0);
+
+            if min_idx > 0 {
+                let mut new_ring = Vec::with_capacity(ring.len());
+                new_ring.extend_from_slice(&ring[min_idx..n]);
+                new_ring.extend_from_slice(&ring[0..min_idx]);
+                // Re-close the ring
+                new_ring.push(new_ring[0]);
+                *ring = new_ring;
+
+                // Rotate the IDs.
+                // A closed ring of N vertices (with first==last) corresponds to N-1 edges (and N-1 IDs).
+                if let Some(ids_vec) = ids {
+                    if !ids_vec.is_empty() {
+                        let mut new_ids = Vec::with_capacity(ids_vec.len());
+                        new_ids.extend_from_slice(&ids_vec[min_idx..]);
+                        new_ids.extend_from_slice(&ids_vec[0..min_idx]);
+                        *ids_vec = new_ids;
+                    }
+                }
+            }
+        };
+
+        // Helper to canonicalize open linestrings (like dangles) by reversing them if
+        // their last coordinate is lexicographically smaller than their first coordinate.
+        let canonicalize_open_line = |line: &mut Vec<Coord3D>| {
+            if line.len() > 1 {
+                let first = line.first().unwrap();
+                let last = line.last().unwrap();
+                let cmp = last.x.total_cmp(&first.x)
+                    .then(last.y.total_cmp(&first.y))
+                    .then(last.z.total_cmp(&first.z));
+                if cmp == std::cmp::Ordering::Less {
+                    line.reverse();
+                }
+            }
+        };
+
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
-        let invalid_rings = if invalid_rings_candidates.is_empty() {
+        let mut invalid_rings = if invalid_rings_candidates.is_empty() {
             Vec::new()
         } else {
             let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
@@ -398,13 +459,53 @@ impl Polygonizer {
         };
 
         let mut result = Vec::with_capacity(shells.len());
-        for ((shell, holes), holes_ids) in shells
+        for ((shell, mut holes), mut holes_ids) in shells
             .into_iter()
             .zip(shell_holes.into_iter())
             .zip(shell_holes_ids.into_iter())
         {
-            let exterior = shell.exterior;
-            let exterior_ids = shell.exterior_ids;
+            let mut exterior = shell.exterior;
+            let mut exterior_ids = shell.exterior_ids;
+
+            if self.determinism.canonical_ring_rotation {
+                canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
+                for (h, h_ids) in holes.iter_mut().zip(holes_ids.iter_mut()) {
+                    canonicalize_ring(h, Some(h_ids));
+                }
+            }
+
+            if self.determinism.canonical_sort {
+                let mut combined_holes: Vec<_> =
+                    holes.into_iter().zip(holes_ids.into_iter()).collect();
+                let use_stable_tie_breaks = self.determinism.stable_tie_breaks;
+                combined_holes.sort_by(|(h1, _), (h2, _)| {
+                    let area1 = Polygon3D::ring_signed_area_2d(h1).abs();
+                    let area2 = Polygon3D::ring_signed_area_2d(h2).abs();
+                    // Sort holes by area (descending)
+                    area2.total_cmp(&area1).then_with(|| {
+                        if !use_stable_tie_breaks {
+                            return std::cmp::Ordering::Equal;
+                        }
+                        // For stable tie breaking, sort by bounding box bottom-left, then number of points
+                        let b1 = bounding_rect_3d(h1).unwrap_or(geo::Rect::new(
+                            geo::Coord { x: 0.0, y: 0.0 },
+                            geo::Coord { x: 0.0, y: 0.0 },
+                        ));
+                        let b2 = bounding_rect_3d(h2).unwrap_or(geo::Rect::new(
+                            geo::Coord { x: 0.0, y: 0.0 },
+                            geo::Coord { x: 0.0, y: 0.0 },
+                        ));
+                        b1.min()
+                            .x
+                            .total_cmp(&b2.min().x)
+                            .then(b1.min().y.total_cmp(&b2.min().y))
+                            .then(h1.len().cmp(&h2.len()))
+                    })
+                });
+                let (h, hi): (Vec<_>, Vec<_>) = combined_holes.into_iter().unzip();
+                holes = h;
+                holes_ids = hi;
+            }
 
             let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
 
@@ -412,6 +513,83 @@ impl Polygonizer {
             if p.unsigned_area_2d() > 1e-6 {
                 result.push(p);
             }
+        }
+
+        if self.determinism.canonical_sort {
+            let use_stable_tie_breaks = self.determinism.stable_tie_breaks;
+            result.sort_by(|p1, p2| {
+                let area1 = p1.unsigned_area_2d();
+                let area2 = p2.unsigned_area_2d();
+                // Sort polygons by area (descending)
+                area2.total_cmp(&area1).then_with(|| {
+                    if !use_stable_tie_breaks {
+                        return std::cmp::Ordering::Equal;
+                    }
+                    let b1 = bounding_rect_3d(&p1.exterior).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    let b2 = bounding_rect_3d(&p2.exterior).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    b1.min()
+                        .x
+                        .total_cmp(&b2.min().x)
+                        .then(b1.min().y.total_cmp(&b2.min().y))
+                        .then(p1.interiors.len().cmp(&p2.interiors.len()))
+                })
+            });
+
+            if self.determinism.canonical_ring_rotation {
+                for d in dangles.iter_mut() {
+                    canonicalize_open_line(d);
+                }
+                for ir in invalid_rings.iter_mut() {
+                    canonicalize_ring(ir, None);
+                }
+            }
+
+            if use_stable_tie_breaks {
+                dangles.sort_by(|l1, l2| {
+                    let b1 = bounding_rect_3d(l1).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    let b2 = bounding_rect_3d(l2).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    b1.min()
+                        .x
+                        .total_cmp(&b2.min().x)
+                        .then(b1.min().y.total_cmp(&b2.min().y))
+                        .then(l1.len().cmp(&l2.len()))
+                });
+            }
+
+            invalid_rings.sort_by(|r1, r2| {
+                let area1 = Polygon3D::ring_signed_area_2d(r1).abs();
+                let area2 = Polygon3D::ring_signed_area_2d(r2).abs();
+                area2.total_cmp(&area1).then_with(|| {
+                    if !use_stable_tie_breaks {
+                        return std::cmp::Ordering::Equal;
+                    }
+                    let b1 = bounding_rect_3d(r1).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    let b2 = bounding_rect_3d(r2).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    b1.min()
+                        .x
+                        .total_cmp(&b2.min().x)
+                        .then(b1.min().y.total_cmp(&b2.min().y))
+                        .then(r1.len().cmp(&r2.len()))
+                })
+            });
         }
 
         Ok(PolygonizerResult {
