@@ -469,9 +469,9 @@ The roadmap is complete when:
 
 ## Milestone M1: Deterministic Baseline + Binding Safety
 - [x] canonical sort mode
-- [ ] checked-in fixtures
-- [ ] golden tests
-- [ ] first diagnostics object
+- [x] checked-in fixtures
+- [x] golden tests
+- [x] first diagnostics object
 - [ ] typed Wasm/Python errors
 - [ ] initial report mode scaffold
 
