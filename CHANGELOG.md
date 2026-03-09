@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.3...geo-polygonize-v0.7.0) (2026-03-09)
+
+
+### Features
+
+* **core:** implement deterministic output and canonical sorting ([58e16d5](https://github.com/graydonpleasants/geo-polygonize/commit/58e16d552001963b9ed539dadf4cdbce82d90964))
+* **core:** implement deterministic output and canonical sorting ([356de05](https://github.com/graydonpleasants/geo-polygonize/commit/356de0580601edebbab9e81a541267d47eba754b))
+
 ## [0.6.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.2...geo-polygonize-v0.6.3) (2026-03-08)
 
 
