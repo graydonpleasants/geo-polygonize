@@ -30,19 +30,23 @@ impl SimdRing {
 
     pub fn new_3d(coords: &[crate::types::Coord3D]) -> Self {
         let len = coords.len();
-
-        let mut x = Vec::with_capacity(len + 3);
-        let mut y = Vec::with_capacity(len + 3);
-
-        for c in coords {
-            x.push(c.x);
-            y.push(c.y);
+        if len == 0 {
+            return Self {
+                x: Vec::new(),
+                y: Vec::new(),
+                len: 0,
+            };
         }
+        let padded_len = (len + 3) & !3; // round up to multiple of 4
 
-        while x.len() % 4 != 0 {
-            x.push(x.last().cloned().unwrap_or(0.0));
-            y.push(y.last().cloned().unwrap_or(0.0));
-        }
+        let mut x = Vec::with_capacity(padded_len);
+        let mut y = Vec::with_capacity(padded_len);
+
+        x.extend(coords.iter().map(|c| c.x));
+        y.extend(coords.iter().map(|c| c.y));
+
+        x.resize(padded_len, x.last().copied().unwrap_or(0.0));
+        y.resize(padded_len, y.last().copied().unwrap_or(0.0));
 
         Self { x, y, len }
     }

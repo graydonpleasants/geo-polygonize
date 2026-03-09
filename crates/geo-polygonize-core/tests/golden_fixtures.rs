@@ -155,7 +155,7 @@ fn test_all_fixtures() {
     );
 
     let mut count = 0;
-    for entry in walkdir::WalkDir::new(base_dir)
+    for entry in walkdir::WalkDir::new(&base_dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
