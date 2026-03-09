@@ -89,3 +89,51 @@ fn test_determinism_canonical_sort_and_rotation() {
         }
     }
 }
+
+#[test]
+fn test_canonical_ring_rotation_applies_without_canonical_sort() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+    poly.determinism = DeterminismOptions {
+        canonical_sort: false,
+        canonical_ring_rotation: true,
+        stable_tie_breaks: false,
+    };
+
+    poly.add_lines(vec![Line3D::new(
+        Coord3D::new(5.0, 0.0, 0.0),
+        Coord3D::new(0.0, 0.0, 0.0),
+        0,
+    )]);
+
+    let res = poly.polygonize().unwrap();
+    assert_eq!(res.dangles.len(), 1);
+    assert_eq!(res.dangles[0][0], Coord3D::new(0.0, 0.0, 0.0));
+    assert_eq!(res.dangles[0][1], Coord3D::new(5.0, 0.0, 0.0));
+}
+
+#[test]
+fn test_stable_tie_breaks_fully_order_dangles() {
+    let build = |lines: Vec<Line3D>| {
+        let mut poly = Polygonizer::new();
+        poly.node_input = false;
+        poly.determinism = DeterminismOptions {
+            canonical_sort: true,
+            canonical_ring_rotation: true,
+            stable_tie_breaks: true,
+        };
+        poly.add_lines(lines);
+        poly.polygonize().unwrap()
+    };
+
+    let d1 = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 0);
+    let d2 = Line3D::new(Coord3D::new(0.0, 1.0, 0.0), Coord3D::new(1.0, 0.0, 1.0), 0);
+
+    let r1 = build(vec![d1, d2]);
+    let r2 = build(vec![d2, d1]);
+
+    assert_eq!(r1.dangles, r2.dangles);
+    assert_eq!(r1.dangles.len(), 2);
+    assert_eq!(r1.dangles[0][0], Coord3D::new(0.0, 0.0, 0.0));
+    assert_eq!(r1.dangles[1][0], Coord3D::new(0.0, 1.0, 0.0));
+}
