@@ -1,3 +1,5 @@
+mod error;
+
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::FileWriter;
@@ -10,6 +12,8 @@ use std::io::Cursor;
 use std::str::FromStr;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
+
+use crate::error::{from_polygonizer_error, to_js_error};
 
 #[cfg(feature = "threads")]
 pub use wasm_bindgen_rayon::init_thread_pool;
@@ -25,7 +29,7 @@ pub fn polygonize(
     console_error_panic_hook::set_once();
 
     let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON: {}", e)))?;
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
 
     let mut polygonizer = Polygonizer::new();
     if let Some(ni) = node_input {
@@ -44,7 +48,7 @@ pub fn polygonize(
                 if let Some(geom) = feature.geometry {
                     let geo_geom: geo::Geometry<f64> = geom
                         .try_into()
-                        .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                        .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
                     polygonizer.add_geometry(geo_geom);
                 }
             }
@@ -53,21 +57,21 @@ pub fn polygonize(
             if let Some(geom) = f.geometry {
                 let geo_geom: geo::Geometry<f64> = geom
                     .try_into()
-                    .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                    .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
                 polygonizer.add_geometry(geo_geom);
             }
         }
         GeoJson::Geometry(g) => {
             let geo_geom: geo::Geometry<f64> = g
                 .try_into()
-                .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+                .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
             polygonizer.add_geometry(geo_geom);
         }
     }
 
     let result = polygonizer
         .polygonize()
-        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+        .map_err(from_polygonizer_error)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -149,7 +153,7 @@ pub fn polygonize_buffers(
     console_error_panic_hook::set_once();
 
     if stride != 2 && stride != 3 {
-        return Err(JsValue::from_str("stride must be 2 or 3"));
+        return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
     }
 
     let mut polygonizer = Polygonizer::new();
@@ -167,13 +171,13 @@ pub fn polygonize_buffers(
         };
 
         if start > end {
-            return Err(JsValue::from_str(&format!(
+            return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
                 start, end, i
             )));
         }
         if end * stride as usize > coords.len() {
-            return Err(JsValue::from_str(&format!(
+            return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
                 end * stride as usize, coords.len(), stride
             )));
@@ -209,7 +213,7 @@ pub fn polygonize_geoarrow(
     console_error_panic_hook::set_once();
 
     let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
-        .map_err(|e| JsValue::from_str(&format!("Invalid Arrow IPC stream: {e}")))?;
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid Arrow IPC stream: {e}")))?;
 
     let schema = reader.schema();
 
@@ -225,24 +229,24 @@ pub fn polygonize_geoarrow(
     }
 
     let geom_col_idx =
-        geom_col_idx.ok_or_else(|| JsValue::from_str("No GeoArrow LineString column found"))?;
+        geom_col_idx.ok_or_else(|| to_js_error("InvalidInput", "No GeoArrow LineString column found"))?;
     let field = schema.field(geom_col_idx).clone();
 
     // Collect batches
     let mut arrays = Vec::new();
     for batch_result in reader {
         let batch =
-            batch_result.map_err(|e| JsValue::from_str(&format!("Failed reading batch: {e}")))?;
+            batch_result.map_err(|e| to_js_error("ArrowError", format!("Failed reading batch: {e}")))?;
         arrays.push(batch.column(geom_col_idx).clone());
     }
 
     if arrays.is_empty() {
-        return Err(JsValue::from_str("No data found"));
+        return Err(to_js_error("InvalidInput", "No data found"));
     }
 
     let arrays_ref: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
     let combined_array = concat(&arrays_ref)
-        .map_err(|e| JsValue::from_str(&format!("Failed to concat arrays: {e}")))?;
+        .map_err(|e| to_js_error("ArrowError", format!("Failed to concat arrays: {e}")))?;
 
     let options = PolygonizerOptions {
         node_input,
@@ -251,7 +255,7 @@ pub fn polygonize_geoarrow(
     };
 
     let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)
-        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {e}")))?;
+        .map_err(|e| to_js_error("PolygonizationError", format!("Polygonization error: {e}")))?;
 
     // Serialize result to IPC
     let mut output_buffer = Vec::new();
@@ -262,20 +266,20 @@ pub fn polygonize_geoarrow(
         let schema = Arc::new(arrow::datatypes::Schema::new(vec![field]));
 
         let mut writer = FileWriter::try_new(&mut output_buffer, &schema)
-            .map_err(|e| JsValue::from_str(&format!("Failed to create IPC writer: {e}")))?;
+            .map_err(|e| to_js_error("ArrowError", format!("Failed to create IPC writer: {e}")))?;
 
         let batch = arrow::record_batch::RecordBatch::try_new(
             schema.clone(),
             vec![result_array.into_array_ref()],
         )
-        .map_err(|e| JsValue::from_str(&format!("Failed to create RecordBatch: {e}")))?;
+        .map_err(|e| to_js_error("ArrowError", format!("Failed to create RecordBatch: {e}")))?;
 
         writer
             .write(&batch)
-            .map_err(|e| JsValue::from_str(&format!("Failed to write batch: {e}")))?;
+            .map_err(|e| to_js_error("ArrowError", format!("Failed to write batch: {e}")))?;
         writer
             .finish()
-            .map_err(|e| JsValue::from_str(&format!("Failed to finish writer: {e}")))?;
+            .map_err(|e| to_js_error("ArrowError", format!("Failed to finish writer: {e}")))?;
     }
 
     Ok(output_buffer)
@@ -287,7 +291,7 @@ fn polygonize_and_flatten(
 ) -> Result<WasmPolygonResult, JsValue> {
     let result = polygonizer
         .polygonize()
-        .map_err(|e| JsValue::from_str(&format!("Polygonization error: {}", e)))?;
+        .map_err(from_polygonizer_error)?;
 
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();

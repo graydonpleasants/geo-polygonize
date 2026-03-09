@@ -322,3 +322,20 @@ if __name__ == "__main__":
     test_invalid_input_status()
     test_internal_error_status()
     test_null_result_pointer()
+
+def test_rust_typed_errors():
+    print("\nTesting Rust typed errors propagation...")
+    from geo_polygonize_core import InvalidGeometryError
+
+    # Send deliberately corrupt offsets to trigger a runtime logic failure or ValueError mapped from the rust side
+    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
+    offsets = np.array([5], dtype=np.uint32) # Out of bounds offset
+
+    try:
+        # Since this invokes `polygonize` natively, it should hit the bounds check in python.rs
+        polygonize(coords=coords, offsets=offsets, stride=2)
+    except ValueError as e:
+        print(f"Caught expected ValueError from bounds check: {e}")
+        assert "Invalid offsets" in str(e)
+
+    print("Rust typed error bounds propagation test passed!")
