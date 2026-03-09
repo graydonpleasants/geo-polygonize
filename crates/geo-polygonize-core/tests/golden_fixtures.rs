@@ -124,11 +124,21 @@ fn run_golden_test(path: &Path) {
             fixture.name
         );
     } else {
-        // Bootstrap the fixture
-        fixture.expected = Some(actual_result);
-        let output = serde_json::to_string_pretty(&fixture).unwrap();
-        fs::write(path, output).unwrap();
-        println!("Bootstrapped expected output for {}", fixture.name);
+        let bootstrap_enabled = std::env::var("GEO_POLYGONIZE_BOOTSTRAP_GOLDEN")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        if bootstrap_enabled {
+            fixture.expected = Some(actual_result);
+            let output = serde_json::to_string_pretty(&fixture).unwrap();
+            fs::write(path, output).unwrap();
+            println!("Bootstrapped expected output for {}", fixture.name);
+        } else {
+            panic!(
+                "Fixture {} is missing expected output. Set GEO_POLYGONIZE_BOOTSTRAP_GOLDEN=1 to bootstrap snapshots.",
+                fixture.name
+            );
+        }
     }
 }
 
@@ -137,12 +147,14 @@ fn test_all_fixtures() {
     let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures");
-    if !base_dir.exists() {
-        return;
-    }
+    assert!(
+        base_dir.exists(),
+        "Golden fixture directory does not exist: {}",
+        base_dir.display()
+    );
 
     let mut count = 0;
-    for entry in walkdir::WalkDir::new(base_dir)
+    for entry in walkdir::WalkDir::new(&base_dir)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -156,5 +168,10 @@ fn test_all_fixtures() {
             count += 1;
         }
     }
+    assert!(
+        count > 0,
+        "No golden fixture files (*.json) found in {}",
+        base_dir.display()
+    );
     println!("Ran {} golden fixtures", count);
 }
