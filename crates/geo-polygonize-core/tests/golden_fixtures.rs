@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+const GOLDEN_BOOTSTRAP_ENV: &str = "GEO_POLYGONIZE_BOOTSTRAP_GOLDENS";
+
+fn bootstrap_enabled() -> bool {
+    std::env::var_os(GOLDEN_BOOTSTRAP_ENV).is_some()
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct GoldenCoord {
     x: f64,
@@ -123,12 +129,17 @@ fn run_golden_test(path: &Path) {
             "Mismatch in fixture {}",
             fixture.name
         );
-    } else {
+    } else if bootstrap_enabled() {
         // Bootstrap the fixture
         fixture.expected = Some(actual_result);
         let output = serde_json::to_string_pretty(&fixture).unwrap();
         fs::write(path, output).unwrap();
         println!("Bootstrapped expected output for {}", fixture.name);
+    } else {
+        panic!(
+            "Fixture {} is missing expected output. Set {}=1 to bootstrap fixtures.",
+            fixture.name, GOLDEN_BOOTSTRAP_ENV
+        );
     }
 }
 
@@ -137,9 +148,11 @@ fn test_all_fixtures() {
     let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures");
-    if !base_dir.exists() {
-        return;
-    }
+    assert!(
+        base_dir.exists(),
+        "Golden fixtures directory is missing: {}",
+        base_dir.display()
+    );
 
     let mut count = 0;
     for entry in walkdir::WalkDir::new(base_dir)
@@ -156,5 +169,6 @@ fn test_all_fixtures() {
             count += 1;
         }
     }
+    assert!(count > 0, "No golden fixtures were found");
     println!("Ran {} golden fixtures", count);
 }
