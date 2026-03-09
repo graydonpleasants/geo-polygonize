@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000160 | 0.000669 | - | 4.19x | - | - |
-| 10 | 0.000360 | 0.002216 | 0.000310 | 6.15x | 7.15x | 0.86x |
-| 20 | 0.000903 | 0.008299 | 0.000220 | 9.19x | 37.72x | 0.24x |
-| 50 | 0.004352 | 0.051922 | 0.000430 | 11.93x | 120.75x | 0.10x |
-| 100 | 0.018072 | 0.217769 | - | 12.05x | - | - |
+| 5 | 0.000148 | 0.000596 | - | 4.03x | - | - |
+| 10 | 0.000331 | 0.002017 | 0.000330 | 6.09x | 6.11x | 1.00x |
+| 20 | 0.000888 | 0.007621 | 0.000340 | 8.58x | 22.41x | 0.38x |
+| 50 | 0.004673 | 0.049542 | 0.000430 | 10.60x | 115.21x | 0.09x |
+| 100 | 0.018826 | 0.221356 | - | 11.76x | - | - |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000782 | 0.008037 | - | 10.28x | - | - |
-| 100 | 0.002833 | 0.025830 | - | 9.12x | - | - |
-| 200 | 0.010387 | 0.100801 | - | 9.70x | - | - |
+| 50 | 0.000758 | 0.007983 | - | 10.53x | - | - |
+| 100 | 0.002789 | 0.025174 | - | 9.03x | - | - |
+| 200 | 0.010626 | 0.106171 | - | 9.99x | - | - |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.0...geo-polygonize-v0.4.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **core:** remove debug print in polygonizer.rs ([6c77240](https://github.com/graydonpleasants/geo-polygonize/commit/6c772401865aa1d230e1c7fb1d1c14dfb07bc508))
+* **github:** support release-please component tags in publish workflows ([#207](https://github.com/graydonpleasants/geo-polygonize/issues/207)) ([b59cccd](https://github.com/graydonpleasants/geo-polygonize/commit/b59cccd116c8225257d2bacdc1f78c6dee8fe93a))
+
+
+### Performance Improvements
+
+* **core:** Eliminate intermediate polygon allocations ([#204](https://github.com/graydonpleasants/geo-polygonize/issues/204)) ([5329162](https://github.com/graydonpleasants/geo-polygonize/commit/5329162172980c3f6bc154c3ef7a9986b7fe2838))
+
+## [0.4.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.1...geo-polygonize-v0.4.0) (2026-03-06)
+
+
+### Features
+
+* **core:** trigger release for bounding_rect optimization ([854e4ce](https://github.com/graydonpleasants/geo-polygonize/commit/854e4ce1162d8f414e531624629d700df4b42318))
+* **deps:** configure commitlint to strictly enforce conventional commits ([#203](https://github.com/graydonpleasants/geo-polygonize/issues/203)) ([23c6d13](https://github.com/graydonpleasants/geo-polygonize/commit/23c6d13020e4f45861657547e729dd06f93fd672))
+
+
+### Bug Fixes
+
+* **ci:** bump internal workspace dependencies during release-please sync ([#205](https://github.com/graydonpleasants/geo-polygonize/issues/205)) ([a26648c](https://github.com/graydonpleasants/geo-polygonize/commit/a26648c23d7f03137fa7c65dac3c265f58fb401d))
 
 ## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.0...geo-polygonize-v0.3.1) (2026-03-06)
 
@@ -598,6 +624,32 @@ fn main() {
 }
 ```
 
+### Choosing `node_input` and `snap_grid_size`
+
+Polygonization quality is heavily influenced by input noding strategy.
+
+- **`node_input = false`** (default): Fastest path. Use this when your input linework is already noded (all intersections are explicit vertices).
+- **`node_input = true`**: Enables Iterated Snap Rounding (ISR). Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections.
+- **`snap_grid_size`** controls how aggressively coordinates are snapped during robust noding:
+  - Start with `1e-10` for high-precision projected data.
+  - Increase to `1e-8` or `1e-6` when near-duplicate vertices prevent clean topology.
+  - Avoid very large values unless your coordinate units are coarse; oversnapping can collapse narrow features.
+
+Practical workflow:
+1. Run with `node_input = false` first on trusted data.
+2. If you observe missing polygons, sliver artifacts, or unresolved intersections, enable `node_input`.
+3. Tune `snap_grid_size` upward incrementally until topology stabilizes.
+
+### Output semantics
+
+The polygonizer intentionally returns only valid polygonal areas that can be formed from closed cycles:
+
+- **Dangles are removed**: dead-end edges do not appear in output polygons.
+- **Cut edges are excluded**: edges that are connected but cannot bound a face are ignored.
+- **Holes and nested shells are preserved** when enough boundary information is present.
+
+This behavior matches classical JTS/GEOS polygonization semantics and is useful for cleaning linework before area analysis.
+
 ### GeoArrow Integration
 
 The library supports ingesting data directly from Arrow arrays via the `arrow_api` module and `ffi`.
@@ -886,7 +938,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.3.1"
+version = "0.4.1"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = {text = "MIT OR Apache-2.0"}
@@ -924,7 +976,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.3.1"
+version = "0.4.1"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2015,11 +2067,19 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
         if list_arr.is_null(i) {
             continue;
         }
-        let start = list_arr.value_offsets()[i].to_usize().unwrap();
-        let end = list_arr.value_offsets()[i + 1].to_usize().unwrap();
+        let start = list_arr.value_offsets()[i]
+            .to_usize()
+            .ok_or("Invalid start offset: cannot convert to usize")?;
+        let end = list_arr.value_offsets()[i + 1]
+            .to_usize()
+            .ok_or("Invalid end offset: cannot convert to usize")?;
 
         if end <= start {
             continue;
+        }
+
+        if end > x_vals.len() || end > y_vals.len() {
+            return Err("Offset out of bounds for x/y coordinate arrays".to_string());
         }
 
         // Iterate points in the linestring
@@ -2177,10 +2237,8 @@ use crate::noding::snap::SnapNoder;
 use crate::types::{Coord3D, Line3D, Polygon3D};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
-use geo::bounding_rect::BoundingRect;
-use geo::Area;
 use geo::Contains;
-use geo_types::{Coord, Geometry, LineString, Polygon};
+use geo_types::{Coord, Geometry, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
 
 #[cfg(feature = "parallel")]
@@ -2372,15 +2430,14 @@ impl Polygonizer {
         // 5. Establish Topology
 
         // Precompute 2D shells for spatial index and SIMD
-        let mut shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
 
         let mut simd_shells: Vec<OnceLock<SimdRing>> =
             (0..shells.len()).map(|_| OnceLock::new()).collect();
 
         // Build RTree for shells
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        for (i, shell) in shells_2d.iter().enumerate() {
-            if let Some(bbox) = shell.bounding_rect() {
+        for (i, shell) in shells.iter().enumerate() {
+            if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                 let aabb =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
@@ -2394,13 +2451,15 @@ impl Polygonizer {
             let mut removed_count = 0;
 
             // Precompute probe points
-            let probe_points: Vec<Option<geo_types::Point<f64>>> =
-                shells_2d.iter().map(guaranteed_interior_probe).collect();
+            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
+                .iter()
+                .map(|s| guaranteed_interior_probe(&s.exterior))
+                .collect();
 
             let mut container_counts = vec![0; shells.len()];
 
-            for (i, shell_2d) in shells_2d.iter().enumerate() {
-                let bbox = match shell_2d.bounding_rect() {
+            for (i, shell) in shells.iter().enumerate() {
+                let bbox = match bounding_rect_3d(&shell.exterior) {
                     Some(b) => b,
                     None => {
                         keep_mask[i] = false;
@@ -2422,20 +2481,16 @@ impl Polygonizer {
                         }
 
                         // Check if shell[i] is inside shell[j]
-                        let simd_shell = simd_shells[j]
-                            .get_or_init(|| SimdRing::new(&shells_2d[j].exterior().0));
+                        let simd_shell =
+                            simd_shells[j].get_or_init(|| SimdRing::new_3d(&shells[j].exterior));
 
                         if simd_shell.contains(probe_pt.0) {
-                            let area_i = shell_2d.unsigned_area();
-                            let area_j = shells_2d[j].unsigned_area();
+                            let area_i = shell.unsigned_area_2d();
+                            let area_j = shells[j].unsigned_area_2d();
 
                             // If i is strictly contained inside j, increment container count
                             if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
-                                && !rings_share_edge(
-                                    shells_2d[j].exterior(),
-                                    shell_2d.exterior(),
-                                    1e-10,
-                                )
+                                && !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
                             {
                                 container_counts[i] += 1;
                             }
@@ -2456,12 +2511,10 @@ impl Polygonizer {
 
             if removed_count > 0 {
                 let mut new_shells = Vec::new();
-                let mut new_shells_2d = Vec::new();
 
-                for ((keep, s), s2d) in keep_mask.into_iter().zip(shells).zip(shells_2d) {
+                for (keep, s) in keep_mask.into_iter().zip(shells) {
                     if keep {
                         new_shells.push(s);
-                        new_shells_2d.push(s2d);
                     } else {
                         // We do not need to track discarded edges from 2D shells for topological hole assignment
                         // because we already established nesting correctly using the container counts.
@@ -2469,15 +2522,12 @@ impl Polygonizer {
                 }
                 shells = new_shells;
 
-                // Recompute shells_2d and simd_shells for hole assignment
-                shells_2d = new_shells_2d;
-
                 // Rebuild helper structures
                 simd_shells = (0..shells.len()).map(|_| OnceLock::new()).collect();
 
                 let mut indexed_shells = Vec::with_capacity(shells.len());
-                for (i, shell) in shells_2d.iter().enumerate() {
-                    if let Some(bbox) = shell.bounding_rect() {
+                for (i, shell) in shells.iter().enumerate() {
+                    if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                         let aabb = AABB::from_corners(
                             [bbox.min().x, bbox.min().y],
                             [bbox.max().x, bbox.max().y],
@@ -2489,14 +2539,11 @@ impl Polygonizer {
             }
         }
 
-        let holes_2d: Vec<Polygon<f64>> = holes.iter().map(|h| h.to_polygon_2d()).collect();
-
         // Process hole assignment
         let process_hole_assignment = |i: usize| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-            let hole_poly_2d = &holes_2d[i];
             let hole_3d = &holes[i];
 
-            let bbox = hole_poly_2d.bounding_rect()?;
+            let bbox = bounding_rect_3d(&hole_3d.exterior)?;
             let hole_aabb =
                 AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
@@ -2505,27 +2552,24 @@ impl Polygonizer {
             let mut best_shell_idx = None;
             let mut min_area = f64::MAX;
 
-            let probe_point = guaranteed_interior_probe(hole_poly_2d)?;
+            let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
 
             for cand in candidates {
                 let idx = cand.index;
                 let simd_shell =
-                    simd_shells[idx].get_or_init(|| SimdRing::new(&shells_2d[idx].exterior().0));
+                    simd_shells[idx].get_or_init(|| SimdRing::new_3d(&shells[idx].exterior));
 
                 if simd_shell.contains(probe_point.0) {
-                    let shell_2d = &shells_2d[idx];
-
-                    if rings_share_edge(shell_2d.exterior(), hole_poly_2d.exterior(), 1e-10) {
+                    if rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10) {
                         continue;
                     }
 
-                    let area = shell_2d.unsigned_area();
-                    let hole_area = hole_poly_2d.unsigned_area();
+                    let area = shells[idx].unsigned_area_2d();
+                    let hole_area = hole_3d.unsigned_area_2d();
 
                     if area > hole_area + 1e-6 && area < min_area {
                         min_area = area;
                         best_shell_idx = Some(idx);
-                        println!("Hole {} assigned to shell {}", i, idx);
                     }
                 }
             }
@@ -2559,6 +2603,14 @@ impl Polygonizer {
         }
 
         // 6. Construct Final Polygons
+        // Ensure we don't crash on NaNs during processing
+        let invalid_rings = if invalid_rings_candidates.is_empty() {
+            Vec::new()
+        } else {
+            let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
+            process_invalid_rings(invalid_rings_candidates, &shells_2d)
+        };
+
         let mut result = Vec::with_capacity(shells.len());
         for ((shell, holes), holes_ids) in shells
             .into_iter()
@@ -2575,9 +2627,6 @@ impl Polygonizer {
                 result.push(p);
             }
         }
-
-        // Ensure we don't crash on NaNs during processing
-        let invalid_rings = process_invalid_rings(invalid_rings_candidates, &shells_2d);
 
         Ok(PolygonizerResult {
             polygons: result,
@@ -2664,9 +2713,35 @@ fn process_invalid_rings(
     result
 }
 
-fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64>> {
-    let ring = poly.exterior();
-    let coords = &ring.0;
+fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
+    if coords.is_empty() {
+        return None;
+    }
+    let mut min_x = coords[0].x;
+    let mut max_x = coords[0].x;
+    let mut min_y = coords[0].y;
+    let mut max_y = coords[0].y;
+    for c in &coords[1..] {
+        if c.x < min_x {
+            min_x = c.x;
+        }
+        if c.x > max_x {
+            max_x = c.x;
+        }
+        if c.y < min_y {
+            min_y = c.y;
+        }
+        if c.y > max_y {
+            max_y = c.y;
+        }
+    }
+    Some(geo::Rect::new(
+        geo::Coord { x: min_x, y: min_y },
+        geo::Coord { x: max_x, y: max_y },
+    ))
+}
+
+fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
     if coords.len() < 4 {
         return None;
     }
@@ -2676,14 +2751,13 @@ fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64
         return None;
     }
 
-    let area = poly.signed_area();
+    let area = Polygon3D::ring_signed_area_2d(coords);
     if !area.is_finite() || area.abs() < 1e-12 {
         return None;
     }
 
-    let hole_simd = SimdRing::new(coords);
-    let diag = poly
-        .bounding_rect()
+    let hole_simd = SimdRing::new_3d(coords);
+    let diag = bounding_rect_3d(coords)
         .map(|b| {
             let dx = b.max().x - b.min().x;
             let dy = b.max().y - b.min().y;
@@ -2756,23 +2830,23 @@ fn guaranteed_interior_probe(poly: &Polygon<f64>) -> Option<geo_types::Point<f64
         }
     }
 
-    Some(geo_types::Point(coords[0]))
+    Some(geo_types::Point(coords[0].to_coord_2d()))
 }
 
-fn rings_share_edge(shell: &LineString<f64>, hole: &LineString<f64>, eps: f64) -> bool {
-    if shell.0.len() < 2 || hole.0.len() < 2 {
+fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+    if shell.len() < 2 || hole.len() < 2 {
         return false;
     }
 
-    let shell_n = shell.0.len() - 1;
-    let hole_n = hole.0.len() - 1;
+    let shell_n = shell.len() - 1;
+    let hole_n = hole.len() - 1;
 
     for i in 0..shell_n {
-        let a1 = shell.0[i];
-        let a2 = shell.0[i + 1];
+        let a1 = shell[i].to_coord_2d();
+        let a2 = shell[i + 1].to_coord_2d();
         for j in 0..hole_n {
-            let b1 = hole.0[j];
-            let b2 = hole.0[j + 1];
+            let b1 = hole[j].to_coord_2d();
+            let b2 = hole[j + 1].to_coord_2d();
             if segments_overlap_with_length(a1, a2, b1, b2, eps) {
                 return true;
             }
@@ -3713,7 +3787,7 @@ pub struct TiledPolygonizer {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
-    geometries: Vec<Geometry<f64>>,
+    geometries: Vec<(Geometry<f64>, Option<Rect<f64>>)>,
 }
 
 impl TiledPolygonizer {
@@ -3732,7 +3806,8 @@ impl TiledPolygonizer {
     }
 
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        self.geometries.push(geom);
+        let bbox = geom.bounding_rect();
+        self.geometries.push((geom, bbox));
     }
 
     fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
@@ -3753,12 +3828,8 @@ impl TiledPolygonizer {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
-        for geom in &self.geometries {
-            if geom
-                .bounding_rect()
-                .map(|b| b.intersects(&buffered_bbox))
-                .unwrap_or(false)
-            {
+        for (geom, bbox) in &self.geometries {
+            if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
                 local_poly.add_geometry(geom.clone());
                 relevant_lines += 1;
             }
@@ -4177,7 +4248,7 @@ impl Polygon3D {
     }
 
     #[inline]
-    fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
+    pub fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
             return 0.0;
         }
@@ -4191,7 +4262,7 @@ impl Polygon3D {
     }
 
     #[inline]
-    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+    pub fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
         if coords.len() < 3 {
             return (0.0, 0.0, 0.0);
         }
@@ -4388,6 +4459,12 @@ mod tests {
         );
         assert!((centroid.x() - expected_x).abs() < 1e-8);
         assert!((centroid.y() - expected_y).abs() < 1e-8);
+    }
+
+    #[test]
+    fn test_centroid_empty_exterior() {
+        let poly = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        assert_eq!(poly.centroid_2d(), None);
     }
 }
 
@@ -5392,6 +5469,20 @@ mod tests {
                 point
             );
         }
+    }
+
+    #[test]
+    fn test_bulk_load_empty() {
+        let mut graph = PlanarGraph::new();
+        let lines: Vec<Line3D> = vec![];
+
+        graph.bulk_load(lines);
+
+        assert!(graph.nodes_x.is_empty());
+        assert!(graph.edges.is_empty());
+        assert!(graph.directed_edges.is_empty());
+        assert!(graph.nodes_outgoing.is_empty());
+        assert!(graph.node_map.is_empty());
     }
 }
 
@@ -6918,6 +7009,25 @@ impl SimdRing {
         Self { x, y, len }
     }
 
+    pub fn new_3d(coords: &[crate::types::Coord3D]) -> Self {
+        let len = coords.len();
+
+        let mut x = Vec::with_capacity(len + 3);
+        let mut y = Vec::with_capacity(len + 3);
+
+        for c in coords {
+            x.push(c.x);
+            y.push(c.y);
+        }
+
+        while x.len() % 4 != 0 {
+            x.push(x.last().cloned().unwrap_or(0.0));
+            y.push(y.last().cloned().unwrap_or(0.0));
+        }
+
+        Self { x, y, len }
+    }
+
     pub fn contains(&self, point: Coord<f64>) -> bool {
         if self.len == 0 {
             return false;
@@ -8334,7 +8444,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.3.1"
+version = "0.4.1"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -8343,7 +8453,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { version = "0.3.0", path = "../geo-polygonize-core", default-features = false }
+geo-polygonize-core = { version = "0.4.1", path = "../geo-polygonize-core", default-features = false }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -9035,6 +9145,7 @@ import os
 import numpy as np
 import shapely
 from shapely.geometry import shape
+from unittest.mock import patch
 
 # Add python directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__)))
@@ -9168,12 +9279,31 @@ def test_odd_length_coordinates():
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
+@patch('os.path.exists')
+@patch('glob.glob')
+def test_library_not_found(mock_glob, mock_exists):
+    print("\nTesting missing shared library...")
+    # Mock exists to always return False and glob to return empty list
+    mock_exists.return_value = False
+    mock_glob.return_value = []
+
+    import geo_polygonize.cffi_wrapper as cffi_wrapper
+
+    try:
+        cffi_wrapper.find_library()
+        assert False, "Should have raised FileNotFoundError"
+    except FileNotFoundError as e:
+        print(f"Caught expected error: {e}")
+        assert "Could not find geo_polygonize_core shared library" in str(e)
+    print("Missing library test passed!")
+
 if __name__ == "__main__":
     test_square()
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
     test_odd_length_coordinates()
+    test_library_not_found()
 
 ```
 

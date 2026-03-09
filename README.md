@@ -14,6 +14,10 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
 - **GeoArrow Support**: Zero-copy data transfer via Arrow C Data Interface and Arrow IPC (Wasm).
 
+## Engineering Roadmap
+
+For an ambitious, prioritized plan covering performance, security, API consistency, and maintainability, see [docs/roadmap.md](docs/roadmap.md).
+
 ## Usage
 
 ### Library
@@ -45,6 +49,32 @@ fn main() {
     }
 }
 ```
+
+### Choosing `node_input` and `snap_grid_size`
+
+Polygonization quality is heavily influenced by input noding strategy.
+
+- **`node_input = false`** (default): Fastest path. Use this when your input linework is already noded (all intersections are explicit vertices).
+- **`node_input = true`**: Enables Iterated Snap Rounding (ISR). Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections.
+- **`snap_grid_size`** controls how aggressively coordinates are snapped during robust noding:
+  - Start with `1e-10` for high-precision projected data.
+  - Increase to `1e-8` or `1e-6` when near-duplicate vertices prevent clean topology.
+  - Avoid very large values unless your coordinate units are coarse; oversnapping can collapse narrow features.
+
+Practical workflow:
+1. Run with `node_input = false` first on trusted data.
+2. If you observe missing polygons, sliver artifacts, or unresolved intersections, enable `node_input`.
+3. Tune `snap_grid_size` upward incrementally until topology stabilizes.
+
+### Output semantics
+
+The polygonizer intentionally returns only valid polygonal areas that can be formed from closed cycles:
+
+- **Dangles are removed**: dead-end edges do not appear in output polygons.
+- **Cut edges are excluded**: edges that are connected but cannot bound a face are ignored.
+- **Holes and nested shells are preserved** when enough boundary information is present.
+
+This behavior matches classical JTS/GEOS polygonization semantics and is useful for cleaning linework before area analysis.
 
 ### GeoArrow Integration
 

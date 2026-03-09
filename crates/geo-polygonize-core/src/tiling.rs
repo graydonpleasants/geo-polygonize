@@ -6,14 +6,14 @@ use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-pub struct TiledPolygonizer {
+pub struct TiledPolygonizer<'a> {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
-    geometries: Vec<Geometry<f64>>,
+    geometries: Vec<(&'a Geometry<f64>, Option<Rect<f64>>)>,
 }
 
-impl TiledPolygonizer {
+impl<'a> TiledPolygonizer<'a> {
     pub fn new(bbox: Rect<f64>, tile_size: f64) -> Self {
         Self {
             bbox,
@@ -28,8 +28,9 @@ impl TiledPolygonizer {
         self
     }
 
-    pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        self.geometries.push(geom);
+    pub fn add_geometry(&mut self, geom: &'a Geometry<f64>) {
+        let bbox = geom.bounding_rect();
+        self.geometries.push((geom, bbox));
     }
 
     fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
@@ -50,13 +51,9 @@ impl TiledPolygonizer {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
-        for geom in &self.geometries {
-            if geom
-                .bounding_rect()
-                .map(|b| b.intersects(&buffered_bbox))
-                .unwrap_or(false)
-            {
-                local_poly.add_geometry(geom.clone());
+        for (geom, bbox) in &self.geometries {
+            if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
+                local_poly.add_borrowed_geometry(geom);
                 relevant_lines += 1;
             }
         }

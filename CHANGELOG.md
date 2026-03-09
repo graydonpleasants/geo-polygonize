@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.3...geo-polygonize-v0.7.0) (2026-03-09)
+
+
+### Features
+
+* **core:** implement deterministic output and canonical sorting ([58e16d5](https://github.com/graydonpleasants/geo-polygonize/commit/58e16d552001963b9ed539dadf4cdbce82d90964))
+* **core:** implement deterministic output and canonical sorting ([356de05](https://github.com/graydonpleasants/geo-polygonize/commit/356de0580601edebbab9e81a541267d47eba754b))
+
+## [0.6.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.2...geo-polygonize-v0.6.3) (2026-03-08)
+
+
+### Performance Improvements
+
+* **core:** optimize area and centroid loop bounds-checking ([6e23dcc](https://github.com/graydonpleasants/geo-polygonize/commit/6e23dccda8c09cd455dd827d46c44f559991065d))
+
+## [0.6.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.1...geo-polygonize-v0.6.2) (2026-03-07)
+
+
+### Bug Fixes
+
+* **wasm:** add repository url for npm provenance ([46736de](https://github.com/graydonpleasants/geo-polygonize/commit/46736deb7a73fe9f708aecfa8f4de944b9de6d33))
+
+## [0.6.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.0...geo-polygonize-v0.6.1) (2026-03-07)
+
+
+### Bug Fixes
+
+* **core:** resolve clippy collapsible_if and thread_local lints ([635af15](https://github.com/graydonpleasants/geo-polygonize/commit/635af15f499472824999e2ff36d9ee1a4ae98fb1))
+* **github:** upgrade npm before trusted npm publish ([bfab447](https://github.com/graydonpleasants/geo-polygonize/commit/bfab447544b64e06e99d09dcc432d7600b67ba54))
+
+
+### Performance Improvements
+
+* **core:** eliminate unnecessary clone of hole coordinates in assignment ([08a51ba](https://github.com/graydonpleasants/geo-polygonize/commit/08a51ba41543981fd870f12ccc4cb5109c0bda5a))
+* **core:** optimize extract_segments by using iterative SmallVec stack and pre-allocating segment vectors ([6a8447b](https://github.com/graydonpleasants/geo-polygonize/commit/6a8447b12d4907d751f6b0162b039ec96e6e144d))
+* **core:** optimize rings_share_edge evaluation and simd_shells filtering ([db8d3c1](https://github.com/graydonpleasants/geo-polygonize/commit/db8d3c1e75405fbe8e672a70f57e503e66789379))
+
+
+### Build System
+
+* **core:** fix formatting in extract_bench.rs ([85bf807](https://github.com/graydonpleasants/geo-polygonize/commit/85bf80760d7d0b7679d3a270bdc0087cf7800917))
+
+## [0.6.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.5.0...geo-polygonize-v0.6.0) (2026-03-07)
+
+
+### Features
+
+* **python:** return SimplePolygon directly from PyO3 bindings ([#236](https://github.com/graydonpleasants/geo-polygonize/issues/236)) ([9977e68](https://github.com/graydonpleasants/geo-polygonize/commit/9977e6841c0157f1c5576235629b94b2cbe55c13))
+
+
+### Performance Improvements
+
+* **core:** Avoid cloning geometries inside TiledPolygonizer ([fdf513d](https://github.com/graydonpleasants/geo-polygonize/commit/fdf513d180e8c8a246963a78fc6cad09e6ca621e))
+* **core:** Avoid cloning geometries inside TiledPolygonizer ([5f33624](https://github.com/graydonpleasants/geo-polygonize/commit/5f336249fb6048ed1ee12e9755e1322af05a7a7f))
+* **core:** eager initialization of SimdRing objects over OnceLock ([628bfdd](https://github.com/graydonpleasants/geo-polygonize/commit/628bfdd7400c3bcf9be57c6f49eacc28b8ed0cad))
+
+## [0.5.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.2...geo-polygonize-v0.5.0) (2026-03-07)
+
+
+### Features
+
+* **core:** optimize noding float sorting & dedup logic ([#232](https://github.com/graydonpleasants/geo-polygonize/issues/232)) ([a458c15](https://github.com/graydonpleasants/geo-polygonize/commit/a458c154e3d28f2a684b0f296cd72f218b56c2b1))
+* **github:** add automerge workflow for graydonpleasants ([1f79ec0](https://github.com/graydonpleasants/geo-polygonize/commit/1f79ec0e67b45f25f7288ec057864d501a6ad89b))
+* **github:** Add manual `workflow_dispatch` release with version input to release-please workflow ([#231](https://github.com/graydonpleasants/geo-polygonize/issues/231)) ([a8177ce](https://github.com/graydonpleasants/geo-polygonize/commit/a8177ce4b5a6e0b4b343221e61839287099fe25a))
+
+## [0.4.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.1...geo-polygonize-v0.4.2) (2026-03-06)
+
+
+### Performance Improvements
+
+* **core:** avoid cloning geometries in tiling logic ([57eef63](https://github.com/graydonpleasants/geo-polygonize/commit/57eef63a550c19e403ac8ec65bbc29c19350248d))
+
+## [0.4.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.4.0...geo-polygonize-v0.4.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* **core:** remove debug print in polygonizer.rs ([6c77240](https://github.com/graydonpleasants/geo-polygonize/commit/6c772401865aa1d230e1c7fb1d1c14dfb07bc508))
+* **github:** support release-please component tags in publish workflows ([#207](https://github.com/graydonpleasants/geo-polygonize/issues/207)) ([b59cccd](https://github.com/graydonpleasants/geo-polygonize/commit/b59cccd116c8225257d2bacdc1f78c6dee8fe93a))
+
+
+### Performance Improvements
+
+* **core:** Eliminate intermediate polygon allocations ([#204](https://github.com/graydonpleasants/geo-polygonize/issues/204)) ([5329162](https://github.com/graydonpleasants/geo-polygonize/commit/5329162172980c3f6bc154c3ef7a9986b7fe2838))
+
+## [0.4.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.1...geo-polygonize-v0.4.0) (2026-03-06)
+
+
+### Features
+
+* **core:** trigger release for bounding_rect optimization ([854e4ce](https://github.com/graydonpleasants/geo-polygonize/commit/854e4ce1162d8f414e531624629d700df4b42318))
+* **deps:** configure commitlint to strictly enforce conventional commits ([#203](https://github.com/graydonpleasants/geo-polygonize/issues/203)) ([23c6d13](https://github.com/graydonpleasants/geo-polygonize/commit/23c6d13020e4f45861657547e729dd06f93fd672))
+
+
+### Bug Fixes
+
+* **ci:** bump internal workspace dependencies during release-please sync ([#205](https://github.com/graydonpleasants/geo-polygonize/issues/205)) ([a26648c](https://github.com/graydonpleasants/geo-polygonize/commit/a26648c23d7f03137fa7c65dac3c265f58fb401d))
+
 ## [0.3.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.3.0...geo-polygonize-v0.3.1) (2026-03-06)
 
 

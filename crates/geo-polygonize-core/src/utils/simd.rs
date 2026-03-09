@@ -28,6 +28,29 @@ impl SimdRing {
         Self { x, y, len }
     }
 
+    pub fn new_3d(coords: &[crate::types::Coord3D]) -> Self {
+        let len = coords.len();
+        if len == 0 {
+            return Self {
+                x: Vec::new(),
+                y: Vec::new(),
+                len: 0,
+            };
+        }
+        let padded_len = (len + 3) & !3; // round up to multiple of 4
+
+        let mut x = Vec::with_capacity(padded_len);
+        let mut y = Vec::with_capacity(padded_len);
+
+        x.extend(coords.iter().map(|c| c.x));
+        y.extend(coords.iter().map(|c| c.y));
+
+        x.resize(padded_len, x.last().copied().unwrap_or(0.0));
+        y.resize(padded_len, y.last().copied().unwrap_or(0.0));
+
+        Self { x, y, len }
+    }
+
     pub fn contains(&self, point: Coord<f64>) -> bool {
         if self.len == 0 {
             return false;

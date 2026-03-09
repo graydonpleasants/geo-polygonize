@@ -65,7 +65,7 @@ jobs:
           if git diff-index --quiet HEAD; then
             echo "No changes to commit"
           else
-            git commit -m "Update benchmarks and llms.txt [skip ci]"
+            git commit -m "chore(github): Update benchmarks and llms.txt [skip ci]"
             git push origin HEAD:${{ github.ref }}
           fi
 

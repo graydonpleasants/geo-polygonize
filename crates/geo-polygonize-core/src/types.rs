@@ -1,6 +1,13 @@
 use geo_types::{Coord, Line, LineString, Polygon};
 use std::ops::{Add, Mul, Sub};
 
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DeterminismOptions {
+    pub canonical_sort: bool,
+    pub canonical_ring_rotation: bool,
+    pub stable_tie_breaks: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coord3D {
     pub x: f64,
@@ -153,21 +160,21 @@ impl Polygon3D {
     }
 
     #[inline]
-    fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
+    pub fn ring_signed_area_2d(coords: &[Coord3D]) -> f64 {
         if coords.len() < 3 {
             return 0.0;
         }
         let mut twice_area = 0.0;
-        let mut j = coords.len() - 1;
-        for i in 0..coords.len() {
-            twice_area += (coords[j].x - coords[i].x) * (coords[j].y + coords[i].y);
-            j = i;
+        let mut prev = coords[coords.len() - 1];
+        for curr in coords {
+            twice_area += (prev.x - curr.x) * (prev.y + curr.y);
+            prev = *curr;
         }
         twice_area / 2.0
     }
 
     #[inline]
-    fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
+    pub fn ring_area_and_centroid_2d(coords: &[Coord3D]) -> (f64, f64, f64) {
         if coords.len() < 3 {
             return (0.0, 0.0, 0.0);
         }
@@ -176,17 +183,19 @@ impl Polygon3D {
         let mut twice_area = 0.0;
         let mut cx = 0.0;
         let mut cy = 0.0;
-        let mut j = coords.len() - 1;
-        for i in 0..coords.len() {
-            let p1_x = coords[j].x - origin_x;
-            let p1_y = coords[j].y - origin_y;
-            let p2_x = coords[i].x - origin_x;
-            let p2_y = coords[i].y - origin_y;
+        let prev = coords[coords.len() - 1];
+        let mut p1_x = prev.x - origin_x;
+        let mut p1_y = prev.y - origin_y;
+
+        for curr in coords {
+            let p2_x = curr.x - origin_x;
+            let p2_y = curr.y - origin_y;
             let f = p1_x * p2_y - p2_x * p1_y;
             twice_area += f;
             cx += (p1_x + p2_x) * f;
             cy += (p1_y + p2_y) * f;
-            j = i;
+            p1_x = p2_x;
+            p1_y = p2_y;
         }
         let area = twice_area / 2.0;
         if area == 0.0 {
@@ -331,7 +340,9 @@ mod tests {
         ];
 
         let poly = Polygon3D::new(ext, vec![hole], vec![], vec![vec![]]);
-        let centroid = poly.centroid_2d().unwrap();
+        let Some(centroid) = poly.centroid_2d() else {
+            panic!("Centroid calculation failed and returned None");
+        };
         // Since it's a symmetric hole in a symmetric square, the centroid should be exactly at the center (5, 5).
         // If winding independence failed, it might add instead of subtract or produce a wildly wrong result.
         assert!((centroid.x() - 5.0).abs() < 1e-6);
@@ -350,7 +361,9 @@ mod tests {
         ];
 
         let poly = Polygon3D::new(ext, vec![], vec![], vec![]);
-        let centroid = poly.centroid_2d().unwrap();
+        let Some(centroid) = poly.centroid_2d() else {
+            panic!("Centroid calculation failed and returned None");
+        };
 
         // Centroid should be exactly at the center of the small square
         let expected_x = offset + 0.0005;
@@ -364,5 +377,17 @@ mod tests {
         );
         assert!((centroid.x() - expected_x).abs() < 1e-8);
         assert!((centroid.y() - expected_y).abs() < 1e-8);
+    }
+
+    #[test]
+    fn test_centroid_empty_exterior() {
+        let poly = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        assert_eq!(poly.centroid_2d(), None);
+    }
+
+    #[test]
+    fn test_centroid_empty_polygon() {
+        let poly = Polygon3D::new(vec![], vec![vec![]], vec![], vec![vec![]]);
+        assert_eq!(poly.centroid_2d(), None);
     }
 }

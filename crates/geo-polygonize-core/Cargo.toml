@@ -1,9 +1,10 @@
 [package]
 name = "geo-polygonize-core"
-version = "0.3.1"
+version = "0.7.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
+readme = "../../README.md"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
@@ -33,6 +34,7 @@ clap = { version = "4.5", features = ["derive"] }
 geojson = "0.24"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+walkdir = "2.5.0"
 
 [features]
 default = ["parallel"]
@@ -49,3 +51,7 @@ path = "../../examples/polygonize.rs"
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+
+[[bench]]
+name = "extract_bench"
+harness = false
