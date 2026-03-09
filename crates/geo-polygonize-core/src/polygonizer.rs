@@ -451,6 +451,20 @@ impl Polygonizer {
             }
         };
 
+        let cmp_coord = |a: &Coord3D, b: &Coord3D| {
+            a.x.total_cmp(&b.x)
+                .then(a.y.total_cmp(&b.y))
+                .then(a.z.total_cmp(&b.z))
+        };
+
+        let cmp_coord_chain = |a: &[Coord3D], b: &[Coord3D]| {
+            a.iter()
+                .zip(b.iter())
+                .map(|(ca, cb)| cmp_coord(ca, cb))
+                .find(|o| *o != std::cmp::Ordering::Equal)
+                .unwrap_or_else(|| a.len().cmp(&b.len()))
+        };
+
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
         let mut invalid_rings = if invalid_rings_candidates.is_empty() {
