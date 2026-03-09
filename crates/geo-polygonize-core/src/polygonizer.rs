@@ -585,8 +585,7 @@ impl Polygonizer {
                             l1.iter()
                                 .zip(l2.iter())
                                 .map(|(c1, c2)| {
-                                    c1.x
-                                        .total_cmp(&c2.x)
+                                    c1.x.total_cmp(&c2.x)
                                         .then(c1.y.total_cmp(&c2.y))
                                         .then(c1.z.total_cmp(&c2.z))
                                 })
