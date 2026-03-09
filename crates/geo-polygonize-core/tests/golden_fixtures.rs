@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+const GOLDEN_BOOTSTRAP_ENV: &str = "GEO_POLYGONIZE_BOOTSTRAP_GOLDENS";
+
+fn bootstrap_enabled() -> bool {
+    std::env::var_os(GOLDEN_BOOTSTRAP_ENV).is_some()
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct GoldenCoord {
     x: f64,
@@ -123,22 +129,17 @@ fn run_golden_test(path: &Path) {
             "Mismatch in fixture {}",
             fixture.name
         );
+    } else if bootstrap_enabled() {
+        // Bootstrap the fixture
+        fixture.expected = Some(actual_result);
+        let output = serde_json::to_string_pretty(&fixture).unwrap();
+        fs::write(path, output).unwrap();
+        println!("Bootstrapped expected output for {}", fixture.name);
     } else {
-        let bootstrap_enabled = std::env::var("GEO_POLYGONIZE_BOOTSTRAP_GOLDEN")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-
-        if bootstrap_enabled {
-            fixture.expected = Some(actual_result);
-            let output = serde_json::to_string_pretty(&fixture).unwrap();
-            fs::write(path, output).unwrap();
-            println!("Bootstrapped expected output for {}", fixture.name);
-        } else {
-            panic!(
-                "Fixture {} is missing expected output. Set GEO_POLYGONIZE_BOOTSTRAP_GOLDEN=1 to bootstrap snapshots.",
-                fixture.name
-            );
-        }
+        panic!(
+            "Fixture {} is missing expected output. Set {}=1 to bootstrap fixtures.",
+            fixture.name, GOLDEN_BOOTSTRAP_ENV
+        );
     }
 }
 
@@ -149,7 +150,7 @@ fn test_all_fixtures() {
         .join("fixtures");
     assert!(
         base_dir.exists(),
-        "Golden fixture directory does not exist: {}",
+        "Golden fixtures directory is missing: {}",
         base_dir.display()
     );
 
@@ -168,10 +169,6 @@ fn test_all_fixtures() {
             count += 1;
         }
     }
-    assert!(
-        count > 0,
-        "No golden fixture files (*.json) found in {}",
-        base_dir.display()
-    );
+    assert!(count > 0, "No golden fixtures were found");
     println!("Ran {} golden fixtures", count);
 }
