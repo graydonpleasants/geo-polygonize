@@ -468,7 +468,7 @@ The roadmap is complete when:
 # Short-Term Milestone Plan
 
 ## Milestone M1: Deterministic Baseline + Binding Safety
-- [ ] canonical sort mode
+- [x] canonical sort mode
 - [ ] checked-in fixtures
 - [ ] golden tests
 - [ ] first diagnostics object
