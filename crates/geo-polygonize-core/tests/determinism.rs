@@ -89,3 +89,49 @@ fn test_determinism_canonical_sort_and_rotation() {
         }
     }
 }
+
+#[test]
+fn test_canonical_ring_rotation_applies_without_sort_for_dangles() {
+    let mut poly = Polygonizer::new();
+    poly.node_input = true;
+    poly.determinism = DeterminismOptions {
+        canonical_sort: false,
+        canonical_ring_rotation: true,
+        stable_tie_breaks: false,
+    };
+
+    // Single open line should be emitted as a dangle and reversed into canonical order.
+    poly.add_lines(vec![Line3D::new(
+        Coord3D::new(1.0, 1.0, 5.0),
+        Coord3D::new(0.0, 0.0, 7.0),
+        0,
+    )]);
+
+    let result = poly.polygonize().unwrap();
+    assert_eq!(result.dangles.len(), 1);
+    assert_eq!(result.dangles[0][0], Coord3D::new(0.0, 0.0, 7.0));
+    assert_eq!(result.dangles[0][1], Coord3D::new(1.0, 1.0, 5.0));
+}
+
+#[test]
+fn test_dangle_stable_tie_breaks_include_full_coordinate_sequence() {
+    let create_result = |lines: Vec<Line3D>| {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.determinism = DeterminismOptions {
+            canonical_sort: true,
+            canonical_ring_rotation: true,
+            stable_tie_breaks: true,
+        };
+        poly.add_lines(lines);
+        poly.polygonize().unwrap()
+    };
+
+    let dangle_a = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 0);
+    let dangle_b = Line3D::new(Coord3D::new(0.0, 0.0, 1.0), Coord3D::new(1.0, 1.0, 1.0), 0);
+
+    let res1 = create_result(vec![dangle_a, dangle_b]);
+    let res2 = create_result(vec![dangle_b, dangle_a]);
+
+    assert_eq!(res1.dangles, res2.dangles);
+}

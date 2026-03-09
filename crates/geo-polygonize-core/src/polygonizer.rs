@@ -517,6 +517,15 @@ impl Polygonizer {
             }
         }
 
+        if self.determinism.canonical_ring_rotation {
+            for d in dangles.iter_mut() {
+                canonicalize_open_line(d);
+            }
+            for ir in invalid_rings.iter_mut() {
+                canonicalize_ring(ir, None);
+            }
+        }
+
         if self.determinism.canonical_sort {
             let use_stable_tie_breaks = self.determinism.stable_tie_breaks;
             result.sort_by(|p1, p2| {
@@ -543,15 +552,6 @@ impl Polygonizer {
                 })
             });
 
-            if self.determinism.canonical_ring_rotation {
-                for d in dangles.iter_mut() {
-                    canonicalize_open_line(d);
-                }
-                for ir in invalid_rings.iter_mut() {
-                    canonicalize_ring(ir, None);
-                }
-            }
-
             if use_stable_tie_breaks {
                 dangles.sort_by(|l1, l2| {
                     let b1 = bounding_rect_3d(l1).unwrap_or(geo::Rect::new(
@@ -567,6 +567,17 @@ impl Polygonizer {
                         .total_cmp(&b2.min().x)
                         .then(b1.min().y.total_cmp(&b2.min().y))
                         .then(l1.len().cmp(&l2.len()))
+                        .then_with(|| {
+                            l1.iter()
+                                .zip(l2.iter())
+                                .map(|(c1, c2)| {
+                                    c1.x.total_cmp(&c2.x)
+                                        .then(c1.y.total_cmp(&c2.y))
+                                        .then(c1.z.total_cmp(&c2.z))
+                                })
+                                .find(|ordering| *ordering != std::cmp::Ordering::Equal)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
                 });
             }
 
