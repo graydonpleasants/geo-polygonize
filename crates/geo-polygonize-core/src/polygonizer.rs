@@ -8,7 +8,30 @@ use crate::utils::z_order_index;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_time() -> Option<Instant> {
+    Some(Instant::now())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_time() -> Option<()> {
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_elapsed(start: Option<Instant>) -> std::time::Duration {
+    start.map(|s| s.elapsed()).unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_elapsed(_start: Option<()>) -> std::time::Duration {
+    std::time::Duration::default()
+}
+
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -166,13 +189,13 @@ impl Polygonizer {
             None
         };
 
-        let t_ingest_start = Instant::now();
+        let t_ingest_start = get_time();
         self.build_graph()?;
         if let Some(ref mut d) = diag {
-            d.phase_times.ingest_and_node = t_ingest_start.elapsed();
+            d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
         }
 
-        let t_graph_build_start = Instant::now();
+        let t_graph_build_start = get_time();
         // 1. Sort edges (Geometry Graph operation)
         self.graph.sort_edges();
 
@@ -186,7 +209,7 @@ impl Polygonizer {
         let mut cut_edges = self.graph.get_cut_edges();
 
         if let Some(ref mut d) = diag {
-            d.phase_times.graph_build = t_graph_build_start.elapsed();
+            d.phase_times.graph_build = get_elapsed(t_graph_build_start);
             d.ring_count = rings_with_ids.len();
             d.cut_edge_count = cut_edges.len();
             // Note: dangles length here does not include cut_edges yet
@@ -200,7 +223,7 @@ impl Polygonizer {
         let mut holes = Vec::new();
         let mut invalid_rings_candidates = Vec::new();
 
-        let t_ring_extraction_start = Instant::now();
+        let t_ring_extraction_start = get_time();
         shells.reserve(rings_with_ids.len() / 2);
         holes.reserve(rings_with_ids.len() / 2);
 
@@ -224,13 +247,13 @@ impl Polygonizer {
         }
 
         if let Some(ref mut d) = diag {
-            d.phase_times.ring_extraction = t_ring_extraction_start.elapsed();
+            d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
             d.shell_count = shells.len();
             d.hole_count = holes.len();
             d.invalid_ring_count = invalid_rings_candidates.len();
         }
 
-        let t_containment_start = Instant::now();
+        let t_containment_start = get_time();
         // 5. Establish Topology
 
         // Precompute 2D shells for spatial index and SIMD
@@ -633,7 +656,7 @@ impl Polygonizer {
         }
 
         if let Some(ref mut d) = diag {
-            d.phase_times.containment = t_containment_start.elapsed();
+            d.phase_times.containment = get_elapsed(t_containment_start);
             // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
         }
         Ok(PolygonizerResult {

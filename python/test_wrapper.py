@@ -325,7 +325,7 @@ if __name__ == "__main__":
 
 def test_rust_typed_errors():
     print("\nTesting Rust typed errors propagation...")
-    from geo_polygonize_core import InvalidGeometryError
+    from geo_polygonize.geo_polygonize_core import InvalidGeometryError
 
     # Send deliberately corrupt offsets to trigger a runtime logic failure or ValueError mapped from the rust side
     coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
