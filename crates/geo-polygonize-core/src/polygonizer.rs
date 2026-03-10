@@ -32,7 +32,6 @@ fn get_elapsed(_start: Option<()>) -> std::time::Duration {
     std::time::Duration::default()
 }
 
-
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
