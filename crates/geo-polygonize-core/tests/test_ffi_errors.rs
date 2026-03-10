@@ -9,6 +9,7 @@ fn test_ffi_null_pointers() {
         node_input: 0,
         snap_grid_size: 1e-10,
         extract_only_polygonal: 0,
+        report_mode: 0,
     };
 
     let status = unsafe {

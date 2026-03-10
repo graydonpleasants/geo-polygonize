@@ -11,6 +11,7 @@ pub struct PolygonizerOptions {
     pub node_input: u8,
     pub snap_grid_size: f64,
     pub extract_only_polygonal: u8,
+    pub report_mode: u8,
 }
 
 pub trait SchemaExporter {
@@ -90,6 +91,7 @@ pub unsafe extern "C" fn polygonize_ffi(
             node_input: opts.node_input != 0,
             snap_grid_size: opts.snap_grid_size,
             extract_only_polygonal: opts.extract_only_polygonal != 0,
+            report_mode: opts.report_mode != 0,
         };
 
         match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
@@ -143,6 +145,7 @@ mod tests {
             node_input: 0,
             snap_grid_size: 1e-10,
             extract_only_polygonal: 0,
+            report_mode: 0,
         };
 
         let status = unsafe {
@@ -177,6 +180,7 @@ mod tests {
             node_input: 0,
             snap_grid_size: 1e-10,
             extract_only_polygonal: 0,
+            report_mode: 0,
         };
 
         let status = unsafe {

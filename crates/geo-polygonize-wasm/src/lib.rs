@@ -24,6 +24,7 @@ pub fn polygonize(
     node_input: Option<bool>,
     snap_grid_size: Option<f64>,
     extract_only_polygonal: Option<bool>,
+    report_mode: Option<bool>,
 ) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
@@ -40,6 +41,10 @@ pub fn polygonize(
     }
     if let Some(eop) = extract_only_polygonal {
         polygonizer.extract_only_polygonal = eop;
+    }
+    if let Some(rm) = report_mode {
+        polygonizer.diagnostics_options.enabled = rm;
+        polygonizer.diagnostics_options.report_mode = rm;
     }
 
     match geojson {
@@ -253,6 +258,7 @@ pub fn polygonize_geoarrow(
         node_input,
         snap_grid_size,
         extract_only_polygonal,
+        report_mode: false,
     };
 
     let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)

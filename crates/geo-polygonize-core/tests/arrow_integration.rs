@@ -39,6 +39,7 @@ fn test_ffi_arrow_integration_square() {
         node_input: 0,
         snap_grid_size: 1e-10,
         extract_only_polygonal: 0,
+        report_mode: 0,
     };
 
     // 5. Call FFI
@@ -118,6 +119,7 @@ fn test_ffi_arrow_integration_empty() {
         node_input: 0,
         snap_grid_size: 1e-10,
         extract_only_polygonal: 0,
+        report_mode: 0,
     };
 
     let status = unsafe {
