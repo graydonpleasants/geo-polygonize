@@ -46,18 +46,18 @@ pub fn polygonize(
         GeoJson::FeatureCollection(fc) => {
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
-                    let geo_geom: geo::Geometry<f64> = geom
-                        .try_into()
-                        .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
+                    let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
+                        to_js_error("ConversionError", format!("Conversion error: {}", e))
+                    })?;
                     polygonizer.add_geometry(geo_geom);
                 }
             }
         }
         GeoJson::Feature(f) => {
             if let Some(geom) = f.geometry {
-                let geo_geom: geo::Geometry<f64> = geom
-                    .try_into()
-                    .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
+                let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
+                    to_js_error("ConversionError", format!("Conversion error: {}", e))
+                })?;
                 polygonizer.add_geometry(geo_geom);
             }
         }
@@ -69,9 +69,7 @@ pub fn polygonize(
         }
     }
 
-    let result = polygonizer
-        .polygonize()
-        .map_err(from_polygonizer_error)?;
+    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -171,10 +169,13 @@ pub fn polygonize_buffers(
         };
 
         if start > end {
-            return Err(to_js_error("InvalidInput", format!(
+            return Err(to_js_error(
+                "InvalidInput",
+                format!(
                 "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
                 start, end, i
-            )));
+            ),
+            ));
         }
         if end * stride as usize > coords.len() {
             return Err(to_js_error("InvalidInput", format!(
@@ -228,15 +229,15 @@ pub fn polygonize_geoarrow(
         }
     }
 
-    let geom_col_idx =
-        geom_col_idx.ok_or_else(|| to_js_error("InvalidInput", "No GeoArrow LineString column found"))?;
+    let geom_col_idx = geom_col_idx
+        .ok_or_else(|| to_js_error("InvalidInput", "No GeoArrow LineString column found"))?;
     let field = schema.field(geom_col_idx).clone();
 
     // Collect batches
     let mut arrays = Vec::new();
     for batch_result in reader {
-        let batch =
-            batch_result.map_err(|e| to_js_error("ArrowError", format!("Failed reading batch: {e}")))?;
+        let batch = batch_result
+            .map_err(|e| to_js_error("ArrowError", format!("Failed reading batch: {e}")))?;
         arrays.push(batch.column(geom_col_idx).clone());
     }
 
@@ -289,9 +290,7 @@ fn polygonize_and_flatten(
     mut polygonizer: Polygonizer,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
-    let result = polygonizer
-        .polygonize()
-        .map_err(from_polygonizer_error)?;
+    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
 
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
