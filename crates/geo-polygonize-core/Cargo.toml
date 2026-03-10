@@ -55,3 +55,9 @@ harness = false
 [[bench]]
 name = "simd_bench"
 harness = false
+
+
+
+[[example]]
+name = "polygonize"
+path = "../../examples/polygonize.rs"
