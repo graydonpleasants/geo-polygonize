@@ -126,7 +126,11 @@ fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> R
         if let Ok(Some(geom)) = arr.get(i) {
             let ls = geom.to_line_string();
             for line in ls.lines() {
-                if !line.start.x.is_finite() || !line.start.y.is_finite() || !line.end.x.is_finite() || !line.end.y.is_finite() {
+                if !line.start.x.is_finite()
+                    || !line.start.y.is_finite()
+                    || !line.end.x.is_finite()
+                    || !line.end.y.is_finite()
+                {
                     return Err("NaN or Inf coordinates detected in LineStringArray".to_string());
                 }
                 let p1 = Coord3D::new(line.start.x, line.start.y, 0.0);
