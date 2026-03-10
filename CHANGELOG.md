@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.3...geo-polygonize-v0.7.0) (2026-03-10)
+
+
+### Features
+
+* **core:** implement deterministic output and canonical sorting ([58e16d5](https://github.com/graydonpleasants/geo-polygonize/commit/58e16d552001963b9ed539dadf4cdbce82d90964))
+* **core:** implement deterministic output and canonical sorting ([356de05](https://github.com/graydonpleasants/geo-polygonize/commit/356de0580601edebbab9e81a541267d47eba754b))
+* **core:** implement diagnostics collection and fix tests ([#266](https://github.com/graydonpleasants/geo-polygonize/issues/266)) ([44ef7f0](https://github.com/graydonpleasants/geo-polygonize/commit/44ef7f04fae06e16cdcb5ea8d92d5ae30bbfcbad))
+* **core:** implement typed Wasm and Python errors ([#273](https://github.com/graydonpleasants/geo-polygonize/issues/273)) ([f0e0b93](https://github.com/graydonpleasants/geo-polygonize/commit/f0e0b9351928a290dfe9c5a7154c834594d35402))
+
+
+### Bug Fixes
+
+* **core:** apply ring rotation independently and fully order dangles ([202aa3a](https://github.com/graydonpleasants/geo-polygonize/commit/202aa3ac93a53989852e2772820bf38027384a17))
+* **core:** enforce strict golden fixture assertions ([f6fba68](https://github.com/graydonpleasants/geo-polygonize/commit/f6fba6827ed3db8c95406e5102b4f0904c272576))
+* **core:** enforce strict golden fixture assertions ([#272](https://github.com/graydonpleasants/geo-polygonize/issues/272)) ([fee9cd1](https://github.com/graydonpleasants/geo-polygonize/commit/fee9cd1c6f749fffbcaa1a8133e8f44fb26644bb))
+* **core:** tighten determinism for dangles and ring rotation ([#270](https://github.com/graydonpleasants/geo-polygonize/issues/270)) ([1fcb3d8](https://github.com/graydonpleasants/geo-polygonize/commit/1fcb3d8476f0ecae1b9918c9141e3982441d2bb8))
+
 ## [0.6.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.6.2...geo-polygonize-v0.6.3) (2026-03-08)
 
 
