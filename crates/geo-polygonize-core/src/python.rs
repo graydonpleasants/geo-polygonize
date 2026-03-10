@@ -37,7 +37,7 @@ impl std::convert::From<PolygonizerError> for PyErr {
 }
 
 #[pyfunction]
-#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2, line_ids=None))]
+#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2, line_ids=None, report_mode=false))]
 #[allow(clippy::too_many_arguments)]
 fn polygonize<'py>(
     py: Python<'py>,
@@ -48,6 +48,7 @@ fn polygonize<'py>(
     extract_only_polygonal: bool,
     stride: u8,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
+    report_mode: bool,
 ) -> PyResult<PyObject> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
@@ -118,6 +119,8 @@ fn polygonize<'py>(
     }
 
     let mut polygonizer = Polygonizer::new();
+    polygonizer.diagnostics_options.enabled = report_mode;
+    polygonizer.diagnostics_options.report_mode = report_mode;
     polygonizer.node_input = node;
     polygonizer.snap_grid_size = snap;
     polygonizer.extract_only_polygonal = extract_only_polygonal;

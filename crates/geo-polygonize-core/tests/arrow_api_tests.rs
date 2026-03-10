@@ -10,6 +10,7 @@ fn test_polygonize_arrow_invalid_type_error_path() {
         node_input: true,
         snap_grid_size: 0.0,
         extract_only_polygonal: false,
+        report_mode: false,
     };
 
     let result = polygonize_arrow(&array, &field, options);

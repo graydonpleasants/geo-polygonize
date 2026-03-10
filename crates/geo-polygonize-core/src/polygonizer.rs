@@ -1,3 +1,4 @@
+use crate::diagnostics::{DiagnosticsOptions, PolygonizerDiagnostics};
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::snap::SnapNoder;
@@ -7,6 +8,7 @@ use crate::utils::z_order_index;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
 use rstar::{RTree, RTreeObject, AABB};
+use std::time::Instant;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -34,6 +36,7 @@ pub struct Polygonizer {
     pub snap_grid_size: f64,
     pub extract_only_polygonal: bool,
     pub determinism: DeterminismOptions,
+    pub diagnostics_options: DiagnosticsOptions,
 
     // Buffer for explicit line segments (3D)
     input_lines: Vec<Line3D>,
@@ -44,6 +47,7 @@ pub struct PolygonizerResult {
     pub polygons: Vec<Polygon3D>,
     pub dangles: Vec<Vec<Coord3D>>,
     pub invalid_rings: Vec<Vec<Coord3D>>,
+    pub diagnostics: Option<PolygonizerDiagnostics>,
 }
 
 impl Default for Polygonizer {
@@ -62,6 +66,7 @@ impl Polygonizer {
             snap_grid_size: 1e-10, // Default tolerance
             extract_only_polygonal: false,
             determinism: DeterminismOptions::default(),
+            diagnostics_options: DiagnosticsOptions::default(),
             input_lines: Vec::new(),
             dirty: false,
         }
@@ -151,8 +156,23 @@ impl Polygonizer {
     ///
     /// Returns a `PolygonizerResult` containing polygons and dangles.
     pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
-        self.build_graph()?;
+        let mut diag = if self.diagnostics_options.enabled {
+            let d = PolygonizerDiagnostics {
+                input_segment_count: self.input_lines.len(),
+                ..Default::default()
+            };
+            Some(d)
+        } else {
+            None
+        };
 
+        let t_ingest_start = Instant::now();
+        self.build_graph()?;
+        if let Some(ref mut d) = diag {
+            d.phase_times.ingest_and_node = t_ingest_start.elapsed();
+        }
+
+        let t_graph_build_start = Instant::now();
         // 1. Sort edges (Geometry Graph operation)
         self.graph.sort_edges();
 
@@ -164,6 +184,15 @@ impl Polygonizer {
 
         // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
+
+        if let Some(ref mut d) = diag {
+            d.phase_times.graph_build = t_graph_build_start.elapsed();
+            d.ring_count = rings_with_ids.len();
+            d.cut_edge_count = cut_edges.len();
+            // Note: dangles length here does not include cut_edges yet
+            d.dangle_count = dangles.len() + cut_edges.len();
+        }
+
         dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
@@ -171,6 +200,7 @@ impl Polygonizer {
         let mut holes = Vec::new();
         let mut invalid_rings_candidates = Vec::new();
 
+        let t_ring_extraction_start = Instant::now();
         shells.reserve(rings_with_ids.len() / 2);
         holes.reserve(rings_with_ids.len() / 2);
 
@@ -193,6 +223,14 @@ impl Polygonizer {
             }
         }
 
+        if let Some(ref mut d) = diag {
+            d.phase_times.ring_extraction = t_ring_extraction_start.elapsed();
+            d.shell_count = shells.len();
+            d.hole_count = holes.len();
+            d.invalid_ring_count = invalid_rings_candidates.len();
+        }
+
+        let t_containment_start = Instant::now();
         // 5. Establish Topology
 
         // Precompute 2D shells for spatial index and SIMD
@@ -594,10 +632,15 @@ impl Polygonizer {
             });
         }
 
+        if let Some(ref mut d) = diag {
+            d.phase_times.containment = t_containment_start.elapsed();
+            // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
+        }
         Ok(PolygonizerResult {
             polygons: result,
             dangles,
             invalid_rings,
+            diagnostics: diag,
         })
     }
 }

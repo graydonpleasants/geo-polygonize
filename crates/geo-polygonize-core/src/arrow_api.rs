@@ -12,6 +12,7 @@ pub struct PolygonizerOptions {
     pub node_input: bool,
     pub snap_grid_size: f64,
     pub extract_only_polygonal: bool,
+    pub report_mode: bool,
 }
 
 pub fn polygonize_arrow(
