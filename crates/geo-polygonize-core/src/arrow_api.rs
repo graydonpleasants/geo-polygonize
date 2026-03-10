@@ -29,7 +29,7 @@ pub fn polygonize_arrow(
 
     // Attempt 1: Standard try_from
     if let Ok(arr) = LineStringArray::try_from((array, field)) {
-        process_linestring_array(&arr, &mut lines);
+        process_linestring_array(&arr, &mut lines)?;
     } else {
         // Fallback 2: Patch metadata
         let mut new_metadata = field.metadata().clone();
@@ -40,7 +40,7 @@ pub fn polygonize_arrow(
         let new_field = field.clone().with_metadata(new_metadata);
 
         if let Ok(arr) = LineStringArray::try_from((array, &new_field)) {
-            process_linestring_array(&arr, &mut lines);
+            process_linestring_array(&arr, &mut lines)?;
         } else {
             // Fallback 3: Construct field from array DataType
             match array.data_type() {
@@ -69,7 +69,7 @@ pub fn polygonize_arrow(
                         );
 
                     if let Ok(arr) = LineStringArray::try_from((array, &new_field_exact)) {
-                        process_linestring_array(&arr, &mut lines);
+                        process_linestring_array(&arr, &mut lines)?;
                     } else {
                         return Err(format!(
                              "Failed to convert input array to LineStringArray and fallback failed. DataType: {:?}, Field: {:?}.",
@@ -121,17 +121,21 @@ pub fn polygonize_arrow(
     Ok(builder.finish())
 }
 
-fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) {
+fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> Result<(), String> {
     for i in 0..arr.len() {
         if let Ok(Some(geom)) = arr.get(i) {
             let ls = geom.to_line_string();
             for line in ls.lines() {
+                if !line.start.x.is_finite() || !line.start.y.is_finite() || !line.end.x.is_finite() || !line.end.y.is_finite() {
+                    return Err("NaN or Inf coordinates detected in LineStringArray".to_string());
+                }
                 let p1 = Coord3D::new(line.start.x, line.start.y, 0.0);
                 let p2 = Coord3D::new(line.end.x, line.end.y, 0.0);
                 lines.push(Line3D::new(p1, p2, 0));
             }
         }
     }
+    Ok(())
 }
 
 // Manual fallback for GenericListArray<Offset>
@@ -200,6 +204,10 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
             let y1 = y_vals.value(j);
             let x2 = x_vals.value(j + 1);
             let y2 = y_vals.value(j + 1);
+
+            if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
+                return Err("NaN or Inf coordinates detected in list array".to_string());
+            }
 
             let p1 = Coord3D::new(x1, y1, 0.0);
             let p2 = Coord3D::new(x2, y2, 0.0);
