@@ -1,15 +1,27 @@
+use crate::error::PolygonizerError;
 use crate::types::{Coord3D, Line3D};
 use crate::Polygonizer;
-use crate::error::PolygonizerError;
 use numpy::{PyArray1, PyReadonlyArray1};
+use pyo3::create_exception;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
-use pyo3::exceptions::{PyValueError, PyRuntimeError};
-use pyo3::create_exception;
 
-create_exception!(geo_polygonize_core, TopologyError, pyo3::exceptions::PyException);
-create_exception!(geo_polygonize_core, InvalidGeometryError, pyo3::exceptions::PyException);
-create_exception!(geo_polygonize_core, NodingError, pyo3::exceptions::PyException);
+create_exception!(
+    geo_polygonize_core,
+    TopologyError,
+    pyo3::exceptions::PyException
+);
+create_exception!(
+    geo_polygonize_core,
+    InvalidGeometryError,
+    pyo3::exceptions::PyException
+);
+create_exception!(
+    geo_polygonize_core,
+    NodingError,
+    pyo3::exceptions::PyException
+);
 
 impl std::convert::From<PolygonizerError> for PyErr {
     fn from(err: PolygonizerError) -> PyErr {
@@ -263,7 +275,10 @@ fn polygonize<'py>(
 #[pymodule]
 fn geo_polygonize_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("TopologyError", py.get_type_bound::<TopologyError>())?;
-    m.add("InvalidGeometryError", py.get_type_bound::<InvalidGeometryError>())?;
+    m.add(
+        "InvalidGeometryError",
+        py.get_type_bound::<InvalidGeometryError>(),
+    )?;
     m.add("NodingError", py.get_type_bound::<NodingError>())?;
     m.add_function(wrap_pyfunction!(polygonize, m)?)?;
     Ok(())
