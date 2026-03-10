@@ -451,20 +451,6 @@ impl Polygonizer {
             }
         };
 
-        let cmp_coord = |a: &Coord3D, b: &Coord3D| {
-            a.x.total_cmp(&b.x)
-                .then(a.y.total_cmp(&b.y))
-                .then(a.z.total_cmp(&b.z))
-        };
-
-        let cmp_coord_chain = |a: &[Coord3D], b: &[Coord3D]| {
-            a.iter()
-                .zip(b.iter())
-                .map(|(ca, cb)| cmp_coord(ca, cb))
-                .find(|o| *o != std::cmp::Ordering::Equal)
-                .unwrap_or_else(|| a.len().cmp(&b.len()))
-        };
-
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
         let mut invalid_rings = if invalid_rings_candidates.is_empty() {
@@ -581,7 +567,17 @@ impl Polygonizer {
                         .total_cmp(&b2.min().x)
                         .then(b1.min().y.total_cmp(&b2.min().y))
                         .then(l1.len().cmp(&l2.len()))
-                        .then_with(|| cmp_coord_chain(l1, l2))
+                        .then_with(|| {
+                            l1.iter()
+                                .zip(l2.iter())
+                                .map(|(c1, c2)| {
+                                    c1.x.total_cmp(&c2.x)
+                                        .then(c1.y.total_cmp(&c2.y))
+                                        .then(c1.z.total_cmp(&c2.z))
+                                })
+                                .find(|ordering| *ordering != std::cmp::Ordering::Equal)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
                 });
             }
 

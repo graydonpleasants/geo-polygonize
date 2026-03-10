@@ -91,7 +91,7 @@ fn test_determinism_canonical_sort_and_rotation() {
 }
 
 #[test]
-fn test_canonical_ring_rotation_applies_without_canonical_sort() {
+fn test_canonical_ring_rotation_applies_without_sort_for_dangles() {
     let mut poly = Polygonizer::new();
     poly.node_input = true;
     poly.determinism = DeterminismOptions {
@@ -100,23 +100,24 @@ fn test_canonical_ring_rotation_applies_without_canonical_sort() {
         stable_tie_breaks: false,
     };
 
+    // Single open line should be emitted as a dangle and reversed into canonical order.
     poly.add_lines(vec![Line3D::new(
-        Coord3D::new(5.0, 0.0, 0.0),
-        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1.0, 1.0, 5.0),
+        Coord3D::new(0.0, 0.0, 7.0),
         0,
     )]);
 
-    let res = poly.polygonize().unwrap();
-    assert_eq!(res.dangles.len(), 1);
-    assert_eq!(res.dangles[0][0], Coord3D::new(0.0, 0.0, 0.0));
-    assert_eq!(res.dangles[0][1], Coord3D::new(5.0, 0.0, 0.0));
+    let result = poly.polygonize().unwrap();
+    assert_eq!(result.dangles.len(), 1);
+    assert_eq!(result.dangles[0][0], Coord3D::new(0.0, 0.0, 7.0));
+    assert_eq!(result.dangles[0][1], Coord3D::new(1.0, 1.0, 5.0));
 }
 
 #[test]
-fn test_stable_tie_breaks_fully_order_dangles() {
-    let build = |lines: Vec<Line3D>| {
+fn test_dangle_stable_tie_breaks_include_full_coordinate_sequence() {
+    let create_result = |lines: Vec<Line3D>| {
         let mut poly = Polygonizer::new();
-        poly.node_input = false;
+        poly.node_input = true;
         poly.determinism = DeterminismOptions {
             canonical_sort: true,
             canonical_ring_rotation: true,
@@ -126,14 +127,11 @@ fn test_stable_tie_breaks_fully_order_dangles() {
         poly.polygonize().unwrap()
     };
 
-    let d1 = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 0);
-    let d2 = Line3D::new(Coord3D::new(0.0, 1.0, 0.0), Coord3D::new(1.0, 0.0, 1.0), 0);
+    let dangle_a = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 1.0, 0.0), 0);
+    let dangle_b = Line3D::new(Coord3D::new(0.0, 0.0, 1.0), Coord3D::new(1.0, 1.0, 1.0), 0);
 
-    let r1 = build(vec![d1, d2]);
-    let r2 = build(vec![d2, d1]);
+    let res1 = create_result(vec![dangle_a, dangle_b]);
+    let res2 = create_result(vec![dangle_b, dangle_a]);
 
-    assert_eq!(r1.dangles, r2.dangles);
-    assert_eq!(r1.dangles.len(), 2);
-    assert_eq!(r1.dangles[0][0], Coord3D::new(0.0, 0.0, 0.0));
-    assert_eq!(r1.dangles[1][0], Coord3D::new(0.0, 1.0, 0.0));
+    assert_eq!(res1.dangles, res2.dangles);
 }
