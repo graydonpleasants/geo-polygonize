@@ -15,7 +15,7 @@ fn test_polygonize_arrow_invalid_type_error_path() {
 
     let result = polygonize_arrow(&array, &field, options);
     assert!(result.is_err());
-    let err = result.unwrap_err();
+    let err = result.unwrap_err().to_string();
     assert!(
         err.contains("Failed to convert input array to LineStringArray and fallback failed")
             && err.contains("DataType: Float64")

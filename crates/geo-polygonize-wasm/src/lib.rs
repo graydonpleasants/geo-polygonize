@@ -74,7 +74,11 @@ pub fn polygonize(
         }
     }
 
-    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        polygonizer.polygonize()
+    }))
+    .unwrap_or_else(|_| Err(geo_polygonize_core::error::PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
+    .map_err(from_polygonizer_error)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -309,7 +313,11 @@ fn polygonize_and_flatten(
     mut polygonizer: Polygonizer,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
-    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        polygonizer.polygonize()
+    }))
+    .unwrap_or_else(|_| Err(geo_polygonize_core::error::PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
+    .map_err(from_polygonizer_error)?;
 
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
