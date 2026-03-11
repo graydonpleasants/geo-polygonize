@@ -1,3 +1,4 @@
+use crate::error::PolygonizeError;
 use crate::types::{Coord3D, Line3D};
 use crate::Polygonizer;
 use arrow::array::{Array, AsArray, GenericListArray};
@@ -19,7 +20,7 @@ pub fn polygonize_arrow(
     array: &dyn Array,
     field: &Field,
     options: PolygonizerOptions,
-) -> Result<geoarrow::array::PolygonArray, String> {
+) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
     let mut polygonizer = Polygonizer::new();
     polygonizer.node_input = options.node_input;
     polygonizer.snap_grid_size = options.snap_grid_size;
@@ -71,22 +72,23 @@ pub fn polygonize_arrow(
                     if let Ok(arr) = LineStringArray::try_from((array, &new_field_exact)) {
                         process_linestring_array(&arr, &mut lines)?;
                     } else {
-                        return Err(format!(
+                        return Err(PolygonizeError::ArrowError(format!(
                              "Failed to convert input array to LineStringArray and fallback failed. DataType: {:?}, Field: {:?}.",
                              array.data_type(),
                              field
-                         ));
+                         )));
                     }
                 }
             }
         }
     }
 
-    polygonizer.add_lines(lines);
-
-    let result = polygonizer
-        .polygonize()
-        .map_err(|e| format!("Polygonization error: {}", e))?;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        polygonizer.add_lines(lines);
+        polygonizer.polygonize()
+    }))
+    .unwrap_or_else(|_| Err(PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
+    .map_err(|e| PolygonizeError::TopologyFailure { reason: format!("Polygonization error: {:?}", e) })?;
 
     let geo_polygons: Vec<geo::Polygon> = result
         .polygons
@@ -101,7 +103,7 @@ pub fn polygonize_arrow(
             let interiors = p
                 .interiors
                 .into_iter()
-                .map(|ring| {
+                .map(|ring: Vec<Coord3D>| {
                     geo::LineString::from(ring.into_iter().map(|c| (c.x, c.y)).collect::<Vec<_>>())
                 })
                 .collect();
@@ -116,12 +118,12 @@ pub fn polygonize_arrow(
     for poly in geo_polygons {
         builder
             .push_polygon(Some(&poly))
-            .map_err(|e| format!("Failed to push polygon: {}", e))?;
+            .map_err(|e| PolygonizeError::ArrowError(format!("Failed to push polygon: {}", e)))?;
     }
     Ok(builder.finish())
 }
 
-fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> Result<(), String> {
+fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> Result<(), PolygonizeError> {
     for i in 0..arr.len() {
         if let Ok(Some(geom)) = arr.get(i) {
             let ls = geom.to_line_string();
@@ -131,7 +133,7 @@ fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> R
                     || !line.end.x.is_finite()
                     || !line.end.y.is_finite()
                 {
-                    return Err("NaN or Inf coordinates detected in LineStringArray".to_string());
+                    return Err(PolygonizeError::InvalidGeometry { reason: "NaN or Inf coordinates detected in LineStringArray".to_string() });
                 }
                 let p1 = Coord3D::new(line.start.x, line.start.y, 0.0);
                 let p2 = Coord3D::new(line.end.x, line.end.y, 0.0);
@@ -146,10 +148,10 @@ fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> R
 fn process_list_array<O: arrow::array::OffsetSizeTrait>(
     list_arr: &GenericListArray<O>,
     lines: &mut Vec<Line3D>,
-) -> Result<(), String> {
+) -> Result<(), PolygonizeError> {
     // Values should be StructArray with x, y
     let values = list_arr.values();
-    let struct_arr = values.as_struct_opt().ok_or("List values must be Struct")?;
+    let struct_arr = values.as_struct_opt().ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "List values must be Struct".to_string() })?;
 
     // Get x and y columns
     // We assume field names "x" and "y" or indices 0 and 1
@@ -163,7 +165,7 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
                 None
             }
         })
-        .ok_or("Struct missing 'x' column")?;
+        .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Struct missing 'x' column".to_string() })?;
 
     let y_arr = struct_arr
         .column_by_name("y")
@@ -174,14 +176,14 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
                 None
             }
         })
-        .ok_or("Struct missing 'y' column")?;
+        .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Struct missing 'y' column".to_string() })?;
 
     let x_vals = x_arr
         .as_primitive_opt::<Float64Type>()
-        .ok_or("'x' column must be Float64")?;
+        .ok_or_else(|| PolygonizeError::InvalidArgumentType { field: "x".to_string(), expected: "Float64".to_string(), actual: format!("{:?}", x_arr.data_type()) })?;
     let y_vals = y_arr
         .as_primitive_opt::<Float64Type>()
-        .ok_or("'y' column must be Float64")?;
+        .ok_or_else(|| PolygonizeError::InvalidArgumentType { field: "y".to_string(), expected: "Float64".to_string(), actual: format!("{:?}", y_arr.data_type()) })?;
 
     for i in 0..list_arr.len() {
         if list_arr.is_null(i) {
@@ -189,17 +191,17 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
         }
         let start = list_arr.value_offsets()[i]
             .to_usize()
-            .ok_or("Invalid start offset: cannot convert to usize")?;
+            .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Invalid start offset: cannot convert to usize".to_string() })?;
         let end = list_arr.value_offsets()[i + 1]
             .to_usize()
-            .ok_or("Invalid end offset: cannot convert to usize")?;
+            .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Invalid end offset: cannot convert to usize".to_string() })?;
 
         if end <= start {
             continue;
         }
 
         if end > x_vals.len() || end > y_vals.len() {
-            return Err("Offset out of bounds for x/y coordinate arrays".to_string());
+            return Err(PolygonizeError::InvalidBufferShape { reason: "Offset out of bounds for x/y coordinate arrays".to_string() });
         }
 
         // Iterate points in the linestring
@@ -210,7 +212,7 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
             let y2 = y_vals.value(j + 1);
 
             if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
-                return Err("NaN or Inf coordinates detected in list array".to_string());
+                return Err(PolygonizeError::InvalidGeometry { reason: "NaN or Inf coordinates detected in list array".to_string() });
             }
 
             let p1 = Coord3D::new(x1, y1, 0.0);

@@ -110,7 +110,18 @@ pub unsafe extern "C" fn polygonize_ffi(
 
                 0
             }
-            Err(_) => 5,
+            Err(e) => {
+                match e {
+                    crate::error::PolygonizeError::InvalidBufferShape { .. } => 5,
+                    crate::error::PolygonizeError::InvalidArgumentType { .. } => 6,
+                    crate::error::PolygonizeError::InvalidGeometry { .. } => 7,
+                    crate::error::PolygonizeError::TopologyFailure { .. } => 8,
+                    crate::error::PolygonizeError::UnsupportedOptionCombination { .. } => 9,
+                    crate::error::PolygonizeError::InternalInvariantViolation { .. } => 10,
+                    crate::error::PolygonizeError::ArrowError(_) => 11,
+                    _ => 12,
+                }
+            }
         }
     })
     .unwrap_or(99)
