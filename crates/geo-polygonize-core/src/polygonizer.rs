@@ -869,15 +869,14 @@ fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
         return false;
     }
 
-    let shell_n = shell.len() - 1;
-    let hole_n = hole.len() - 1;
-
-    for i in 0..shell_n {
-        let a1 = shell[i].to_coord_2d();
-        let a2 = shell[i + 1].to_coord_2d();
-        for j in 0..hole_n {
-            let b1 = hole[j].to_coord_2d();
-            let b2 = hole[j + 1].to_coord_2d();
+    // Bolt optimization: using .windows(2) is faster than loop indexing
+    // because it eliminates O(N*M) array bounds checks in this hot inner loop.
+    for shell_edge in shell.windows(2) {
+        let a1 = shell_edge[0].to_coord_2d();
+        let a2 = shell_edge[1].to_coord_2d();
+        for hole_edge in hole.windows(2) {
+            let b1 = hole_edge[0].to_coord_2d();
+            let b2 = hole_edge[1].to_coord_2d();
             if segments_overlap_with_length(a1, a2, b1, b2, eps) {
                 return true;
             }
