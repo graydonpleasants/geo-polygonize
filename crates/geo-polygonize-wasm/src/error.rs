@@ -1,4 +1,4 @@
-use geo_polygonize_core::error::PolygonizerError;
+use geo_polygonize_core::error::PolygonizeError;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -25,14 +25,21 @@ impl PolygonizerWasmError {
     }
 }
 
-pub fn from_polygonizer_error(e: PolygonizerError) -> JsValue {
+pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
     let name = match &e {
-        PolygonizerError::TopologyError(_) => "TopologyError".to_string(),
-        PolygonizerError::InvalidGeometry(_) => "InvalidGeometry".to_string(),
-        PolygonizerError::NodingError(_) => "NodingError".to_string(),
-        PolygonizerError::ArrowError(_) => "ArrowError".to_string(),
-        PolygonizerError::NullPointer(_) => "NullPointer".to_string(),
-        PolygonizerError::Panic(_) => "Panic".to_string(),
+        PolygonizeError::InvalidArgumentType { .. } => "InvalidArgumentType".to_string(),
+        PolygonizeError::InvalidGeometry { .. } => "InvalidGeometry".to_string(),
+        PolygonizeError::InvalidBufferShape { .. } => "InvalidBufferShape".to_string(),
+        PolygonizeError::UnsupportedOptionCombination { .. } => {
+            "UnsupportedOptionCombination".to_string()
+        }
+        PolygonizeError::TopologyFailure { .. } => "TopologyFailure".to_string(),
+        PolygonizeError::InternalInvariantViolation { .. } => {
+            "InternalInvariantViolation".to_string()
+        }
+        PolygonizeError::ArrowError(_) => "ArrowError".to_string(),
+        PolygonizeError::NullPointer(_) => "NullPointer".to_string(),
+        PolygonizeError::Panic(_) => "Panic".to_string(),
     };
 
     let err = PolygonizerWasmError::new(name, e.to_string());

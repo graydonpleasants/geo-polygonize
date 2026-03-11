@@ -1,13 +1,6 @@
 use geo_types::{Coord, Line, LineString, Polygon};
 use std::ops::{Add, Mul, Sub};
 
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct DeterminismOptions {
-    pub canonical_sort: bool,
-    pub canonical_ring_rotation: bool,
-    pub stable_tie_breaks: bool,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coord3D {
     pub x: f64,

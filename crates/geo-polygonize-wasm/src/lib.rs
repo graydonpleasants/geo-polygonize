@@ -32,20 +32,21 @@ pub fn polygonize(
     let geojson = GeoJson::from_str(geojson_str)
         .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
 
-    let mut polygonizer = Polygonizer::new();
+    let mut options = geo_polygonize_core::options::PolygonizerOptions::default();
     if let Some(ni) = node_input {
-        polygonizer.node_input = ni;
+        options.node_input = ni;
     }
     if let Some(sgs) = snap_grid_size {
-        polygonizer.snap_grid_size = sgs;
+        options.snap_grid_size = sgs;
     }
     if let Some(eop) = extract_only_polygonal {
-        polygonizer.extract_only_polygonal = eop;
+        options.extract_only_polygonal = eop;
     }
     if let Some(rm) = report_mode {
-        polygonizer.diagnostics_options.enabled = rm;
-        polygonizer.diagnostics_options.report_mode = rm;
+        options.diagnostics.enabled = rm;
+        options.diagnostics.report_mode = rm;
     }
+    let mut polygonizer = Polygonizer::with_options(options);
 
     match geojson {
         GeoJson::FeatureCollection(fc) => {
@@ -74,7 +75,14 @@ pub fn polygonize(
         }
     }
 
-    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
+            .unwrap_or_else(|_| {
+                Err(geo_polygonize_core::error::PolygonizeError::Panic(
+                    "Panic occurred in Rust core".to_string(),
+                ))
+            })
+            .map_err(from_polygonizer_error)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -159,9 +167,10 @@ pub fn polygonize_buffers(
         return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
     }
 
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = node_input;
-    polygonizer.snap_grid_size = snap_grid_size;
+    let mut options = geo_polygonize_core::options::PolygonizerOptions::default();
+    options.node_input = node_input;
+    options.snap_grid_size = snap_grid_size;
+    let mut polygonizer = Polygonizer::with_options(options);
 
     let mut lines = Vec::new();
 
@@ -309,7 +318,14 @@ fn polygonize_and_flatten(
     mut polygonizer: Polygonizer,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
-    let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
+            .unwrap_or_else(|_| {
+                Err(geo_polygonize_core::error::PolygonizeError::Panic(
+                    "Panic occurred in Rust core".to_string(),
+                ))
+            })
+            .map_err(from_polygonizer_error)?;
 
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();

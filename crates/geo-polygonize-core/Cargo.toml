@@ -25,6 +25,7 @@ numpy = { version = "0.21", optional = true }
 arrow = { version = "57", features = ["ffi"] }
 geoarrow = "0.7.0"
 geo-traits = "0.3.0"
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 approx = "0.5"

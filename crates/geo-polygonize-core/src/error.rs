@@ -1,15 +1,28 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum PolygonizerError {
-    #[error("Topology error: {0}")]
-    TopologyError(String),
+pub enum PolygonizeError {
+    #[error("Invalid argument type for {field}: expected {expected}, got {actual}")]
+    InvalidArgumentType {
+        field: String,
+        expected: String,
+        actual: String,
+    },
 
-    #[error("Invalid geometry: {0}")]
-    InvalidGeometry(String),
+    #[error("Invalid geometry: {reason}")]
+    InvalidGeometry { reason: String },
 
-    #[error("Noding failed: {0}")]
-    NodingError(String),
+    #[error("Invalid buffer shape: {reason}")]
+    InvalidBufferShape { reason: String },
+
+    #[error("Unsupported option combination: {reason}")]
+    UnsupportedOptionCombination { reason: String },
+
+    #[error("Topology failure: {reason}")]
+    TopologyFailure { reason: String },
+
+    #[error("Internal invariant violation: {reason}")]
+    InternalInvariantViolation { reason: String },
 
     #[error("Arrow array conversion failed: {0}")]
     ArrowError(String),
@@ -21,4 +34,4 @@ pub enum PolygonizerError {
     Panic(String),
 }
 
-pub type Result<T> = std::result::Result<T, PolygonizerError>;
+pub type Result<T> = std::result::Result<T, PolygonizeError>;
