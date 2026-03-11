@@ -87,8 +87,14 @@ pub fn polygonize_arrow(
         polygonizer.add_lines(lines);
         polygonizer.polygonize()
     }))
-    .unwrap_or_else(|_| Err(PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
-    .map_err(|e| PolygonizeError::TopologyFailure { reason: format!("Polygonization error: {:?}", e) })?;
+    .unwrap_or_else(|_| {
+        Err(PolygonizeError::Panic(
+            "Panic occurred in Rust core".to_string(),
+        ))
+    })
+    .map_err(|e| PolygonizeError::TopologyFailure {
+        reason: format!("Polygonization error: {:?}", e),
+    })?;
 
     let geo_polygons: Vec<geo::Polygon> = result
         .polygons
@@ -123,7 +129,10 @@ pub fn polygonize_arrow(
     Ok(builder.finish())
 }
 
-fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> Result<(), PolygonizeError> {
+fn process_linestring_array(
+    arr: &LineStringArray,
+    lines: &mut Vec<Line3D>,
+) -> Result<(), PolygonizeError> {
     for i in 0..arr.len() {
         if let Ok(Some(geom)) = arr.get(i) {
             let ls = geom.to_line_string();
@@ -133,7 +142,9 @@ fn process_linestring_array(arr: &LineStringArray, lines: &mut Vec<Line3D>) -> R
                     || !line.end.x.is_finite()
                     || !line.end.y.is_finite()
                 {
-                    return Err(PolygonizeError::InvalidGeometry { reason: "NaN or Inf coordinates detected in LineStringArray".to_string() });
+                    return Err(PolygonizeError::InvalidGeometry {
+                        reason: "NaN or Inf coordinates detected in LineStringArray".to_string(),
+                    });
                 }
                 let p1 = Coord3D::new(line.start.x, line.start.y, 0.0);
                 let p2 = Coord3D::new(line.end.x, line.end.y, 0.0);
@@ -151,7 +162,11 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
 ) -> Result<(), PolygonizeError> {
     // Values should be StructArray with x, y
     let values = list_arr.values();
-    let struct_arr = values.as_struct_opt().ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "List values must be Struct".to_string() })?;
+    let struct_arr = values
+        .as_struct_opt()
+        .ok_or_else(|| PolygonizeError::InvalidBufferShape {
+            reason: "List values must be Struct".to_string(),
+        })?;
 
     // Get x and y columns
     // We assume field names "x" and "y" or indices 0 and 1
@@ -165,7 +180,9 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
                 None
             }
         })
-        .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Struct missing 'x' column".to_string() })?;
+        .ok_or_else(|| PolygonizeError::InvalidBufferShape {
+            reason: "Struct missing 'x' column".to_string(),
+        })?;
 
     let y_arr = struct_arr
         .column_by_name("y")
@@ -176,32 +193,48 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
                 None
             }
         })
-        .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Struct missing 'y' column".to_string() })?;
+        .ok_or_else(|| PolygonizeError::InvalidBufferShape {
+            reason: "Struct missing 'y' column".to_string(),
+        })?;
 
-    let x_vals = x_arr
-        .as_primitive_opt::<Float64Type>()
-        .ok_or_else(|| PolygonizeError::InvalidArgumentType { field: "x".to_string(), expected: "Float64".to_string(), actual: format!("{:?}", x_arr.data_type()) })?;
-    let y_vals = y_arr
-        .as_primitive_opt::<Float64Type>()
-        .ok_or_else(|| PolygonizeError::InvalidArgumentType { field: "y".to_string(), expected: "Float64".to_string(), actual: format!("{:?}", y_arr.data_type()) })?;
+    let x_vals = x_arr.as_primitive_opt::<Float64Type>().ok_or_else(|| {
+        PolygonizeError::InvalidArgumentType {
+            field: "x".to_string(),
+            expected: "Float64".to_string(),
+            actual: format!("{:?}", x_arr.data_type()),
+        }
+    })?;
+    let y_vals = y_arr.as_primitive_opt::<Float64Type>().ok_or_else(|| {
+        PolygonizeError::InvalidArgumentType {
+            field: "y".to_string(),
+            expected: "Float64".to_string(),
+            actual: format!("{:?}", y_arr.data_type()),
+        }
+    })?;
 
     for i in 0..list_arr.len() {
         if list_arr.is_null(i) {
             continue;
         }
-        let start = list_arr.value_offsets()[i]
-            .to_usize()
-            .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Invalid start offset: cannot convert to usize".to_string() })?;
-        let end = list_arr.value_offsets()[i + 1]
-            .to_usize()
-            .ok_or_else(|| PolygonizeError::InvalidBufferShape { reason: "Invalid end offset: cannot convert to usize".to_string() })?;
+        let start = list_arr.value_offsets()[i].to_usize().ok_or_else(|| {
+            PolygonizeError::InvalidBufferShape {
+                reason: "Invalid start offset: cannot convert to usize".to_string(),
+            }
+        })?;
+        let end = list_arr.value_offsets()[i + 1].to_usize().ok_or_else(|| {
+            PolygonizeError::InvalidBufferShape {
+                reason: "Invalid end offset: cannot convert to usize".to_string(),
+            }
+        })?;
 
         if end <= start {
             continue;
         }
 
         if end > x_vals.len() || end > y_vals.len() {
-            return Err(PolygonizeError::InvalidBufferShape { reason: "Offset out of bounds for x/y coordinate arrays".to_string() });
+            return Err(PolygonizeError::InvalidBufferShape {
+                reason: "Offset out of bounds for x/y coordinate arrays".to_string(),
+            });
         }
 
         // Iterate points in the linestring
@@ -212,7 +245,9 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
             let y2 = y_vals.value(j + 1);
 
             if !x1.is_finite() || !y1.is_finite() || !x2.is_finite() || !y2.is_finite() {
-                return Err(PolygonizeError::InvalidGeometry { reason: "NaN or Inf coordinates detected in list array".to_string() });
+                return Err(PolygonizeError::InvalidGeometry {
+                    reason: "NaN or Inf coordinates detected in list array".to_string(),
+                });
             }
 
             let p1 = Coord3D::new(x1, y1, 0.0);
