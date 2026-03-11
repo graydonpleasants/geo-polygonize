@@ -31,14 +31,22 @@ create_exception!(
 impl std::convert::From<PolygonizeError> for PyErr {
     fn from(err: PolygonizeError) -> PyErr {
         match err {
-            PolygonizeError::InvalidArgumentType { field, expected, actual } => {
-                PolygonizeTypeError::new_err(format!("Invalid argument type for {field}: expected {expected}, got {actual}"))
-            }
+            PolygonizeError::InvalidArgumentType {
+                field,
+                expected,
+                actual,
+            } => PolygonizeTypeError::new_err(format!(
+                "Invalid argument type for {field}: expected {expected}, got {actual}"
+            )),
             PolygonizeError::InvalidGeometry { reason } => PolygonizeGeometryError::new_err(reason),
             PolygonizeError::InvalidBufferShape { reason } => PolygonizeTypeError::new_err(reason),
-            PolygonizeError::UnsupportedOptionCombination { reason } => PolygonizeOptionsError::new_err(reason),
+            PolygonizeError::UnsupportedOptionCombination { reason } => {
+                PolygonizeOptionsError::new_err(reason)
+            }
             PolygonizeError::TopologyFailure { reason } => PolygonizeTopologyError::new_err(reason),
-            PolygonizeError::InternalInvariantViolation { reason } => PyRuntimeError::new_err(reason),
+            PolygonizeError::InternalInvariantViolation { reason } => {
+                PyRuntimeError::new_err(reason)
+            }
             PolygonizeError::ArrowError(msg) => PyValueError::new_err(msg),
             PolygonizeError::NullPointer(msg) => PyValueError::new_err(msg),
             PolygonizeError::Panic(msg) => PyRuntimeError::new_err(msg),
@@ -66,23 +74,34 @@ fn polygonize<'py>(
     if stride != 2 && stride != 3 {
         return Err(PolygonizeError::InvalidBufferShape {
             reason: "stride must be 2 or 3".to_string(),
-        }.into());
+        }
+        .into());
     }
 
     let stride_usize = stride as usize;
 
     if coords_slice.len() % stride_usize != 0 {
         return Err(PolygonizeError::InvalidBufferShape {
-            reason: format!("Coordinates array length {} is not a multiple of stride {}", coords_slice.len(), stride_usize),
-        }.into());
+            reason: format!(
+                "Coordinates array length {} is not a multiple of stride {}",
+                coords_slice.len(),
+                stride_usize
+            ),
+        }
+        .into());
     }
 
     if let Some(ref ids) = line_ids {
         let ids_slice = ids.as_slice()?;
         if !offsets_slice.is_empty() && ids_slice.len() != offsets_slice.len() {
             return Err(PolygonizeError::InvalidBufferShape {
-                reason: format!("line_ids length {} does not match line count {}", ids_slice.len(), offsets_slice.len()),
-            }.into());
+                reason: format!(
+                    "line_ids length {} does not match line count {}",
+                    ids_slice.len(),
+                    offsets_slice.len()
+                ),
+            }
+            .into());
         }
     }
 
@@ -159,7 +178,11 @@ fn polygonize<'py>(
 
         polygonizer.polygonize()
     }))
-    .unwrap_or_else(|_| Err(PolygonizeError::Panic("Panic occurred in Rust core".to_string())))?;
+    .unwrap_or_else(|_| {
+        Err(PolygonizeError::Panic(
+            "Panic occurred in Rust core".to_string(),
+        ))
+    })?;
 
     // Flatten logic
     let mut num_points = 0;
@@ -310,13 +333,22 @@ fn polygonize<'py>(
 
 #[pymodule]
 fn geo_polygonize_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("PolygonizeTypeError", py.get_type_bound::<PolygonizeTypeError>())?;
+    m.add(
+        "PolygonizeTypeError",
+        py.get_type_bound::<PolygonizeTypeError>(),
+    )?;
     m.add(
         "PolygonizeGeometryError",
         py.get_type_bound::<PolygonizeGeometryError>(),
     )?;
-    m.add("PolygonizeOptionsError", py.get_type_bound::<PolygonizeOptionsError>())?;
-    m.add("PolygonizeTopologyError", py.get_type_bound::<PolygonizeTopologyError>())?;
+    m.add(
+        "PolygonizeOptionsError",
+        py.get_type_bound::<PolygonizeOptionsError>(),
+    )?;
+    m.add(
+        "PolygonizeTopologyError",
+        py.get_type_bound::<PolygonizeTopologyError>(),
+    )?;
     m.add_function(wrap_pyfunction!(polygonize, m)?)?;
     Ok(())
 }

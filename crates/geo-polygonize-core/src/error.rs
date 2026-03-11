@@ -10,29 +10,19 @@ pub enum PolygonizeError {
     },
 
     #[error("Invalid geometry: {reason}")]
-    InvalidGeometry {
-        reason: String,
-    },
+    InvalidGeometry { reason: String },
 
     #[error("Invalid buffer shape: {reason}")]
-    InvalidBufferShape {
-        reason: String,
-    },
+    InvalidBufferShape { reason: String },
 
     #[error("Unsupported option combination: {reason}")]
-    UnsupportedOptionCombination {
-        reason: String,
-    },
+    UnsupportedOptionCombination { reason: String },
 
     #[error("Topology failure: {reason}")]
-    TopologyFailure {
-        reason: String,
-    },
+    TopologyFailure { reason: String },
 
     #[error("Internal invariant violation: {reason}")]
-    InternalInvariantViolation {
-        reason: String,
-    },
+    InternalInvariantViolation { reason: String },
 
     #[error("Arrow array conversion failed: {0}")]
     ArrowError(String),
