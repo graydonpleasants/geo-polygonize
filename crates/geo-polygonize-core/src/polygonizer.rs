@@ -83,6 +83,16 @@ impl Default for Polygonizer {
     }
 }
 
+/// A stable, explicit entrypoint across all bindings to polygonize via `PolygonizerOptions`.
+pub fn polygonize_with_options(
+    lines: &[Line3D],
+    options: &PolygonizerOptions,
+) -> Result<PolygonizerResult> {
+    let mut polygonizer = Polygonizer::with_options(options.clone());
+    polygonizer.add_lines(lines.to_vec());
+    polygonizer.polygonize()
+}
+
 impl Polygonizer {
     /// Creates a new `Polygonizer` with default configuration.
     pub fn new() -> Self {
@@ -99,7 +109,6 @@ impl Polygonizer {
             dirty: false,
         }
     }
-
     /// Creates a new `Polygonizer` with specific options.
     pub fn with_options(options: PolygonizerOptions) -> Self {
         Self {

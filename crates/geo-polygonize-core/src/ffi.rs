@@ -14,6 +14,12 @@ pub struct PolygonizerOptions {
     pub report_mode: u8,
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_result_free() {
+    // This is a stub for the legacy CFFI bindings, as we migrated to an Arrow-only C API.
+    // The Python wrapper `cffi_wrapper.py` was erroneously updated to expect this function.
+}
+
 pub trait SchemaExporter {
     fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError>;
 }

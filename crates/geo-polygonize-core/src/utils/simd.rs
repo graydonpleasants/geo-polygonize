@@ -11,19 +11,18 @@ pub struct SimdRing {
 impl SimdRing {
     pub fn new(coords: &[Coord<f64>]) -> Self {
         let len = coords.len();
-        let capacity = (len + 3) & !3; // Round up to multiple of 4
 
-        let mut x = Vec::with_capacity(capacity);
-        let mut y = Vec::with_capacity(capacity);
+        let mut x = Vec::with_capacity(len + 3);
+        let mut y = Vec::with_capacity(len + 3);
 
-        x.extend(coords.iter().map(|c| c.x));
-        y.extend(coords.iter().map(|c| c.y));
+        for c in coords {
+            x.push(c.x);
+            y.push(c.y);
+        }
 
-        if len > 0 {
-            let last_x = x[len - 1];
-            let last_y = y[len - 1];
-            x.resize(capacity, last_x);
-            y.resize(capacity, last_y);
+        while x.len() % 4 != 0 {
+            x.push(x.last().cloned().unwrap_or(0.0));
+            y.push(y.last().cloned().unwrap_or(0.0));
         }
 
         Self { x, y, len }
@@ -31,19 +30,18 @@ impl SimdRing {
 
     pub fn new_3d(coords: &[crate::types::Coord3D]) -> Self {
         let len = coords.len();
-        let capacity = (len + 3) & !3; // Round up to multiple of 4
 
-        let mut x = Vec::with_capacity(capacity);
-        let mut y = Vec::with_capacity(capacity);
+        let mut x = Vec::with_capacity(len + 3);
+        let mut y = Vec::with_capacity(len + 3);
 
-        x.extend(coords.iter().map(|c| c.x));
-        y.extend(coords.iter().map(|c| c.y));
+        for c in coords {
+            x.push(c.x);
+            y.push(c.y);
+        }
 
-        if len > 0 {
-            let last_x = x[len - 1];
-            let last_y = y[len - 1];
-            x.resize(capacity, last_x);
-            y.resize(capacity, last_y);
+        while x.len() % 4 != 0 {
+            x.push(x.last().cloned().unwrap_or(0.0));
+            y.push(y.last().cloned().unwrap_or(0.0));
         }
 
         Self { x, y, len }

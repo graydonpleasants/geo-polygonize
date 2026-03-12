@@ -18,6 +18,85 @@ use crate::error::{from_polygonizer_error, to_js_error};
 #[cfg(feature = "threads")]
 pub use wasm_bindgen_rayon::init_thread_pool;
 
+#[wasm_bindgen(js_name = polygonizeWithOptions)]
+pub fn polygonize_with_options_js(geojson_str: &str, options_val: JsValue) -> Result<String, JsValue> {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let options: geo_polygonize_core::options::PolygonizerOptions = serde_wasm_bindgen::from_value(options_val)
+        .map_err(|e| to_js_error("InvalidOptions", format!("Failed to parse options: {}", e)))?;
+
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
+
+    let mut polygonizer = Polygonizer::with_options(options);
+
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
+                        to_js_error("ConversionError", format!("Conversion error: {}", e))
+                    })?;
+                    polygonizer.add_geometry(geo_geom);
+                }
+            }
+        }
+        GeoJson::Feature(f) => {
+            if let Some(geom) = f.geometry {
+                let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
+                    to_js_error("ConversionError", format!("Conversion error: {}", e))
+                })?;
+                polygonizer.add_geometry(geo_geom);
+            }
+        }
+        GeoJson::Geometry(g) => {
+            let geo_geom: geo::Geometry<f64> = g
+                .try_into()
+                .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
+            polygonizer.add_geometry(geo_geom);
+        }
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        polygonizer.polygonize()
+    }))
+    .unwrap_or_else(|_| Err(geo_polygonize_core::error::PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
+    .map_err(from_polygonizer_error)?;
+
+    let geometries: Vec<Geometry> = result
+        .polygons
+        .into_iter()
+        .map(|p| {
+            let exterior: Vec<Vec<f64>> = p.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+            let mut rings = vec![exterior];
+            for hole in p.interiors {
+                let hole_ring: Vec<Vec<f64>> = hole.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+                rings.push(hole_ring);
+            }
+            Geometry::new(Value::Polygon(rings))
+        })
+        .collect();
+
+    let features = geometries
+        .into_iter()
+        .map(|geom| geojson::Feature {
+            bbox: None,
+            geometry: Some(geom),
+            id: None,
+            properties: None,
+            foreign_members: None,
+        })
+        .collect();
+
+    Ok(GeoJson::FeatureCollection(geojson::FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    })
+    .to_string())
+}
+
 #[wasm_bindgen]
 pub fn polygonize(
     geojson_str: &str,
@@ -150,6 +229,83 @@ impl WasmPolygonResult {
     pub fn stride(&self) -> u8 {
         self.stride
     }
+}
+
+#[wasm_bindgen(js_name = polygonizeWithOptionsBuffer)]
+pub fn polygonize_with_options_buffer_js(
+    coords: &[f64],
+    offsets: &[u32],
+    stride: u8,
+    options_val: JsValue,
+) -> Result<WasmPolygonResult, JsValue> {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let options: geo_polygonize_core::options::PolygonizerOptions = serde_wasm_bindgen::from_value(options_val)
+        .map_err(|e| to_js_error("InvalidOptions", format!("Failed to parse options: {}", e)))?;
+
+    if stride != 2 && stride != 3 {
+        return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
+    }
+
+    let mut polygonizer = Polygonizer::with_options(options);
+
+    let mut lines = Vec::new();
+
+    for i in 0..offsets.len() {
+        let start = offsets[i] as usize;
+        let end = if i + 1 < offsets.len() {
+            offsets[i + 1] as usize
+        } else {
+            coords.len() / stride as usize
+        };
+
+        if start > end {
+            return Err(to_js_error(
+                "InvalidInput",
+                format!(
+                "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
+                start, end, i
+            ),
+            ));
+        }
+        if end * stride as usize > coords.len() {
+            return Err(to_js_error("InvalidInput", format!(
+                "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
+                end * stride as usize, coords.len(), stride
+            )));
+        }
+
+        for j in start..end.saturating_sub(1) {
+            let idx = j * stride as usize;
+            let jdx = (j + 1) * stride as usize;
+            let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
+            let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
+
+            if !coords[idx].is_finite()
+                || !coords[idx + 1].is_finite()
+                || !z1.is_finite()
+                || !coords[jdx].is_finite()
+                || !coords[jdx + 1].is_finite()
+                || !z2.is_finite()
+            {
+                return Err(to_js_error(
+                    "InvalidGeometry",
+                    "NaN or Inf coordinates detected in buffers",
+                ));
+            }
+
+            lines.push(Line3D::new(
+                Coord3D::new(coords[idx], coords[idx + 1], z1),
+                Coord3D::new(coords[jdx], coords[jdx + 1], z2),
+                0,
+            ));
+        }
+    }
+
+    polygonizer.add_lines(lines);
+
+    polygonize_and_flatten(polygonizer, stride)
 }
 
 #[wasm_bindgen]
