@@ -22,8 +22,7 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
     """
-    if options is None:
-        options = {}
+    options_dict = options or {}
 
     if lines is not None:
         flat_coords = []
@@ -81,13 +80,13 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
     if line_ids is not None:
         line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
 
-    options_json = json.dumps(options)
+    options_json = None if options is None else json.dumps(options)
 
     try:
         result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
     except NameError:
         # Fallback for CFFI which does not support options mapping fully yet
-        result = _polygonize_impl(coords, offsets, node=options.get("node_input", False), snap=options.get("snap_grid_size", 1e-10), extract_only_polygonal=options.get("extract_only_polygonal", False), stride=stride, line_ids=line_ids)
+        result = _polygonize_impl(coords, offsets, node=options_dict.get("node_input", False), snap=options_dict.get("snap_grid_size", 1e-10), extract_only_polygonal=options_dict.get("extract_only_polygonal", False), stride=stride, line_ids=line_ids)
 
     if return_polygons:
         try:
