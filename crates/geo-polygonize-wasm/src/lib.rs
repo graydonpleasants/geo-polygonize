@@ -398,12 +398,41 @@ pub fn polygonize_buffers(
     polygonize_and_flatten(polygonizer, stride)
 }
 
+#[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
+pub fn polygonize_geoarrow_with_options_js(
+    ipc_bytes: &[u8],
+    options_val: JsValue,
+) -> Result<Vec<u8>, JsValue> {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let options: geo_polygonize_core::options::PolygonizerOptions =
+        serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
+        })?;
+
+    polygonize_geoarrow_internal(ipc_bytes, options)
+}
+
 #[wasm_bindgen]
 pub fn polygonize_geoarrow(
     ipc_bytes: &[u8],
     node_input: bool,
     snap_grid_size: f64,
     extract_only_polygonal: bool,
+) -> Result<Vec<u8>, JsValue> {
+    let options = PolygonizerOptions {
+        node_input,
+        snap_grid_size,
+        extract_only_polygonal,
+        ..Default::default()
+    };
+    polygonize_geoarrow_internal(ipc_bytes, options)
+}
+
+fn polygonize_geoarrow_internal(
+    ipc_bytes: &[u8],
+    options: PolygonizerOptions,
 ) -> Result<Vec<u8>, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
@@ -443,13 +472,6 @@ pub fn polygonize_geoarrow(
     let arrays_ref: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
     let combined_array = concat(&arrays_ref)
         .map_err(|e| to_js_error("ArrowError", format!("Failed to concat arrays: {e}")))?;
-
-    let options = PolygonizerOptions {
-        node_input,
-        snap_grid_size,
-        extract_only_polygonal,
-        report_mode: false,
-    };
 
     let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)
         .map_err(|e| to_js_error("PolygonizationError", format!("Polygonization error: {e}")))?;

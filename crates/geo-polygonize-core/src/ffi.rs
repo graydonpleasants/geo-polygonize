@@ -1,4 +1,4 @@
-use crate::arrow_api::{polygonize_arrow, PolygonizerOptions as ArrowOptions};
+use crate::arrow_api::polygonize_arrow;
 use arrow::datatypes::DataType;
 use arrow::datatypes::Field;
 use arrow::error::ArrowError;
@@ -69,12 +69,75 @@ pub unsafe extern "C" fn polygonize_ffi(
     output_schema: *mut FFI_ArrowSchema,
     options: *const PolygonizerOptions,
 ) -> i32 {
+    if options.is_null() {
+        return 1;
+    }
+    let opts = &*options;
+    let mut arrow_opts = crate::options::PolygonizerOptions {
+        node_input: opts.node_input != 0,
+        snap_grid_size: opts.snap_grid_size,
+        extract_only_polygonal: opts.extract_only_polygonal != 0,
+        ..Default::default()
+    };
+    arrow_opts.diagnostics.enabled = opts.report_mode != 0;
+    arrow_opts.diagnostics.report_mode = opts.report_mode != 0;
+
+    polygonize_ffi_internal(
+        input_array,
+        input_schema,
+        output_array,
+        output_schema,
+        arrow_opts,
+    )
+}
+
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+#[no_mangle]
+pub unsafe extern "C" fn polygonize_with_options_ffi(
+    input_array: *mut FFI_ArrowArray,
+    input_schema: *mut FFI_ArrowSchema,
+    output_array: *mut FFI_ArrowArray,
+    output_schema: *mut FFI_ArrowSchema,
+    options_json: *const std::os::raw::c_char,
+) -> i32 {
+    if options_json.is_null() {
+        return 1;
+    }
+
+    let c_str = std::ffi::CStr::from_ptr(options_json);
+    let options_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return 1,
+    };
+
+    let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str) {
+        Ok(o) => o,
+        Err(_) => return 1,
+    };
+
+    polygonize_ffi_internal(
+        input_array,
+        input_schema,
+        output_array,
+        output_schema,
+        arrow_opts,
+    )
+}
+
+unsafe fn polygonize_ffi_internal(
+    input_array: *mut FFI_ArrowArray,
+    input_schema: *mut FFI_ArrowSchema,
+    output_array: *mut FFI_ArrowArray,
+    output_schema: *mut FFI_ArrowSchema,
+    arrow_opts: crate::options::PolygonizerOptions,
+) -> i32 {
     std::panic::catch_unwind(|| {
         if input_array.is_null()
             || input_schema.is_null()
             || output_array.is_null()
             || output_schema.is_null()
-            || options.is_null()
         {
             return 1;
         }
@@ -90,14 +153,6 @@ pub unsafe extern "C" fn polygonize_ffi(
             Err(_) => return 2,
         };
         let array = arrow::array::make_array(arrow_data);
-
-        let opts = &*options;
-        let arrow_opts = ArrowOptions {
-            node_input: opts.node_input != 0,
-            snap_grid_size: opts.snap_grid_size,
-            extract_only_polygonal: opts.extract_only_polygonal != 0,
-            report_mode: opts.report_mode != 0,
-        };
 
         match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
             Ok(polygon_array) => {

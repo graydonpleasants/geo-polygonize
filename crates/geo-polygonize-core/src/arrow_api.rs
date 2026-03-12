@@ -9,27 +9,14 @@ use geoarrow::datatypes::{Dimension, PolygonType};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
-pub struct PolygonizerOptions {
-    pub node_input: bool,
-    pub snap_grid_size: f64,
-    pub extract_only_polygonal: bool,
-    pub report_mode: bool,
-}
+pub use crate::options::PolygonizerOptions;
 
 pub fn polygonize_arrow(
     array: &dyn Array,
     field: &Field,
     options: PolygonizerOptions,
 ) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
-    let mut poly_opts = crate::options::PolygonizerOptions {
-        node_input: options.node_input,
-        snap_grid_size: options.snap_grid_size,
-        extract_only_polygonal: options.extract_only_polygonal,
-        ..Default::default()
-    };
-    poly_opts.diagnostics.enabled = options.report_mode;
-    poly_opts.diagnostics.report_mode = options.report_mode;
-    let mut polygonizer = Polygonizer::with_options(poly_opts);
+    let mut polygonizer = Polygonizer::with_options(options);
 
     let mut lines = Vec::new();
 

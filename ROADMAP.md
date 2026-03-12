@@ -476,9 +476,9 @@ The roadmap is complete when:
 - [ ] initial report mode scaffold
 
 ## Milestone M2: Stable Options API + Provenance Surface
-- [ ] canonical `PolygonizerOptions`
-- [ ] `polygonize_with_options(options)` in Rust/Python/Wasm
-- [ ] legacy API wrappers
+- [x] canonical `PolygonizerOptions`
+- [x] `polygonize_with_options(options)` in Rust/Python/Wasm
+- [x] legacy API wrappers
 - [ ] optional `line_ids`
 - [ ] `input_profile_id` passthrough
 - [ ] initial per-polygon provenance payload

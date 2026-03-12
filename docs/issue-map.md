@@ -106,6 +106,7 @@ Suggested labels:
 - **Blocks**: P1-001, P1-003
 - **Parallel with**: P2-002
 - **Suggested owner**: API design
+- **Status**: Complete
 - **Acceptance**:
   - schema exists and serializes cleanly
   - defaults reproduce current behavior
@@ -117,6 +118,7 @@ Suggested labels:
 - **Blocks**: P2-001, P1-004
 - **Parallel with**: P2-003
 - **Suggested owner**: API + bindings
+- **Status**: Complete
 - **Acceptance**:
   - all bindings expose canonical options path
   - legacy wrappers still work
@@ -128,6 +130,7 @@ Suggested labels:
 - **Blocks**: P2-001
 - **Parallel with**: P2-002
 - **Suggested owner**: API / testing
+- **Status**: Complete
 - **Acceptance**:
   - wrapper APIs produce same result as canonical options
 
