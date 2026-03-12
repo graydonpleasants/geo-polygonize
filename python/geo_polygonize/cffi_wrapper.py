@@ -169,21 +169,23 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
                 point_start = ring_offsets[r]
                 point_end = ring_offsets[r+1] if r + 1 < len(ring_offsets) else (len(flat) // out_stride)
 
-                ring = flat[point_start*out_stride : point_end*out_stride].reshape(-1, out_stride)
-                coords_tuples = tuple(map(tuple, ring.tolist()))
+                # Use .copy() to ensure SimplePolygon owns its data,
+                # as flat is a view into C-allocated memory that will be freed.
+                ring = flat[point_start*out_stride : point_end*out_stride].reshape(-1, out_stride).copy()
+                coords_data = ring
 
                 # Extract IDs
-                r_ids = flat_line_ids[point_start:point_end]
-                ids_tuple = tuple(r_ids.tolist())
+                r_ids = flat_line_ids[point_start:point_end].copy()
+                ids_data = r_ids
 
                 if shell is None:
-                    shell = coords_tuples
-                    shell_ids = ids_tuple
+                    shell = coords_data
+                    shell_ids = ids_data
                 else:
-                    holes.append(coords_tuples)
-                    holes_ids.append(ids_tuple)
+                    holes.append(coords_data)
+                    holes_ids.append(ids_data)
 
-            polygons.append(SimplePolygon(shell or tuple(), holes, shell_ids, holes_ids))
+            polygons.append(SimplePolygon(shell if shell is not None else np.empty((0, out_stride)), holes, shell_ids, holes_ids))
 
         # Dangles
         dangle_count = lib.polygonize_result_get_dangle_count(res_ptr)
@@ -198,6 +200,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
             coords = buffer.reshape(-1, 3)
             if stride == 2:
                 coords = coords[:, :2]
+            # Keep dangles as tuples for backward compatibility (breaking change avoided)
             dangles.append(tuple(map(tuple, coords.tolist())))
 
         # Invalid Rings
@@ -213,6 +216,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
             coords = buffer.reshape(-1, 3)
             if stride == 2:
                 coords = coords[:, :2]
+            # Keep invalid_rings as tuples for backward compatibility
             invalid_rings.append(tuple(map(tuple, coords.tolist())))
 
         return {
