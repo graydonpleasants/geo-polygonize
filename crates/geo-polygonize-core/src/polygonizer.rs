@@ -1,8 +1,10 @@
-use crate::diagnostics::{DiagnosticsOptions, PolygonizerDiagnostics};
+use crate::diagnostics::PolygonizerDiagnostics;
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::snap::SnapNoder;
-use crate::types::{Coord3D, DeterminismOptions, Line3D, Polygon3D};
+use crate::options::DiagnosticsOptions;
+use crate::options::{DeterminismOptions, PolygonizerOptions};
+use crate::types::{Coord3D, Line3D, Polygon3D};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use geo::Contains;
@@ -54,6 +56,9 @@ pub struct Polygonizer {
     graph: PlanarGraph,
     // Configuration
     pub check_valid_rings: bool,
+    pub options: PolygonizerOptions,
+
+    // Legacy fields maintained for backward compatibility wrappers during transition
     pub node_input: bool,
     pub snap_grid_size: f64,
     pub extract_only_polygonal: bool,
@@ -78,17 +83,43 @@ impl Default for Polygonizer {
     }
 }
 
+/// A stable, explicit entrypoint across all bindings to polygonize via `PolygonizerOptions`.
+pub fn polygonize_with_options(
+    lines: &[Line3D],
+    options: &PolygonizerOptions,
+) -> Result<PolygonizerResult> {
+    let mut polygonizer = Polygonizer::with_options(options.clone());
+    polygonizer.add_lines(lines.to_vec());
+    polygonizer.polygonize()
+}
+
 impl Polygonizer {
     /// Creates a new `Polygonizer` with default configuration.
     pub fn new() -> Self {
         Self {
             graph: PlanarGraph::new(),
             check_valid_rings: true,
+            options: PolygonizerOptions::default(),
             node_input: false,
             snap_grid_size: 1e-10, // Default tolerance
             extract_only_polygonal: false,
             determinism: DeterminismOptions::default(),
             diagnostics_options: DiagnosticsOptions::default(),
+            input_lines: Vec::new(),
+            dirty: false,
+        }
+    }
+    /// Creates a new `Polygonizer` with specific options.
+    pub fn with_options(options: PolygonizerOptions) -> Self {
+        Self {
+            graph: PlanarGraph::new(),
+            check_valid_rings: true,
+            node_input: options.node_input,
+            snap_grid_size: options.snap_grid_size,
+            extract_only_polygonal: options.extract_only_polygonal,
+            determinism: options.determinism.clone(),
+            diagnostics_options: options.diagnostics.clone(),
+            options,
             input_lines: Vec::new(),
             dirty: false,
         }
@@ -127,11 +158,18 @@ impl Polygonizer {
             return Ok(());
         }
 
+        // Sync legacy wrapper fields back into options before executing
+        self.options.node_input = self.node_input;
+        self.options.snap_grid_size = self.snap_grid_size;
+        self.options.extract_only_polygonal = self.extract_only_polygonal;
+        self.options.determinism = self.determinism.clone();
+        self.options.diagnostics = self.diagnostics_options.clone();
+
         let mut all_segments: Vec<Line3D> = self.input_lines.clone();
 
         let segments;
 
-        if self.node_input {
+        if self.options.node_input {
             // Sort by 2D coordinates
             all_segments.sort_by(|a, b| {
                 a.start
@@ -160,7 +198,7 @@ impl Polygonizer {
 
             all_segments = numbered_lines.into_iter().map(|k| k.1).collect();
 
-            let noder = SnapNoder::new(self.snap_grid_size);
+            let noder = SnapNoder::new(self.options.snap_grid_size);
             segments = noder.node(all_segments);
         } else {
             segments = all_segments;
@@ -178,7 +216,14 @@ impl Polygonizer {
     ///
     /// Returns a `PolygonizerResult` containing polygons and dangles.
     pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
-        let mut diag = if self.diagnostics_options.enabled {
+        // Sync legacy wrapper fields back into options before executing (if not called by build_graph)
+        self.options.node_input = self.node_input;
+        self.options.snap_grid_size = self.snap_grid_size;
+        self.options.extract_only_polygonal = self.extract_only_polygonal;
+        self.options.determinism = self.determinism.clone();
+        self.options.diagnostics = self.diagnostics_options.clone();
+
+        let mut diag = if self.options.diagnostics.enabled {
             let d = PolygonizerDiagnostics {
                 input_segment_count: self.input_lines.len(),
                 ..Default::default()
@@ -285,7 +330,7 @@ impl Polygonizer {
         let mut tree = RTree::bulk_load(indexed_shells);
 
         // Filter shells
-        if self.extract_only_polygonal {
+        if self.options.extract_only_polygonal {
             let mut keep_mask = vec![true; shells.len()];
             let mut removed_count = 0;
 
@@ -529,17 +574,17 @@ impl Polygonizer {
             let mut exterior = shell.exterior;
             let mut exterior_ids = shell.exterior_ids;
 
-            if self.determinism.canonical_ring_rotation {
+            if self.options.determinism.canonical_ring_rotation {
                 canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
                 for (h, h_ids) in holes.iter_mut().zip(holes_ids.iter_mut()) {
                     canonicalize_ring(h, Some(h_ids));
                 }
             }
 
-            if self.determinism.canonical_sort {
+            if self.options.determinism.canonical_sort {
                 let mut combined_holes: Vec<_> =
                     holes.into_iter().zip(holes_ids.into_iter()).collect();
-                let use_stable_tie_breaks = self.determinism.stable_tie_breaks;
+                let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
                 combined_holes.sort_by(|(h1, _), (h2, _)| {
                     let area1 = Polygon3D::ring_signed_area_2d(h1).abs();
                     let area2 = Polygon3D::ring_signed_area_2d(h2).abs();
@@ -577,8 +622,8 @@ impl Polygonizer {
             }
         }
 
-        if self.determinism.canonical_sort {
-            let use_stable_tie_breaks = self.determinism.stable_tie_breaks;
+        if self.options.determinism.canonical_sort {
+            let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
             result.sort_by(|p1, p2| {
                 let area1 = p1.unsigned_area_2d();
                 let area2 = p2.unsigned_area_2d();
@@ -603,7 +648,7 @@ impl Polygonizer {
                 })
             });
 
-            if self.determinism.canonical_ring_rotation {
+            if self.options.determinism.canonical_ring_rotation {
                 for d in dangles.iter_mut() {
                     canonicalize_open_line(d);
                 }

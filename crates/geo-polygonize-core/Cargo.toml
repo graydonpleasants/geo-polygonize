@@ -25,6 +25,8 @@ numpy = { version = "0.21", optional = true }
 arrow = { version = "57", features = ["ffi"] }
 geoarrow = "0.7.0"
 geo-traits = "0.3.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
@@ -45,19 +47,13 @@ python = ["dep:pyo3", "dep:numpy"]
 name = "polygonize_bench"
 harness = false
 
+[[example]]
+name = "polygonize"
+path = "../../examples/polygonize.rs"
+
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
 [[bench]]
 name = "extract_bench"
 harness = false
-
-[[bench]]
-name = "simd_bench"
-harness = false
-
-
-
-[[example]]
-name = "polygonize"
-path = "../../examples/polygonize.rs"

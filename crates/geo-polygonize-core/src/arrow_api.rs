@@ -21,10 +21,15 @@ pub fn polygonize_arrow(
     field: &Field,
     options: PolygonizerOptions,
 ) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = options.node_input;
-    polygonizer.snap_grid_size = options.snap_grid_size;
-    polygonizer.extract_only_polygonal = options.extract_only_polygonal;
+    let mut poly_opts = crate::options::PolygonizerOptions {
+        node_input: options.node_input,
+        snap_grid_size: options.snap_grid_size,
+        extract_only_polygonal: options.extract_only_polygonal,
+        ..Default::default()
+    };
+    poly_opts.diagnostics.enabled = options.report_mode;
+    poly_opts.diagnostics.report_mode = options.report_mode;
+    let mut polygonizer = Polygonizer::with_options(poly_opts);
 
     let mut lines = Vec::new();
 

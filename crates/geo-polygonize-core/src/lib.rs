@@ -14,6 +14,7 @@ pub mod error;
 pub mod ffi;
 pub mod graph;
 pub mod noding;
+pub mod options;
 pub mod polygonizer;
 pub mod tiling;
 pub mod types;

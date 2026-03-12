@@ -10,7 +10,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { version = "0.9.0", path = "../geo-polygonize-core", default-features = false }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.9.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -23,6 +23,7 @@ geo-traits = "0.3.0"
 geoarrow = "0.7.0"
 arrow-ipc = "57"
 arrow = "57"
+serde-wasm-bindgen = "0.6.5"
 
 [features]
 default = ["console_error_panic_hook"]

@@ -1,4 +1,5 @@
-use geo_polygonize_core::types::{Coord3D, DeterminismOptions, Line3D};
+use geo_polygonize_core::options::DeterminismOptions;
+use geo_polygonize_core::types::{Coord3D, Line3D};
 use geo_polygonize_core::Polygonizer;
 use serde::{Deserialize, Serialize};
 use std::fs;

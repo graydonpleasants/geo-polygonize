@@ -55,6 +55,27 @@ impl std::convert::From<PolygonizeError> for PyErr {
 }
 
 #[pyfunction]
+#[pyo3(signature = (coords, offsets, stride=2, options_json=None, line_ids=None))]
+#[allow(clippy::too_many_arguments)]
+fn polygonize_with_options<'py>(
+    py: Python<'py>,
+    coords: PyReadonlyArray1<'py, f64>,
+    offsets: PyReadonlyArray1<'py, u32>,
+    stride: u8,
+    options_json: Option<&str>,
+    line_ids: Option<PyReadonlyArray1<'py, u32>>,
+) -> PyResult<PyObject> {
+    let options: crate::options::PolygonizerOptions = if let Some(json) = options_json {
+        serde_json::from_str(json)
+            .map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
+    } else {
+        crate::options::PolygonizerOptions::default()
+    };
+
+    polygonize_internal(py, coords, offsets, stride, options, line_ids)
+}
+
+#[pyfunction]
 #[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2, line_ids=None, report_mode=false))]
 #[allow(clippy::too_many_arguments)]
 fn polygonize<'py>(
@@ -67,6 +88,24 @@ fn polygonize<'py>(
     stride: u8,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     report_mode: bool,
+) -> PyResult<PyObject> {
+    let mut options = crate::options::PolygonizerOptions::default();
+    options.diagnostics.enabled = report_mode;
+    options.diagnostics.report_mode = report_mode;
+    options.node_input = node;
+    options.snap_grid_size = snap;
+    options.extract_only_polygonal = extract_only_polygonal;
+
+    polygonize_internal(py, coords, offsets, stride, options, line_ids)
+}
+
+fn polygonize_internal<'py>(
+    py: Python<'py>,
+    coords: PyReadonlyArray1<'py, f64>,
+    offsets: PyReadonlyArray1<'py, u32>,
+    stride: u8,
+    options: crate::options::PolygonizerOptions,
+    line_ids: Option<PyReadonlyArray1<'py, u32>>,
 ) -> PyResult<PyObject> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
@@ -168,12 +207,7 @@ fn polygonize<'py>(
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut polygonizer = Polygonizer::new();
-        polygonizer.diagnostics_options.enabled = report_mode;
-        polygonizer.diagnostics_options.report_mode = report_mode;
-        polygonizer.node_input = node;
-        polygonizer.snap_grid_size = snap;
-        polygonizer.extract_only_polygonal = extract_only_polygonal;
+        let mut polygonizer = Polygonizer::with_options(options);
         polygonizer.add_lines(lines);
 
         polygonizer.polygonize()
@@ -350,5 +384,6 @@ fn geo_polygonize_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         py.get_type_bound::<PolygonizeTopologyError>(),
     )?;
     m.add_function(wrap_pyfunction!(polygonize, m)?)?;
+    m.add_function(wrap_pyfunction!(polygonize_with_options, m)?)?;
     Ok(())
 }
