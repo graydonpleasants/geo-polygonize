@@ -1,5 +1,5 @@
-use std::time::Duration;
 pub use crate::options::DiagnosticsOptions;
+use std::time::Duration;
 
 #[derive(Clone, Debug, Default)]
 pub struct PolygonizerPhaseTimes {

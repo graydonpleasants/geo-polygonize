@@ -19,12 +19,17 @@ use crate::error::{from_polygonizer_error, to_js_error};
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen(js_name = polygonizeWithOptions)]
-pub fn polygonize_with_options_js(geojson_str: &str, options_val: JsValue) -> Result<String, JsValue> {
+pub fn polygonize_with_options_js(
+    geojson_str: &str,
+    options_val: JsValue,
+) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let options: geo_polygonize_core::options::PolygonizerOptions = serde_wasm_bindgen::from_value(options_val)
-        .map_err(|e| to_js_error("InvalidOptions", format!("Failed to parse options: {}", e)))?;
+    let options: geo_polygonize_core::options::PolygonizerOptions =
+        serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
+        })?;
 
     let geojson = GeoJson::from_str(geojson_str)
         .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
@@ -58,11 +63,14 @@ pub fn polygonize_with_options_js(geojson_str: &str, options_val: JsValue) -> Re
         }
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        polygonizer.polygonize()
-    }))
-    .unwrap_or_else(|_| Err(geo_polygonize_core::error::PolygonizeError::Panic("Panic occurred in Rust core".to_string())))
-    .map_err(from_polygonizer_error)?;
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
+            .unwrap_or_else(|_| {
+                Err(geo_polygonize_core::error::PolygonizeError::Panic(
+                    "Panic occurred in Rust core".to_string(),
+                ))
+            })
+            .map_err(from_polygonizer_error)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -241,8 +249,10 @@ pub fn polygonize_with_options_buffer_js(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let options: geo_polygonize_core::options::PolygonizerOptions = serde_wasm_bindgen::from_value(options_val)
-        .map_err(|e| to_js_error("InvalidOptions", format!("Failed to parse options: {}", e)))?;
+    let options: geo_polygonize_core::options::PolygonizerOptions =
+        serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
+        })?;
 
     if stride != 2 && stride != 3 {
         return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));

@@ -66,7 +66,8 @@ fn polygonize_with_options<'py>(
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
 ) -> PyResult<PyObject> {
     let options: crate::options::PolygonizerOptions = if let Some(json) = options_json {
-        serde_json::from_str(json).map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
+        serde_json::from_str(json)
+            .map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
     } else {
         crate::options::PolygonizerOptions::default()
     };

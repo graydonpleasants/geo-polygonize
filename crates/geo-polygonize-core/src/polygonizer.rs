@@ -1,8 +1,8 @@
 use crate::diagnostics::PolygonizerDiagnostics;
-use crate::options::DiagnosticsOptions;
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::snap::SnapNoder;
+use crate::options::DiagnosticsOptions;
 use crate::options::{DeterminismOptions, PolygonizerOptions};
 use crate::types::{Coord3D, Line3D, Polygon3D};
 use crate::utils::simd::SimdRing;
