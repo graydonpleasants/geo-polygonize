@@ -368,8 +368,8 @@ impl Polygonizer {
                         let simd_shell = &simd_shells[j];
 
                         if simd_shell.contains(probe_pt.0) {
-                            let area_i = shell.unsigned_area_2d();
-                            let area_j = shells[j].unsigned_area_2d();
+                            let area_i = shell.exterior_unsigned_area_2d();
+                            let area_j = shells[j].exterior_unsigned_area_2d();
 
                             // If i is strictly contained inside j, increment container count
                             if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
@@ -454,8 +454,8 @@ impl Polygonizer {
                     let simd_shell = &simd_shells[idx];
 
                     if simd_shell.contains(probe_point.0) {
-                        let area = shells[idx].unsigned_area_2d();
-                        let hole_area = hole_3d.unsigned_area_2d();
+                        let area = shells[idx].exterior_unsigned_area_2d();
+                        let hole_area = hole_3d.exterior_unsigned_area_2d();
 
                         if area > hole_area + 1e-6
                             && area < min_area

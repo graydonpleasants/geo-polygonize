@@ -111,6 +111,11 @@ impl Polygon3D {
         area
     }
 
+    /// The unsigned area of the exterior ring only, avoiding looping over all interior rings.
+    pub fn exterior_unsigned_area_2d(&self) -> f64 {
+        Self::ring_signed_area_2d(&self.exterior).abs()
+    }
+
     /// Computes the unsigned 2D area directly without allocating intermediate geometry.
     /// The unsigned area subtracts the absolute areas of the interiors from the absolute area of the exterior.
     pub fn unsigned_area_2d(&self) -> f64 {
