@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.9.0...geo-polygonize-v0.10.0) (2026-03-12)
+
+
+### Features
+
+* **core:** implement canonical options schema ([#284](https://github.com/graydonpleasants/geo-polygonize/issues/284)) ([7fd8279](https://github.com/graydonpleasants/geo-polygonize/commit/7fd827979e19ba22c5b2b5e4fe8581e0578dcf48))
+
+
+### Performance Improvements
+
+* **core:** optimize containment checks with exterior area ([5c34f5f](https://github.com/graydonpleasants/geo-polygonize/commit/5c34f5fbd9c9f2a6b338541612540f4328706273))
+* **core:** Use `.windows(2)` iterators over index-based loops in rings_share_edge ([1be2ea3](https://github.com/graydonpleasants/geo-polygonize/commit/1be2ea3c0564da28dc5e475fd958e1c78e9e8dba))
+* **python:** optimize result parsing in cffi wrapper ([b65722f](https://github.com/graydonpleasants/geo-polygonize/commit/b65722f8f184e6d319ec1b77a9a007b62c164d70))
+
 ## [0.9.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.8.0...geo-polygonize-v0.9.0) (2026-03-11)
 
 
