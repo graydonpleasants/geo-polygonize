@@ -6,12 +6,7 @@ use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 fn test_polygonize_arrow_invalid_type_error_path() {
     let array = Float64Array::from(vec![1.0, 2.0, 3.0]);
     let field = Field::new("geometry", DataType::Float64, true);
-    let options = PolygonizerOptions {
-        node_input: true,
-        snap_grid_size: 0.0,
-        extract_only_polygonal: false,
-        report_mode: false,
-    };
+    let options = PolygonizerOptions::default();
 
     let result = polygonize_arrow(&array, &field, options);
     assert!(result.is_err());

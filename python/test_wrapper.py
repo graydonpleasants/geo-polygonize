@@ -307,6 +307,57 @@ def test_internal_error_status(mock_lib):
     print("Internal error status test passed!")
 
 
+def test_polygonize_with_options():
+    print("\nTesting polygonize_with_options API...")
+    from geo_polygonize import polygonize_with_options
+
+    coords = np.array([
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0
+    ], dtype=np.float64)
+    offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
+
+    options = {
+        "target": "Native",
+        "node_input": True,
+        "snap_grid_size": 1e-5,
+        "extract_only_polygonal": False,
+        "snap_strategy": "Grid",
+        "noding": {
+            "backend": "Snap",
+            "snap_mode": "FloatEpsilonDedup"
+        },
+        "containment": {
+            "touch_policy": "AllowPointTouchDisallowEdgeShare",
+            "index_backend": "RStar"
+        },
+        "tiling": None,
+        "z": {
+            "policy": "Ignore"
+        },
+        "determinism": {
+            "canonical_sort": True,
+            "canonical_ring_rotation": True,
+            "stable_tie_breaks": True
+        },
+        "diagnostics": {
+            "enabled": True,
+            "report_mode": True
+        },
+        "provenance": {
+            "enabled": False,
+            "include_boundary_line_ids": False
+        },
+        "input_profile_id": "test_profile_123"
+    }
+
+    result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=True)
+    assert len(result) == 1
+    assert abs(result[0].area - 100.0) < 1e-6
+    print("polygonize_with_options API test passed!")
+
 def test_3d_to_2d_slicing():
     print("\nTesting 3D to 2D slicing (stride=2, shape=(N, 3))...")
     # 2D array with 3 columns, but we want 2D polygonization (XY)
@@ -342,6 +393,7 @@ if __name__ == "__main__":
     test_internal_error_status()
     test_null_result_pointer()
     test_3d_to_2d_slicing()
+    test_polygonize_with_options()
 
 def test_rust_typed_errors():
     print("\nTesting Rust typed errors propagation...")
