@@ -307,6 +307,25 @@ def test_internal_error_status(mock_lib):
     print("Internal error status test passed!")
 
 
+def test_3d_to_2d_slicing():
+    print("\nTesting 3D to 2D slicing (stride=2, shape=(N, 3))...")
+    # 2D array with 3 columns, but we want 2D polygonization (XY)
+    coords = np.array([
+        [0.0, 0.0, 100.0],
+        [10.0, 0.0, 101.0],
+        [10.0, 10.0, 102.0],
+        [0.0, 10.0, 103.0],
+        [0.0, 0.0, 100.0]
+    ], dtype=np.float64)
+    offsets = np.array([0, 5], dtype=np.uint32)
+
+    # This should trigger the slicing coords = coords[:, :2]
+    polys = polygonize(coords, offsets, stride=2, return_polygons=True)
+    assert len(polys) == 1
+    assert abs(polys[0].area - 100.0) < 1e-6
+    print("3D to 2D slicing test passed!")
+
+
 if __name__ == "__main__":
     test_square()
     test_two_squares()
@@ -322,6 +341,7 @@ if __name__ == "__main__":
     test_invalid_input_status()
     test_internal_error_status()
     test_null_result_pointer()
+    test_3d_to_2d_slicing()
 
 def test_rust_typed_errors():
     print("\nTesting Rust typed errors propagation...")
