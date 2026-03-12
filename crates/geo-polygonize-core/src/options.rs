@@ -57,18 +57,15 @@ pub enum SnapMode {
     IntegerGrid,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum ZPolicy {
+    #[default]
     Ignore,
     InterpolateAlongEdge,
     PreferNearestEndpoint,
-    ErrorOnConflict { max_delta: f64 },
-}
-
-impl Default for ZPolicy {
-    fn default() -> Self {
-        ZPolicy::Ignore
-    }
+    ErrorOnConflict {
+        max_delta: f64,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,34 +142,16 @@ impl Default for DeterminismOptions {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DiagnosticsOptions {
     pub enabled: bool,
     pub report_mode: bool,
 }
 
-impl Default for DiagnosticsOptions {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            report_mode: false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProvenanceOptions {
     pub enabled: bool,
     pub include_boundary_line_ids: bool,
-}
-
-impl Default for ProvenanceOptions {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            include_boundary_line_ids: false,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -180,15 +159,7 @@ pub struct TilingOptions {
     pub ownership_policy: TileOwnershipPolicy,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ZOptions {
     pub policy: ZPolicy,
-}
-
-impl Default for ZOptions {
-    fn default() -> Self {
-        Self {
-            policy: ZPolicy::default(),
-        }
-    }
 }

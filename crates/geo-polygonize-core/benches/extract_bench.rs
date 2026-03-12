@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use geo_polygonize_core::Polygonizer;
-use geo_types::{Geometry, GeometryCollection, LineString, MultiLineString, MultiPolygon, Polygon};
+use geo_types::{Geometry, GeometryCollection, LineString};
 
 fn generate_deep_geometry(depth: usize) -> Geometry<f64> {
     let ls = LineString::from(vec![(0.0, 0.0), (1.0, 1.0)]);

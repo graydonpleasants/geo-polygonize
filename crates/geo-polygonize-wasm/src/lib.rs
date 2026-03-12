@@ -333,9 +333,11 @@ pub fn polygonize_buffers(
         return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
     }
 
-    let mut options = geo_polygonize_core::options::PolygonizerOptions::default();
-    options.node_input = node_input;
-    options.snap_grid_size = snap_grid_size;
+    let options = geo_polygonize_core::options::PolygonizerOptions {
+        node_input,
+        snap_grid_size,
+        ..Default::default()
+    };
     let mut polygonizer = Polygonizer::with_options(options);
 
     let mut lines = Vec::new();
