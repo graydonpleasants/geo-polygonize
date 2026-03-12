@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.10.0...geo-polygonize-v0.11.0) (2026-03-12)
+
+
+### Features
+
+* **api:** expose cross-binding polygonize_with_options ([44f9d43](https://github.com/graydonpleasants/geo-polygonize/commit/44f9d43b72ba88bcf8118a805474010c41fe9afc))
+
 ## [0.10.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.9.0...geo-polygonize-v0.10.0) (2026-03-12)
 
 
