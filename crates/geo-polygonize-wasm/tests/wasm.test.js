@@ -119,3 +119,40 @@ describe('WASM Polygonizer', () => {
         expect(parityResult.features.length).toBe(4);
     });
 });
+
+    it('should pass line_ids and return flat_line_ids via buffer API', async () => {
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]);
+        const stride = 2;
+        const line_ids = new Uint32Array([42]);
+        const options = { target: 'WasmSingleThread', node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap', snap_mode: 'FloatEpsilonDedup' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare', index_backend: 'RStar' }, tiling: null, z: { policy: 'Ignore' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+
+        const result = polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
+
+        expect(result).toBeDefined();
+        const numIds = result.flat_line_ids_len();
+        expect(numIds).toBeGreaterThan(0);
+
+        // We can't easily read from WASM memory directly without the wasm object,
+        // but we can at least assert the binding doesn't crash and returns the expected length.
+        // It returns 5 elements for the single ring (5 coordinates)
+        expect(numIds).toBe(5);
+    });
+
+    it('should throw error when line_ids length does not match offsets length', async () => {
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]); // 1 line
+        const stride = 2;
+        const line_ids = new Uint32Array([42, 43]); // 2 ids
+        const options = { target: 'WasmSingleThread', node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap', snap_mode: 'FloatEpsilonDedup' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare', index_backend: 'RStar' }, tiling: null, z: { policy: 'Ignore' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+
+        expect(() => {
+            polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
+        }).toThrow(/line_ids length 2 does not match line count 1/);
+    });

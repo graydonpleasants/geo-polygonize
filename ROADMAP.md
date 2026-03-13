@@ -288,7 +288,7 @@ pub enum SnapStrategy {
 - mismatch explanation support
 
 ### 2.1 Optional Input Line IDs
-- [ ] Accept optional `line_ids` alongside linework input in all bindings.
+- [x] Accept optional `line_ids` alongside linework input in all bindings.
 
 ### 2.2 Per-Polygon Provenance
 ```rust
@@ -479,7 +479,7 @@ The roadmap is complete when:
 - [x] canonical `PolygonizerOptions`
 - [x] `polygonize_with_options(options)` in Rust/Python/Wasm
 - [x] legacy API wrappers
-- [ ] optional `line_ids`
+- [x] optional `line_ids`
 - [ ] `input_profile_id` passthrough
 - [ ] initial per-polygon provenance payload
 

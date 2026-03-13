@@ -209,6 +209,7 @@ pub struct WasmPolygonResult {
     coords: Vec<f64>,
     ring_offsets: Vec<u32>,
     polygon_offsets: Vec<u32>,
+    flat_line_ids: Vec<u32>,
     stride: u8,
     provenance: JsValue,
 }
@@ -235,6 +236,13 @@ impl WasmPolygonResult {
     pub fn polygon_offsets_len(&self) -> usize {
         self.polygon_offsets.len()
     }
+
+    pub fn flat_line_ids_ptr(&self) -> *const u32 {
+        self.flat_line_ids.as_ptr()
+    }
+    pub fn flat_line_ids_len(&self) -> usize {
+        self.flat_line_ids.len()
+    }
     pub fn stride(&self) -> u8 {
         self.stride
     }
@@ -250,6 +258,7 @@ pub fn polygonize_with_options_buffer_js(
     offsets: &[u32],
     stride: u8,
     options_val: JsValue,
+    line_ids: Option<Vec<u32>>,
 ) -> Result<WasmPolygonResult, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
@@ -261,6 +270,15 @@ pub fn polygonize_with_options_buffer_js(
 
     if stride != 2 && stride != 3 {
         return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
+    }
+
+    if let Some(ref ids) = line_ids {
+        if !offsets.is_empty() && ids.len() != offsets.len() {
+            return Err(to_js_error(
+                "InvalidBufferShape",
+                format!("line_ids length {} does not match line count {}", ids.len(), offsets.len()),
+            ));
+        }
     }
 
     let mut polygonizer = Polygonizer::with_options(options);
@@ -284,6 +302,16 @@ pub fn polygonize_with_options_buffer_js(
             ),
             ));
         }
+
+        let line_id = if let Some(ref ids) = line_ids {
+            if i < ids.len() {
+                ids[i]
+            } else {
+                0
+            }
+        } else {
+            0
+        };
         if end * stride as usize > coords.len() {
             return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
@@ -313,7 +341,7 @@ pub fn polygonize_with_options_buffer_js(
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
-                0,
+                line_id,
             ));
         }
     }
@@ -330,6 +358,7 @@ pub fn polygonize_buffers(
     stride: u8,
     node_input: bool,
     snap_grid_size: f64,
+    line_ids: Option<Vec<u32>>,
 ) -> Result<WasmPolygonResult, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
@@ -343,6 +372,15 @@ pub fn polygonize_buffers(
         snap_grid_size,
         ..Default::default()
     };
+    if let Some(ref ids) = line_ids {
+        if !offsets.is_empty() && ids.len() != offsets.len() {
+            return Err(to_js_error(
+                "InvalidBufferShape",
+                format!("line_ids length {} does not match line count {}", ids.len(), offsets.len()),
+            ));
+        }
+    }
+
     let mut polygonizer = Polygonizer::with_options(options);
 
     let mut lines = Vec::new();
@@ -364,6 +402,16 @@ pub fn polygonize_buffers(
             ),
             ));
         }
+
+        let line_id = if let Some(ref ids) = line_ids {
+            if i < ids.len() {
+                ids[i]
+            } else {
+                0
+            }
+        } else {
+            0
+        };
         if end * stride as usize > coords.len() {
             return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
@@ -393,7 +441,7 @@ pub fn polygonize_buffers(
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
-                0,
+                line_id,
             ));
         }
     }
@@ -525,6 +573,7 @@ fn polygonize_and_flatten(
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
+    let mut flat_line_ids = Vec::new();
     let mut provenances = Vec::new();
 
     for poly in result.polygons {
@@ -535,21 +584,31 @@ fn polygonize_and_flatten(
         let interiors = poly.interiors;
 
         ring_offsets.push((flat_coords.len() / stride as usize) as u32);
-        for coord in exterior {
+        for (k, coord) in exterior.iter().enumerate() {
             flat_coords.push(coord.x);
             flat_coords.push(coord.y);
             if stride == 3 {
                 flat_coords.push(coord.z);
             }
+            if k < poly.exterior_ids.len() {
+                flat_line_ids.push(poly.exterior_ids[k]);
+            } else {
+                flat_line_ids.push(0);
+            }
         }
 
-        for ring in interiors {
+        for (h_idx, ring) in interiors.iter().enumerate() {
             ring_offsets.push((flat_coords.len() / stride as usize) as u32);
-            for coord in ring {
+            for (k, coord) in ring.iter().enumerate() {
                 flat_coords.push(coord.x);
                 flat_coords.push(coord.y);
                 if stride == 3 {
                     flat_coords.push(coord.z);
+                }
+                if k < poly.interiors_ids[h_idx].len() {
+                    flat_line_ids.push(poly.interiors_ids[h_idx][k]);
+                } else {
+                    flat_line_ids.push(0);
                 }
             }
         }
@@ -565,6 +624,7 @@ fn polygonize_and_flatten(
         coords: flat_coords,
         ring_offsets,
         polygon_offsets,
+        flat_line_ids,
         stride,
         provenance: js_provenance,
     })
