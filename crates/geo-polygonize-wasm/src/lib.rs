@@ -210,6 +210,7 @@ pub struct WasmPolygonResult {
     ring_offsets: Vec<u32>,
     polygon_offsets: Vec<u32>,
     stride: u8,
+    provenance: JsValue,
 }
 
 #[wasm_bindgen]
@@ -236,6 +237,10 @@ impl WasmPolygonResult {
     }
     pub fn stride(&self) -> u8 {
         self.stride
+    }
+
+    pub fn provenance(&self) -> JsValue {
+        self.provenance.clone()
     }
 }
 
@@ -520,8 +525,10 @@ fn polygonize_and_flatten(
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
+    let mut provenances = Vec::new();
 
     for poly in result.polygons {
+        provenances.push(poly.provenance);
         polygon_offsets.push(ring_offsets.len() as u32);
 
         let exterior = poly.exterior;
@@ -548,10 +555,17 @@ fn polygonize_and_flatten(
         }
     }
 
+    let js_provenance = if provenances.is_empty() {
+        JsValue::NULL
+    } else {
+        serde_wasm_bindgen::to_value(&provenances).unwrap_or(JsValue::NULL)
+    };
+
     Ok(WasmPolygonResult {
         coords: flat_coords,
         ring_offsets,
         polygon_offsets,
         stride,
+        provenance: js_provenance,
     })
 }

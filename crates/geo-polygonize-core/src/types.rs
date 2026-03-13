@@ -68,12 +68,19 @@ impl From<Line<f64>> for Line3D {
     }
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct PolygonProvenance {
+    pub boundary_line_ids: Vec<u64>,
+    pub input_profile_id: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Polygon3D {
     pub exterior: Vec<Coord3D>,
     pub interiors: Vec<Vec<Coord3D>>,
     pub exterior_ids: Vec<u32>,
     pub interiors_ids: Vec<Vec<u32>>,
+    pub provenance: Option<PolygonProvenance>,
 }
 
 impl Polygon3D {
@@ -88,6 +95,7 @@ impl Polygon3D {
             interiors,
             exterior_ids,
             interiors_ids,
+            provenance: None,
         }
     }
 
