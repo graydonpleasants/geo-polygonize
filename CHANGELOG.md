@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.11.0...geo-polygonize-v0.12.0) (2026-03-13)
+
+
+### Features
+
+* **core:** add per-polygon provenance with input_profile_id ([f7d68cc](https://github.com/graydonpleasants/geo-polygonize/commit/f7d68cc0be2012bf7108d905103486833b15b930))
+
+
+### Bug Fixes
+
+* cargo fmt and ensure tests pass ([12f2aa8](https://github.com/graydonpleasants/geo-polygonize/commit/12f2aa8f69879095a82bbeb67b21a069241a2b62))
+
 ## [0.11.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.10.0...geo-polygonize-v0.11.0) (2026-03-12)
 
 
