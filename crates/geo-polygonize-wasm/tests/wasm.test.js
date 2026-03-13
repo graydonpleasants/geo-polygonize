@@ -118,7 +118,6 @@ describe('WASM Polygonizer', () => {
         expect(parityResult.features.length).toBeGreaterThan(defaultResult.features.length);
         expect(parityResult.features.length).toBe(4);
     });
-});
 
     it('should pass line_ids and return flat_line_ids via buffer API', async () => {
         await init();
@@ -156,3 +155,5 @@ describe('WASM Polygonizer', () => {
             polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
         }).toThrow(/line_ids length 2 does not match line count 1/);
     });
+
+});
