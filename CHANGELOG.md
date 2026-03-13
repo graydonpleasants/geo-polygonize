@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.12.0...geo-polygonize-v0.13.0) (2026-03-13)
+
+
+### Features
+
+* **wasm:** add optional `line_ids` parameter and expose `flat_line_ids` ([2ea27d9](https://github.com/graydonpleasants/geo-polygonize/commit/2ea27d992cf7f8a13f378e761713ae3f114e469a))
+* **wasm:** add optional `line_ids` parameter and expose `flat_line_ids` ([f50f999](https://github.com/graydonpleasants/geo-polygonize/commit/f50f999b21bc146efac2107c329d71787f4993c5))
+
+
+### Bug Fixes
+
+* **github:** cleanup repo ([7a31c35](https://github.com/graydonpleasants/geo-polygonize/commit/7a31c353243cbc8587b5d5ef312e04a2097e041e))
+
+
+### Performance Improvements
+
+* **core:** optimize SimdRing array initialization ([d234af5](https://github.com/graydonpleasants/geo-polygonize/commit/d234af56b6bdd48b1eae3e0c5ea19ade89cc92f3))
+
 ## [0.12.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.11.0...geo-polygonize-v0.12.0) (2026-03-13)
 
 
