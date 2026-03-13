@@ -316,7 +316,21 @@ fn polygonize_internal<'py>(
             holes_ids.append(r_ids)?;
         }
 
-        let py_poly = simple_polygon_cls.call1((shell, holes, shell_ids, holes_ids))?;
+        let py_provenance = if let Some(ref prov) = poly.provenance {
+            let prov_dict = PyDict::new_bound(py);
+            let b_ids = PyTuple::new_bound(py, &prov.boundary_line_ids);
+            prov_dict.set_item("boundary_line_ids", b_ids)?;
+            if let Some(ref prof_id) = prov.input_profile_id {
+                prov_dict.set_item("input_profile_id", prof_id)?;
+            } else {
+                prov_dict.set_item("input_profile_id", py.None())?;
+            }
+            prov_dict.into_any()
+        } else {
+            py.None().into_bound(py)
+        };
+
+        let py_poly = simple_polygon_cls.call1((shell, holes, shell_ids, holes_ids, py_provenance))?;
         py_polygons.append(py_poly)?;
     }
 

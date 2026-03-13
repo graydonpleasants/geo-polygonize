@@ -356,6 +356,12 @@ def test_polygonize_with_options():
     result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=True)
     assert len(result) == 1
     assert abs(result[0].area - 100.0) < 1e-6
+
+    # Check if provenance exists
+    assert hasattr(result[0], "provenance")
+    assert result[0].provenance is not None
+    assert result[0].provenance["input_profile_id"] == "test_profile_123"
+
     print("polygonize_with_options API test passed!")
 
 def test_3d_to_2d_slicing():
