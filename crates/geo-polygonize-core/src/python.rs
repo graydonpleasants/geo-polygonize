@@ -330,7 +330,8 @@ fn polygonize_internal<'py>(
             py.None().into_bound(py)
         };
 
-        let py_poly = simple_polygon_cls.call1((shell, holes, shell_ids, holes_ids, py_provenance))?;
+        let py_poly =
+            simple_polygon_cls.call1((shell, holes, shell_ids, holes_ids, py_provenance))?;
         py_polygons.append(py_poly)?;
     }
 
