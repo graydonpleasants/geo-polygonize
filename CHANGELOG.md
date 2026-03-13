@@ -5,18 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.12.0...geo-polygonize-v0.12.1) (2026-03-13)
-
-
-### Bug Fixes
-
-* **github:** cleanup repo ([7a31c35](https://github.com/graydonpleasants/geo-polygonize/commit/7a31c353243cbc8587b5d5ef312e04a2097e041e))
-
-
-### Performance Improvements
-
-* **core:** optimize SimdRing array initialization ([d234af5](https://github.com/graydonpleasants/geo-polygonize/commit/d234af56b6bdd48b1eae3e0c5ea19ade89cc92f3))
-
 ## [0.12.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.11.0...geo-polygonize-v0.12.0) (2026-03-13)
 
 

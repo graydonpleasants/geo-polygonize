@@ -276,7 +276,11 @@ pub fn polygonize_with_options_buffer_js(
         if !offsets.is_empty() && ids.len() != offsets.len() {
             return Err(to_js_error(
                 "InvalidBufferShape",
-                format!("line_ids length {} does not match line count {}", ids.len(), offsets.len()),
+                format!(
+                    "line_ids length {} does not match line count {}",
+                    ids.len(),
+                    offsets.len()
+                ),
             ));
         }
     }
@@ -376,7 +380,11 @@ pub fn polygonize_buffers(
         if !offsets.is_empty() && ids.len() != offsets.len() {
             return Err(to_js_error(
                 "InvalidBufferShape",
-                format!("line_ids length {} does not match line count {}", ids.len(), offsets.len()),
+                format!(
+                    "line_ids length {} does not match line count {}",
+                    ids.len(),
+                    offsets.len()
+                ),
             ));
         }
     }
