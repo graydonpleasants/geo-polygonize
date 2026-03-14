@@ -351,9 +351,11 @@ impl PlanarGraph {
         }
 
         let coords = &line.0;
-        for i in 0..coords.len().saturating_sub(1) {
-            let p0 = coords[i];
-            let p1 = coords[i + 1];
+        // Optimization: using .windows(2) is faster than loop indexing
+        // because it eliminates array bounds checks.
+        for w in coords.windows(2) {
+            let p0 = w[0];
+            let p1 = w[1];
 
             if (p0.x - p1.x).abs() < 1e-12 && (p0.y - p1.y).abs() < 1e-12 {
                 continue;
