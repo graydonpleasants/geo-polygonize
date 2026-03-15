@@ -16,3 +16,7 @@
 ## 2024-05-24 - [SIMD Array Initialization Overhead]
 **Learning:** Initializing collection sizes via iterative `.push()` inside loops when the exact required capacity (including padding) is known incurs unnecessary dynamic bounds checking overhead. Using pre-calculated capacity bitwise operations like `(len + 3) & !3` with `.extend()` mapping over iterators and using `.resize()` for padding is significantly faster, especially for structs like `SimdRing` constructed repeatedly.
 **Action:** When initializing padded array structures from collections of a known size, calculate the target aligned capacity upfront with bitwise operations, collect via mapping iterators, and pad using bulk `.resize()` instead of relying on a variable loop length and successive `.push()` calls.
+
+## 2025-05-18 - Iterator Array Optimization
+**Learning:** Using `.windows(2)` and explicitly tracked iterators (like tracking `prev` while looping `curr` over `slice.iter()`) provides a measurable performance improvement and avoids O(N) array bounds-checking overhead compared to explicit index looping like `for i in 0..slice.len()`.
+**Action:** When tracking rings or adjacent items sequentially within an array, maintain references to the `prev` and `curr` values while looping `for curr in iter` rather than accessing `slice[(k-1) % len]` and `slice[k]`.
