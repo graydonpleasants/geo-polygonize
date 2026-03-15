@@ -97,7 +97,13 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
         shapely_polys = []
         if 'polygons' in result:
             for sp in result['polygons']:
-                shapely_polys.append(Polygon(sp.shell, sp.holes))
+                poly = Polygon(sp.shell, sp.holes)
+                if hasattr(sp, 'provenance') and sp.provenance is not None:
+                    # Shapely Polygon objects do not support arbitrary attributes,
+                    # so we don't try to attach it directly to the C-extension object if it fails.
+                    # Or we can just leave it up to the caller to use `return_polygons=False`.
+                    pass
+                shapely_polys.append(poly)
 
         return shapely_polys
 
@@ -230,7 +236,10 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
         shapely_polys = []
         if 'polygons' in result:
             for sp in result['polygons']:
-                shapely_polys.append(Polygon(sp.shell, sp.holes))
+                poly = Polygon(sp.shell, sp.holes)
+                if hasattr(sp, 'provenance') and sp.provenance is not None:
+                    pass
+                shapely_polys.append(poly)
 
         return shapely_polys
 

@@ -614,7 +614,32 @@ impl Polygonizer {
                 holes_ids = hi;
             }
 
-            let p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
+            let mut p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
+
+            if self.options.provenance.enabled {
+                let mut b_ids = Vec::new();
+                if self.options.provenance.include_boundary_line_ids {
+                    for &id in &p.exterior_ids {
+                        if id != 0 {
+                            b_ids.push(id as u64);
+                        }
+                    }
+                    for hole_ids in &p.interiors_ids {
+                        for &id in hole_ids {
+                            if id != 0 {
+                                b_ids.push(id as u64);
+                            }
+                        }
+                    }
+                    b_ids.sort_unstable();
+                    b_ids.dedup();
+                }
+
+                p.provenance = Some(crate::types::PolygonProvenance {
+                    boundary_line_ids: b_ids,
+                    input_profile_id: self.options.input_profile_id.clone(),
+                });
+            }
 
             // Check area of 2D projection
             if p.unsigned_area_2d() > 1e-6 {

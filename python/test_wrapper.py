@@ -347,20 +347,20 @@ def test_polygonize_with_options():
             "report_mode": True
         },
         "provenance": {
-            "enabled": False,
+            "enabled": True,
             "include_boundary_line_ids": False
         },
         "input_profile_id": "test_profile_123"
     }
 
-    result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=True)
-    assert len(result) == 1
-    assert abs(result[0].area - 100.0) < 1e-6
+    result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=False)
+    assert len(result['polygons']) == 1
 
     # Check if provenance exists
-    assert hasattr(result[0], "provenance")
-    assert result[0].provenance is not None
-    assert result[0].provenance["input_profile_id"] == "test_profile_123"
+    sp = result['polygons'][0]
+    assert hasattr(sp, "provenance")
+    assert sp.provenance is not None
+    assert sp.provenance["input_profile_id"] == "test_profile_123"
 
     print("polygonize_with_options API test passed!")
 

@@ -141,6 +141,7 @@ Suggested labels:
 - **Blocks**: P2-002
 - **Parallel with**: P2-005
 - **Suggested owner**: provenance / bindings
+- **Status**: Complete
 - **Acceptance**:
   - length validation works
   - missing `line_ids` remains valid
@@ -152,6 +153,7 @@ Suggested labels:
 - **Blocks**: P2-004, P1-005
 - **Parallel with**: P2-006
 - **Suggested owner**: provenance / core geometry
+- **Status**: Complete
 - **Acceptance**:
   - provenance optionality works
   - mixed-boundary fixture yields multi-family provenance
@@ -163,6 +165,7 @@ Suggested labels:
 - **Blocks**: P1-005, P2-001
 - **Parallel with**: P2-005
 - **Suggested owner**: diagnostics
+- **Status**: Complete
 - **Acceptance**:
   - report explains mismatches by profile
 

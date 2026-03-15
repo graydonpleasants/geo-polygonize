@@ -377,6 +377,16 @@ fn polygonize_internal<'py>(
     dict.set_item("dangles", py_dangles)?;
     dict.set_item("invalid_rings", py_invalid_rings)?;
 
+    if let Some(ref diag) = result.diagnostics {
+        // Map diagnostics using serde to a Python dict
+        if let Ok(diag_json) = serde_json::to_string(diag) {
+            let json_module = py.import_bound("json")?;
+            let loads_func = json_module.getattr("loads")?;
+            let py_diag = loads_func.call1((diag_json,))?;
+            dict.set_item("diagnostics", py_diag)?;
+        }
+    }
+
     Ok(dict.into())
 }
 

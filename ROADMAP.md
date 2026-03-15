@@ -480,8 +480,8 @@ The roadmap is complete when:
 - [x] `polygonize_with_options(options)` in Rust/Python/Wasm
 - [x] legacy API wrappers
 - [x] optional `line_ids`
-- [ ] `input_profile_id` passthrough
-- [ ] initial per-polygon provenance payload
+- [x] `input_profile_id` passthrough
+- [x] initial per-polygon provenance payload
 
 ## Milestone M3: Precision and Hot Path Cleanup
 - [ ] `SnapStrategy` with `grid` and `geos_compat`
