@@ -572,10 +572,10 @@ impl PlanarGraph {
                     continue;
                 }
 
-                for k in 0..valid_edges.len() {
-                    let curr = valid_edges[k];
-                    let next = valid_edges[(k + valid_edges.len() - 1) % valid_edges.len()];
+                let mut next = *valid_edges.last().unwrap();
+                for &curr in &valid_edges {
                     next_pointers[curr] = next;
+                    next = curr;
                 }
             }
 
