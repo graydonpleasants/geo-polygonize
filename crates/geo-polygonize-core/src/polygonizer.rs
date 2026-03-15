@@ -165,7 +165,11 @@ impl Polygonizer {
         self.options.determinism = self.determinism.clone();
         self.options.diagnostics = self.diagnostics_options.clone();
 
-        let mut all_segments: Vec<Line3D> = self.input_lines.clone();
+        let mut all_segments: Vec<Line3D> = if self.options.node_input {
+            self.input_lines.clone()
+        } else {
+            std::mem::take(&mut self.input_lines)
+        };
 
         let segments;
 

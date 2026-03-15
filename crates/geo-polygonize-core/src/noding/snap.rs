@@ -126,13 +126,24 @@ impl SnapNoder {
                 // Filter out invalid points (NaN/Inf)
                 points.retain(|p| p.x.is_finite() && p.y.is_finite());
 
-                // Sort by distance from start
+                // Sort by parametric t value (dot product of (p - start) with direction vector)
                 let start = line.start;
-                points.sort_unstable_by(|a, b| {
-                    let da = (a.x - start.x).powi(2) + (a.y - start.y).powi(2);
-                    let db = (b.x - start.x).powi(2) + (b.y - start.y).powi(2);
-                    da.total_cmp(&db)
-                });
+                let dx = line.end.x - start.x;
+                let dy = line.end.y - start.y;
+                let len_sq = dx * dx + dy * dy;
+
+                if len_sq > 0.0 {
+                    points.sort_unstable_by(|a, b| {
+                        let ta = ((a.x - start.x) * dx + (a.y - start.y) * dy) / len_sq;
+                        let tb = ((b.x - start.x) * dx + (b.y - start.y) * dy) / len_sq;
+                        ta.total_cmp(&tb)
+                    });
+                } else {
+                    // Fallback to sort by X, then Y if segment is a zero-length point
+                    points.sort_unstable_by(|a, b| {
+                        a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
+                    });
+                }
 
                 // Dedup by 2D coordinates
                 points.dedup_by(|a, b| a.x == b.x && a.y == b.y);

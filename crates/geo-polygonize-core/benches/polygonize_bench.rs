@@ -269,4 +269,60 @@ criterion_group!(
     bench_get_edge_rings,
     bench_get_edge_rings_dangles
 );
-criterion_main!(benches);
+
+// --- KERNEL BENCHES (Split finding, containment, hashing, grid build) ---
+use geo_polygonize_core::noding::grid::UniformGrid;
+use geo_polygonize_core::{Coord3D, Line3D};
+
+fn make_random_lines(count: usize) -> Vec<Line3D> {
+    let mut rng = StdRng::seed_from_u64(42);
+    (0..count)
+        .map(|i| {
+            Line3D::new(
+                Coord3D::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0), 0.0),
+                Coord3D::new(rng.gen_range(0.0..100.0), rng.gen_range(0.0..100.0), 0.0),
+                i as u32,
+            )
+        })
+        .collect()
+}
+
+fn bench_kernel_grid_build(c: &mut Criterion) {
+    let lines = make_random_lines(10_000);
+    c.bench_function("kernel_grid_build_10k", |b| {
+        b.iter(|| {
+            UniformGrid::new(criterion::black_box(&lines))
+        });
+    });
+}
+
+fn bench_kernel_find_splits(c: &mut Criterion) {
+    let lines = make_random_lines(10_000);
+    let noder = SnapNoder::new(1e-10);
+    let grid = UniformGrid::new(&lines);
+    c.bench_function("kernel_find_splits_10k", |b| {
+        b.iter(|| {
+            grid.find_splits(criterion::black_box(&lines), criterion::black_box(&noder))
+        });
+    });
+}
+
+// NOTE: We don't have an isolated "apply_splits" because it's inline inside `node`.
+// So we bench `node` as a proxy for the entire noding iteration.
+fn bench_kernel_node(c: &mut Criterion) {
+    let lines = make_random_lines(1_000);
+    let noder = SnapNoder::new(1e-10);
+    c.bench_function("kernel_node_1k", |b| {
+        b.iter(|| {
+            noder.node(criterion::black_box(lines.clone()))
+        });
+    });
+}
+
+criterion_group!(
+    kernel_benches,
+    bench_kernel_grid_build,
+    bench_kernel_find_splits,
+    bench_kernel_node
+);
+criterion_main!(benches, kernel_benches);

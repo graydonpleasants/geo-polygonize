@@ -21,6 +21,19 @@ impl Coord3D {
     }
 }
 
+/// An integer point used for integerized snap-grid coordinate representations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct IPoint {
+    pub x: i64,
+    pub y: i64,
+}
+
+impl IPoint {
+    pub fn new(x: i64, y: i64) -> Self {
+        Self { x, y }
+    }
+}
+
 impl From<Coord<f64>> for Coord3D {
     fn from(c: Coord<f64>) -> Self {
         Self {

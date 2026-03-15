@@ -321,7 +321,7 @@ pub struct IPoint {
 ```
 
 ### 3.3 Parametric Split Accumulation
-- [ ] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
+- [x] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
 
 ### 3.4 Z Policy
 - `Ignore`
@@ -330,12 +330,12 @@ pub struct IPoint {
 - `ErrorOnConflict { max_delta }`
 
 ### 3.5 Remove Avoidable Clones
-- [ ] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
+- [x] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
 
 ## 4. Observability & SIMD / Runtime Dispatch (Agent Track D)
 
 ### 4.1 Kernel Benches
-- [ ] Add Criterion benches for split finding, grid build, split apply, containment, hashing, and provenance-enabled report overhead.
+- [x] Add Criterion benches for split finding, grid build, split apply, containment, hashing, and provenance-enabled report overhead.
 
 ### 4.2 Runtime SIMD Dispatch
 - [ ] Add architecture-aware runtime dispatch for scalar, Wasm SIMD `v128`, x86_64 AVX2, and optionally AVX-512.
@@ -484,11 +484,11 @@ The roadmap is complete when:
 - [x] initial per-polygon provenance payload
 
 ## Milestone M3: Precision and Hot Path Cleanup
-- [ ] `SnapStrategy` with `grid` and `geos_compat`
-- [ ] parametric split accumulation
-- [ ] clone reduction
-- [ ] integer snap-grid prototype
-- [ ] per-kernel benches
+- [x] `SnapStrategy` with `grid` and `geos_compat`
+- [x] parametric split accumulation
+- [x] clone reduction
+- [x] integer snap-grid prototype
+- [x] per-kernel benches
 
 ## Milestone M4: Tiling + Containment + Explainability
 - [ ] tile ownership policies
