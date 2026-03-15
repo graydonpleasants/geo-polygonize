@@ -625,6 +625,30 @@ mod tests {
     }
 
     #[test]
+    fn test_repeated_polygonize_preserves_input_segments_when_node_input_disabled() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = false;
+        poly.diagnostics_options.enabled = true;
+
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let first = poly.polygonize().expect("First polygonization failed");
+        assert_eq!(first.diagnostics.unwrap().input_segment_count, 4);
+
+        let second = poly.polygonize().expect("Second polygonization failed");
+        assert_eq!(second.diagnostics.unwrap().input_segment_count, 4);
+    }
+
+    #[test]
     fn test_invalid_rings_deduplication_and_nesting() {
         let mut poly = Polygonizer::new();
 
