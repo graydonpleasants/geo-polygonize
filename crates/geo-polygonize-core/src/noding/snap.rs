@@ -140,9 +140,7 @@ impl SnapNoder {
                     });
                 } else {
                     // Fallback to sort by X, then Y if segment is a zero-length point
-                    points.sort_unstable_by(|a, b| {
-                        a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
-                    });
+                    points.sort_unstable_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
                 }
 
                 // Dedup by 2D coordinates

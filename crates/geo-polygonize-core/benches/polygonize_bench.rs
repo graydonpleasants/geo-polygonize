@@ -290,9 +290,7 @@ fn make_random_lines(count: usize) -> Vec<Line3D> {
 fn bench_kernel_grid_build(c: &mut Criterion) {
     let lines = make_random_lines(10_000);
     c.bench_function("kernel_grid_build_10k", |b| {
-        b.iter(|| {
-            UniformGrid::new(criterion::black_box(&lines))
-        });
+        b.iter(|| UniformGrid::new(criterion::black_box(&lines)));
     });
 }
 
@@ -301,9 +299,7 @@ fn bench_kernel_find_splits(c: &mut Criterion) {
     let noder = SnapNoder::new(1e-10);
     let grid = UniformGrid::new(&lines);
     c.bench_function("kernel_find_splits_10k", |b| {
-        b.iter(|| {
-            grid.find_splits(criterion::black_box(&lines), criterion::black_box(&noder))
-        });
+        b.iter(|| grid.find_splits(criterion::black_box(&lines), criterion::black_box(&noder)));
     });
 }
 
@@ -313,9 +309,7 @@ fn bench_kernel_node(c: &mut Criterion) {
     let lines = make_random_lines(1_000);
     let noder = SnapNoder::new(1e-10);
     c.bench_function("kernel_node_1k", |b| {
-        b.iter(|| {
-            noder.node(criterion::black_box(lines.clone()))
-        });
+        b.iter(|| noder.node(criterion::black_box(lines.clone())));
     });
 }
 
