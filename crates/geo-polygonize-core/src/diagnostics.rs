@@ -1,7 +1,8 @@
 pub use crate::options::DiagnosticsOptions;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolygonizerPhaseTimes {
     pub ingest_and_node: Duration,
     pub graph_build: Duration,
@@ -10,26 +11,26 @@ pub struct PolygonizerPhaseTimes {
     pub output_flatten: Duration,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodingIterationStats {
     pub iteration_index: usize,
     pub intersections_found: usize,
     pub nodes_added: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SnapStats {
     pub total_snapped_vertices: usize,
     pub snap_strategy: String, // E.g., "Grid", "GeosCompat"
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct IntersectionStats {
     pub exact_intersections: usize,
     pub interpolated_intersections: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolygonizerDiagnostics {
     pub input_segment_count: usize,
     pub noded_segment_count: usize,

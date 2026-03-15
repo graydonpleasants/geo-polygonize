@@ -212,6 +212,7 @@ pub struct WasmPolygonResult {
     flat_line_ids: Vec<u32>,
     stride: u8,
     provenance: JsValue,
+    diagnostics: JsValue,
 }
 
 #[wasm_bindgen]
@@ -247,8 +248,14 @@ impl WasmPolygonResult {
         self.stride
     }
 
+    #[wasm_bindgen(getter)]
     pub fn provenance(&self) -> JsValue {
         self.provenance.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn diagnostics(&self) -> JsValue {
+        self.diagnostics.clone()
     }
 }
 
@@ -628,6 +635,12 @@ fn polygonize_and_flatten(
         serde_wasm_bindgen::to_value(&provenances).unwrap_or(JsValue::NULL)
     };
 
+    let js_diagnostics = if let Some(ref diag) = result.diagnostics {
+        serde_wasm_bindgen::to_value(diag).unwrap_or(JsValue::NULL)
+    } else {
+        JsValue::NULL
+    };
+
     Ok(WasmPolygonResult {
         coords: flat_coords,
         ring_offsets,
@@ -635,5 +648,6 @@ fn polygonize_and_flatten(
         flat_line_ids,
         stride,
         provenance: js_provenance,
+        diagnostics: js_diagnostics,
     })
 }
