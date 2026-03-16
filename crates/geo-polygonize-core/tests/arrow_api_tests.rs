@@ -46,31 +46,19 @@ fn test_polygonize_arrow_fallback_large_list() {
     let offsets = OffsetBuffer::<i64>::from_lengths([5]);
 
     // Create the Field for the list items (Struct)
-    let struct_field = Arc::new(Field::new(
-        "item",
-        struct_array.data_type().clone(),
-        false,
-    ));
+    let struct_field = Arc::new(Field::new("item", struct_array.data_type().clone(), false));
 
-    let large_list_array = LargeListArray::try_new(
-        struct_field,
-        offsets,
-        Arc::new(struct_array),
-        None,
-    )
-    .unwrap();
+    let large_list_array =
+        LargeListArray::try_new(struct_field, offsets, Arc::new(struct_array), None).unwrap();
 
     // The root field is LargeList
-    let root_field = Field::new(
-        "geometry",
-        large_list_array.data_type().clone(),
-        true,
-    );
+    let root_field = Field::new("geometry", large_list_array.data_type().clone(), true);
 
     let options = PolygonizerOptions::default();
 
     // Call polygonize_arrow on this large list array
-    let result = polygonize_arrow(&large_list_array, &root_field, options).expect("Failed to polygonize LargeList array");
+    let result = polygonize_arrow(&large_list_array, &root_field, options)
+        .expect("Failed to polygonize LargeList array");
 
     assert_eq!(result.len(), 1);
 
