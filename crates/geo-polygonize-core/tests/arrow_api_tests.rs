@@ -1,6 +1,10 @@
-use arrow::array::Float64Array;
+use arrow::array::{Array, Float64Array, LargeListArray, StructArray};
+use arrow::buffer::OffsetBuffer;
 use arrow::datatypes::{DataType, Field};
 use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
+use geo_traits::{LineStringTrait, PolygonTrait};
+use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor};
+use std::sync::Arc;
 
 #[test]
 fn test_polygonize_arrow_invalid_type_error_path() {
@@ -16,4 +20,64 @@ fn test_polygonize_arrow_invalid_type_error_path() {
             && err.contains("DataType: Float64")
             && err.contains("Field { name: \"geometry\", data_type: Float64, nullable: true")
     );
+}
+
+#[test]
+fn test_polygonize_arrow_fallback_large_list() {
+    // Construct coordinate arrays
+    let x_array = Float64Array::from(vec![0.0, 10.0, 10.0, 0.0, 0.0]);
+    let y_array = Float64Array::from(vec![0.0, 0.0, 10.0, 10.0, 0.0]);
+
+    let x_field = Arc::new(Field::new("x", DataType::Float64, false));
+    let y_field = Arc::new(Field::new("y", DataType::Float64, false));
+
+    // Create StructArray containing x and y coordinates
+    let struct_array = StructArray::try_new(
+        vec![x_field.clone(), y_field.clone()].into(),
+        vec![
+            Arc::new(x_array) as Arc<dyn Array>,
+            Arc::new(y_array) as Arc<dyn Array>,
+        ],
+        None,
+    )
+    .unwrap();
+
+    // Create a LargeListArray wrapper
+    let offsets = OffsetBuffer::<i64>::from_lengths([5]);
+
+    // Create the Field for the list items (Struct)
+    let struct_field = Arc::new(Field::new(
+        "item",
+        struct_array.data_type().clone(),
+        false,
+    ));
+
+    let large_list_array = LargeListArray::try_new(
+        struct_field,
+        offsets,
+        Arc::new(struct_array),
+        None,
+    )
+    .unwrap();
+
+    // The root field is LargeList
+    let root_field = Field::new(
+        "geometry",
+        large_list_array.data_type().clone(),
+        true,
+    );
+
+    let options = PolygonizerOptions::default();
+
+    // Call polygonize_arrow on this large list array
+    let result = polygonize_arrow(&large_list_array, &root_field, options).expect("Failed to polygonize LargeList array");
+
+    assert_eq!(result.len(), 1);
+
+    if let Ok(Some(poly)) = result.get(0) {
+        let exterior = poly.exterior().expect("Missing exterior");
+        assert_eq!(exterior.num_coords(), 5);
+    } else {
+        panic!("Missing polygon");
+    }
 }
