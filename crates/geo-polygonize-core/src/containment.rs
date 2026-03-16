@@ -25,7 +25,6 @@ impl RTreeObject for IndexedEnvelope {
 pub struct ContainmentForest {
     pub tree: RTree<IndexedEnvelope>,
     pub simd_shells: Vec<SimdRing>,
-    // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<f64>,
 }
 
@@ -35,25 +34,21 @@ impl ContainmentForest {
         let shell_areas: Vec<f64>;
         #[cfg(feature = "parallel")]
         {
-            (simd_shells, shell_areas) = shells
+            let res: (Vec<SimdRing>, Vec<f64>) = shells
                 .par_iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-            shell_areas = shells
-                .par_iter()
-                .map(|s| s.exterior_unsigned_area_2d())
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
+            simd_shells = res.0;
+            shell_areas = res.1;
         }
         #[cfg(not(feature = "parallel"))]
         {
-            (simd_shells, shell_areas) = shells
+            let res: (Vec<SimdRing>, Vec<f64>) = shells
                 .iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-            shell_areas = shells
-                .iter()
-                .map(|s| s.exterior_unsigned_area_2d())
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
+            simd_shells = res.0;
+            shell_areas = res.1;
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -107,7 +102,6 @@ impl ContainmentForest {
                     let simd_shell = &self.simd_shells[j];
 
                     if simd_shell.contains(probe_pt.0) {
-                        // Using cached areas instead of `shell.exterior_unsigned_area_2d()`
                         let area_i = self.shell_areas[i];
                         let area_j = self.shell_areas[j];
 
@@ -171,7 +165,6 @@ impl ContainmentForest {
             let simd_shell = &self.simd_shells[idx];
 
             if simd_shell.contains(probe_point.0) {
-                // Using cached areas instead of `shells[idx].exterior_unsigned_area_2d()`
                 let area = self.shell_areas[idx];
 
                 if area > hole_area + 1e-6 && area < min_area {
