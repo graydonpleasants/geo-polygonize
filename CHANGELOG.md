@@ -5,31 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.15.0...geo-polygonize-v0.16.0) (2026-03-16)
-
-
-### Features
-
-* **core:** extract containment forest and address roadmap updates ([6c3c48c](https://github.com/graydonpleasants/geo-polygonize/commit/6c3c48c3c929ac1ff11a7407eb4ebf03da58c573))
-* **core:** implement touch policies and fix CI failures ([a97ac66](https://github.com/graydonpleasants/geo-polygonize/commit/a97ac66edd5491ac9286605c7fcfd8ec798f931b))
-
-
-### Bug Fixes
-
-* **core:** format files and correct touch policies implementation ([65479a5](https://github.com/graydonpleasants/geo-polygonize/commit/65479a5958f61b99c351c54f5c38f7d452e6aff8))
-
-## [0.15.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.14.1...geo-polygonize-v0.15.0) (2026-03-15)
-
-
-### Features
-
-* **deps:** add cargo fmt pre-commit hook to husky ([f09ea33](https://github.com/graydonpleasants/geo-polygonize/commit/f09ea330dfb501dd5538bb63e90321c1c6d5e4d4))
-
-
-### Performance Improvements
-
-* **core:** address roadmap and version bump nitpicks ([#306](https://github.com/graydonpleasants/geo-polygonize/issues/306)) ([8c38a67](https://github.com/graydonpleasants/geo-polygonize/commit/8c38a672f69f9c2fd1c403287673913de55ad8d5))
-
 ## [0.14.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.14.0...geo-polygonize-v0.14.1) (2026-03-15)
 
 

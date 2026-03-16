@@ -11,11 +11,13 @@ pub struct PolygonizerOptions {
     pub snap_strategy: SnapStrategy,
     pub noding: NodingOptions,
     pub containment: ContainmentOptions,
+    #[ts(optional)]
     pub tiling: Option<TilingOptions>,
     pub z: ZOptions,
     pub determinism: DeterminismOptions,
     pub diagnostics: DiagnosticsOptions,
     pub provenance: ProvenanceOptions,
+    #[ts(optional)]
     pub input_profile_id: Option<String>,
 }
 

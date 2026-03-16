@@ -9,7 +9,6 @@
 //! - **Wasm**: Optimized for WebAssembly environments.
 
 pub mod arrow_api;
-pub mod containment;
 pub mod diagnostics;
 pub mod error;
 pub mod ffi;

@@ -1,4 +1,3 @@
-use crate::options::TileOwnershipPolicy;
 use crate::types::Polygon3D;
 use crate::Polygonizer;
 use geo::bounding_rect::BoundingRect;
@@ -6,14 +5,12 @@ use geo::intersects::Intersects;
 use geo_types::{Coord, Geometry, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub struct TiledPolygonizer<'a> {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64, // Overlap buffer to ensure polygons are fully captured
     geometries: Vec<(&'a Geometry<f64>, Option<Rect<f64>>)>,
-    ownership_policy: TileOwnershipPolicy,
 }
 
 impl<'a> TiledPolygonizer<'a> {
@@ -23,17 +20,11 @@ impl<'a> TiledPolygonizer<'a> {
             tile_size,
             buffer: 0.0,
             geometries: Vec::new(),
-            ownership_policy: TileOwnershipPolicy::Centroid,
         }
     }
 
     pub fn with_buffer(mut self, buffer: f64) -> Self {
         self.buffer = buffer;
-        self
-    }
-
-    pub fn with_ownership_policy(mut self, policy: TileOwnershipPolicy) -> Self {
-        self.ownership_policy = policy;
         self
     }
 
@@ -76,71 +67,15 @@ impl<'a> TiledPolygonizer<'a> {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
-                let area = poly.unsigned_area_2d();
-
-                // Filter slivers
-                if area < 1e-6 {
-                    continue;
-                }
-
-                let ownership_point = match self.ownership_policy {
-                    TileOwnershipPolicy::Centroid
-                    | TileOwnershipPolicy::RepresentativePointInsidePolygon => poly.centroid_2d(),
-                    TileOwnershipPolicy::LexicographicMinVertex => {
-                        let mut min_pt = None;
-                        for coord in &poly.exterior {
-                            if let Some(curr) = min_pt {
-                                let curr_coord: geo_types::Point<f64> = curr;
-                                if coord.x < curr_coord.x()
-                                    || (coord.x == curr_coord.x() && coord.y < curr_coord.y())
-                                {
-                                    min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                                }
-                            } else {
-                                min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                            }
-                        }
-                        min_pt
-                    }
-                    TileOwnershipPolicy::CanonicalBoundaryHash => {
-                        if poly.exterior.is_empty() {
-                            poly.centroid_2d()
-                        } else {
-                            let mut coords = poly.exterior.clone();
-                            coords.sort_unstable_by(|a, b| {
-                                a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
-                            });
-                            let mut hasher = DefaultHasher::new();
-                            for c in &coords {
-                                c.x.to_bits().hash(&mut hasher);
-                                c.y.to_bits().hash(&mut hasher);
-                            }
-                            let hash_val = hasher.finish();
-
-                            let mut min_x = f64::INFINITY;
-                            let mut min_y = f64::INFINITY;
-                            let mut max_x = f64::NEG_INFINITY;
-                            let mut max_y = f64::NEG_INFINITY;
-                            for c in &poly.exterior {
-                                min_x = min_x.min(c.x);
-                                min_y = min_y.min(c.y);
-                                max_x = max_x.max(c.x);
-                                max_y = max_y.max(c.y);
-                            }
-
-                            let width = max_x - min_x;
-                            let height = max_y - min_y;
-
-                            let u = (hash_val % 1000) as f64 / 1000.0;
-                            let v = ((hash_val / 1000) % 1000) as f64 / 1000.0;
-
-                            Some(geo_types::Point::new(min_x + u * width, min_y + v * height))
-                        }
-                    }
-                };
-
-                if let Some(pt) = ownership_point {
+                // Fast path avoiding geometry allocation
+                if let Some(pt) = poly.centroid_2d() {
                     let c = pt;
+                    let area = poly.unsigned_area_2d();
+
+                    // Filter slivers
+                    if area < 1e-6 {
+                        continue;
+                    }
 
                     // Check inclusion [min, max)
                     // For the last tile in a row/col, we include the max boundary to cover the full bbox.

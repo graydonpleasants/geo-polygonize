@@ -321,7 +321,7 @@ pub struct IPoint {
 ```
 
 ### 3.3 Parametric Split Accumulation
-- [x] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
+- [ ] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
 
 ### 3.4 Z Policy
 - `Ignore`
@@ -330,12 +330,12 @@ pub struct IPoint {
 - `ErrorOnConflict { max_delta }`
 
 ### 3.5 Remove Avoidable Clones
-- [x] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
+- [ ] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
 
 ## 4. Observability & SIMD / Runtime Dispatch (Agent Track D)
 
 ### 4.1 Kernel Benches
-- [x] Add Criterion benches for split finding, grid build, split apply, containment, hashing, and provenance-enabled report overhead.
+- [ ] Add Criterion benches for split finding, grid build, split apply, containment, hashing, and provenance-enabled report overhead.
 
 ### 4.2 Runtime SIMD Dispatch
 - [ ] Add architecture-aware runtime dispatch for scalar, Wasm SIMD `v128`, x86_64 AVX2, and optionally AVX-512.
@@ -352,13 +352,13 @@ pub struct IPoint {
 ## 1. Scaling & Concurrency (Agent Track A)
 - [ ] Parallelize `UniformGrid::new`.
 - [ ] Implement adaptive regrid.
-- [x] Replace centroid-only ownership with stronger tile ownership policies.
+- [ ] Replace centroid-only ownership with stronger tile ownership policies.
 - [ ] Add cross-tile dedup via canonical ring or edge-set hashing.
 
 ## 2. Topology & Containment Forests (Agent Track B)
-- [x] Extract containment into a dedicated module.
-- [x] Build a containment forest once and reuse it for shell/hole classification.
-- [x] Implement named touch policies.
+- [ ] Extract containment into a dedicated module.
+- [ ] Build a containment forest once and reuse it for shell/hole classification.
+- [ ] Implement named touch policies.
 
 ## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
 - [ ] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
@@ -484,16 +484,16 @@ The roadmap is complete when:
 - [x] initial per-polygon provenance payload
 
 ## Milestone M3: Precision and Hot Path Cleanup
-- [x] `SnapStrategy` with `grid` and `geos_compat`
-- [x] parametric split accumulation
-- [x] clone reduction
-- [x] integer snap-grid prototype
-- [x] per-kernel benches
+- [ ] `SnapStrategy` with `grid` and `geos_compat`
+- [ ] parametric split accumulation
+- [ ] clone reduction
+- [ ] integer snap-grid prototype
+- [ ] per-kernel benches
 
 ## Milestone M4: Tiling + Containment + Explainability
-- [x] tile ownership policies
-- [x] containment forest
-- [x] touch policies
+- [ ] tile ownership policies
+- [ ] containment forest
+- [ ] touch policies
 - [ ] cross-tile dedup
 - [ ] report mode explains mismatches by profile and provenance
 

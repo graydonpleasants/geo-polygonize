@@ -65,7 +65,7 @@ build_variant() {
     if command -v wasm-opt &> /dev/null; then
         echo "Optimizing $VARIANT..."
         # The file name comes from --out-name "geo_polygonize" -> "geo_polygonize_bg.wasm"
-        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+        echo "Skipping wasm-opt" -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
     fi
 
     # Remove .gitignore if generated
@@ -122,7 +122,7 @@ build_variant_threads() {
     if command -v wasm-opt &> /dev/null; then
         echo "Optimizing Threads..."
         # wasm-opt generally supports atomics if present in the binary
-        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+        echo "Skipping wasm-opt" -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
     fi
 
     rm -f $OUT_DIR/.gitignore

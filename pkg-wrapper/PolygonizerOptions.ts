@@ -9,4 +9,4 @@ import type { TargetProfile } from "./TargetProfile";
 import type { TilingOptions } from "./TilingOptions";
 import type { ZOptions } from "./ZOptions";
 
-export type PolygonizerOptions = { target: TargetProfile, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean, snap_strategy: SnapStrategy, noding: NodingOptions, containment: ContainmentOptions, tiling: TilingOptions | null, z: ZOptions, determinism: DeterminismOptions, diagnostics: DiagnosticsOptions, provenance: ProvenanceOptions, input_profile_id: string | null, };
+export type PolygonizerOptions = { target: TargetProfile, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean, snap_strategy: SnapStrategy, noding: NodingOptions, containment: ContainmentOptions, tiling?: TilingOptions, z: ZOptions, determinism: DeterminismOptions, diagnostics: DiagnosticsOptions, provenance: ProvenanceOptions, input_profile_id?: string, };
