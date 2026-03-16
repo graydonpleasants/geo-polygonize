@@ -352,12 +352,12 @@ pub struct IPoint {
 ## 1. Scaling & Concurrency (Agent Track A)
 - [ ] Parallelize `UniformGrid::new`.
 - [ ] Implement adaptive regrid.
-- [ ] Replace centroid-only ownership with stronger tile ownership policies.
+- [x] Replace centroid-only ownership with stronger tile ownership policies.
 - [ ] Add cross-tile dedup via canonical ring or edge-set hashing.
 
 ## 2. Topology & Containment Forests (Agent Track B)
-- [ ] Extract containment into a dedicated module.
-- [ ] Build a containment forest once and reuse it for shell/hole classification.
+- [x] Extract containment into a dedicated module.
+- [x] Build a containment forest once and reuse it for shell/hole classification.
 - [ ] Implement named touch policies.
 
 ## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
@@ -491,8 +491,8 @@ The roadmap is complete when:
 - [x] per-kernel benches
 
 ## Milestone M4: Tiling + Containment + Explainability
-- [ ] tile ownership policies
-- [ ] containment forest
+- [x] tile ownership policies
+- [x] containment forest
 - [ ] touch policies
 - [ ] cross-tile dedup
 - [ ] report mode explains mismatches by profile and provenance
