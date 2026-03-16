@@ -1,3 +1,4 @@
+use crate::containment::ContainmentForest;
 use crate::diagnostics::PolygonizerDiagnostics;
 use crate::error::Result;
 use crate::graph::PlanarGraph;
@@ -9,7 +10,7 @@ use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
-use rstar::{RTree, RTreeObject, AABB};
+
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -36,20 +37,6 @@ fn get_elapsed(_start: Option<()>) -> std::time::Duration {
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-
-// Wrapper for Polygon indexable by rstar (2D)
-struct IndexedEnvelope {
-    aabb: AABB<[f64; 2]>,
-    index: usize,
-}
-
-impl RTreeObject for IndexedEnvelope {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        self.aabb
-    }
-}
 
 /// A robust polygonizer that reconstructs polygons from a set of lines (3D supported).
 pub struct Polygonizer {
@@ -300,97 +287,13 @@ impl Polygonizer {
         let t_containment_start = get_time();
         // 5. Establish Topology
 
-        // Precompute 2D shells for spatial index and SIMD
-
-        let mut simd_shells: Vec<SimdRing>;
-        #[cfg(feature = "parallel")]
-        {
-            simd_shells = shells
-                .par_iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            simd_shells = shells
-                .iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-        }
-
-        // Build RTree for shells
-        let mut indexed_shells = Vec::with_capacity(shells.len());
-        for (i, shell) in shells.iter().enumerate() {
-            if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
-                let aabb =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-                indexed_shells.push(IndexedEnvelope { aabb, index: i });
-            }
-        }
-        let mut tree = RTree::bulk_load(indexed_shells);
+        // Build Containment Forest for shells
+        let mut forest = ContainmentForest::new(&shells);
 
         // Filter shells
         if self.options.extract_only_polygonal {
-            let mut keep_mask = vec![true; shells.len()];
-            let mut removed_count = 0;
-
-            // Precompute probe points
-            let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
-                .iter()
-                .map(|s| guaranteed_interior_probe(&s.exterior))
-                .collect();
-
-            let mut container_counts = vec![0; shells.len()];
-
-            for (i, shell) in shells.iter().enumerate() {
-                let bbox = match bounding_rect_3d(&shell.exterior) {
-                    Some(b) => b,
-                    None => {
-                        keep_mask[i] = false;
-                        removed_count += 1;
-                        continue;
-                    }
-                };
-                let aabb =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-
-                let candidates = tree.locate_in_envelope_intersecting(&aabb);
-                let probe = probe_points[i];
-
-                if let Some(probe_pt) = probe {
-                    for cand in candidates {
-                        let j = cand.index;
-                        if i == j {
-                            continue;
-                        }
-
-                        // Check if shell[i] is inside shell[j]
-                        let simd_shell = &simd_shells[j];
-
-                        if simd_shell.contains(probe_pt.0) {
-                            let area_i = shell.exterior_unsigned_area_2d();
-                            let area_j = shells[j].exterior_unsigned_area_2d();
-
-                            // If i is strictly contained inside j, increment container count
-                            if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
-                                && !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
-                            {
-                                container_counts[i] += 1;
-                            }
-                        }
-                    }
-                } else {
-                    keep_mask[i] = false;
-                    removed_count += 1;
-                }
-            }
-
-            for i in 0..shells.len() {
-                if keep_mask[i] && container_counts[i] % 2 != 0 {
-                    keep_mask[i] = false;
-                    removed_count += 1;
-                }
-            }
+            let keep_mask = forest.filter_polygonal(&shells);
+            let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
 
             if removed_count > 0 {
                 let mut new_shells = Vec::new();
@@ -406,67 +309,14 @@ impl Polygonizer {
                 shells = new_shells;
 
                 // Rebuild helper structures
-                #[cfg(feature = "parallel")]
-                {
-                    simd_shells = shells
-                        .par_iter()
-                        .map(|s| SimdRing::new_3d(&s.exterior))
-                        .collect();
-                }
-                #[cfg(not(feature = "parallel"))]
-                {
-                    simd_shells = shells
-                        .iter()
-                        .map(|s| SimdRing::new_3d(&s.exterior))
-                        .collect();
-                }
-
-                let mut indexed_shells = Vec::with_capacity(shells.len());
-                for (i, shell) in shells.iter().enumerate() {
-                    if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
-                        let aabb = AABB::from_corners(
-                            [bbox.min().x, bbox.min().y],
-                            [bbox.max().x, bbox.max().y],
-                        );
-                        indexed_shells.push(IndexedEnvelope { aabb, index: i });
-                    }
-                }
-                tree = RTree::bulk_load(indexed_shells);
+                forest = ContainmentForest::new(&shells);
             }
         }
 
         // Process hole assignment
         let process_hole_assignment =
             |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-                let bbox = bounding_rect_3d(&hole_3d.exterior)?;
-                let hole_aabb =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-
-                let candidates = tree.locate_in_envelope_intersecting(&hole_aabb);
-
-                let mut best_shell_idx = None;
-                let mut min_area = f64::MAX;
-
-                let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
-
-                for cand in candidates {
-                    let idx = cand.index;
-                    let simd_shell = &simd_shells[idx];
-
-                    if simd_shell.contains(probe_point.0) {
-                        let area = shells[idx].exterior_unsigned_area_2d();
-                        let hole_area = hole_3d.exterior_unsigned_area_2d();
-
-                        if area > hole_area + 1e-6
-                            && area < min_area
-                            && !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
-                        {
-                            min_area = area;
-                            best_shell_idx = Some(idx);
-                        }
-                    }
-                }
-
+                let best_shell_idx = forest.assign_hole(&hole_3d, &shells);
                 best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
             };
 
@@ -814,7 +664,7 @@ fn process_invalid_rings(
     result
 }
 
-fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
+pub fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
     if coords.is_empty() {
         return None;
     }
@@ -842,7 +692,7 @@ fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
     ))
 }
 
-fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
+pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
     if coords.len() < 4 {
         return None;
     }
@@ -934,7 +784,7 @@ fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>
     Some(geo_types::Point(coords[0].to_coord_2d()))
 }
 
-fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+pub fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
     if shell.len() < 2 || hole.len() < 2 {
         return false;
     }
