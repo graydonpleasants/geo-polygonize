@@ -58,12 +58,34 @@ mod tests {
     #[test]
     fn test_error_name_mapping() {
         let cases = vec![
-            (PolygonizeError::InvalidArgumentType { field: "".into(), expected: "".into(), actual: "".into() }, "InvalidArgumentType"),
-            (PolygonizeError::InvalidGeometry { reason: "".into() }, "InvalidGeometry"),
-            (PolygonizeError::InvalidBufferShape { reason: "".into() }, "InvalidBufferShape"),
-            (PolygonizeError::UnsupportedOptionCombination { reason: "".into() }, "UnsupportedOptionCombination"),
-            (PolygonizeError::TopologyFailure { reason: "".into() }, "TopologyFailure"),
-            (PolygonizeError::InternalInvariantViolation { reason: "".into() }, "InternalInvariantViolation"),
+            (
+                PolygonizeError::InvalidArgumentType {
+                    field: "".into(),
+                    expected: "".into(),
+                    actual: "".into(),
+                },
+                "InvalidArgumentType",
+            ),
+            (
+                PolygonizeError::InvalidGeometry { reason: "".into() },
+                "InvalidGeometry",
+            ),
+            (
+                PolygonizeError::InvalidBufferShape { reason: "".into() },
+                "InvalidBufferShape",
+            ),
+            (
+                PolygonizeError::UnsupportedOptionCombination { reason: "".into() },
+                "UnsupportedOptionCombination",
+            ),
+            (
+                PolygonizeError::TopologyFailure { reason: "".into() },
+                "TopologyFailure",
+            ),
+            (
+                PolygonizeError::InternalInvariantViolation { reason: "".into() },
+                "InternalInvariantViolation",
+            ),
             (PolygonizeError::ArrowError("".into()), "ArrowError"),
             (PolygonizeError::NullPointer("".into()), "NullPointer"),
             (PolygonizeError::Panic("".into()), "Panic"),
