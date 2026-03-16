@@ -358,7 +358,7 @@ pub struct IPoint {
 ## 2. Topology & Containment Forests (Agent Track B)
 - [x] Extract containment into a dedicated module.
 - [x] Build a containment forest once and reuse it for shell/hole classification.
-- [ ] Implement named touch policies.
+- [x] Implement named touch policies.
 
 ## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
 - [ ] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
@@ -493,7 +493,7 @@ The roadmap is complete when:
 ## Milestone M4: Tiling + Containment + Explainability
 - [x] tile ownership policies
 - [x] containment forest
-- [ ] touch policies
+- [x] touch policies
 - [ ] cross-tile dedup
 - [ ] report mode explains mismatches by profile and provenance
 

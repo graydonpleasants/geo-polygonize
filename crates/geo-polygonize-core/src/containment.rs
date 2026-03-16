@@ -1,4 +1,7 @@
-use crate::polygonizer::{bounding_rect_3d, guaranteed_interior_probe, rings_share_edge};
+use crate::options::TouchPolicy;
+use crate::polygonizer::{
+    bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
+};
 use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
@@ -55,7 +58,11 @@ impl ContainmentForest {
         Self { tree, simd_shells }
     }
 
-    pub fn filter_polygonal(&self, shells: &[Polygon3D]) -> Vec<bool> {
+    pub fn filter_polygonal(
+        &self,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+    ) -> Vec<bool> {
         let mut keep_mask = vec![true; shells.len()];
         let mut container_counts = vec![0; shells.len()];
 
@@ -93,10 +100,32 @@ impl ContainmentForest {
                         let area_j = shells[j].exterior_unsigned_area_2d();
 
                         // If i is strictly contained inside j, increment container count
-                        if (area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i))
-                            && !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
-                        {
-                            container_counts[i] += 1;
+                            if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
+                                let touch_ok = match touch_policy {
+                                    TouchPolicy::AllowPointTouchDisallowEdgeShare => {
+                                        !rings_share_edge(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        )
+                                    }
+                                    TouchPolicy::TreatAnyTouchAsDisjoint => {
+                                        !rings_share_edge(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        ) && !rings_touch_at_vertex(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        )
+                                    }
+                                    TouchPolicy::AllowEdgeShare => true,
+                                };
+
+                                if touch_ok {
+                                    container_counts[i] += 1;
+                                }
                         }
                     }
                 }
@@ -114,7 +143,12 @@ impl ContainmentForest {
         keep_mask
     }
 
-    pub fn assign_hole(&self, hole_3d: &Polygon3D, shells: &[Polygon3D]) -> Option<usize> {
+    pub fn assign_hole(
+        &self,
+        hole_3d: &Polygon3D,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+    ) -> Option<usize> {
         let bbox = bounding_rect_3d(&hole_3d.exterior)?;
         let hole_aabb: AABB<[f64; 2]> =
             AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
@@ -134,12 +168,28 @@ impl ContainmentForest {
                 let area = shells[idx].exterior_unsigned_area_2d();
                 let hole_area = hole_3d.exterior_unsigned_area_2d();
 
-                if area > hole_area + 1e-6
-                    && area < min_area
-                    && !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
-                {
-                    min_area = area;
-                    best_shell_idx = Some(idx);
+                if area > hole_area + 1e-6 && area < min_area {
+                    let touch_ok = match touch_policy {
+                        TouchPolicy::AllowPointTouchDisallowEdgeShare => !rings_share_edge(
+                            &shells[idx].exterior,
+                            &hole_3d.exterior,
+                            1e-10,
+                        ),
+                        TouchPolicy::TreatAnyTouchAsDisjoint => {
+                            !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
+                                && !rings_touch_at_vertex(
+                                    &shells[idx].exterior,
+                                    &hole_3d.exterior,
+                                    1e-10,
+                                )
+                        }
+                        TouchPolicy::AllowEdgeShare => true,
+                    };
+
+                    if touch_ok {
+                        min_area = area;
+                        best_shell_idx = Some(idx);
+                    }
                 }
             }
         }
