@@ -35,3 +35,4 @@ export default function init(_input?: any): Promise<typeof exports> {
 
     return initPromise;
 }
+export * from './PolygonizerOptions.js';

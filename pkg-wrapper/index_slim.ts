@@ -25,3 +25,4 @@ export async function initBest(scalarModule: any, simdModule: any) {
         return scalarExports;
     }
 }
+export * from './PolygonizerOptions.js';
