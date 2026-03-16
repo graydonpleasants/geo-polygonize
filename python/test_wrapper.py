@@ -157,14 +157,7 @@ def test_import_error_fallback():
     import builtins
     import geo_polygonize
 
-    real_import = builtins.__import__
-
-    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if 'geo_polygonize_core' in name or (fromlist and 'geo_polygonize_core' in fromlist):
-            raise ImportError("Mocked ImportError for testing")
-        return real_import(name, globals, locals, fromlist, level)
-
-    with patch('builtins.__import__', side_effect=mock_import):
+    with patch.dict('sys.modules', {'geo_polygonize.geo_polygonize_core': None, 'geo_polygonize_core': None}):
         importlib.reload(geo_polygonize)
 
         import geo_polygonize.cffi_wrapper as cffi_wrapper
@@ -190,13 +183,7 @@ def test_return_polygons_without_shapely():
     import builtins
     import unittest.mock
 
-    real_import = builtins.__import__
-    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == 'shapely.geometry' or name == 'shapely':
-            raise ImportError("Mocked ImportError")
-        return real_import(name, globals, locals, fromlist, level)
-
-    with unittest.mock.patch('builtins.__import__', side_effect=mock_import):
+    with unittest.mock.patch.dict('sys.modules', {'shapely': None, 'shapely.geometry': None}):
         try:
             polygonize(coords, offsets, return_polygons=True)
             assert False, "Should have raised ImportError"
