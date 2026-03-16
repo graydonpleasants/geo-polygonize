@@ -11,7 +11,6 @@ use crate::utils::z_order_index;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
 
-
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -292,7 +291,7 @@ impl Polygonizer {
 
         // Filter shells
         if self.options.extract_only_polygonal {
-            let keep_mask = forest.filter_polygonal(&shells);
+            let keep_mask = forest.filter_polygonal(&shells, &self.options.containment.touch_policy);
             let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
 
             if removed_count > 0 {
@@ -316,7 +315,7 @@ impl Polygonizer {
         // Process hole assignment
         let process_hole_assignment =
             |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-                let best_shell_idx = forest.assign_hole(&hole_3d, &shells);
+                let best_shell_idx = forest.assign_hole(&hole_3d, &shells, &self.options.containment.touch_policy);
                 best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
             };
 
@@ -803,6 +802,20 @@ pub fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
         }
     }
 
+    false
+}
+
+pub fn rings_touch_at_vertex(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+    let eps_sq = eps * eps;
+    for s_pt in shell {
+        for h_pt in hole {
+            let dx = s_pt.x - h_pt.x;
+            let dy = s_pt.y - h_pt.y;
+            if dx * dx + dy * dy <= eps_sq {
+                return true;
+            }
+        }
+    }
     false
 }
 
