@@ -311,13 +311,13 @@ mod tests {
 
                     let l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
                     let d = if l2 == 0.0 {
-                        ((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)).sqrt()
+                        (p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y)
                     } else {
                         let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
                         let t = t.clamp(0.0, 1.0);
                         let proj_x = a.x + t * (b.x - a.x);
                         let proj_y = a.y + t * (b.y - a.y);
-                        ((p.x - proj_x) * (p.x - proj_x) + (p.y - proj_y) * (p.y - proj_y)).sqrt()
+                        (p.x - proj_x) * (p.x - proj_x) + (p.y - proj_y) * (p.y - proj_y)
                     };
 
                     if d < min_dist {
@@ -325,8 +325,9 @@ mod tests {
                     }
                 }
 
-                // Check distance using Euclidean distance
-                if min_dist < 1e-5 {
+                // Using Euclidean distance squared avoiding expensive `.sqrt()` in the hot loop
+                if min_dist < 1e-10 {
+                    // 1e-5 squared
                     continue;
                 }
 
