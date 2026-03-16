@@ -25,28 +25,52 @@ impl PolygonizerWasmError {
     }
 }
 
-pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
-    let name = match &e {
-        PolygonizeError::InvalidArgumentType { .. } => "InvalidArgumentType".to_string(),
-        PolygonizeError::InvalidGeometry { .. } => "InvalidGeometry".to_string(),
-        PolygonizeError::InvalidBufferShape { .. } => "InvalidBufferShape".to_string(),
-        PolygonizeError::UnsupportedOptionCombination { .. } => {
-            "UnsupportedOptionCombination".to_string()
-        }
-        PolygonizeError::TopologyFailure { .. } => "TopologyFailure".to_string(),
-        PolygonizeError::InternalInvariantViolation { .. } => {
-            "InternalInvariantViolation".to_string()
-        }
-        PolygonizeError::ArrowError(_) => "ArrowError".to_string(),
-        PolygonizeError::NullPointer(_) => "NullPointer".to_string(),
-        PolygonizeError::Panic(_) => "Panic".to_string(),
-    };
+pub(crate) fn error_name(e: &PolygonizeError) -> &'static str {
+    match e {
+        PolygonizeError::InvalidArgumentType { .. } => "InvalidArgumentType",
+        PolygonizeError::InvalidGeometry { .. } => "InvalidGeometry",
+        PolygonizeError::InvalidBufferShape { .. } => "InvalidBufferShape",
+        PolygonizeError::UnsupportedOptionCombination { .. } => "UnsupportedOptionCombination",
+        PolygonizeError::TopologyFailure { .. } => "TopologyFailure",
+        PolygonizeError::InternalInvariantViolation { .. } => "InternalInvariantViolation",
+        PolygonizeError::ArrowError(_) => "ArrowError",
+        PolygonizeError::NullPointer(_) => "NullPointer",
+        PolygonizeError::Panic(_) => "Panic",
+    }
+}
 
-    let err = PolygonizerWasmError::new(name, e.to_string());
+pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
+    let name = error_name(&e);
+    let err = PolygonizerWasmError::new(name.to_string(), e.to_string());
     JsValue::from(err)
 }
 
 pub fn to_js_error<T: std::fmt::Display>(name: &str, message: T) -> JsValue {
     let err = PolygonizerWasmError::new(name.to_string(), message.to_string());
     JsValue::from(err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo_polygonize_core::error::PolygonizeError;
+
+    #[test]
+    fn test_error_name_mapping() {
+        let cases = vec![
+            (PolygonizeError::InvalidArgumentType { field: "".into(), expected: "".into(), actual: "".into() }, "InvalidArgumentType"),
+            (PolygonizeError::InvalidGeometry { reason: "".into() }, "InvalidGeometry"),
+            (PolygonizeError::InvalidBufferShape { reason: "".into() }, "InvalidBufferShape"),
+            (PolygonizeError::UnsupportedOptionCombination { reason: "".into() }, "UnsupportedOptionCombination"),
+            (PolygonizeError::TopologyFailure { reason: "".into() }, "TopologyFailure"),
+            (PolygonizeError::InternalInvariantViolation { reason: "".into() }, "InternalInvariantViolation"),
+            (PolygonizeError::ArrowError("".into()), "ArrowError"),
+            (PolygonizeError::NullPointer("".into()), "NullPointer"),
+            (PolygonizeError::Panic("".into()), "Panic"),
+        ];
+
+        for (error, expected_name) in cases {
+            assert_eq!(error_name(&error), expected_name);
+        }
+    }
 }
