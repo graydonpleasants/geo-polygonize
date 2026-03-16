@@ -36,12 +36,7 @@ impl ContainmentForest {
         {
             let res: (Vec<SimdRing>, Vec<f64>) = shells
                 .par_iter()
-                .map(|s| {
-                    (
-                        SimdRing::new_3d(&s.exterior),
-                        s.exterior_unsigned_area_2d(),
-                    )
-                })
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
             simd_shells = res.0;
             shell_areas = res.1;
@@ -50,12 +45,7 @@ impl ContainmentForest {
         {
             let res: (Vec<SimdRing>, Vec<f64>) = shells
                 .iter()
-                .map(|s| {
-                    (
-                        SimdRing::new_3d(&s.exterior),
-                        s.exterior_unsigned_area_2d(),
-                    )
-                })
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
             simd_shells = res.0;
             shell_areas = res.1;
