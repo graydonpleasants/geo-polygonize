@@ -25,24 +25,26 @@ impl RTreeObject for IndexedEnvelope {
 pub struct ContainmentForest {
     pub tree: RTree<IndexedEnvelope>,
     pub simd_shells: Vec<SimdRing>,
+    pub shell_areas: Vec<f64>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D]) -> Self {
         let simd_shells: Vec<SimdRing>;
+        let shell_areas: Vec<f64>;
         #[cfg(feature = "parallel")]
         {
-            simd_shells = shells
+            (simd_shells, shell_areas) = shells
                 .par_iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            simd_shells = shells
+            (simd_shells, shell_areas) = shells
                 .iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -55,7 +57,11 @@ impl ContainmentForest {
         }
         let tree = RTree::bulk_load(indexed_shells);
 
-        Self { tree, simd_shells }
+        Self {
+            tree,
+            simd_shells,
+            shell_areas,
+        }
     }
 
     pub fn filter_polygonal(&self, shells: &[Polygon3D], touch_policy: &TouchPolicy) -> Vec<bool> {
@@ -92,8 +98,8 @@ impl ContainmentForest {
                     let simd_shell = &self.simd_shells[j];
 
                     if simd_shell.contains(probe_pt.0) {
-                        let area_i = shell.exterior_unsigned_area_2d();
-                        let area_j = shells[j].exterior_unsigned_area_2d();
+                        let area_i = self.shell_areas[i];
+                        let area_j = self.shell_areas[j];
 
                         // If i is strictly contained inside j, increment container count
                         if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
@@ -148,14 +154,14 @@ impl ContainmentForest {
         let mut min_area = f64::MAX;
 
         let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
+        let hole_area = hole_3d.exterior_unsigned_area_2d();
 
         for cand in candidates {
             let idx = cand.index;
             let simd_shell = &self.simd_shells[idx];
 
             if simd_shell.contains(probe_point.0) {
-                let area = shells[idx].exterior_unsigned_area_2d();
-                let hole_area = hole_3d.exterior_unsigned_area_2d();
+                let area = self.shell_areas[idx];
 
                 if area > hole_area + 1e-6 && area < min_area {
                     let touch_ok = match touch_policy {
