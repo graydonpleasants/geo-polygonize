@@ -836,11 +836,10 @@ fn segments_overlap_with_length(
     }
 
     // Collinearity checks for segment B endpoints against segment A line
-    // using squared comparisons to avoid costly `.sqrt()`
     let cross_b1 = ax * (b1.y - a1.y) - ay * (b1.x - a1.x);
     let cross_b2 = ax * (b2.y - a1.y) - ay * (b2.x - a1.x);
-    let tol_sq = eps * eps * a_len_sq;
-    if cross_b1 * cross_b1 > tol_sq || cross_b2 * cross_b2 > tol_sq {
+    let tol = eps * a_len_sq.sqrt();
+    if cross_b1.abs() > tol || cross_b2.abs() > tol {
         return false;
     }
 

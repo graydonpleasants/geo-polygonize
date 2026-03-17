@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolygonizerOptions {
     pub target: TargetProfile,
     pub node_input: bool,
@@ -11,13 +9,11 @@ pub struct PolygonizerOptions {
     pub snap_strategy: SnapStrategy,
     pub noding: NodingOptions,
     pub containment: ContainmentOptions,
-    #[ts(optional)]
     pub tiling: Option<TilingOptions>,
     pub z: ZOptions,
     pub determinism: DeterminismOptions,
     pub diagnostics: DiagnosticsOptions,
     pub provenance: ProvenanceOptions,
-    #[ts(optional)]
     pub input_profile_id: Option<String>,
 }
 
@@ -41,31 +37,27 @@ impl Default for PolygonizerOptions {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TargetProfile {
     Native,
     WasmSingleThread,
     WasmThreads,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SnapStrategy {
     Grid,
     GeosCompat,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SnapMode {
     FloatExact,
     FloatEpsilonDedup,
     IntegerGrid,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub enum ZPolicy {
     #[default]
     Ignore,
@@ -76,16 +68,14 @@ pub enum ZPolicy {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TouchPolicy {
     AllowPointTouchDisallowEdgeShare,
     TreatAnyTouchAsDisjoint,
     AllowEdgeShare,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TileOwnershipPolicy {
     Centroid,
     RepresentativePointInsidePolygon,
@@ -93,22 +83,19 @@ pub enum TileOwnershipPolicy {
     CanonicalBoundaryHash,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NodingBackend {
     Snap,
     // placeholders for future backends
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum IndexBackend {
     RStar,
     // placeholders for future backends
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodingOptions {
     pub backend: NodingBackend,
     pub snap_mode: SnapMode,
@@ -123,8 +110,7 @@ impl Default for NodingOptions {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContainmentOptions {
     pub touch_policy: TouchPolicy,
     pub index_backend: IndexBackend,
@@ -139,8 +125,7 @@ impl Default for ContainmentOptions {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeterminismOptions {
     pub canonical_sort: bool,
     pub canonical_ring_rotation: bool,
@@ -157,28 +142,24 @@ impl Default for DeterminismOptions {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DiagnosticsOptions {
     pub enabled: bool,
     pub report_mode: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProvenanceOptions {
     pub enabled: bool,
     pub include_boundary_line_ids: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TilingOptions {
     pub ownership_policy: TileOwnershipPolicy,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ZOptions {
     pub policy: ZPolicy,
 }

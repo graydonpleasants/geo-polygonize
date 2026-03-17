@@ -130,29 +130,6 @@ build_variant_threads() {
 
 build_variant_threads
 
-# Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
-echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
-export TS_RS_EXPORT_DIR="bindings"
-cargo test -p geo-polygonize-core
-mkdir -p pkg-wrapper/bindings
-cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
-
-for DIR in pkg-scalar pkg-simd pkg-threads; do
-  D_TS_FILE="${DIR}/geo_polygonize.d.ts"
-
-  if [ -f "$D_TS_FILE" ]; then
-    TEMP_FILE=$(mktemp)
-    # 1. Write the imports
-    echo "import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';" > "$TEMP_FILE"
-
-    # 2. Process the original file and replace `any` with `Partial<PolygonizerOptions>` for the options_val argument
-    sed -e 's/options_val: any/options_val: Partial<PolygonizerOptions>/g' "$D_TS_FILE" >> "$TEMP_FILE"
-
-    # 3. Replace original file
-    mv "$TEMP_FILE" "$D_TS_FILE"
-  fi
-done
-
 # Ensure wrapper exists
 if [ ! -d "pkg-wrapper" ]; then
     echo "pkg-wrapper directory missing!"
