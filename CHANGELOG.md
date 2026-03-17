@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.0...geo-polygonize-v0.17.1) (2026-03-17)
+
+
+### Performance Improvements
+
+* **core:** Use exterior area for canonical sort ([0e3888f](https://github.com/graydonpleasants/geo-polygonize/commit/0e3888f8bdc11ede51401f6cba3d69181353f79d))
+
 ## [0.17.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.16.0...geo-polygonize-v0.17.0) (2026-03-17)
 
 
