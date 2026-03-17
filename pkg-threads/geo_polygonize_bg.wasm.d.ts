@@ -14,6 +14,7 @@ export const polygonizerwasmerror_name: (a: number) => [number, number];
 export const polygonizerwasmerror_new: (a: number, b: number, c: number, d: number) => number;
 export const wasmpolygonresult_coords_len: (a: number) => number;
 export const wasmpolygonresult_coords_ptr: (a: number) => number;
+export const wasmpolygonresult_diagnostics: (a: number) => any;
 export const wasmpolygonresult_flat_line_ids_len: (a: number) => number;
 export const wasmpolygonresult_flat_line_ids_ptr: (a: number) => number;
 export const wasmpolygonresult_polygon_offsets_len: (a: number) => number;
