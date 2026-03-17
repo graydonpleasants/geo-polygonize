@@ -501,8 +501,10 @@ impl Polygonizer {
         if self.options.determinism.canonical_sort {
             let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
             result.sort_by(|p1, p2| {
-                let area1 = p1.unsigned_area_2d();
-                let area2 = p2.unsigned_area_2d();
+                // Optimization: for canonical sort, comparing just the exterior area is sufficient
+                // and avoids the overhead of looping through and subtracting interior hole areas.
+                let area1 = p1.exterior_unsigned_area_2d();
+                let area2 = p2.exterior_unsigned_area_2d();
                 // Sort polygons by area (descending)
                 area2.total_cmp(&area1).then_with(|| {
                     if !use_stable_tie_breaks {
