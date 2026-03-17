@@ -20,6 +20,24 @@ let initPromise: Promise<typeof exports> | undefined;
 // By calling init() with the correct Wasm binary, these exported functions will use that binary.
 export * from "../pkg-scalar/geo_polygonize.js";
 
+// Export auto-generated ts-rs bindings
+export * from "./bindings/PolygonizerOptions";
+export * from "./bindings/ContainmentOptions";
+export * from "./bindings/DeterminismOptions";
+export * from "./bindings/DiagnosticsOptions";
+export * from "./bindings/IndexBackend";
+export * from "./bindings/NodingBackend";
+export * from "./bindings/NodingOptions";
+export * from "./bindings/ProvenanceOptions";
+export * from "./bindings/SnapMode";
+export * from "./bindings/SnapStrategy";
+export * from "./bindings/TargetProfile";
+export * from "./bindings/TileOwnershipPolicy";
+export * from "./bindings/TilingOptions";
+export * from "./bindings/TouchPolicy";
+export * from "./bindings/ZOptions";
+export * from "./bindings/ZPolicy";
+
 // Override the init function
 // input is ignored because we are using inlined Wasm
 export default function init(_input?: any): Promise<typeof exports> {

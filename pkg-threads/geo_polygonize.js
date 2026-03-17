@@ -333,8 +333,15 @@ export class WasmPolygonResult {
     /**
      * @returns {any}
      */
-    provenance() {
+    get provenance() {
         const ret = wasm.wasmpolygonresult_provenance(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {any}
+     */
+    get diagnostics() {
+        const ret = wasm.wasmpolygonresult_diagnostics(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -811,6 +818,11 @@ function __wbg_get_imports() {
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
+        return ret;
+    };
+    imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
+        // Cast intrinsic for `U64 -> Externref`.
+        const ret = BigInt.asUintN(64, arg0);
         return ret;
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
