@@ -433,14 +433,19 @@ impl Polygonizer {
             }
 
             if self.options.determinism.canonical_sort {
-                let mut combined_holes: Vec<_> =
-                    holes.into_iter().zip(holes_ids.into_iter()).collect();
+                let mut combined_holes: Vec<_> = holes
+                    .into_iter()
+                    .zip(holes_ids)
+                    .map(|(h, hi)| {
+                        let area = Polygon3D::ring_signed_area_2d(&h).abs();
+                        (h, hi, area)
+                    })
+                    .collect();
+
                 let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
-                combined_holes.sort_by(|(h1, _), (h2, _)| {
-                    let area1 = Polygon3D::ring_signed_area_2d(h1).abs();
-                    let area2 = Polygon3D::ring_signed_area_2d(h2).abs();
+                combined_holes.sort_by(|(h1, _, area1), (h2, _, area2)| {
                     // Sort holes by area (descending)
-                    area2.total_cmp(&area1).then_with(|| {
+                    area2.total_cmp(area1).then_with(|| {
                         if !use_stable_tie_breaks {
                             return std::cmp::Ordering::Equal;
                         }
@@ -460,7 +465,12 @@ impl Polygonizer {
                             .then(h1.len().cmp(&h2.len()))
                     })
                 });
-                let (h, hi): (Vec<_>, Vec<_>) = combined_holes.into_iter().unzip();
+                let mut h = Vec::with_capacity(combined_holes.len());
+                let mut hi = Vec::with_capacity(combined_holes.len());
+                for (hole, ids, _) in combined_holes {
+                    h.push(hole);
+                    hi.push(ids);
+                }
                 holes = h;
                 holes_ids = hi;
             }
@@ -553,10 +563,16 @@ impl Polygonizer {
                 });
             }
 
-            invalid_rings.sort_by(|r1, r2| {
-                let area1 = Polygon3D::ring_signed_area_2d(r1).abs();
-                let area2 = Polygon3D::ring_signed_area_2d(r2).abs();
-                area2.total_cmp(&area1).then_with(|| {
+            let mut combined_invalid: Vec<_> = invalid_rings
+                .into_iter()
+                .map(|r| {
+                    let area = Polygon3D::ring_signed_area_2d(&r).abs();
+                    (r, area)
+                })
+                .collect();
+
+            combined_invalid.sort_by(|(r1, area1), (r2, area2)| {
+                area2.total_cmp(area1).then_with(|| {
                     if !use_stable_tie_breaks {
                         return std::cmp::Ordering::Equal;
                     }
@@ -575,6 +591,8 @@ impl Polygonizer {
                         .then(r1.len().cmp(&r2.len()))
                 })
             });
+
+            invalid_rings = combined_invalid.into_iter().map(|(r, _)| r).collect();
         }
 
         if let Some(ref mut d) = diag {
