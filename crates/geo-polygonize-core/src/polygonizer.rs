@@ -723,7 +723,12 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
     let mut prev = coords[unique_n - 1];
     let mut curr = coords[0];
 
-    for &next in coords.iter().skip(1).take(unique_n - 1).chain(std::iter::once(&coords[0])) {
+    for &next in coords
+        .iter()
+        .skip(1)
+        .take(unique_n - 1)
+        .chain(std::iter::once(&coords[0]))
+    {
         let in_edge = Coord {
             x: curr.x - prev.x,
             y: curr.y - prev.y,
