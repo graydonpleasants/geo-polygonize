@@ -235,11 +235,9 @@ def test_invalid_stride():
 def test_invalid_input_status(mock_lib):
     print("\nTesting invalid input status (status == 1)...")
     import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTypeError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
-    # Legacy wrapper mocked test.
     mock_lib.polygonize_result_get_status.return_value = 1
     mock_lib.polygonize_result_free.return_value = None
 
@@ -249,8 +247,8 @@ def test_invalid_input_status(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTypeError"
-    except PolygonizeTypeError as e:
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
         print(f"Caught expected error: {e}")
         assert "Invalid input provided to polygonize" in str(e)
     print("Invalid input status test passed!")
@@ -259,7 +257,6 @@ def test_invalid_input_status(mock_lib):
 def test_null_result_pointer(mock_lib):
     print("\nTesting null result pointer...")
     import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTopologyError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = cw.ffi.NULL
@@ -269,8 +266,8 @@ def test_null_result_pointer(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTopologyError"
-    except PolygonizeTopologyError as e:
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
         print(f"Caught expected error: {e}")
         assert "Polygonization failed (returned NULL)" in str(e)
     print("Null result pointer test passed!")
@@ -279,7 +276,6 @@ def test_null_result_pointer(mock_lib):
 def test_internal_error_status(mock_lib):
     print("\nTesting internal error status (status == 2)...")
     import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTopologyError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
@@ -291,8 +287,8 @@ def test_internal_error_status(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTopologyError"
-    except PolygonizeTopologyError as e:
+        assert False, "Should have raised RuntimeError"
+    except RuntimeError as e:
         print(f"Caught expected error: {e}")
         assert "Internal error during polygonization: 2" in str(e)
     print("Internal error status test passed!")

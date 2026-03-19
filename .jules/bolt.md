@@ -25,10 +25,6 @@
 **Learning:** O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops is a major bottleneck. Additionally, inside `simd.rs` and `polygonizer.rs` hot loops, computing square roots via `.sqrt()` causes unnecessary CPU overhead.
 **Action:** Pre-calculate `exterior_unsigned_area_2d` for all shells when initializing the `ContainmentForest` and store them in a vector `shell_areas: Vec<f64>`. Use squared comparisons (e.g. `tol_sq = eps * eps * a_len_sq`) to avoid costly `.sqrt()` mathematical computations.
 
-## 2026-03-17 - Manual loop tracking and early returns
-**Learning:** When refactoring index-based loops (`for i in 0..len` with modulo accesses) to use explicit variables like `prev`, `curr`, and `next` updated at each iteration, ensure that these tracking variables (`prev = curr; curr = next;`) are accurately maintained inside the loop structure, notably *before* any `continue` statements that short-circuit iteration. Failing to update state properly results in `unused_mut` warnings on loop variables and, more significantly, breaks algorithmic correctness.
-**Action:** When tracking rings or sequences iteratively using explicit variable updates without macros/utilities like `windows`, carefully analyze all branching and early return (`continue`) paths to guarantee state updates occur everywhere necessary.
-
 ## 2026-03-16 - [Schwartzian Transform for Ring Sorting]
 **Learning:** Performing expensive O(N) calculations like `ring_signed_area_2d` inside an O(K log K) sorting closure results in redundant computations (O(N * K log K)). Caching these values beforehand (Schwartzian Transform) reduces the complexity to O(N * K + K log K).
 **Action:** When sorting geometric rings by area in `polygonizer.rs` (for holes or invalid rings), always pre-calculate and cache the areas in a temporary `Vec` of tuples before sorting to avoid redundant Shoelace formula evaluations in the comparison closure.

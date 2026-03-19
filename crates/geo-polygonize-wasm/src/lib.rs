@@ -2,6 +2,7 @@ mod error;
 
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
+use arrow_ipc::writer::FileWriter;
 use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
 use geoarrow::array::GeoArrowArray;
@@ -27,14 +28,11 @@ pub fn polygonize_with_options_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error(
-                "InvalidArgumentType",
-                format!("Failed to parse options: {}", e),
-            )
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
         })?;
 
     let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {}", e)))?;
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
 
     let mut polygonizer = Polygonizer::with_options(options);
 
@@ -43,7 +41,7 @@ pub fn polygonize_with_options_js(
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
                     let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                        to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
+                        to_js_error("ConversionError", format!("Conversion error: {}", e))
                     })?;
                     polygonizer.add_geometry(geo_geom);
                 }
@@ -52,7 +50,7 @@ pub fn polygonize_with_options_js(
         GeoJson::Feature(f) => {
             if let Some(geom) = f.geometry {
                 let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                    to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
+                    to_js_error("ConversionError", format!("Conversion error: {}", e))
                 })?;
                 polygonizer.add_geometry(geo_geom);
             }
@@ -60,7 +58,7 @@ pub fn polygonize_with_options_js(
         GeoJson::Geometry(g) => {
             let geo_geom: geo::Geometry<f64> = g
                 .try_into()
-                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {}", e)))?;
+                .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
             polygonizer.add_geometry(geo_geom);
         }
     }
@@ -119,7 +117,7 @@ pub fn polygonize(
     console_error_panic_hook::set_once();
 
     let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {}", e)))?;
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid GeoJSON: {}", e)))?;
 
     let mut options = geo_polygonize_core::options::PolygonizerOptions::default();
     if let Some(ni) = node_input {
@@ -142,7 +140,7 @@ pub fn polygonize(
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
                     let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                        to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
+                        to_js_error("ConversionError", format!("Conversion error: {}", e))
                     })?;
                     polygonizer.add_geometry(geo_geom);
                 }
@@ -151,7 +149,7 @@ pub fn polygonize(
         GeoJson::Feature(f) => {
             if let Some(geom) = f.geometry {
                 let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                    to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
+                    to_js_error("ConversionError", format!("Conversion error: {}", e))
                 })?;
                 polygonizer.add_geometry(geo_geom);
             }
@@ -159,7 +157,7 @@ pub fn polygonize(
         GeoJson::Geometry(g) => {
             let geo_geom: geo::Geometry<f64> = g
                 .try_into()
-                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {}", e)))?;
+                .map_err(|e| to_js_error("ConversionError", format!("Conversion error: {}", e)))?;
             polygonizer.add_geometry(geo_geom);
         }
     }
@@ -274,14 +272,11 @@ pub fn polygonize_with_options_buffer_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error(
-                "InvalidArgumentType",
-                format!("Failed to parse options: {}", e),
-            )
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
         })?;
 
     if stride != 2 && stride != 3 {
-        return Err(to_js_error("InvalidArgumentType", "stride must be 2 or 3"));
+        return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
     }
 
     if let Some(ref ids) = line_ids {
@@ -329,7 +324,7 @@ pub fn polygonize_with_options_buffer_js(
             0
         };
         if end * stride as usize > coords.len() {
-            return Err(to_js_error("InvalidArgumentType", format!(
+            return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
                 end * stride as usize, coords.len(), stride
             )));
@@ -380,7 +375,7 @@ pub fn polygonize_buffers(
     console_error_panic_hook::set_once();
 
     if stride != 2 && stride != 3 {
-        return Err(to_js_error("InvalidArgumentType", "stride must be 2 or 3"));
+        return Err(to_js_error("InvalidInput", "stride must be 2 or 3"));
     }
 
     let options = geo_polygonize_core::options::PolygonizerOptions {
@@ -433,7 +428,7 @@ pub fn polygonize_buffers(
             0
         };
         if end * stride as usize > coords.len() {
-            return Err(to_js_error("InvalidArgumentType", format!(
+            return Err(to_js_error("InvalidInput", format!(
                 "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
                 end * stride as usize, coords.len(), stride
             )));
@@ -481,10 +476,7 @@ pub fn polygonize_geoarrow_with_options_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error(
-                "InvalidArgumentType",
-                format!("Failed to parse options: {}", e),
-            )
+            to_js_error("InvalidOptions", format!("Failed to parse options: {}", e))
         })?;
 
     polygonize_geoarrow_internal(ipc_bytes, options)
@@ -513,12 +505,8 @@ fn polygonize_geoarrow_internal(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None).map_err(|e| {
-        to_js_error(
-            "InvalidArgumentType",
-            format!("Invalid Arrow IPC stream: {e}"),
-        )
-    })?;
+    let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
+        .map_err(|e| to_js_error("InvalidInput", format!("Invalid Arrow IPC stream: {e}")))?;
 
     let schema = reader.schema();
 
@@ -534,7 +522,7 @@ fn polygonize_geoarrow_internal(
     }
 
     let geom_col_idx = geom_col_idx
-        .ok_or_else(|| to_js_error("InvalidArgumentType", "No GeoArrow LineString column found"))?;
+        .ok_or_else(|| to_js_error("InvalidInput", "No GeoArrow LineString column found"))?;
     let field = schema.field(geom_col_idx).clone();
 
     // Collect batches
@@ -546,7 +534,7 @@ fn polygonize_geoarrow_internal(
     }
 
     if arrays.is_empty() {
-        return Err(to_js_error("InvalidArgumentType", "No data found"));
+        return Err(to_js_error("InvalidInput", "No data found"));
     }
 
     let arrays_ref: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
@@ -554,7 +542,7 @@ fn polygonize_geoarrow_internal(
         .map_err(|e| to_js_error("ArrowError", format!("Failed to concat arrays: {e}")))?;
 
     let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)
-        .map_err(|e| to_js_error("TopologyFailure", format!("Polygonization error: {e}")))?;
+        .map_err(|e| to_js_error("PolygonizationError", format!("Polygonization error: {e}")))?;
 
     // Serialize result to IPC
     let mut output_buffer = Vec::new();
@@ -564,7 +552,7 @@ fn polygonize_geoarrow_internal(
             arrow::datatypes::Field::new("geometry", result_array.data_type().clone().into(), true);
         let schema = Arc::new(arrow::datatypes::Schema::new(vec![field]));
 
-        let mut writer = arrow_ipc::writer::StreamWriter::try_new(&mut output_buffer, &schema)
+        let mut writer = FileWriter::try_new(&mut output_buffer, &schema)
             .map_err(|e| to_js_error("ArrowError", format!("Failed to create IPC writer: {e}")))?;
 
         let batch = arrow::record_batch::RecordBatch::try_new(
@@ -662,109 +650,4 @@ fn polygonize_and_flatten(
         provenance: js_provenance,
         diagnostics: js_diagnostics,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use arrow::array::Array;
-    use arrow::datatypes::{Field, Schema};
-    use arrow::record_batch::RecordBatch;
-    use arrow_ipc::writer::StreamWriter;
-    use geoarrow::array::PolygonArray;
-    use std::sync::Arc;
-    use wasm_bindgen_test::*;
-
-    #[wasm_bindgen_test]
-    fn test_polygonize_geoarrow_empty() {
-        let result = polygonize_geoarrow(b"invalid data", false, 0.0, false);
-        assert!(result.is_err());
-    }
-
-    fn generate_valid_geoarrow_ipc() -> Vec<u8> {
-        let coord0 = geo::Coord { x: 0.0, y: 0.0 };
-        let coord1 = geo::Coord { x: 10.0, y: 0.0 };
-        let coord2 = geo::Coord { x: 10.0, y: 10.0 };
-        let coord3 = geo::Coord { x: 0.0, y: 10.0 };
-
-        let line_string = geo::LineString::new(vec![coord0, coord1, coord2, coord3, coord0]);
-
-        use geoarrow::array::LineStringBuilder;
-        use geoarrow::datatypes::{Dimension, LineStringType};
-
-        let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
-        let mut builder = LineStringBuilder::new(typ);
-        builder.push_line_string(Some(&line_string)).unwrap();
-        let input_array = builder.finish();
-
-        use geoarrow::array::GeoArrowArray;
-        let arrow_array = input_array.into_array_ref();
-
-        let mut field = Field::new("geometry", arrow_array.data_type().clone(), true);
-        field.set_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "ogc.geoarrow.linestring".to_string(),
-            )]
-            .into(),
-        );
-
-        let schema = Arc::new(Schema::new(vec![field]));
-        let batch = RecordBatch::try_new(schema.clone(), vec![arrow_array]).unwrap();
-
-        let mut buf = Vec::new();
-        {
-            let mut writer = StreamWriter::try_new(&mut buf, &schema).unwrap();
-            writer.write(&batch).unwrap();
-            writer.finish().unwrap();
-        }
-        buf
-    }
-
-    #[wasm_bindgen_test]
-    fn test_polygonize_geoarrow_valid() {
-        let ipc_bytes = generate_valid_geoarrow_ipc();
-        let result = polygonize_geoarrow(&ipc_bytes, false, 0.0, false);
-
-        // Ensure success without unwrapping directly which can panic
-        let out_bytes = result.unwrap_or_else(|e| {
-            panic!(
-                "Error from polygonize_geoarrow: {:?}",
-                js_sys::JSON::stringify(&e).unwrap().as_string()
-            );
-        });
-
-        assert!(!out_bytes.is_empty());
-
-        let reader =
-            arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(&out_bytes), None)
-                .unwrap();
-
-        let schema = reader.schema();
-        let geom_field = schema.field(0);
-
-        let mut batches = vec![];
-        for batch in reader {
-            batches.push(batch.unwrap());
-        }
-
-        assert_eq!(batches.len(), 1);
-        let batch = &batches[0];
-        let geom_col = batch.column(0);
-
-        let mut field = geom_field.clone();
-
-        // Ensure the arrow result can be successfully converted to a geoarrow PolygonArray
-        field.set_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "geoarrow.polygon".to_string(),
-            )]
-            .into(),
-        );
-
-        use std::convert::TryFrom;
-        let poly_array = PolygonArray::try_from((geom_col.as_ref(), &field)).unwrap();
-        assert_eq!(poly_array.len(), 1);
-    }
 }

@@ -127,32 +127,16 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
         options_ptr
     )
 
-    # To use our defined error types
-    # Since CFFI wrapper is a fallback, we need to import these classes dynamically.
-    # To avoid circular imports, we assume they are defined in __init__.py when CFFI fallback happens.
-    import sys
-    if 'geo_polygonize' in sys.modules:
-        PolygonizeTypeError = sys.modules['geo_polygonize'].PolygonizeTypeError
-        PolygonizeTopologyError = sys.modules['geo_polygonize'].PolygonizeTopologyError
-    else:
-        PolygonizeTypeError = ValueError
-        PolygonizeTopologyError = RuntimeError
-
     if res_ptr == ffi.NULL:
-        raise PolygonizeTopologyError("Polygonization failed (returned NULL)")
+        raise RuntimeError("Polygonization failed (returned NULL)")
 
     try:
-        # Note: if this C library no longer exports `polygonize_result_get_status`,
-        # this will fail gracefully or we can just catch the attribute error.
-        try:
-            status = lib.polygonize_result_get_status(res_ptr)
-            if status != 0:
-                 if status == 1:
-                     raise PolygonizeTypeError("Invalid input provided to polygonize")
-                 else:
-                     raise PolygonizeTopologyError(f"Internal error during polygonization: {status}")
-        except AttributeError:
-            pass
+        status = lib.polygonize_result_get_status(res_ptr)
+        if status != 0:
+             if status == 1:
+                 raise ValueError("Invalid input provided to polygonize")
+             else:
+                 raise RuntimeError(f"Internal error during polygonization: {status}")
 
         out_stride = lib.polygonize_result_get_stride(res_ptr)
         flat_len = lib.polygonize_result_get_flat_coords_len(res_ptr)

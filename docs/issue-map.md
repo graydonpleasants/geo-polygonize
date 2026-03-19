@@ -71,7 +71,6 @@ Suggested labels:
 - **Blocks**: none
 - **Parallel with**: P1-002, P1-003
 - **Suggested owner**: bindings
-- **Status**: Complete
 - **Acceptance**:
   - no opaque JS type errors for expected misuse
   - Python exposes typed exception families
