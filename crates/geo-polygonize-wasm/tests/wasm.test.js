@@ -42,23 +42,40 @@ describe('WASM Polygonizer', () => {
     });
 
     it('should throw error on invalid JSON syntax', async () => {
+        expect.assertions(2);
         await init();
         const input = "{ invalid json }";
-        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+        try {
+            polygonize(input);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toMatch(/Invalid GeoJSON/);
+        }
     });
 
     it('should throw error on empty string input', async () => {
+        expect.assertions(2);
         await init();
         const input = "";
-        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
-        expect(() => polygonize(input)).toThrow(/EOF while parsing a value/);
+        try {
+            polygonize(input);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toMatch(/Invalid GeoJSON/);
+        }
     });
 
     it('should throw error on valid JSON but invalid GeoJSON structure', async () => {
+        expect.assertions(4);
         await init();
         // Missing "type" field
         const input = JSON.stringify({ "foo": "bar" });
-        expect(() => polygonize(input)).toThrow(/Invalid GeoJSON/);
+        try {
+            polygonize(input);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toMatch(/Invalid GeoJSON/);
+        }
 
         // Invalid geometry type
         const input2 = JSON.stringify({
@@ -68,7 +85,12 @@ describe('WASM Polygonizer', () => {
                 "coordinates": []
             }
         });
-        expect(() => polygonize(input2)).toThrow(/Invalid GeoJSON/);
+        try {
+            polygonize(input2);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toMatch(/Invalid GeoJSON/);
+        }
     });
 
     it('should behave differently with explicit options (parity with backend)', async () => {
@@ -142,6 +164,7 @@ describe('WASM Polygonizer', () => {
     });
 
     it('should throw error when line_ids length does not match offsets length', async () => {
+        expect.assertions(2);
         await init();
         const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
 
@@ -151,9 +174,12 @@ describe('WASM Polygonizer', () => {
         const line_ids = new Uint32Array([42, 43]); // 2 ids
         const options = { target: 'WasmSingleThread', node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap', snap_mode: 'FloatEpsilonDedup' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare', index_backend: 'RStar' }, tiling: null, z: { policy: 'Ignore' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
 
-        expect(() => {
+        try {
             polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
-        }).toThrow(/line_ids length 2 does not match line count 1/);
+        } catch (e) {
+            expect(e.name).toBe("InvalidBufferShape");
+            expect(e.message).toMatch(/line_ids length 2 does not match line count 1/);
+        }
     });
 
 });
