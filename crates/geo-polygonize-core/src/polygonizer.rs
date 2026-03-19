@@ -872,7 +872,7 @@ fn segments_overlap_with_length(
     let overlap_start = 0.0_f64.max(min_t);
     let overlap_end = 1.0_f64.min(max_t);
 
-    overlap_end - overlap_start > eps
+    (overlap_end - overlap_start) * a_len_sq.sqrt() > eps
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
@@ -949,5 +949,108 @@ mod tests {
         assert_eq!(polygonizer.input_lines.len(), 2);
         assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
         assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
+    }
+
+    #[test]
+    fn test_rings_share_edge() {
+        let shell = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // 1. Identical edge (opposite direction)
+        let hole1 = vec![
+            Coord3D::new(2.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(2.0, 1.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+        ];
+        // shell has (0,0)->(10,0). hole1 has (2,0)->(1,0) which is on the same line.
+        assert!(rings_share_edge(&shell, &hole1, 1e-10));
+
+        // 2. Partial overlap
+        let hole2 = vec![
+            Coord3D::new(-1.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(1.0, -1.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(-1.0, 0.0, 0.0),
+        ];
+        // shell (0,0)->(10,0). hole2 (-1,0)->(1,0). Overlap is (0,0)->(1,0).
+        assert!(rings_share_edge(&shell, &hole2, 1e-10));
+
+        // 3. Touching at vertex only
+        let hole3 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(0.0, -1.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole3, 1e-10));
+
+        // 4. Disjoint but collinear
+        let hole4 = vec![
+            Coord3D::new(11.0, 0.0, 0.0),
+            Coord3D::new(12.0, 0.0, 0.0),
+            Coord3D::new(12.0, 1.0, 0.0),
+            Coord3D::new(11.0, 1.0, 0.0),
+            Coord3D::new(11.0, 0.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole4, 1e-10));
+
+        // 5. Parallel but not collinear
+        let hole5 = vec![
+            Coord3D::new(0.0, -1.0, 0.0),
+            Coord3D::new(10.0, -1.0, 0.0),
+            Coord3D::new(10.0, -2.0, 0.0),
+            Coord3D::new(0.0, -2.0, 0.0),
+            Coord3D::new(0.0, -1.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole5, 1e-10));
+
+        // 6. Shared edge with epsilon (within distance)
+        let hole6 = vec![
+            Coord3D::new(0.0, 1e-11, 0.0),
+            Coord3D::new(10.0, 1e-11, 0.0),
+            Coord3D::new(10.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1e-11, 0.0),
+        ];
+        assert!(rings_share_edge(&shell, &hole6, 1e-10));
+
+        // 7. Shared edge with epsilon (just outside distance)
+        let hole7 = vec![
+            Coord3D::new(0.0, 1e-9, 0.0),
+            Coord3D::new(10.0, 1e-9, 0.0),
+            Coord3D::new(10.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1e-9, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole7, 1e-10));
+
+        // 8. Short segment bug case
+        let shell_short = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.01, 0.0, 0.0),
+            Coord3D::new(0.01, 0.01, 0.0),
+            Coord3D::new(0.0, 0.01, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        let hole_short = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.01, 0.0, 0.0),
+            Coord3D::new(0.01, -0.01, 0.0),
+            Coord3D::new(0.0, -0.01, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        // Overlap is (0,0) -> (0.01, 0), length 0.01.
+        // If eps is 0.1, it should NOT share edge.
+        assert!(!rings_share_edge(&shell_short, &hole_short, 0.1));
+        // If eps is 0.001, it SHOULD share edge.
+        assert!(rings_share_edge(&shell_short, &hole_short, 0.001));
     }
 }
