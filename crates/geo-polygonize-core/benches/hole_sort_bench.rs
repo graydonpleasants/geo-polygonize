@@ -1,8 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use geo_polygonize_core::{Polygonizer, PolygonizerOptions, Coord3D, Line3D};
+use geo_polygonize_core::{Coord3D, Line3D, Polygonizer, PolygonizerOptions};
 use std::f64::consts::PI;
 
-fn generate_circle_points(center_x: f64, center_y: f64, radius: f64, num_points: usize) -> Vec<Coord3D> {
+fn generate_circle_points(
+    center_x: f64,
+    center_y: f64,
+    radius: f64,
+    num_points: usize,
+) -> Vec<Coord3D> {
     let mut points = Vec::with_capacity(num_points + 1);
     for i in 0..num_points {
         let angle = 2.0 * PI * (i as f64) / (num_points as f64);
@@ -23,7 +28,7 @@ fn generate_hole_sort_scenario(num_holes: usize, points_per_hole: usize) -> Vec<
     // Outer shell: a large circle CCW
     let shell_points = generate_circle_points(500.0, 500.0, 500.0, 100);
     for i in 0..shell_points.len() - 1 {
-        lines.push(Line3D::new(shell_points[i], shell_points[i+1], 0));
+        lines.push(Line3D::new(shell_points[i], shell_points[i + 1], 0));
     }
 
     // Many holes: small circles CW
@@ -33,7 +38,11 @@ fn generate_hole_sort_scenario(num_holes: usize, points_per_hole: usize) -> Vec<
         let mut hole_points = generate_circle_points(x, y, 10.0, points_per_hole);
         hole_points.reverse(); // Make it CW for hole
         for j in 0..hole_points.len() - 1 {
-            lines.push(Line3D::new(hole_points[j], hole_points[j+1], (i + 1) as u32));
+            lines.push(Line3D::new(
+                hole_points[j],
+                hole_points[j + 1],
+                (i + 1) as u32,
+            ));
         }
     }
 
