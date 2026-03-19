@@ -627,38 +627,42 @@ fn process_invalid_rings(
         }
     }
 
-    // Sort by 2D bbox area in ascending order
-    processable.sort_by(|a, b| {
-        let get_bbox_area = |ring: &Polygon3D| {
-            if ring.exterior.is_empty() {
-                return 0.0;
-            }
-            let mut min_x = ring.exterior[0].x;
-            let mut max_x = ring.exterior[0].x;
-            let mut min_y = ring.exterior[0].y;
-            let mut max_y = ring.exterior[0].y;
-            for c in &ring.exterior[1..] {
-                if c.x < min_x {
-                    min_x = c.x;
+    // Sort by 2D bbox area in ascending order using Schwartzian Transform
+    let mut processable_with_areas: Vec<_> = processable
+        .into_iter()
+        .map(|ring| {
+            let area = if ring.exterior.is_empty() {
+                0.0
+            } else {
+                let mut min_x = ring.exterior[0].x;
+                let mut max_x = ring.exterior[0].x;
+                let mut min_y = ring.exterior[0].y;
+                let mut max_y = ring.exterior[0].y;
+                for c in &ring.exterior[1..] {
+                    if c.x < min_x {
+                        min_x = c.x;
+                    }
+                    if c.x > max_x {
+                        max_x = c.x;
+                    }
+                    if c.y < min_y {
+                        min_y = c.y;
+                    }
+                    if c.y > max_y {
+                        max_y = c.y;
+                    }
                 }
-                if c.x > max_x {
-                    max_x = c.x;
-                }
-                if c.y < min_y {
-                    min_y = c.y;
-                }
-                if c.y > max_y {
-                    max_y = c.y;
-                }
-            }
-            (max_x - min_x) * (max_y - min_y)
-        };
-        let area_a = get_bbox_area(a);
-        let area_b = get_bbox_area(b);
-        area_a
-            .partial_cmp(&area_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
+                (max_x - min_x) * (max_y - min_y)
+            };
+            (ring, area)
+        })
+        .collect();
+
+    processable_with_areas.sort_by(|(_, area_a), (_, area_b)| {
+        area_a.total_cmp(area_b)
     });
+
+    let processable: Vec<_> = processable_with_areas.into_iter().map(|(r, _)| r).collect();
 
     struct RingPair {
         p3d: Polygon3D,
