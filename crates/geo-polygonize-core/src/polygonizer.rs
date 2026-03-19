@@ -1006,11 +1006,11 @@ mod tests {
 
         // 7. Shared edge with epsilon (just outside distance)
         let hole7 = vec![
-            Coord3D::new(0.0, 1e-9, 0.0),
-            Coord3D::new(10.0, 1e-9, 0.0),
-            Coord3D::new(10.0, 1.0, 0.0),
-            Coord3D::new(0.0, 1.0, 0.0),
-            Coord3D::new(0.0, 1e-9, 0.0),
+            Coord3D::new(1.0, 1e-9, 0.0),
+            Coord3D::new(9.0, 1e-9, 0.0),
+            Coord3D::new(9.0, 1.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(1.0, 1e-9, 0.0),
         ];
         assert!(!rings_share_edge(&shell, &hole7, 1e-10));
 
