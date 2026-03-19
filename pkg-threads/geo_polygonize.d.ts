@@ -1,3 +1,4 @@
+import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';
 /* tslint:disable */
 /* eslint-disable */
 
@@ -15,7 +16,6 @@ export class WasmPolygonResult {
   [Symbol.dispose](): void;
   coords_len(): number;
   coords_ptr(): number;
-  provenance(): any;
   ring_offsets_len(): number;
   ring_offsets_ptr(): number;
   flat_line_ids_len(): number;
@@ -23,17 +23,19 @@ export class WasmPolygonResult {
   polygon_offsets_len(): number;
   polygon_offsets_ptr(): number;
   stride(): number;
+  readonly provenance: any;
+  readonly diagnostics: any;
 }
 
 export function initThreadPool(num_threads: number): Promise<any>;
 
 export function polygonize(geojson_str: string, node_input?: boolean | null, snap_grid_size?: number | null, extract_only_polygonal?: boolean | null, report_mode?: boolean | null): string;
 
-export function polygonizeGeoArrowWithOptions(ipc_bytes: Uint8Array, options_val: any): Uint8Array;
+export function polygonizeGeoArrowWithOptions(ipc_bytes: Uint8Array, options_val: Partial<PolygonizerOptions>): Uint8Array;
 
-export function polygonizeWithOptions(geojson_str: string, options_val: any): string;
+export function polygonizeWithOptions(geojson_str: string, options_val: Partial<PolygonizerOptions>): string;
 
-export function polygonizeWithOptionsBuffer(coords: Float64Array, offsets: Uint32Array, stride: number, options_val: any, line_ids?: Uint32Array | null): WasmPolygonResult;
+export function polygonizeWithOptionsBuffer(coords: Float64Array, offsets: Uint32Array, stride: number, options_val: Partial<PolygonizerOptions>, line_ids?: Uint32Array | null): WasmPolygonResult;
 
 export function polygonize_buffers(coords: Float64Array, offsets: Uint32Array, stride: number, node_input: boolean, snap_grid_size: number, line_ids?: Uint32Array | null): WasmPolygonResult;
 
@@ -67,6 +69,7 @@ export interface InitOutput {
   readonly polygonizerwasmerror_new: (a: number, b: number, c: number, d: number) => number;
   readonly wasmpolygonresult_coords_len: (a: number) => number;
   readonly wasmpolygonresult_coords_ptr: (a: number) => number;
+  readonly wasmpolygonresult_diagnostics: (a: number) => any;
   readonly wasmpolygonresult_flat_line_ids_len: (a: number) => number;
   readonly wasmpolygonresult_flat_line_ids_ptr: (a: number) => number;
   readonly wasmpolygonresult_polygon_offsets_len: (a: number) => number;

@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-core"
-version = "0.16.0"
+version = "0.17.1"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -28,6 +28,7 @@ geo-traits = "0.3.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 humantime-serde = "1.1.1"
+ts-rs = "12.0.1"
 
 [dev-dependencies]
 approx = "0.5"
@@ -57,4 +58,8 @@ getrandom = { version = "0.2", features = ["js"] }
 
 [[bench]]
 name = "extract_bench"
+harness = false
+
+[[bench]]
+name = "hole_sort_bench"
 harness = false

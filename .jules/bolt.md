@@ -20,3 +20,11 @@
 ## 2025-05-18 - Iterator Array Optimization
 **Learning:** Using `.windows(2)` and explicitly tracked iterators (like tracking `prev` while looping `curr` over `slice.iter()`) provides a measurable performance improvement and avoids O(N) array bounds-checking overhead compared to explicit index looping like `for i in 0..slice.len()`.
 **Action:** When tracking rings or adjacent items sequentially within an array, maintain references to the `prev` and `curr` values while looping `for curr in iter` rather than accessing `slice[(k-1) % len]` and `slice[k]`.
+
+## 2025-03-16 - [Caching shoelace areas and avoiding square roots]
+**Learning:** O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops is a major bottleneck. Additionally, inside `simd.rs` and `polygonizer.rs` hot loops, computing square roots via `.sqrt()` causes unnecessary CPU overhead.
+**Action:** Pre-calculate `exterior_unsigned_area_2d` for all shells when initializing the `ContainmentForest` and store them in a vector `shell_areas: Vec<f64>`. Use squared comparisons (e.g. `tol_sq = eps * eps * a_len_sq`) to avoid costly `.sqrt()` mathematical computations.
+
+## 2026-03-16 - [Schwartzian Transform for Ring Sorting]
+**Learning:** Performing expensive O(N) calculations like `ring_signed_area_2d` inside an O(K log K) sorting closure results in redundant computations (O(N * K log K)). Caching these values beforehand (Schwartzian Transform) reduces the complexity to O(N * K + K log K).
+**Action:** When sorting geometric rings by area in `polygonizer.rs` (for holes or invalid rings), always pre-calculate and cache the areas in a temporary `Vec` of tuples before sorting to avoid redundant Shoelace formula evaluations in the comparison closure.
