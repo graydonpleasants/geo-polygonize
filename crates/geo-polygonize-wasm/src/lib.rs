@@ -28,7 +28,10 @@ pub fn polygonize_with_options_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error("InvalidArgumentType", format!("Failed to parse options: {}", e))
+            to_js_error(
+                "InvalidArgumentType",
+                format!("Failed to parse options: {}", e),
+            )
         })?;
 
     let geojson = GeoJson::from_str(geojson_str)
@@ -272,7 +275,10 @@ pub fn polygonize_with_options_buffer_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error("InvalidArgumentType", format!("Failed to parse options: {}", e))
+            to_js_error(
+                "InvalidArgumentType",
+                format!("Failed to parse options: {}", e),
+            )
         })?;
 
     if stride != 2 && stride != 3 {
@@ -476,7 +482,10 @@ pub fn polygonize_geoarrow_with_options_js(
 
     let options: geo_polygonize_core::options::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
-            to_js_error("InvalidArgumentType", format!("Failed to parse options: {}", e))
+            to_js_error(
+                "InvalidArgumentType",
+                format!("Failed to parse options: {}", e),
+            )
         })?;
 
     polygonize_geoarrow_internal(ipc_bytes, options)
@@ -505,8 +514,12 @@ fn polygonize_geoarrow_internal(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid Arrow IPC stream: {e}")))?;
+    let reader = StreamReader::try_new(Cursor::new(ipc_bytes), None).map_err(|e| {
+        to_js_error(
+            "InvalidArgumentType",
+            format!("Invalid Arrow IPC stream: {e}"),
+        )
+    })?;
 
     let schema = reader.schema();
 
