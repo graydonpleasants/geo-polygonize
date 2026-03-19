@@ -738,11 +738,15 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
         .unwrap_or(1.0);
     let eps = (diag * 1e-9).max(1e-10);
 
-    for i in 0..unique_n {
-        let prev = coords[(i + unique_n - 1) % unique_n];
-        let curr = coords[i];
-        let next = coords[(i + 1) % unique_n];
+    let mut prev = coords[unique_n - 1];
+    let mut curr = coords[0];
 
+    for &next in coords
+        .iter()
+        .skip(1)
+        .take(unique_n - 1)
+        .chain(std::iter::once(&coords[0]))
+    {
         let in_edge = Coord {
             x: curr.x - prev.x,
             y: curr.y - prev.y,
@@ -752,11 +756,15 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             y: next.y - curr.y,
         };
 
-        let in_len = (in_edge.x * in_edge.x + in_edge.y * in_edge.y).sqrt();
-        let out_len = (out_edge.x * out_edge.x + out_edge.y * out_edge.y).sqrt();
-        if in_len < 1e-12 || out_len < 1e-12 {
+        let in_len_sq = in_edge.x * in_edge.x + in_edge.y * in_edge.y;
+        let out_len_sq = out_edge.x * out_edge.x + out_edge.y * out_edge.y;
+        if in_len_sq < 1e-24 || out_len_sq < 1e-24 {
+            prev = curr;
+            curr = next;
             continue;
         }
+        let in_len = in_len_sq.sqrt();
+        let out_len = out_len_sq.sqrt();
 
         let turn = in_edge.x * out_edge.y - in_edge.y * out_edge.x;
         let convex = if area > 0.0 {
@@ -765,6 +773,8 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             turn < -1e-12
         };
         if !convex {
+            prev = curr;
+            curr = next;
             continue;
         }
 
@@ -781,10 +791,13 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             x: to_prev.x + to_next.x,
             y: to_prev.y + to_next.y,
         };
-        let bisector_len = (bisector.x * bisector.x + bisector.y * bisector.y).sqrt();
-        if bisector_len < 1e-12 {
+        let bisector_len_sq = bisector.x * bisector.x + bisector.y * bisector.y;
+        if bisector_len_sq < 1e-24 {
+            prev = curr;
+            curr = next;
             continue;
         }
+        let bisector_len = bisector_len_sq.sqrt();
 
         let bisector_unit = Coord {
             x: bisector.x / bisector_len,
@@ -800,6 +813,9 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
                 return Some(geo_types::Point(candidate));
             }
         }
+
+        prev = curr;
+        curr = next;
     }
 
     Some(geo_types::Point(coords[0].to_coord_2d()))
