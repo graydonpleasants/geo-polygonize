@@ -472,7 +472,7 @@ The roadmap is complete when:
 - [x] checked-in fixtures
 - [x] golden tests
 - [x] first diagnostics object
-- [ ] typed Wasm/Python errors
+- [x] typed Wasm/Python errors
 - [ ] initial report mode scaffold
 
 ## Milestone M2: Stable Options API + Provenance Surface

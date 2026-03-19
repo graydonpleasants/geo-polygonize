@@ -73,10 +73,10 @@ build_variant() {
 }
 
 # Build Scalar
-build_variant "scalar" ""
+build_variant "scalar" "" &
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128"
+build_variant "simd" "-C target-feature=+simd128" &
 
 # Build Threads
 build_variant_threads() {
@@ -128,7 +128,9 @@ build_variant_threads() {
     rm -f $OUT_DIR/.gitignore
 }
 
-build_variant_threads
+build_variant_threads &
+
+wait
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
