@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.4](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.3...geo-polygonize-v0.17.4) (2026-03-19)
+
+
+### Performance Improvements
+
+* **core:** optimize guaranteed interior probe loop ([#326](https://github.com/graydonpleasants/geo-polygonize/issues/326)) ([63da01c](https://github.com/graydonpleasants/geo-polygonize/commit/63da01cf50c0ae868658ab254661d984085b4645))
+
 ## [0.17.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.2...geo-polygonize-v0.17.3) (2026-03-19)
 
 
