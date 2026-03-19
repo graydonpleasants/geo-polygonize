@@ -1,4 +1,3 @@
-import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';
 /* tslint:disable */
 /* eslint-disable */
 
@@ -31,11 +30,11 @@ export function initThreadPool(num_threads: number): Promise<any>;
 
 export function polygonize(geojson_str: string, node_input?: boolean | null, snap_grid_size?: number | null, extract_only_polygonal?: boolean | null, report_mode?: boolean | null): string;
 
-export function polygonizeGeoArrowWithOptions(ipc_bytes: Uint8Array, options_val: Partial<PolygonizerOptions>): Uint8Array;
+export function polygonizeGeoArrowWithOptions(ipc_bytes: Uint8Array, options_val: any): Uint8Array;
 
-export function polygonizeWithOptions(geojson_str: string, options_val: Partial<PolygonizerOptions>): string;
+export function polygonizeWithOptions(geojson_str: string, options_val: any): string;
 
-export function polygonizeWithOptionsBuffer(coords: Float64Array, offsets: Uint32Array, stride: number, options_val: Partial<PolygonizerOptions>, line_ids?: Uint32Array | null): WasmPolygonResult;
+export function polygonizeWithOptionsBuffer(coords: Float64Array, offsets: Uint32Array, stride: number, options_val: any, line_ids?: Uint32Array | null): WasmPolygonResult;
 
 export function polygonize_buffers(coords: Float64Array, offsets: Uint32Array, stride: number, node_input: boolean, snap_grid_size: number, line_ids?: Uint32Array | null): WasmPolygonResult;
 
