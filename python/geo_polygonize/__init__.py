@@ -4,10 +4,29 @@ import numpy as np
 import json
 
 try:
-    from .geo_polygonize_core import polygonize as _polygonize_impl
-    from .geo_polygonize_core import polygonize_with_options as _polygonize_with_options_impl
+    from .geo_polygonize_core import (
+        polygonize as _polygonize_impl,
+        polygonize_with_options as _polygonize_with_options_impl,
+        PolygonizeTypeError,
+        PolygonizeGeometryError,
+        PolygonizeOptionsError,
+        PolygonizeTopologyError
+    )
 except ImportError:
     from .cffi_wrapper import polygonize as _polygonize_impl
+
+    # Fallback exception classes if C extension is missing
+    class PolygonizeTypeError(ValueError):
+        pass
+
+    class PolygonizeGeometryError(ValueError):
+        pass
+
+    class PolygonizeOptionsError(ValueError):
+        pass
+
+    class PolygonizeTopologyError(ValueError):
+        pass
 
 def polygonize_with_options(lines=None, coords=None, offsets=None, options=None, stride=None, line_ids=None, return_polygons=False):
     """

@@ -157,14 +157,7 @@ def test_import_error_fallback():
     import builtins
     import geo_polygonize
 
-    real_import = builtins.__import__
-
-    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if 'geo_polygonize_core' in name or (fromlist and 'geo_polygonize_core' in fromlist):
-            raise ImportError("Mocked ImportError for testing")
-        return real_import(name, globals, locals, fromlist, level)
-
-    with patch('builtins.__import__', side_effect=mock_import):
+    with patch.dict('sys.modules', {'geo_polygonize.geo_polygonize_core': None, 'geo_polygonize_core': None}):
         importlib.reload(geo_polygonize)
 
         import geo_polygonize.cffi_wrapper as cffi_wrapper
@@ -190,13 +183,7 @@ def test_return_polygons_without_shapely():
     import builtins
     import unittest.mock
 
-    real_import = builtins.__import__
-    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == 'shapely.geometry' or name == 'shapely':
-            raise ImportError("Mocked ImportError")
-        return real_import(name, globals, locals, fromlist, level)
-
-    with unittest.mock.patch('builtins.__import__', side_effect=mock_import):
+    with unittest.mock.patch.dict('sys.modules', {'shapely': None, 'shapely.geometry': None}):
         try:
             polygonize(coords, offsets, return_polygons=True)
             assert False, "Should have raised ImportError"
@@ -248,9 +235,11 @@ def test_invalid_stride():
 def test_invalid_input_status(mock_lib):
     print("\nTesting invalid input status (status == 1)...")
     import geo_polygonize.cffi_wrapper as cw
+    from geo_polygonize import PolygonizeTypeError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
+    # Legacy wrapper mocked test.
     mock_lib.polygonize_result_get_status.return_value = 1
     mock_lib.polygonize_result_free.return_value = None
 
@@ -260,8 +249,8 @@ def test_invalid_input_status(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
+        assert False, "Should have raised PolygonizeTypeError"
+    except PolygonizeTypeError as e:
         print(f"Caught expected error: {e}")
         assert "Invalid input provided to polygonize" in str(e)
     print("Invalid input status test passed!")
@@ -270,6 +259,7 @@ def test_invalid_input_status(mock_lib):
 def test_null_result_pointer(mock_lib):
     print("\nTesting null result pointer...")
     import geo_polygonize.cffi_wrapper as cw
+    from geo_polygonize import PolygonizeTopologyError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = cw.ffi.NULL
@@ -279,8 +269,8 @@ def test_null_result_pointer(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised RuntimeError"
-    except RuntimeError as e:
+        assert False, "Should have raised PolygonizeTopologyError"
+    except PolygonizeTopologyError as e:
         print(f"Caught expected error: {e}")
         assert "Polygonization failed (returned NULL)" in str(e)
     print("Null result pointer test passed!")
@@ -289,6 +279,7 @@ def test_null_result_pointer(mock_lib):
 def test_internal_error_status(mock_lib):
     print("\nTesting internal error status (status == 2)...")
     import geo_polygonize.cffi_wrapper as cw
+    from geo_polygonize import PolygonizeTopologyError
 
     # Mock the return values
     mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
@@ -300,8 +291,8 @@ def test_internal_error_status(mock_lib):
 
     try:
         cw.polygonize(coords, offsets)
-        assert False, "Should have raised RuntimeError"
-    except RuntimeError as e:
+        assert False, "Should have raised PolygonizeTopologyError"
+    except PolygonizeTopologyError as e:
         print(f"Caught expected error: {e}")
         assert "Internal error during polygonization: 2" in str(e)
     print("Internal error status test passed!")
@@ -383,24 +374,6 @@ def test_3d_to_2d_slicing():
     print("3D to 2D slicing test passed!")
 
 
-if __name__ == "__main__":
-    test_square()
-    test_two_squares()
-    test_square_with_hole()
-    test_3d_coordinates()
-    test_missing_args()
-    test_odd_length_coordinates()
-    test_import_error_fallback()
-    test_return_polygons_without_shapely()
-    test_library_not_found()
-    test_invalid_shape_mismatch()
-    test_invalid_stride()
-    test_invalid_input_status()
-    test_internal_error_status()
-    test_null_result_pointer()
-    test_3d_to_2d_slicing()
-    test_polygonize_with_options()
-
 def test_rust_typed_errors():
     print("\nTesting Rust typed errors propagation...")
     import geo_polygonize
@@ -424,4 +397,55 @@ def test_rust_typed_errors():
         print(f"Caught expected error from bounds check: {e}")
         assert "Invalid offsets" in str(e) or "Invalid input" in str(e)
 
-    print("Rust typed error bounds propagation test passed!")
+
+def test_extract_only_polygonal():
+    print("\nTesting extract_only_polygonal API...")
+    from geo_polygonize import polygonize
+
+    # Create a square with a hole AND a line segment connecting the hole to the shell.
+    # Outer Square: (0,0)->(10,0)->(10,10)->(0,10)->(0,0)
+    # Inner Hole: (2,2)->(8,2)->(8,8)->(2,8)->(2,2)
+    # Cut edge connecting outer to inner: (0,5)->(2,5)
+    coords = np.array([
+        # Outer
+        0.0, 0.0, 10.0, 0.0,
+        10.0, 0.0, 10.0, 10.0,
+        10.0, 10.0, 0.0, 10.0,
+        0.0, 10.0, 0.0, 0.0,
+        # Hole
+        2.0, 2.0, 8.0, 2.0,
+        8.0, 2.0, 8.0, 8.0,
+        8.0, 8.0, 2.0, 8.0,
+        2.0, 8.0, 2.0, 2.0,
+        # Cut edge connecting them
+        0.0, 5.0, 2.0, 5.0
+    ], dtype=np.float64)
+    offsets = np.array([0, 2, 4, 6, 8, 10, 12, 14, 16], dtype=np.uint32)
+
+    result_regular = polygonize(coords, offsets)
+    assert len(result_regular['polygons']) == 2
+
+    result_only_polygonal = polygonize(coords, offsets, extract_only_polygonal=True)
+    assert len(result_only_polygonal['polygons']) == 1
+
+    print("extract_only_polygonal test passed!")
+
+if __name__ == "__main__":
+    test_square()
+    test_two_squares()
+    test_square_with_hole()
+    test_3d_coordinates()
+    test_missing_args()
+    test_odd_length_coordinates()
+    test_import_error_fallback()
+    test_return_polygons_without_shapely()
+    test_library_not_found()
+    test_invalid_shape_mismatch()
+    test_invalid_stride()
+    test_invalid_input_status()
+    test_internal_error_status()
+    test_null_result_pointer()
+    test_3d_to_2d_slicing()
+    test_polygonize_with_options()
+    test_rust_typed_errors()
+    test_extract_only_polygonal()

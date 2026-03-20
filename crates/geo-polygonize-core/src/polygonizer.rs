@@ -738,11 +738,15 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
         .unwrap_or(1.0);
     let eps = (diag * 1e-9).max(1e-10);
 
-    for i in 0..unique_n {
-        let prev = coords[(i + unique_n - 1) % unique_n];
-        let curr = coords[i];
-        let next = coords[(i + 1) % unique_n];
+    let mut prev = coords[unique_n - 1];
+    let mut curr = coords[0];
 
+    for &next in coords
+        .iter()
+        .skip(1)
+        .take(unique_n - 1)
+        .chain(std::iter::once(&coords[0]))
+    {
         let in_edge = Coord {
             x: curr.x - prev.x,
             y: curr.y - prev.y,
@@ -752,11 +756,15 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             y: next.y - curr.y,
         };
 
-        let in_len = (in_edge.x * in_edge.x + in_edge.y * in_edge.y).sqrt();
-        let out_len = (out_edge.x * out_edge.x + out_edge.y * out_edge.y).sqrt();
-        if in_len < 1e-12 || out_len < 1e-12 {
+        let in_len_sq = in_edge.x * in_edge.x + in_edge.y * in_edge.y;
+        let out_len_sq = out_edge.x * out_edge.x + out_edge.y * out_edge.y;
+        if in_len_sq < 1e-24 || out_len_sq < 1e-24 {
+            prev = curr;
+            curr = next;
             continue;
         }
+        let in_len = in_len_sq.sqrt();
+        let out_len = out_len_sq.sqrt();
 
         let turn = in_edge.x * out_edge.y - in_edge.y * out_edge.x;
         let convex = if area > 0.0 {
@@ -765,6 +773,8 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             turn < -1e-12
         };
         if !convex {
+            prev = curr;
+            curr = next;
             continue;
         }
 
@@ -781,10 +791,13 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
             x: to_prev.x + to_next.x,
             y: to_prev.y + to_next.y,
         };
-        let bisector_len = (bisector.x * bisector.x + bisector.y * bisector.y).sqrt();
-        if bisector_len < 1e-12 {
+        let bisector_len_sq = bisector.x * bisector.x + bisector.y * bisector.y;
+        if bisector_len_sq < 1e-24 {
+            prev = curr;
+            curr = next;
             continue;
         }
+        let bisector_len = bisector_len_sq.sqrt();
 
         let bisector_unit = Coord {
             x: bisector.x / bisector_len,
@@ -800,6 +813,9 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
                 return Some(geo_types::Point(candidate));
             }
         }
+
+        prev = curr;
+        curr = next;
     }
 
     Some(geo_types::Point(coords[0].to_coord_2d()))
@@ -856,10 +872,11 @@ fn segments_overlap_with_length(
     }
 
     // Collinearity checks for segment B endpoints against segment A line
+    // using squared comparisons to avoid costly `.sqrt()`
     let cross_b1 = ax * (b1.y - a1.y) - ay * (b1.x - a1.x);
     let cross_b2 = ax * (b2.y - a1.y) - ay * (b2.x - a1.x);
-    let tol = eps * a_len_sq.sqrt();
-    if cross_b1.abs() > tol || cross_b2.abs() > tol {
+    let tol_sq = eps * eps * a_len_sq;
+    if cross_b1 * cross_b1 > tol_sq || cross_b2 * cross_b2 > tol_sq {
         return false;
     }
 
@@ -871,7 +888,7 @@ fn segments_overlap_with_length(
     let overlap_start = 0.0_f64.max(min_t);
     let overlap_end = 1.0_f64.min(max_t);
 
-    overlap_end - overlap_start > eps
+    (overlap_end - overlap_start) * a_len_sq.sqrt() > eps
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
@@ -948,5 +965,108 @@ mod tests {
         assert_eq!(polygonizer.input_lines.len(), 2);
         assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
         assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
+    }
+
+    #[test]
+    fn test_rings_share_edge() {
+        let shell = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // 1. Identical edge (opposite direction)
+        let hole1 = vec![
+            Coord3D::new(2.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(2.0, 1.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+        ];
+        // shell has (0,0)->(10,0). hole1 has (2,0)->(1,0) which is on the same line.
+        assert!(rings_share_edge(&shell, &hole1, 1e-10));
+
+        // 2. Partial overlap
+        let hole2 = vec![
+            Coord3D::new(-1.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(1.0, -1.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(-1.0, 0.0, 0.0),
+        ];
+        // shell (0,0)->(10,0). hole2 (-1,0)->(1,0). Overlap is (0,0)->(1,0).
+        assert!(rings_share_edge(&shell, &hole2, 1e-10));
+
+        // 3. Touching at vertex only
+        let hole3 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(0.0, -1.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole3, 1e-10));
+
+        // 4. Disjoint but collinear
+        let hole4 = vec![
+            Coord3D::new(11.0, 0.0, 0.0),
+            Coord3D::new(12.0, 0.0, 0.0),
+            Coord3D::new(12.0, 1.0, 0.0),
+            Coord3D::new(11.0, 1.0, 0.0),
+            Coord3D::new(11.0, 0.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole4, 1e-10));
+
+        // 5. Parallel but not collinear
+        let hole5 = vec![
+            Coord3D::new(0.0, -1.0, 0.0),
+            Coord3D::new(10.0, -1.0, 0.0),
+            Coord3D::new(10.0, -2.0, 0.0),
+            Coord3D::new(0.0, -2.0, 0.0),
+            Coord3D::new(0.0, -1.0, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole5, 1e-10));
+
+        // 6. Shared edge with epsilon (within distance)
+        let hole6 = vec![
+            Coord3D::new(0.0, 1e-11, 0.0),
+            Coord3D::new(10.0, 1e-11, 0.0),
+            Coord3D::new(10.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1.0, 0.0),
+            Coord3D::new(0.0, 1e-11, 0.0),
+        ];
+        assert!(rings_share_edge(&shell, &hole6, 1e-10));
+
+        // 7. Shared edge with epsilon (just outside distance)
+        let hole7 = vec![
+            Coord3D::new(1.0, 1e-9, 0.0),
+            Coord3D::new(9.0, 1e-9, 0.0),
+            Coord3D::new(9.0, 1.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(1.0, 1e-9, 0.0),
+        ];
+        assert!(!rings_share_edge(&shell, &hole7, 1e-10));
+
+        // 8. Short segment bug case
+        let shell_short = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.01, 0.0, 0.0),
+            Coord3D::new(0.01, 0.01, 0.0),
+            Coord3D::new(0.0, 0.01, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        let hole_short = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.01, 0.0, 0.0),
+            Coord3D::new(0.01, -0.01, 0.0),
+            Coord3D::new(0.0, -0.01, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        // Overlap is (0,0) -> (0.01, 0), length 0.01.
+        // If eps is 0.1, it should NOT share edge.
+        assert!(!rings_share_edge(&shell_short, &hole_short, 0.1));
+        // If eps is 0.001, it SHOULD share edge.
+        assert!(rings_share_edge(&shell_short, &hole_short, 0.001));
     }
 }

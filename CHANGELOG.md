@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.4](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.3...geo-polygonize-v0.17.4) (2026-03-19)
+
+
+### Performance Improvements
+
+* **core:** optimize guaranteed interior probe loop ([#326](https://github.com/graydonpleasants/geo-polygonize/issues/326)) ([63da01c](https://github.com/graydonpleasants/geo-polygonize/commit/63da01cf50c0ae868658ab254661d984085b4645))
+
+## [0.17.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.2...geo-polygonize-v0.17.3) (2026-03-19)
+
+
+### Bug Fixes
+
+* implement typed binding errors for python and wasm properly ([61913bc](https://github.com/graydonpleasants/geo-polygonize/commit/61913bc3b43db021e67a2bb710762ed368bfe7ca))
+* implement typed binding errors for python and wasm properly ([8ff1fe7](https://github.com/graydonpleasants/geo-polygonize/commit/8ff1fe799d43dbc768b9bc6904dfe5edcfd2fdf6))
+
+## [0.17.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.1...geo-polygonize-v0.17.2) (2026-03-19)
+
+
+### Bug Fixes
+
+* **core:** improve edge sharing detection logic and add tests ([e8fc295](https://github.com/graydonpleasants/geo-polygonize/commit/e8fc29546705036f21fce2a07c4ef54fabacc9d0))
+* **core:** improve edge sharing detection logic and add tests ([24973ad](https://github.com/graydonpleasants/geo-polygonize/commit/24973ad25f8f2919604e4dc44e5673fb803bb310))
+
+
+### Performance Improvements
+
+* **core:** ⚡ Bolt: cache ring areas for sorting ([e27fe69](https://github.com/graydonpleasants/geo-polygonize/commit/e27fe698656b4b269c243efcb685d8c9d19c6f37))
+* **core:** ⚡ Bolt: cache ring areas for sorting (fix fmt) ([8dc1ffb](https://github.com/graydonpleasants/geo-polygonize/commit/8dc1ffbc578df33e13d005cfaf77850f55effd69))
+
 ## [0.17.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.0...geo-polygonize-v0.17.1) (2026-03-17)
 
 
