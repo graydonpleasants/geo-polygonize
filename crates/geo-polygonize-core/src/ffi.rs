@@ -16,6 +16,7 @@ pub struct PolygonizerOptions {
 
 /// # Safety
 /// This is a stub for the legacy CFFI bindings, as we migrated to an Arrow-only C API.
+/// This function is currently a no-op, but it is marked unsafe to match legacy FFI signatures.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_result_free() {}
 
@@ -61,6 +62,12 @@ impl SchemaExporter for MockSchemaExporter {
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
+///
+/// **Invariants & Rationale:**
+/// - `input_array` and `input_schema` must be valid, non-null pointers to valid Arrow C Data Interface structures.
+/// - `output_array` and `output_schema` must be valid, non-null pointers to allocated but uninitialized or safe-to-overwrite Arrow C Data Interface structures.
+/// - `options` must be a valid, non-null pointer to a `PolygonizerOptions` struct.
+/// - We use `std::panic::catch_unwind` inside `polygonize_ffi_internal` to ensure panics don't cross the FFI boundary, returning a defined error code instead.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     input_array: *mut FFI_ArrowArray,
