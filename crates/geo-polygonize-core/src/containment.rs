@@ -35,25 +35,17 @@ impl ContainmentForest {
         let shell_areas: Vec<f64>;
         #[cfg(feature = "parallel")]
         {
-            simd_shells = shells
+            (simd_shells, shell_areas) = shells
                 .par_iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-            shell_areas = shells
-                .par_iter()
-                .map(|s| s.exterior_unsigned_area_2d())
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            simd_shells = shells
+            (simd_shells, shell_areas) = shells
                 .iter()
-                .map(|s| SimdRing::new_3d(&s.exterior))
-                .collect();
-            shell_areas = shells
-                .iter()
-                .map(|s| s.exterior_unsigned_area_2d())
-                .collect();
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .unzip();
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
