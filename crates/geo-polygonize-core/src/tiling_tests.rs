@@ -214,41 +214,45 @@ mod tests {
     }
 }
 
+#[test]
+fn test_dedup_policy_canonical_ring_hash() {
+    use crate::options::DedupPolicy;
+    use crate::TiledPolygonizer;
+    use geo::{Coord, Geometry, LineString, Rect};
 
+    let geom1 = Geometry::LineString(LineString::new(vec![
+        Coord { x: 1.0, y: 1.0 },
+        Coord { x: 9.0, y: 1.0 },
+        Coord { x: 9.0, y: 9.0 },
+        Coord { x: 1.0, y: 9.0 },
+        Coord { x: 1.0, y: 1.0 },
+    ]));
 
-    #[test]
-    fn test_dedup_policy_canonical_ring_hash() {
-        use crate::options::DedupPolicy;
-        use crate::TiledPolygonizer;
-        use geo::{Coord, Geometry, LineString, Rect};
+    let geom2 = Geometry::LineString(LineString::new(vec![
+        Coord { x: 9.0, y: 1.0 },
+        Coord { x: 9.0, y: 9.0 },
+        Coord { x: 1.0, y: 9.0 },
+        Coord { x: 1.0, y: 1.0 },
+        Coord { x: 9.0, y: 1.0 },
+    ]));
 
-        let geom1 = Geometry::LineString(LineString::new(vec![
-            Coord { x: 1.0, y: 1.0 },
-            Coord { x: 9.0, y: 1.0 },
-            Coord { x: 9.0, y: 9.0 },
-            Coord { x: 1.0, y: 9.0 },
-            Coord { x: 1.0, y: 1.0 },
-        ]));
+    let mut t_keep = TiledPolygonizer::new(
+        Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+        10.0,
+    )
+    .with_dedup_policy(DedupPolicy::KeepAll);
+    t_keep.add_geometry(&geom1);
+    t_keep.add_geometry(&geom2);
+    let polys_keep = t_keep.polygonize();
+    assert_eq!(polys_keep.len(), 1);
 
-        let geom2 = Geometry::LineString(LineString::new(vec![
-            Coord { x: 9.0, y: 1.0 },
-            Coord { x: 9.0, y: 9.0 },
-            Coord { x: 1.0, y: 9.0 },
-            Coord { x: 1.0, y: 1.0 },
-            Coord { x: 9.0, y: 1.0 },
-        ]));
-
-        let mut t_keep = TiledPolygonizer::new(Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }), 10.0)
-            .with_dedup_policy(DedupPolicy::KeepAll);
-        t_keep.add_geometry(&geom1);
-        t_keep.add_geometry(&geom2);
-        let polys_keep = t_keep.polygonize();
-        assert_eq!(polys_keep.len(), 1);
-
-        let mut t_dedup = TiledPolygonizer::new(Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }), 10.0)
-            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
-        t_dedup.add_geometry(&geom1);
-        t_dedup.add_geometry(&geom2);
-        let polys_dedup = t_dedup.polygonize();
-        assert_eq!(polys_dedup.len(), 1);
-    }
+    let mut t_dedup = TiledPolygonizer::new(
+        Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+        10.0,
+    )
+    .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+    t_dedup.add_geometry(&geom1);
+    t_dedup.add_geometry(&geom2);
+    let polys_dedup = t_dedup.polygonize();
+    assert_eq!(polys_dedup.len(), 1);
+}

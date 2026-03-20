@@ -220,8 +220,6 @@ impl<'a> TiledPolygonizer<'a> {
                 .collect();
         }
 
-
-
         match self.dedup_policy {
             DedupPolicy::KeepAll => result_polygons,
             DedupPolicy::CanonicalRingHash => {
@@ -250,7 +248,12 @@ impl<'a> TiledPolygonizer<'a> {
                     for i in 1..unique_len {
                         let a = &ring[i];
                         let b = &ring[min_idx_fwd];
-                        if a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)).then(a.z.total_cmp(&b.z)) == std::cmp::Ordering::Less {
+                        if a.x
+                            .total_cmp(&b.x)
+                            .then(a.y.total_cmp(&b.y))
+                            .then(a.z.total_cmp(&b.z))
+                            == std::cmp::Ordering::Less
+                        {
                             min_idx_fwd = i;
                         }
                     }
@@ -270,7 +273,12 @@ impl<'a> TiledPolygonizer<'a> {
                     for i in 1..unique_len {
                         let a = &rev_ring[i];
                         let b = &rev_ring[min_idx_rev];
-                        if a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)).then(a.z.total_cmp(&b.z)) == std::cmp::Ordering::Less {
+                        if a.x
+                            .total_cmp(&b.x)
+                            .then(a.y.total_cmp(&b.y))
+                            .then(a.z.total_cmp(&b.z))
+                            == std::cmp::Ordering::Less
+                        {
                             min_idx_rev = i;
                         }
                     }
@@ -313,8 +321,6 @@ impl<'a> TiledPolygonizer<'a> {
         }
     }
 }
-
-
 
 #[cfg(test)]
 #[path = "tiling_tests.rs"]
