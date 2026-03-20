@@ -104,6 +104,8 @@ pub enum NodingBackend {
 #[ts(export)]
 pub enum IndexBackend {
     RStar,
+    PackedNative,
+
     // placeholders for future backends
 }
 

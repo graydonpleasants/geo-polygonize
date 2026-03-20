@@ -6,31 +6,21 @@ use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use rstar::{RTree, RTreeObject, AABB};
+use rstar::AABB;
+use crate::options::IndexBackend;
+use crate::index::{SpatialIndex2D, SpatialIndexBackend, RStarBackend, PackedNativeBackend, IndexedEnvelope};
 
-// Wrapper for Polygon indexable by rstar (2D)
-pub struct IndexedEnvelope {
-    pub aabb: AABB<[f64; 2]>,
-    pub index: usize,
-}
 
-impl RTreeObject for IndexedEnvelope {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        self.aabb
-    }
-}
 
 pub struct ContainmentForest {
-    pub tree: RTree<IndexedEnvelope>,
+    pub tree: SpatialIndexBackend,
     pub simd_shells: Vec<SimdRing>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<f64>,
 }
 
 impl ContainmentForest {
-    pub fn new(shells: &[Polygon3D]) -> Self {
+    pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
         let simd_shells: Vec<SimdRing>;
         let shell_areas: Vec<f64>;
         #[cfg(feature = "parallel")]
@@ -56,7 +46,10 @@ impl ContainmentForest {
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
             }
         }
-        let tree = RTree::bulk_load(indexed_shells);
+        let tree = match index_backend {
+            IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
+            IndexBackend::PackedNative => SpatialIndexBackend::PackedNative(PackedNativeBackend::new(&indexed_shells)),
+        };
 
         Self {
             tree,
@@ -89,8 +82,8 @@ impl ContainmentForest {
             let probe = probe_points[i];
 
             if let Some(probe_pt) = probe {
-                for cand in candidates {
-                    let j = cand.index;
+                for cand_idx in candidates {
+                    let j = cand_idx;
                     if i == j {
                         continue;
                     }
@@ -158,8 +151,8 @@ impl ContainmentForest {
         let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
         let hole_area = hole_3d.exterior_unsigned_area_2d();
 
-        for cand in candidates {
-            let idx = cand.index;
+        for cand_idx in candidates {
+            let idx = cand_idx;
             let simd_shell = &self.simd_shells[idx];
 
             if simd_shell.contains(probe_point.0) {

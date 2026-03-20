@@ -287,7 +287,7 @@ impl Polygonizer {
         // 5. Establish Topology
 
         // Build Containment Forest for shells
-        let mut forest = ContainmentForest::new(&shells);
+        let mut forest = ContainmentForest::new(&shells, &self.options.containment.index_backend);
 
         // Filter shells
         if self.options.extract_only_polygonal {
@@ -309,7 +309,7 @@ impl Polygonizer {
                 shells = new_shells;
 
                 // Rebuild helper structures
-                forest = ContainmentForest::new(&shells);
+                forest = ContainmentForest::new(&shells, &self.options.containment.index_backend);
             }
         }
 
