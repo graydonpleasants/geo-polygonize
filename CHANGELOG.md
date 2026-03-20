@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.4...geo-polygonize-v0.18.0) (2026-03-20)
+
+
+### Features
+
+* **core:** add cross-tile dedup via canonical ring hashing ([f736955](https://github.com/graydonpleasants/geo-polygonize/commit/f736955f910b21f2cba69a2aaf0e9ad7ec896593))
+* **core:** fix formatting in cross-tile dedup ([e88165e](https://github.com/graydonpleasants/geo-polygonize/commit/e88165e3d72879191c9078db465bccec28fa43d5))
+
 ## [0.17.4](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.17.3...geo-polygonize-v0.17.4) (2026-03-19)
 
 
