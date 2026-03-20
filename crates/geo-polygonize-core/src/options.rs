@@ -171,10 +171,20 @@ pub struct ProvenanceOptions {
     pub include_boundary_line_ids: bool,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum DedupPolicy {
+    #[default]
+    KeepAll,
+    CanonicalRingHash,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct TilingOptions {
     pub ownership_policy: TileOwnershipPolicy,
+    #[serde(default)]
+    pub dedup_policy: DedupPolicy,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]

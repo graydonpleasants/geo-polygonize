@@ -353,7 +353,7 @@ pub struct IPoint {
 - [ ] Parallelize `UniformGrid::new`.
 - [ ] Implement adaptive regrid.
 - [x] Replace centroid-only ownership with stronger tile ownership policies.
-- [ ] Add cross-tile dedup via canonical ring or edge-set hashing.
+- [x] Add cross-tile dedup via canonical ring or edge-set hashing.
 
 ## 2. Topology & Containment Forests (Agent Track B)
 - [x] Extract containment into a dedicated module.
@@ -494,7 +494,7 @@ The roadmap is complete when:
 - [x] tile ownership policies
 - [x] containment forest
 - [x] touch policies
-- [ ] cross-tile dedup
+- [x] cross-tile dedup
 - [ ] report mode explains mismatches by profile and provenance
 
 ## Milestone M5: Native Scale Features + Compatibility Hardening
