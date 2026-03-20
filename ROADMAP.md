@@ -145,16 +145,16 @@ Extend the Shapely differential harness with adversarial random corpora and expl
 - input validation hardening
 
 ### 2.1 Security Policy and Threat Model
-- [ ] Add `SECURITY.md` and document the threat model.
+- [x] Add `SECURITY.md` and document the threat model.
 
 ### 2.2 Panic Safety
-- [ ] Wrap FFI/Wasm/Python boundary entrypoints with panic-catching and structured error reporting.
+- [x] Wrap FFI/Wasm/Python boundary entrypoints with panic-catching and structured error reporting.
 
 ### 2.3 Unsafe Audit
-- [ ] Document every `unsafe` block with invariants and rationale.
+- [x] Document every `unsafe` block with invariants and rationale.
 
 ### 2.4 Input Validation
-- [ ] Validate Arrow offsets and lengths, Wasm typed-array buffer sizes, stride mismatches, and NaN/Inf coordinates.
+- [x] Validate Arrow offsets and lengths, Wasm typed-array buffer sizes, stride mismatches, and NaN/Inf coordinates.
 
 ## 3. Allocation & Diagnostics (Agent Track C)
 
@@ -204,10 +204,10 @@ pub struct PolygonizerDiagnostics {
 - boundary-family mismatch explainability hooks
 
 ### 4.1 Typed Binding Errors
-- [ ] Define structured error families and map them cleanly into Wasm and Python.
+- [x] Define structured error families and map them cleanly into Wasm and Python.
 
 ### 4.2 Report / Debug Mode Scaffold
-- [ ] Add a `report_mode` flag that returns structured execution metadata without changing semantics.
+- [x] Add a `report_mode` flag that returns structured execution metadata without changing semantics.
 
 ### 4.3 Provenance Acceptance Fixtures
 - [ ] Add fixtures validating mixed-boundary attribution and profile-tag passthrough.
@@ -232,8 +232,8 @@ pub struct PolygonizerDiagnostics {
 - compatibility-oriented snap strategies
 
 ### 1.1 Stable Options-Object API
-- [ ] Introduce `polygonize_with_options(options)` in Rust, Python, and Wasm.
-- [ ] Keep positional APIs as wrappers.
+- [x] Introduce `polygonize_with_options(options)` in Rust, Python, and Wasm.
+- [x] Keep positional APIs as wrappers.
 
 ### 1.2 Canonical Options Schema
 ```rust
@@ -274,7 +274,7 @@ pub enum SnapStrategy {
 ```
 
 ### 1.5 Legacy Compatibility
-- [ ] Keep existing fields and positional APIs as shorthands that map into `PolygonizerOptions`.
+- [x] Keep existing fields and positional APIs as shorthands that map into `PolygonizerOptions`.
 
 ## 2. Provenance & Explainability (Agent Track B)
 
@@ -299,7 +299,7 @@ pub struct PolygonProvenance {
 ```
 
 ### 2.3 Diagnostics Payload
-- [ ] Expand diagnostics/report payload to include polygon count, dangles, invalid rings, flat lines, snapped/intersection stats, and stage timings.
+- [x] Expand diagnostics/report payload to include polygon count, dangles, invalid rings, flat lines, snapped/intersection stats, and stage timings.
 
 ### 2.4 Report Mode for Hybrid Scoring / Debug
 - [ ] Same fixture run with report mode can explain mismatches by profile and boundary lines.
@@ -473,7 +473,7 @@ The roadmap is complete when:
 - [x] golden tests
 - [x] first diagnostics object
 - [x] typed Wasm/Python errors
-- [ ] initial report mode scaffold
+- [x] initial report mode scaffold
 
 ## Milestone M2: Stable Options API + Provenance Surface
 - [x] canonical `PolygonizerOptions`
