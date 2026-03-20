@@ -361,8 +361,8 @@ pub struct IPoint {
 - [x] Implement named touch policies.
 
 ## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
-- [ ] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
-- [ ] Add native packed static index backend.
+- [x] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
+- [x] Add native packed static index backend.
 - [ ] Prototype optional advanced noder backend.
 
 ## 4. Supply Chain, Release, and OSS Quality (Agent Track D)
@@ -498,8 +498,8 @@ The roadmap is complete when:
 - [ ] report mode explains mismatches by profile and provenance
 
 ## Milestone M5: Native Scale Features + Compatibility Hardening
-- [ ] `SpatialIndex2D` abstraction
-- [ ] packed native index
+- [x] `SpatialIndex2D` abstraction
+- [x] packed native index
 - [ ] adaptive regrid
 - [ ] optional advanced noder prototype
 - [ ] hardened `geos_compat` mode with scale guidance
