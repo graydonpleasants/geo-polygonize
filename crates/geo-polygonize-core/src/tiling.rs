@@ -94,20 +94,12 @@ impl<'a> TiledPolygonizer<'a> {
                     TileOwnershipPolicy::Centroid
                     | TileOwnershipPolicy::RepresentativePointInsidePolygon => poly.centroid_2d(),
                     TileOwnershipPolicy::LexicographicMinVertex => {
-                        let mut min_pt = None;
-                        for coord in &poly.exterior {
-                            if let Some(curr) = min_pt {
-                                let curr_coord: geo_types::Point<f64> = curr;
-                                if coord.x < curr_coord.x()
-                                    || (coord.x == curr_coord.x() && coord.y < curr_coord.y())
-                                {
-                                    min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                                }
-                            } else {
-                                min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                            }
-                        }
-                        min_pt
+                        poly.exterior
+                            .iter()
+                            .min_by(|a, b| {
+                                a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
+                            })
+                            .map(|coord| geo_types::Point::new(coord.x, coord.y))
                     }
                     TileOwnershipPolicy::CanonicalBoundaryHash => {
                         if poly.exterior.is_empty() {
