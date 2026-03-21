@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.19.0...geo-polygonize-v0.20.0) (2026-03-21)
+
+
+### Features
+
+* **core:** parallelize UniformGrid::new ([2e04f7e](https://github.com/graydonpleasants/geo-polygonize/commit/2e04f7ec89a1b76a6547bfadd0c757fa79c067f8))
+
 ## [0.19.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.18.1...geo-polygonize-v0.19.0) (2026-03-21)
 
 
