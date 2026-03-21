@@ -369,7 +369,7 @@ pub struct IPoint {
 - [x] Add SBOM generation, provenance/release automation, `cargo deny`, and `cargo audit`.
 
 ## 5. Compatibility Profiles & Differential Explainability (Agent Track E)
-- [ ] Harden `snap_strategy=geos_compat`.
+- [x] Harden `snap_strategy=geos_compat`.
 - [ ] Extend report mode so mismatches can be attributed to profile, snap strategy, touch policy, and provenance differences.
 - [ ] Add a parity-focused compatibility corpus.
 
@@ -502,4 +502,4 @@ The roadmap is complete when:
 - [x] packed native index
 - [x] adaptive regrid
 - [x] optional advanced noder prototype
-- [ ] hardened `geos_compat` mode with scale guidance
+- [x] hardened `geos_compat` mode with scale guidance

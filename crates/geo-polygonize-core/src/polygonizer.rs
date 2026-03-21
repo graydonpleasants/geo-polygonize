@@ -187,7 +187,7 @@ impl Polygonizer {
 
             match self.options.noding.backend {
                 crate::options::NodingBackend::Snap => {
-                    let noder = SnapNoder::new(self.options.snap_grid_size);
+                    let noder = SnapNoder::new(self.options.snap_grid_size).with_snap_strategy(self.options.snap_strategy.clone());
                     segments = noder.node(all_segments);
                 }
                 crate::options::NodingBackend::Advanced => {
