@@ -172,6 +172,9 @@ mod tests {
         // This causes it to fall into quadrant 3 in `quadrant()`.
         // As a result, when compared against a point in quadrant 0,
         // quad_a = 3, quad_b = 0 -> quad_a > quad_b -> Ordering::Greater
-        assert_eq!(compare_angular(center, target_a, target_b), Ordering::Greater);
+        assert_eq!(
+            compare_angular(center, target_a, target_b),
+            Ordering::Greater
+        );
     }
 }
