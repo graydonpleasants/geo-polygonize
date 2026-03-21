@@ -192,7 +192,11 @@ mod tests {
             make_line(3.0, 3.0, 4.0, 4.0),
         ];
         let soa4 = SoALines::new(&lines4);
-        assert_eq!(soa4.len(), 4, "Length should be exactly 4 (no padding needed)");
+        assert_eq!(
+            soa4.len(),
+            4,
+            "Length should be exactly 4 (no padding needed)"
+        );
         assert!(!soa4.is_empty(), "Should not be empty");
 
         // Test 5 lines -> padded to 8
