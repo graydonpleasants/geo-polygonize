@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.22.0...geo-polygonize-v0.22.1) (2026-03-21)
+
+
+### Performance Improvements
+
+* **core:** optimize canonical sorts using Schwartzian Transform ([cda3e20](https://github.com/graydonpleasants/geo-polygonize/commit/cda3e203b33d6cb5831060639ada8f909530688f))
+
 ## [0.22.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.21.0...geo-polygonize-v0.22.0) (2026-03-21)
 
 
