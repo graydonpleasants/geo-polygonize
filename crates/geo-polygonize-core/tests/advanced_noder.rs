@@ -9,7 +9,11 @@ fn coord(x: f64, y: f64) -> Coord3D {
 }
 
 fn line(c1: Coord3D, c2: Coord3D) -> Line3D {
-    Line3D { start: c1, end: c2, line_id: 0 }
+    Line3D {
+        start: c1,
+        end: c2,
+        line_id: 0,
+    }
 }
 
 #[test]
@@ -41,5 +45,9 @@ fn test_advanced_noder_basic_intersection() {
     let result = polygonizer.polygonize().expect("Polygonize should succeed");
 
     // The bbox + crossing lines should create 4 triangles.
-    assert_eq!(result.polygons.len(), 4, "Should have noded and created 4 triangles");
+    assert_eq!(
+        result.polygons.len(),
+        4,
+        "Should have noded and created 4 triangles"
+    );
 }
