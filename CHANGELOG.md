@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.23.0...geo-polygonize-v0.23.1) (2026-03-21)
+
+
+### Bug Fixes
+
+* **core:** apply formatting to tiling.rs ([efcba02](https://github.com/graydonpleasants/geo-polygonize/commit/efcba025bd071843885a3347a86c4ca1025b12ec))
+
+
+### Performance Improvements
+
+* **core:** optimize lexicographic min vertex search in tiling ([f42d529](https://github.com/graydonpleasants/geo-polygonize/commit/f42d529086b3677a1ba9cbe86d749a19c3172481))
+
 ## [0.23.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.22.1...geo-polygonize-v0.23.0) (2026-03-21)
 
 
