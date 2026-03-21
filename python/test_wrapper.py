@@ -2,8 +2,6 @@ import pytest
 import sys
 import os
 import numpy as np
-import shapely
-from shapely.geometry import shape
 from unittest.mock import patch
 
 # Add python directory to path
