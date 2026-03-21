@@ -970,6 +970,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_bounding_rect_3d_empty() {
+        assert_eq!(bounding_rect_3d(&[]), None);
+    }
+
+    #[test]
     fn test_with_snap_grid() {
         let polygonizer = Polygonizer::new().with_snap_grid(0.123);
         assert_eq!(polygonizer.snap_grid_size, 0.123);
