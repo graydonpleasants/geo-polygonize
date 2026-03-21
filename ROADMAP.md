@@ -2,7 +2,7 @@
 
 This document outlines the strategic improvements planned for `geo-polygonize` to make it a best-in-class geospatial kernel across Rust, Python, and WebAssembly.
 
-The roadmap is divided into three sequential phases. Each phase contains specific modules, or “agent tracks,” to allow for parallel development and minimize conflicts. The main architectural direction is to turn today’s implicit behavior into explicit, testable policy: target-aware backends, deterministic output, precision policy, Z policy, touch policy, tile ownership policy, provenance, and phase-level diagnostics.
+The roadmap is divided into four sequential phases. Each phase contains specific modules, or “agent tracks,” to allow for parallel development and minimize conflicts. The main architectural direction is to turn today’s implicit behavior into explicit, testable policy: target-aware backends, deterministic output, precision policy, Z policy, touch policy, tile ownership policy, provenance, and phase-level diagnostics.
 
 This roadmap is intentionally implementation-oriented. Each track includes concrete deliverables, dependencies, acceptance criteria, likely code touch points, and notes for safe migration.
 
@@ -375,6 +375,26 @@ pub struct IPoint {
 
 ---
 
+# Phase 4: Next-Generation Ecosystem & Extreme Scale
+
+**Goal**: Push the library beyond standard in-memory operations by integrating advanced geometric algorithms, zero-copy data standards, and massive parallelization technologies across all targets.
+
+## 1. Algorithmic State-of-the-Art (Agent Track F)
+- [ ] Implement a full sweep-line or monotone-chain noder to replace the prototype `Advanced` noder, achieving $O((N+K) \log N)$ complexity for massive datasets.
+
+## 2. Zero-Copy & Ecosystem Integration (Agent Track F)
+- [ ] Add native zero-copy GeoArrow integration across Rust, Wasm, and Python for zero-serialization data transfer.
+- [ ] Build adapters for Ray, Dask, and Spark distributed computing environments.
+
+## 3. Out-of-Core Processing (Agent Track F)
+- [ ] Implement out-of-core / streaming processing for datasets larger than available RAM.
+
+## 4. Next-Gen Runtime Acceleration (Agent Track F)
+- [ ] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
+- [ ] Investigate WebGPU and compute shaders for massively parallel point-in-polygon containment and intersection tests.
+
+---
+
 # Recommended Execution Order
 
 ## First wave
@@ -403,6 +423,13 @@ pub struct IPoint {
 19. adaptive regrid
 20. [x] optional advanced noder
 21. hardened mismatch explainability by profile and provenance
+
+## Fourth wave
+22. sweep-line or monotone-chain noder
+23. native zero-copy GeoArrow integration
+24. out-of-core / streaming processing
+25. WebAssembly Multithreading
+26. WebGPU / Compute Shader acceleration
 
 ---
 
@@ -441,6 +468,13 @@ pub struct IPoint {
 - packed index experiments
 - adaptive grid
 - compatibility explainability
+
+## Agent Track F
+- sweep-line noder
+- zero-copy GeoArrow
+- out-of-core processing
+- WebAssembly multi-threading
+- GPU / WebGPU acceleration
 
 ---
 
@@ -503,3 +537,10 @@ The roadmap is complete when:
 - [x] adaptive regrid
 - [x] optional advanced noder prototype
 - [ ] hardened `geos_compat` mode with scale guidance
+
+## Milestone M6: Ecosystem Integrations & Extreme Scale
+- [ ] full sweep-line noder for $O((N+K) \log N)$ intersection scaling
+- [ ] native zero-copy GeoArrow data ingestion and output
+- [ ] out-of-core chunked execution pipeline
+- [ ] WebAssembly multithreading with `SharedArrayBuffer`
+- [ ] evaluate WebGPU compute shaders for containment tests
