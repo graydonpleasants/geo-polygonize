@@ -97,6 +97,7 @@ pub enum TileOwnershipPolicy {
 #[ts(export)]
 pub enum NodingBackend {
     Snap,
+    Advanced,
     // placeholders for future backends
 }
 
