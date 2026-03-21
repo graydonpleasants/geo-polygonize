@@ -363,7 +363,7 @@ pub struct IPoint {
 ## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
 - [x] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
 - [x] Add native packed static index backend.
-- [ ] Prototype optional advanced noder backend.
+- [x] Prototype optional advanced noder backend.
 
 ## 4. Supply Chain, Release, and OSS Quality (Agent Track D)
 - [ ] Add SBOM generation, provenance/release automation, `cargo deny`, and `cargo audit`.
@@ -401,7 +401,7 @@ pub struct IPoint {
 17. `SpatialIndex2D` trait + `rstar` adapter
 18. native packed index backend
 19. adaptive regrid
-20. optional advanced noder
+20. [x] optional advanced noder
 21. hardened mismatch explainability by profile and provenance
 
 ---
@@ -501,5 +501,5 @@ The roadmap is complete when:
 - [x] `SpatialIndex2D` abstraction
 - [x] packed native index
 - [x] adaptive regrid
-- [ ] optional advanced noder prototype
+- [x] optional advanced noder prototype
 - [ ] hardened `geos_compat` mode with scale guidance

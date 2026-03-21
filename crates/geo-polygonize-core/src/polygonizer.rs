@@ -2,6 +2,7 @@ use crate::containment::ContainmentForest;
 use crate::diagnostics::PolygonizerDiagnostics;
 use crate::error::Result;
 use crate::graph::PlanarGraph;
+use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
 use crate::options::DiagnosticsOptions;
 use crate::options::{DeterminismOptions, PolygonizerOptions};
@@ -184,8 +185,16 @@ impl Polygonizer {
 
             all_segments = numbered_lines.into_iter().map(|k| k.1).collect();
 
-            let noder = SnapNoder::new(self.options.snap_grid_size);
-            segments = noder.node(all_segments);
+            match self.options.noding.backend {
+                crate::options::NodingBackend::Snap => {
+                    let noder = SnapNoder::new(self.options.snap_grid_size);
+                    segments = noder.node(all_segments);
+                }
+                crate::options::NodingBackend::Advanced => {
+                    let noder = AdvancedNoder::new();
+                    segments = noder.node(all_segments);
+                }
+            }
         } else {
             segments = all_segments;
         }
