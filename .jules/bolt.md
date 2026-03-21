@@ -36,3 +36,7 @@
 ## 2026-03-22 - Parallel unzip initialization
 **Learning:** Using `rayon`'s `.par_iter().map(|item| (val1, val2)).unzip()` is more efficient for initializing multiple parallel collections than mapping over the same data source twice or using manual loops. This minimizes allocation overhead and redundant mapping.
 **Action:** When initializing multiple parallel collections from the same source array/collection, prefer `.unzip()` with mapped iterators to minimize manual allocation overhead and simplify logic.
+
+## 2023-10-27 - Adaptive Regrid Optimization
+**Learning:** Skewed spatial data can cause a `UniformGrid` single cell to be overwhelmed with segments, leading to O(N^2) explosion inside the cell.
+**Action:** Implemented a bounded adaptive regrid loop in `UniformGrid::new` that halves the cell size up to 2 times if any single cell exceeds a threshold of 500 segments.

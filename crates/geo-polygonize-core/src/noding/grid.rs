@@ -81,110 +81,136 @@ impl UniformGrid {
         let target_cell_size = (area / lines.len() as f64).sqrt();
         // Clamp to avoid degenerate grids
         // Ensure cell_size isn't too small relative to the bounds
-        let cell_size = target_cell_size.max(width.max(height) / 1000.0).max(1e-6);
+        let mut cell_size = target_cell_size.max(width.max(height) / 1000.0).max(1e-6);
 
-        // Calculate dimensions
-        // Add small epsilon to ensure max boundary falls into a valid cell
-        let cols = ((width + 1e-9) / cell_size).ceil() as usize;
-        let rows = ((height + 1e-9) / cell_size).ceil() as usize;
+        let mut cols = 0;
+        let mut rows = 0;
+        let mut counts = Vec::new();
+        let mut global_lines = Vec::new();
 
-        // 3. Initialize & Populate (Two-Pass CSR Construction)
-
-        // Pass 1: Count entries per cell & Identify Global Lines
         const MAX_CELLS_PER_LINE: usize = 50;
+        const SKEW_THRESHOLD: usize = 500;
+        const MAX_ADAPTIVE_RETRIES: usize = 2;
 
-        #[cfg(feature = "parallel")]
-        let (counts, global_lines) = {
-            let chunk_size = (lines.len() / rayon::current_num_threads()).max(1);
-            let results: Vec<_> = lines
-                .par_chunks(chunk_size)
-                .enumerate()
-                .map(|(chunk_idx, chunk)| {
-                    let mut local_counts = vec![0usize; cols * rows];
-                    let mut local_global = Vec::new();
-                    let start_i = chunk_idx * chunk_size;
+        // 3. Initialize & Populate (Two-Pass CSR Construction with Adaptive Regrid)
+        for loop_idx in 0..=MAX_ADAPTIVE_RETRIES {
+            // Calculate dimensions
+            // Add small epsilon to ensure max boundary falls into a valid cell
+            cols = ((width + 1e-9) / cell_size).ceil() as usize;
+            rows = ((height + 1e-9) / cell_size).ceil() as usize;
 
-                    for (local_i, line) in chunk.iter().enumerate() {
-                        let i = start_i + local_i;
-                        let l_min_x = line.start.x.min(line.end.x);
-                        let l_max_x = line.start.x.max(line.end.x);
-                        let l_min_y = line.start.y.min(line.end.y);
-                        let l_max_y = line.start.y.max(line.end.y);
+            // Pass 1: Count entries per cell & Identify Global Lines
+            #[cfg(feature = "parallel")]
+            let (pass_counts, pass_globals) = {
+                let chunk_size = (lines.len() / rayon::current_num_threads()).max(1);
+                let results: Vec<_> = lines
+                    .par_chunks(chunk_size)
+                    .enumerate()
+                    .map(|(chunk_idx, chunk)| {
+                        let mut local_counts = vec![0usize; cols * rows];
+                        let mut local_global = Vec::new();
+                        let start_i = chunk_idx * chunk_size;
 
-                        let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-                        let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-                        let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-                        let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+                        for (local_i, line) in chunk.iter().enumerate() {
+                            let i = start_i + local_i;
+                            let l_min_x = line.start.x.min(line.end.x);
+                            let l_max_x = line.start.x.max(line.end.x);
+                            let l_min_y = line.start.y.min(line.end.y);
+                            let l_max_y = line.start.y.max(line.end.y);
 
-                        let col_max = col_max.min(cols.saturating_sub(1));
-                        let row_max = row_max.min(rows.saturating_sub(1));
-                        let col_min = col_min.min(col_max);
-                        let row_min = row_min.min(row_max);
+                            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+                            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+                            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+                            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
 
-                        let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+                            let col_max = col_max.min(cols.saturating_sub(1));
+                            let row_max = row_max.min(rows.saturating_sub(1));
+                            let col_min = col_min.min(col_max);
+                            let row_min = row_min.min(row_max);
 
-                        if num_cells > MAX_CELLS_PER_LINE {
-                            local_global.push(i);
-                            continue;
-                        }
+                            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
 
-                        for r in row_min..=row_max {
-                            for c in col_min..=col_max {
-                                local_counts[r * cols + c] += 1;
+                            if num_cells > MAX_CELLS_PER_LINE {
+                                local_global.push(i);
+                                continue;
+                            }
+
+                            for r in row_min..=row_max {
+                                for c in col_min..=col_max {
+                                    local_counts[r * cols + c] += 1;
+                                }
                             }
                         }
+                        (local_counts, local_global)
+                    })
+                    .collect();
+
+                let mut final_counts = vec![0usize; cols * rows];
+                let mut final_globals = Vec::new();
+                for (local_counts, local_global) in results {
+                    for i in 0..final_counts.len() {
+                        final_counts[i] += local_counts[i];
                     }
-                    (local_counts, local_global)
-                })
-                .collect();
-
-            let mut final_counts = vec![0usize; cols * rows];
-            let mut final_globals = Vec::new();
-            for (local_counts, local_global) in results {
-                for i in 0..final_counts.len() {
-                    final_counts[i] += local_counts[i];
+                    final_globals.extend(local_global);
                 }
-                final_globals.extend(local_global);
-            }
-            (final_counts, final_globals)
-        };
+                (final_counts, final_globals)
+            };
 
-        #[cfg(not(feature = "parallel"))]
-        let (counts, global_lines) = {
-            let mut counts = vec![0usize; cols * rows];
-            let mut global_lines = Vec::new();
+            #[cfg(not(feature = "parallel"))]
+            let (pass_counts, pass_globals) = {
+                let mut local_counts = vec![0usize; cols * rows];
+                let mut local_global = Vec::new();
 
-            for (i, line) in lines.iter().enumerate() {
-                let l_min_x = line.start.x.min(line.end.x);
-                let l_max_x = line.start.x.max(line.end.x);
-                let l_min_y = line.start.y.min(line.end.y);
-                let l_max_y = line.start.y.max(line.end.y);
+                for (i, line) in lines.iter().enumerate() {
+                    let l_min_x = line.start.x.min(line.end.x);
+                    let l_max_x = line.start.x.max(line.end.x);
+                    let l_min_y = line.start.y.min(line.end.y);
+                    let l_max_y = line.start.y.max(line.end.y);
 
-                let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-                let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-                let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-                let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+                    let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+                    let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+                    let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+                    let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
 
-                let col_max = col_max.min(cols.saturating_sub(1));
-                let row_max = row_max.min(rows.saturating_sub(1));
-                let col_min = col_min.min(col_max);
-                let row_min = row_min.min(row_max);
+                    let col_max = col_max.min(cols.saturating_sub(1));
+                    let row_max = row_max.min(rows.saturating_sub(1));
+                    let col_min = col_min.min(col_max);
+                    let row_min = row_min.min(row_max);
 
-                let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+                    let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
 
-                if num_cells > MAX_CELLS_PER_LINE {
-                    global_lines.push(i);
-                    continue;
-                }
+                    if num_cells > MAX_CELLS_PER_LINE {
+                        local_global.push(i);
+                        continue;
+                    }
 
-                for r in row_min..=row_max {
-                    for c in col_min..=col_max {
-                        counts[r * cols + c] += 1;
+                    for r in row_min..=row_max {
+                        for c in col_min..=col_max {
+                            local_counts[r * cols + c] += 1;
+                        }
                     }
                 }
+                (local_counts, local_global)
+            };
+
+            counts = pass_counts;
+            global_lines = pass_globals;
+
+            // Adaptive check
+            let max_cell_count = counts.iter().copied().max().unwrap_or(0);
+            if max_cell_count > SKEW_THRESHOLD && loop_idx < MAX_ADAPTIVE_RETRIES {
+                // Skew detected: too many lines in a single cell.
+                // Refine grid by halving cell size, unless we have too many cells.
+                // We limit total cells to avoid memory explosion.
+                if (cols * 2) * (rows * 2) < 1_000_000 {
+                    cell_size /= 2.0;
+                    continue; // Retry with finer grid
+                }
             }
-            (counts, global_lines)
-        };
+
+            // If we're here, either we didn't hit the threshold or we can't refine further.
+            break;
+        }
 
         // Prefix Sum to create offsets
         let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
@@ -763,5 +789,33 @@ mod tests {
             assert_relative_eq!(pt.x, 1000.0, epsilon = 1e-5);
             assert_relative_eq!(pt.y, 0.0, epsilon = 1e-5);
         }
+    }
+
+    #[test]
+    fn test_adaptive_regrid_skewed_data() {
+        let mut lines = Vec::new();
+        // Create 600 lines all packed into a tiny area (skewed)
+        for i in 0..600 {
+            lines.push(make_line(
+                0.0,
+                0.0,
+                0.0001 * (i as f64),
+                0.0001 * (i as f64),
+            ));
+        }
+        // Add one line far away to force a large initial grid size
+        lines.push(make_line(100.0, 100.0, 101.0, 101.0));
+
+        let grid = UniformGrid::new(&lines);
+
+        // A non-adaptive grid would have one cell with 600 items.
+        // But with adaptive regrid, the cell size should have been halved up to 2 times.
+        // We can't easily assert on the exact inner cell sizes, but we can verify it succeeds
+        // without panicking and has more rows/cols than it initially would have.
+        // Initial area is 101*101 = 10201. Target cell size = sqrt(10201/601) ~ 4.12
+        // So rows/cols would be 101/4.12 = 25.
+        // Halved twice: cell size ~ 1.03, rows/cols ~ 98.
+        assert!(grid.rows > 25);
+        assert!(grid.cols > 25);
     }
 }

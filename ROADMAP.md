@@ -351,7 +351,7 @@ pub struct IPoint {
 
 ## 1. Scaling & Concurrency (Agent Track A)
 - [x] Parallelize `UniformGrid::new`.
-- [ ] Implement adaptive regrid.
+- [x] Implement adaptive regrid.
 - [x] Replace centroid-only ownership with stronger tile ownership policies.
 - [x] Add cross-tile dedup via canonical ring or edge-set hashing.
 
@@ -500,6 +500,6 @@ The roadmap is complete when:
 ## Milestone M5: Native Scale Features + Compatibility Hardening
 - [x] `SpatialIndex2D` abstraction
 - [x] packed native index
-- [ ] adaptive regrid
+- [x] adaptive regrid
 - [ ] optional advanced noder prototype
 - [ ] hardened `geos_compat` mode with scale guidance
