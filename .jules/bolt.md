@@ -40,3 +40,7 @@
 ## 2023-10-27 - Adaptive Regrid Optimization
 **Learning:** Skewed spatial data can cause a `UniformGrid` single cell to be overwhelmed with segments, leading to O(N^2) explosion inside the cell.
 **Action:** Implemented a bounded adaptive regrid loop in `UniformGrid::new` that halves the cell size up to 2 times if any single cell exceeds a threshold of 500 segments.
+
+## 2024-05-24 - [Optimize Canonical Sorting]
+**Learning:** In spatial sorts, repeatedly evaluating geometric properties like bounds and areas in `O(N log N)` `sort_by` comparators creates a hidden performance bottleneck.
+**Action:** Always pre-calculate expensive sorting properties using a Schwartzian Transform pattern (mapping to a tuple with the cached data) and use `sort_unstable_by` for operations with deterministic tie-breaks.

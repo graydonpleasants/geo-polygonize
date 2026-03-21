@@ -452,36 +452,50 @@ impl Polygonizer {
                     .collect();
 
                 let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
-                combined_holes.sort_by(|(h1, _, area1), (h2, _, area2)| {
-                    // Sort holes by area (descending)
-                    area2.total_cmp(area1).then_with(|| {
-                        if !use_stable_tie_breaks {
-                            return std::cmp::Ordering::Equal;
-                        }
-                        // For stable tie breaking, sort by bounding box bottom-left, then number of points
-                        let b1 = bounding_rect_3d(h1).unwrap_or(geo::Rect::new(
-                            geo::Coord { x: 0.0, y: 0.0 },
-                            geo::Coord { x: 0.0, y: 0.0 },
-                        ));
-                        let b2 = bounding_rect_3d(h2).unwrap_or(geo::Rect::new(
-                            geo::Coord { x: 0.0, y: 0.0 },
-                            geo::Coord { x: 0.0, y: 0.0 },
-                        ));
-                        b1.min()
-                            .x
-                            .total_cmp(&b2.min().x)
-                            .then(b1.min().y.total_cmp(&b2.min().y))
-                            .then(h1.len().cmp(&h2.len()))
-                    })
-                });
-                let mut h = Vec::with_capacity(combined_holes.len());
-                let mut hi = Vec::with_capacity(combined_holes.len());
-                for (hole, ids, _) in combined_holes {
-                    h.push(hole);
-                    hi.push(ids);
+                if use_stable_tie_breaks {
+                    let mut combined_holes_with_bbox: Vec<_> = combined_holes
+                        .into_iter()
+                        .map(|(h, hi, area)| {
+                            let b = bounding_rect_3d(&h).unwrap_or(geo::Rect::new(
+                                geo::Coord { x: 0.0, y: 0.0 },
+                                geo::Coord { x: 0.0, y: 0.0 },
+                            ));
+                            (h, hi, area, b)
+                        })
+                        .collect();
+                    combined_holes_with_bbox.sort_unstable_by(
+                        |(h1, _, area1, b1), (h2, _, area2, b2)| {
+                            area2.total_cmp(area1).then_with(|| {
+                                b1.min()
+                                    .x
+                                    .total_cmp(&b2.min().x)
+                                    .then(b1.min().y.total_cmp(&b2.min().y))
+                                    .then(h1.len().cmp(&h2.len()))
+                            })
+                        },
+                    );
+
+                    let mut h = Vec::with_capacity(combined_holes_with_bbox.len());
+                    let mut hi = Vec::with_capacity(combined_holes_with_bbox.len());
+                    for (hole, ids, _, _) in combined_holes_with_bbox {
+                        h.push(hole);
+                        hi.push(ids);
+                    }
+                    holes = h;
+                    holes_ids = hi;
+                } else {
+                    combined_holes
+                        .sort_unstable_by(|(_, _, area1), (_, _, area2)| area2.total_cmp(area1));
+
+                    let mut h = Vec::with_capacity(combined_holes.len());
+                    let mut hi = Vec::with_capacity(combined_holes.len());
+                    for (hole, ids, _) in combined_holes {
+                        h.push(hole);
+                        hi.push(ids);
+                    }
+                    holes = h;
+                    holes_ids = hi;
                 }
-                holes = h;
-                holes_ids = hi;
             }
 
             let mut p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
@@ -519,31 +533,43 @@ impl Polygonizer {
 
         if self.options.determinism.canonical_sort {
             let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
-            result.sort_by(|p1, p2| {
-                // Optimization: for canonical sort, comparing just the exterior area is sufficient
-                // and avoids the overhead of looping through and subtracting interior hole areas.
-                let area1 = p1.exterior_unsigned_area_2d();
-                let area2 = p2.exterior_unsigned_area_2d();
-                // Sort polygons by area (descending)
-                area2.total_cmp(&area1).then_with(|| {
-                    if !use_stable_tie_breaks {
-                        return std::cmp::Ordering::Equal;
-                    }
-                    let b1 = bounding_rect_3d(&p1.exterior).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    let b2 = bounding_rect_3d(&p2.exterior).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    b1.min()
-                        .x
-                        .total_cmp(&b2.min().x)
-                        .then(b1.min().y.total_cmp(&b2.min().y))
-                        .then(p1.interiors.len().cmp(&p2.interiors.len()))
-                })
-            });
+            if use_stable_tie_breaks {
+                let mut result_with_cache: Vec<_> = result
+                    .into_iter()
+                    .map(|p| {
+                        let area = p.exterior_unsigned_area_2d();
+                        let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
+                            geo::Coord { x: 0.0, y: 0.0 },
+                            geo::Coord { x: 0.0, y: 0.0 },
+                        ));
+                        (p, area, b)
+                    })
+                    .collect();
+
+                result_with_cache.sort_unstable_by(|(p1, area1, b1), (p2, area2, b2)| {
+                    area2.total_cmp(area1).then_with(|| {
+                        b1.min()
+                            .x
+                            .total_cmp(&b2.min().x)
+                            .then(b1.min().y.total_cmp(&b2.min().y))
+                            .then(p1.interiors.len().cmp(&p2.interiors.len()))
+                    })
+                });
+
+                result = result_with_cache.into_iter().map(|(p, _, _)| p).collect();
+            } else {
+                let mut result_with_cache: Vec<_> = result
+                    .into_iter()
+                    .map(|p| {
+                        let area = p.exterior_unsigned_area_2d();
+                        (p, area)
+                    })
+                    .collect();
+
+                result_with_cache.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+
+                result = result_with_cache.into_iter().map(|(p, _)| p).collect();
+            }
 
             if self.options.determinism.canonical_ring_rotation {
                 for d in dangles.iter_mut() {
@@ -580,28 +606,32 @@ impl Polygonizer {
                 })
                 .collect();
 
-            combined_invalid.sort_by(|(r1, area1), (r2, area2)| {
-                area2.total_cmp(area1).then_with(|| {
-                    if !use_stable_tie_breaks {
-                        return std::cmp::Ordering::Equal;
-                    }
-                    let b1 = bounding_rect_3d(r1).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    let b2 = bounding_rect_3d(r2).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    b1.min()
-                        .x
-                        .total_cmp(&b2.min().x)
-                        .then(b1.min().y.total_cmp(&b2.min().y))
-                        .then(r1.len().cmp(&r2.len()))
-                })
-            });
+            if use_stable_tie_breaks {
+                let mut invalid_with_bbox: Vec<_> = combined_invalid
+                    .into_iter()
+                    .map(|(r, area)| {
+                        let b = bounding_rect_3d(&r).unwrap_or(geo::Rect::new(
+                            geo::Coord { x: 0.0, y: 0.0 },
+                            geo::Coord { x: 0.0, y: 0.0 },
+                        ));
+                        (r, area, b)
+                    })
+                    .collect();
 
-            invalid_rings = combined_invalid.into_iter().map(|(r, _)| r).collect();
+                invalid_with_bbox.sort_unstable_by(|(r1, area1, b1), (r2, area2, b2)| {
+                    area2.total_cmp(area1).then_with(|| {
+                        b1.min()
+                            .x
+                            .total_cmp(&b2.min().x)
+                            .then(b1.min().y.total_cmp(&b2.min().y))
+                            .then(r1.len().cmp(&r2.len()))
+                    })
+                });
+                invalid_rings = invalid_with_bbox.into_iter().map(|(r, _, _)| r).collect();
+            } else {
+                combined_invalid.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+                invalid_rings = combined_invalid.into_iter().map(|(r, _)| r).collect();
+            }
         }
 
         if let Some(ref mut d) = diag {
