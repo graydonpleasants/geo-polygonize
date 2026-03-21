@@ -93,14 +93,11 @@ impl<'a> TiledPolygonizer<'a> {
                 let ownership_point = match self.ownership_policy {
                     TileOwnershipPolicy::Centroid
                     | TileOwnershipPolicy::RepresentativePointInsidePolygon => poly.centroid_2d(),
-                    TileOwnershipPolicy::LexicographicMinVertex => {
-                        poly.exterior
-                            .iter()
-                            .min_by(|a, b| {
-                                a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
-                            })
-                            .map(|coord| geo_types::Point::new(coord.x, coord.y))
-                    }
+                    TileOwnershipPolicy::LexicographicMinVertex => poly
+                        .exterior
+                        .iter()
+                        .min_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)))
+                        .map(|coord| geo_types::Point::new(coord.x, coord.y)),
                     TileOwnershipPolicy::CanonicalBoundaryHash => {
                         if poly.exterior.is_empty() {
                             poly.centroid_2d()
