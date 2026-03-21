@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.21.0...geo-polygonize-v0.22.0) (2026-03-21)
+
+
+### Features
+
+* **core:** Prototype optional advanced noder backend ([25e7eec](https://github.com/graydonpleasants/geo-polygonize/commit/25e7eec9b8e08af570c3f291838227b82d01608f))
+
+
+### Bug Fixes
+
+* Run cargo fmt to pass CI ([b6852fe](https://github.com/graydonpleasants/geo-polygonize/commit/b6852fe7ca2ae444101b8722f68fdb94f1f1b20f))
+
 ## [0.21.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.20.0...geo-polygonize-v0.21.0) (2026-03-21)
 
 
