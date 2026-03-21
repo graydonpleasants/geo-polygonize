@@ -127,7 +127,7 @@ Add property tests for permutation invariance, idempotence, stability under belo
 
 ### 1.4 Fuzzing Rollout
 **Action**
-Add `cargo-fuzz` harnesses for the core pipeline, Wasm typed-buffer ingestion, Arrow/FFI ingestion, tile ownership + dedup, and provenance-enabled report mode.
+- [x] Add `cargo-fuzz` harnesses for the core pipeline, Wasm typed-buffer ingestion, Arrow/FFI ingestion, tile ownership + dedup, and provenance-enabled report mode.
 
 ### 1.5 Differential Tests Update
 **Action**

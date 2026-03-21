@@ -1,0 +1,52 @@
+[package]
+name = "geo-polygonize-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.geo-polygonize-core]
+path = ".."
+
+[[bin]]
+name = "core_pipeline"
+path = "fuzz_targets/core_pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wasm_typed_buffer_ingestion"
+path = "fuzz_targets/wasm_typed_buffer_ingestion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "arrow_ffi_ingestion"
+path = "fuzz_targets/arrow_ffi_ingestion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tile_ownership_dedup"
+path = "fuzz_targets/tile_ownership_dedup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "provenance_report_mode"
+path = "fuzz_targets/provenance_report_mode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
