@@ -366,7 +366,7 @@ pub struct IPoint {
 - [x] Prototype optional advanced noder backend.
 
 ## 4. Supply Chain, Release, and OSS Quality (Agent Track D)
-- [ ] Add SBOM generation, provenance/release automation, `cargo deny`, and `cargo audit`.
+- [x] Add SBOM generation, provenance/release automation, `cargo deny`, and `cargo audit`.
 
 ## 5. Compatibility Profiles & Differential Explainability (Agent Track E)
 - [ ] Harden `snap_strategy=geos_compat`.
