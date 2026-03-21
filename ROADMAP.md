@@ -350,7 +350,7 @@ pub struct IPoint {
 **Goal**: Introduce the heavier algorithmic and architectural improvements once correctness, observability, and policy scaffolding are in place.
 
 ## 1. Scaling & Concurrency (Agent Track A)
-- [ ] Parallelize `UniformGrid::new`.
+- [x] Parallelize `UniformGrid::new`.
 - [ ] Implement adaptive regrid.
 - [x] Replace centroid-only ownership with stronger tile ownership policies.
 - [x] Add cross-tile dedup via canonical ring or edge-set hashing.
@@ -394,7 +394,7 @@ pub struct IPoint {
 12. `SnapStrategy` with `grid` and `geos_compat`
 13. parametric split accumulation
 14. tile ownership policies
-15. parallel `UniformGrid::new`
+15. [x] parallel `UniformGrid::new`
 
 ## Third wave
 16. `ContainmentForest`
