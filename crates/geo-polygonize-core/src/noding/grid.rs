@@ -29,17 +29,40 @@ impl UniformGrid {
         }
 
         // 1. Calculate Bounds & Heuristics
-        let mut min_x = f64::MAX;
-        let mut min_y = f64::MAX;
-        let mut max_x = f64::MIN;
-        let mut max_y = f64::MIN;
+        #[cfg(feature = "parallel")]
+        let (min_x, min_y, max_x, max_y) = lines
+            .par_iter()
+            .fold(
+                || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                |acc, line| {
+                    (
+                        acc.0.min(line.start.x.min(line.end.x)),
+                        acc.1.min(line.start.y.min(line.end.y)),
+                        acc.2.max(line.start.x.max(line.end.x)),
+                        acc.3.max(line.start.y.max(line.end.y)),
+                    )
+                },
+            )
+            .reduce(
+                || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                |a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
+            );
 
-        for line in lines {
-            min_x = min_x.min(line.start.x.min(line.end.x));
-            min_y = min_y.min(line.start.y.min(line.end.y));
-            max_x = max_x.max(line.start.x.max(line.end.x));
-            max_y = max_y.max(line.start.y.max(line.end.y));
-        }
+        #[cfg(not(feature = "parallel"))]
+        let (min_x, min_y, max_x, max_y) = {
+            let mut min_x = f64::MAX;
+            let mut min_y = f64::MAX;
+            let mut max_x = f64::MIN;
+            let mut max_y = f64::MIN;
+
+            for line in lines {
+                min_x = min_x.min(line.start.x.min(line.end.x));
+                min_y = min_y.min(line.start.y.min(line.end.y));
+                max_x = max_x.max(line.start.x.max(line.end.x));
+                max_y = max_y.max(line.start.y.max(line.end.y));
+            }
+            (min_x, min_y, max_x, max_y)
+        };
 
         let width = max_x - min_x;
         let height = max_y - min_y;
@@ -68,40 +91,100 @@ impl UniformGrid {
         // 3. Initialize & Populate (Two-Pass CSR Construction)
 
         // Pass 1: Count entries per cell & Identify Global Lines
-        let mut counts = vec![0usize; cols * rows];
-        let mut global_lines = Vec::new();
         const MAX_CELLS_PER_LINE: usize = 50;
 
-        for (i, line) in lines.iter().enumerate() {
-            let l_min_x = line.start.x.min(line.end.x);
-            let l_max_x = line.start.x.max(line.end.x);
-            let l_min_y = line.start.y.min(line.end.y);
-            let l_max_y = line.start.y.max(line.end.y);
+        #[cfg(feature = "parallel")]
+        let (counts, global_lines) = {
+            let chunk_size = (lines.len() / rayon::current_num_threads()).max(1);
+            let results: Vec<_> = lines
+                .par_chunks(chunk_size)
+                .enumerate()
+                .map(|(chunk_idx, chunk)| {
+                    let mut local_counts = vec![0usize; cols * rows];
+                    let mut local_global = Vec::new();
+                    let start_i = chunk_idx * chunk_size;
 
-            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+                    for (local_i, line) in chunk.iter().enumerate() {
+                        let i = start_i + local_i;
+                        let l_min_x = line.start.x.min(line.end.x);
+                        let l_max_x = line.start.x.max(line.end.x);
+                        let l_min_y = line.start.y.min(line.end.y);
+                        let l_max_y = line.start.y.max(line.end.y);
 
-            // Clamp
-            let col_max = col_max.min(cols.saturating_sub(1));
-            let row_max = row_max.min(rows.saturating_sub(1));
-            let col_min = col_min.min(col_max);
-            let row_min = row_min.min(row_max);
+                        let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+                        let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+                        let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+                        let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
 
-            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+                        let col_max = col_max.min(cols.saturating_sub(1));
+                        let row_max = row_max.min(rows.saturating_sub(1));
+                        let col_min = col_min.min(col_max);
+                        let row_min = row_min.min(row_max);
 
-            if num_cells > MAX_CELLS_PER_LINE {
-                global_lines.push(i);
-                continue;
+                        let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+
+                        if num_cells > MAX_CELLS_PER_LINE {
+                            local_global.push(i);
+                            continue;
+                        }
+
+                        for r in row_min..=row_max {
+                            for c in col_min..=col_max {
+                                local_counts[r * cols + c] += 1;
+                            }
+                        }
+                    }
+                    (local_counts, local_global)
+                })
+                .collect();
+
+            let mut final_counts = vec![0usize; cols * rows];
+            let mut final_globals = Vec::new();
+            for (local_counts, local_global) in results {
+                for i in 0..final_counts.len() {
+                    final_counts[i] += local_counts[i];
+                }
+                final_globals.extend(local_global);
             }
+            (final_counts, final_globals)
+        };
 
-            for r in row_min..=row_max {
-                for c in col_min..=col_max {
-                    counts[r * cols + c] += 1;
+        #[cfg(not(feature = "parallel"))]
+        let (counts, global_lines) = {
+            let mut counts = vec![0usize; cols * rows];
+            let mut global_lines = Vec::new();
+
+            for (i, line) in lines.iter().enumerate() {
+                let l_min_x = line.start.x.min(line.end.x);
+                let l_max_x = line.start.x.max(line.end.x);
+                let l_min_y = line.start.y.min(line.end.y);
+                let l_max_y = line.start.y.max(line.end.y);
+
+                let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
+                let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
+                let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
+                let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
+
+                let col_max = col_max.min(cols.saturating_sub(1));
+                let row_max = row_max.min(rows.saturating_sub(1));
+                let col_min = col_min.min(col_max);
+                let row_min = row_min.min(row_max);
+
+                let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
+
+                if num_cells > MAX_CELLS_PER_LINE {
+                    global_lines.push(i);
+                    continue;
+                }
+
+                for r in row_min..=row_max {
+                    for c in col_min..=col_max {
+                        counts[r * cols + c] += 1;
+                    }
                 }
             }
-        }
+            (counts, global_lines)
+        };
 
         // Prefix Sum to create offsets
         let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
