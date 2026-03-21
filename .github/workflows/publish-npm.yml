@@ -38,3 +38,12 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public --provenance
+
+      - name: Generate SBOM
+        uses: CycloneDX/gh-node-module-sbom-action@v1
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-npm
+          path: bom.json
