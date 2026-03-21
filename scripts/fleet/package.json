@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "analyze": "bun fleet-analyze.ts",
-    "plan": "bun fleet-plan.ts",
-    "dispatch": "bun fleet-dispatch.ts",
+    "task-picker": "bun task-picker.ts",
+    "roadmap-analyzer": "bun roadmap-analyzer.ts",
     "merge": "bun fleet-merge.ts"
   },
   "dependencies": {
