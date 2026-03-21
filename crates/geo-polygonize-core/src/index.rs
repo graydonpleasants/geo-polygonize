@@ -2,7 +2,10 @@ use rstar::AABB;
 
 pub trait SpatialIndex2D {
     /// Returns the indices of the elements whose bounding boxes intersect the given `aabb`.
-    fn locate_in_envelope_intersecting<'a>(&'a self, aabb: &AABB<[f64; 2]>) -> Box<dyn Iterator<Item = usize> + 'a>;
+    fn locate_in_envelope_intersecting<'a>(
+        &'a self,
+        aabb: &AABB<[f64; 2]>,
+    ) -> Box<dyn Iterator<Item = usize> + 'a>;
 }
 
 use rstar::{RTree, RTreeObject};
@@ -34,13 +37,20 @@ impl RStarBackend {
 }
 
 impl SpatialIndex2D for RStarBackend {
-    fn locate_in_envelope_intersecting<'a>(&'a self, aabb: &AABB<[f64; 2]>) -> Box<dyn Iterator<Item = usize> + 'a> {
-        Box::new(self.tree.locate_in_envelope_intersecting(aabb).map(|cand| cand.index))
+    fn locate_in_envelope_intersecting<'a>(
+        &'a self,
+        aabb: &AABB<[f64; 2]>,
+    ) -> Box<dyn Iterator<Item = usize> + 'a> {
+        Box::new(
+            self.tree
+                .locate_in_envelope_intersecting(aabb)
+                .map(|cand| cand.index),
+        )
     }
 }
 
-use static_aabb2d_index::StaticAABB2DIndexBuilder;
 use static_aabb2d_index::StaticAABB2DIndex;
+use static_aabb2d_index::StaticAABB2DIndexBuilder;
 
 pub struct PackedNativeBackend {
     index: StaticAABB2DIndex<f64>,
@@ -61,7 +71,10 @@ impl PackedNativeBackend {
 }
 
 impl SpatialIndex2D for PackedNativeBackend {
-    fn locate_in_envelope_intersecting<'a>(&'a self, aabb: &AABB<[f64; 2]>) -> Box<dyn Iterator<Item = usize> + 'a> {
+    fn locate_in_envelope_intersecting<'a>(
+        &'a self,
+        aabb: &AABB<[f64; 2]>,
+    ) -> Box<dyn Iterator<Item = usize> + 'a> {
         let min = aabb.lower();
         let max = aabb.upper();
         let query_results = self.index.query(min[0], min[1], max[0], max[1]);
@@ -75,10 +88,15 @@ pub enum SpatialIndexBackend {
 }
 
 impl SpatialIndex2D for SpatialIndexBackend {
-    fn locate_in_envelope_intersecting<'a>(&'a self, aabb: &AABB<[f64; 2]>) -> Box<dyn Iterator<Item = usize> + 'a> {
+    fn locate_in_envelope_intersecting<'a>(
+        &'a self,
+        aabb: &AABB<[f64; 2]>,
+    ) -> Box<dyn Iterator<Item = usize> + 'a> {
         match self {
             SpatialIndexBackend::RStar(backend) => backend.locate_in_envelope_intersecting(aabb),
-            SpatialIndexBackend::PackedNative(backend) => backend.locate_in_envelope_intersecting(aabb),
+            SpatialIndexBackend::PackedNative(backend) => {
+                backend.locate_in_envelope_intersecting(aabb)
+            }
         }
     }
 }

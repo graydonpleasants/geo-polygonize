@@ -1,3 +1,7 @@
+use crate::index::{
+    IndexedEnvelope, PackedNativeBackend, RStarBackend, SpatialIndex2D, SpatialIndexBackend,
+};
+use crate::options::IndexBackend;
 use crate::options::TouchPolicy;
 use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
@@ -7,10 +11,6 @@ use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rstar::AABB;
-use crate::options::IndexBackend;
-use crate::index::{SpatialIndex2D, SpatialIndexBackend, RStarBackend, PackedNativeBackend, IndexedEnvelope};
-
-
 
 pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
@@ -48,7 +48,9 @@ impl ContainmentForest {
         }
         let tree = match index_backend {
             IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
-            IndexBackend::PackedNative => SpatialIndexBackend::PackedNative(PackedNativeBackend::new(&indexed_shells)),
+            IndexBackend::PackedNative => {
+                SpatialIndexBackend::PackedNative(PackedNativeBackend::new(&indexed_shells))
+            }
         };
 
         Self {

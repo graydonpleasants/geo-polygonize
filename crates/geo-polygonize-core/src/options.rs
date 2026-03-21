@@ -105,7 +105,6 @@ pub enum NodingBackend {
 pub enum IndexBackend {
     RStar,
     PackedNative,
-
     // placeholders for future backends
 }
 
