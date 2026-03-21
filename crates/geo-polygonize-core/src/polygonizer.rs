@@ -356,7 +356,6 @@ impl Polygonizer {
         }
 
         // Helper to rotate a closed ring to its canonical start coordinate (lexicographically smallest)
-        // while preserving the association with edge IDs.
         let canonicalize_ring = |ring: &mut Vec<Coord3D>, ids: Option<&mut Vec<u32>>| {
             if ring.is_empty() {
                 return;
