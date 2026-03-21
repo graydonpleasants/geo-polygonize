@@ -356,7 +356,6 @@ impl Polygonizer {
         }
 
         // Helper to rotate a closed ring to its canonical start coordinate (lexicographically smallest)
-        // while preserving the association with edge IDs.
         let canonicalize_ring = |ring: &mut Vec<Coord3D>, ids: Option<&mut Vec<u32>>| {
             if ring.is_empty() {
                 return;
@@ -968,6 +967,11 @@ fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_bounding_rect_3d_empty() {
+        assert_eq!(bounding_rect_3d(&[]), None);
+    }
 
     #[test]
     fn test_with_snap_grid() {

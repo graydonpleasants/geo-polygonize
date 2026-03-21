@@ -298,8 +298,6 @@ mod tests {
                 // Geo's contains is strict (false for boundary).
                 // SimdRing is strict-ish (false for most boundary, true for some vertices).
                 // We skip points too close to boundary to avoid flaky tests on undefined behavior.
-                // Convert test_point to Point for distance check
-                // let point_geo = geo::Point(test_point);
                 // Check distance to boundary
                 let boundary = poly.exterior();
 

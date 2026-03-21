@@ -188,3 +188,88 @@ impl ContainmentForest {
         best_shell_idx
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Coord3D;
+
+    fn create_square(x: f64, y: f64, size: f64) -> Polygon3D {
+        let coords = vec![
+            Coord3D { x, y, z: 0.0 },
+            Coord3D {
+                x: x + size,
+                y,
+                z: 0.0,
+            },
+            Coord3D {
+                x: x + size,
+                y: y + size,
+                z: 0.0,
+            },
+            Coord3D {
+                x,
+                y: y + size,
+                z: 0.0,
+            },
+            Coord3D { x, y, z: 0.0 },
+        ];
+        Polygon3D::new(coords, vec![], vec![], vec![])
+    }
+
+    #[test]
+    fn test_filter_polygonal_basic() {
+        let shells = vec![
+            create_square(0.0, 0.0, 10.0), // Outer shell, count 0 -> keep
+            create_square(1.0, 1.0, 8.0),  // Inner shell, count 1 -> drop
+            create_square(2.0, 2.0, 6.0),  // Inner-inner shell, count 2 -> keep
+        ];
+
+        let forest = ContainmentForest::new(&shells, &IndexBackend::RStar);
+        let mask = forest.filter_polygonal(&shells, &TouchPolicy::AllowEdgeShare);
+
+        assert_eq!(mask, vec![true, false, true]);
+    }
+
+    #[test]
+    fn test_filter_polygonal_touch_policy() {
+        // Two squares sharing an edge
+        let shells = vec![
+            create_square(0.0, 0.0, 10.0),
+            // "Inner" square but its bottom edge is at y=0, which is the same as the outer shell's bottom edge.
+            // Outer square bottom edge: (0,0) to (10,0).
+            // Inner square bottom edge: (1,0) to (9,0). This means they share a part of the edge.
+            create_square(1.0, 0.0, 8.0),
+        ];
+
+        let forest = ContainmentForest::new(&shells, &IndexBackend::RStar);
+
+        // If we allow edge share, the inner square is considered contained and its container count becomes 1 (odd) so it's dropped.
+        let mask_allow = forest.filter_polygonal(&shells, &TouchPolicy::AllowEdgeShare);
+        assert_eq!(mask_allow, vec![true, false]);
+
+        // If we disallow edge share, the inner square's touch is NOT ok, so it does not get counted as contained.
+        // Since it's not counted as contained, container_count remains 0 (even), so it's kept.
+        let mask_disallow =
+            forest.filter_polygonal(&shells, &TouchPolicy::AllowPointTouchDisallowEdgeShare);
+        assert_eq!(mask_disallow, vec![true, true]);
+    }
+
+    #[test]
+    fn test_assign_hole_basic() {
+        let shells = vec![
+            create_square(0.0, 0.0, 10.0), // area: 100
+            create_square(1.0, 1.0, 8.0), // area: 64 (should be filtered but assign_hole works on raw list)
+        ];
+
+        let forest = ContainmentForest::new(&shells, &IndexBackend::RStar);
+
+        // Hole inside the inner shell
+        let hole = create_square(2.0, 2.0, 4.0);
+
+        // It should be assigned to the innermost shell that contains it (area 64)
+        let best_shell_idx = forest.assign_hole(&hole, &shells, &TouchPolicy::AllowEdgeShare);
+
+        assert_eq!(best_shell_idx, Some(1));
+    }
+}
