@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.22.1...geo-polygonize-v0.23.0) (2026-03-21)
+
+
+### Features
+
+* update Jules triggering workflows for task picking and roadmap analysis ([c49691a](https://github.com/graydonpleasants/geo-polygonize/commit/c49691a18de76d12bb158d05309d064ec8dfaa90))
+
 ## [0.22.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.22.0...geo-polygonize-v0.22.1) (2026-03-21)
 
 
