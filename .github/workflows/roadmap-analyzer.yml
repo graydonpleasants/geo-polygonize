@@ -1,0 +1,38 @@
+name: Analyze Roadmap
+
+on:
+  schedule:
+    # Runs daily at 6am and 6pm UTC
+    - cron: "0 6,18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: roadmap-analyzer
+  cancel-in-progress: false
+
+jobs:
+  analyze-roadmap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.1"
+
+      - name: Install fleet dependencies
+        working-directory: scripts/fleet
+        run: bun install
+
+      - name: Analyze Roadmap
+        working-directory: scripts/fleet
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          FLEET_BASE_BRANCH: main
+        run: bun roadmap-analyzer.ts
