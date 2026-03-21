@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.18.1...geo-polygonize-v0.19.0) (2026-03-21)
+
+
+### Features
+
+* implement spatial index backend abstraction and static packed index ([83d9cca](https://github.com/graydonpleasants/geo-polygonize/commit/83d9ccac012466f6d4c5e4ca4cbfe5e5e0dd0197))
+
+
+### Bug Fixes
+
+* rustfmt formatting on spatial index backend code ([3722503](https://github.com/graydonpleasants/geo-polygonize/commit/37225035e1f5e1d609170835e56e8f06dabe063d))
+
 ## [0.18.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.18.0...geo-polygonize-v0.18.1) (2026-03-20)
 
 
