@@ -11,3 +11,9 @@ pkg-scalar/
 pkg-simd/
 pkg-threads/
 test_venv
+
+# Cargo Fuzz
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+fuzz/coverage
