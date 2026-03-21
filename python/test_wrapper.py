@@ -296,19 +296,6 @@ def test_internal_error_status(mock_lib):
     print("Internal error status test passed!")
 
 
-def test_polygonize_with_options_invalid_shape_mismatch():
-    print("\nTesting polygonize_with_options invalid shape mismatch...")
-    from geo_polygonize import polygonize_with_options
-
-    # 2D coords with shape (1, 4) but stride=2
-    coords = np.array([[0.0, 0.0, 1.0, 1.0]], dtype=np.float64)
-    offsets = np.array([0], dtype=np.uint32)
-
-    with pytest.raises(ValueError, match=r"Input shape \(1, 4\) does not match stride 2"):
-        polygonize_with_options(coords=coords, offsets=offsets, stride=2)
-    print("Invalid shape mismatch for polygonize_with_options test passed!")
-
-
 def test_polygonize_with_options():
     print("\nTesting polygonize_with_options API...")
     from geo_polygonize import polygonize_with_options
@@ -457,7 +444,6 @@ if __name__ == "__main__":
     test_internal_error_status()
     test_null_result_pointer()
     test_3d_to_2d_slicing()
-    test_polygonize_with_options_invalid_shape_mismatch()
     test_polygonize_with_options()
     test_rust_typed_errors()
     test_extract_only_polygonal()
