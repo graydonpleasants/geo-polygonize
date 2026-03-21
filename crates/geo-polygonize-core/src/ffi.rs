@@ -246,7 +246,8 @@ mod tests {
         let input_arrow_array = builder.finish();
 
         let array_ref = input_arrow_array.into_array_ref();
-        let (input_array, input_schema) = arrow::ffi::to_ffi(&array_ref.to_data()).unwrap();
+        let (input_array, input_schema) = arrow::ffi::to_ffi(&array_ref.to_data())
+            .expect("Failed to convert arrow array to FFI structs");
         let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array);
         let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema);
 
