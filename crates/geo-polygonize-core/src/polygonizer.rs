@@ -608,21 +608,31 @@ fn apply_determinism(
         }
 
         if use_stable_tie_breaks {
-            dangles.sort_by(|l1, l2| {
-                let b1 = bounding_rect_3d(l1).unwrap_or(geo::Rect::new(
-                    geo::Coord { x: 0.0, y: 0.0 },
-                    geo::Coord { x: 0.0, y: 0.0 },
-                ));
-                let b2 = bounding_rect_3d(l2).unwrap_or(geo::Rect::new(
-                    geo::Coord { x: 0.0, y: 0.0 },
-                    geo::Coord { x: 0.0, y: 0.0 },
-                ));
+            // Bolt optimization: Schwartzian Transform for dangles.
+            // Caches the bounding boxes of the open lines to avoid redundant
+            // O(N) evaluations of `bounding_rect_3d` during the O(K log K) sort closure.
+            let mut dangles_with_cache: Vec<_> = dangles
+                .iter_mut()
+                .map(|l| {
+                    let b = bounding_rect_3d(l).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    (std::mem::take(l), b)
+                })
+                .collect();
+
+            dangles_with_cache.sort_by(|(l1, b1), (l2, b2)| {
                 b1.min()
                     .x
                     .total_cmp(&b2.min().x)
                     .then(b1.min().y.total_cmp(&b2.min().y))
                     .then(l1.len().cmp(&l2.len()))
             });
+
+            for (i, (l, _)) in dangles_with_cache.into_iter().enumerate() {
+                dangles[i] = l;
+            }
         }
 
         let mut combined_invalid: Vec<_> = invalid_rings
