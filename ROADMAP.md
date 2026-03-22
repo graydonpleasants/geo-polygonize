@@ -100,9 +100,9 @@ This phase is the prerequisite for every later speedup.
 - Add a `DeterminismOptions` block with `canonical_sort`, `canonical_ring_rotation`, and `stable_tie_breaks`.
 
 **Acceptance criteria**
-- [ ] Same input produces byte-identical serialized output across repeated runs.
-- [ ] Same input with segment order permuted produces identical canonical output.
-- [ ] Same input on native parallel and native non-parallel builds produces equivalent canonical output.
+- [x] Same input produces byte-identical serialized output across repeated runs.
+- [x] Same input with segment order permuted produces identical canonical output.
+- [x] Same input on native parallel and native non-parallel builds produces equivalent canonical output.
 
 ### 1.2 Golden Fixture Corpus
 **Action**

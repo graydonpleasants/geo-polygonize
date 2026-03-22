@@ -1,7 +1,7 @@
 use geo_types::{Coord, Line, LineString, Polygon};
 use std::ops::{Add, Mul, Sub};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct Coord3D {
     pub x: f64,
     pub y: f64,
@@ -87,7 +87,7 @@ pub struct PolygonProvenance {
     pub input_profile_id: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct Polygon3D {
     pub exterior: Vec<Coord3D>,
     pub interiors: Vec<Vec<Coord3D>>,
