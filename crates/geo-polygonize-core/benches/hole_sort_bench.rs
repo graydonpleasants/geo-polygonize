@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use geo_polygonize_core::{Coord3D, Line3D, Polygonizer, PolygonizerOptions};
+use criterion::{criterion_group, criterion_main, Criterion};
+use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
 use std::f64::consts::PI;
 
 fn generate_circle_points(
