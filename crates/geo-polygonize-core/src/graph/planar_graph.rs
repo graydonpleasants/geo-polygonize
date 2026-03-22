@@ -546,6 +546,7 @@ impl PlanarGraph {
         cuts
     }
 
+
     /// Extracts rings from the graph following the GEOS flow.
     pub fn get_edge_rings(&mut self) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
         NEXT_POINTERS.with(|cell| {
@@ -556,202 +557,235 @@ impl PlanarGraph {
             let mut labels = vec![-1_i64; self.directed_edges.len()];
 
             // Step 1: computeNextCWEdges over every node.
-            // Edges in nodes_outgoing are in CCW order. For each pair of consecutive outgoing
-            // edges (prev, curr), set next(sym(prev)) = curr, and close the cycle.
-            let mut valid_edges = Vec::new();
-            for outgoing in &self.nodes_outgoing {
-                valid_edges.clear();
-                valid_edges.extend(
-                    outgoing
-                        .iter()
-                        .copied()
-                        .filter(|&idx| !self.directed_edges[idx].is_marked),
-                );
-
-                if valid_edges.is_empty() {
-                    continue;
-                }
-
-                let mut next = *valid_edges.last().unwrap();
-                for &curr in &valid_edges {
-                    next_pointers[curr] = next;
-                    next = curr;
-                }
-            }
+            self.compute_next_cw_edges(&mut next_pointers);
 
             // Step 2: find and label maximal rings.
-            let mut maximal_ring_starts = Vec::new();
-            let mut curr_label = 1_i64;
-            for start_de_idx in 0..self.directed_edges.len() {
-                if self.directed_edges[start_de_idx].is_marked || labels[start_de_idx] >= 0 {
-                    continue;
-                }
-
-                maximal_ring_starts.push(start_de_idx);
-                let mut curr = start_de_idx;
-                loop {
-                    if labels[curr] >= 0 {
-                        break;
-                    }
-                    labels[curr] = curr_label;
-
-                    let next = next_pointers[self.directed_edges[curr].sym_idx];
-                    if next == usize::MAX || next == start_de_idx {
-                        break;
-                    }
-                    curr = next;
-                }
-                curr_label += 1;
-            }
+            let maximal_ring_starts = self.find_and_label_maximal_rings(&next_pointers, &mut labels);
 
             // Step 3: convert maximal to minimal rings by relinking intersection nodes.
-            // findIntersectionNodes + computeNextCCWEdges, scoped by ring label.
-            let mut intersection_nodes = Vec::<NodeId>::new();
-            let mut seen_intersection_nodes = vec![false; self.nodes_x.len()];
+            self.convert_maximal_to_minimal_rings(&maximal_ring_starts, &mut next_pointers, &labels);
 
-            for &start_de_idx in &maximal_ring_starts {
-                let ring_label = labels[start_de_idx];
-                if ring_label < 0 {
-                    continue;
-                }
-
-                intersection_nodes.clear();
-
-                // findIntersectionNodes(startDE, label)
-                let mut curr = start_de_idx;
-                loop {
-                    let node = self.directed_edges[curr].src;
-
-                    // Degree of this node within the current ring label.
-                    let mut degree_for_label = 0;
-                    for &out_de in &self.nodes_outgoing[node] {
-                        if labels[out_de] == ring_label {
-                            degree_for_label += 1;
-                        }
-                    }
-
-                    if degree_for_label > 1 && !seen_intersection_nodes[node] {
-                        seen_intersection_nodes[node] = true;
-                        intersection_nodes.push(node);
-                    }
-
-                    let next = next_pointers[self.directed_edges[curr].sym_idx];
-                    if next == usize::MAX || next == start_de_idx {
-                        break;
-                    }
-                    curr = next;
-                }
-
-                // computeNextCCWEdges(node, label)
-                for &node in &intersection_nodes {
-                    let outgoing = &self.nodes_outgoing[node];
-                    let mut first_out: Option<DirEdgeId> = None;
-                    let mut prev_in: Option<DirEdgeId> = None;
-
-                    // Traverse node star in reverse to process CCW linking semantics.
-                    for &de_idx in outgoing.iter().rev() {
-                        let sym_idx = self.directed_edges[de_idx].sym_idx;
-
-                        let out_de = (labels[de_idx] == ring_label).then_some(de_idx);
-                        let in_de = (labels[sym_idx] == ring_label).then_some(sym_idx);
-
-                        if out_de.is_none() && in_de.is_none() {
-                            continue;
-                        }
-
-                        if let Some(in_de_idx) = in_de {
-                            prev_in = Some(in_de_idx);
-                        }
-
-                        if let Some(out_de_idx) = out_de {
-                            if let Some(prev_in_idx) = prev_in.take() {
-                                next_pointers[self.directed_edges[prev_in_idx].sym_idx] =
-                                    out_de_idx;
-                            }
-                            if first_out.is_none() {
-                                first_out = Some(out_de_idx);
-                            }
-                        }
-                    }
-
-                    if let (Some(prev_in_idx), Some(first_out_idx)) = (prev_in, first_out) {
-                        next_pointers[self.directed_edges[prev_in_idx].sym_idx] = first_out_idx;
-                    }
-
-                    seen_intersection_nodes[node] = false;
-                }
-            }
-
-            for de in &mut self.directed_edges {
-                de.is_visited = false;
-            }
-
-            // Reuse vector to avoid allocations
-            let mut ring_edges = Vec::new();
-            let mut rings = Vec::new();
-
-            for start_de_idx in 0..self.directed_edges.len() {
-                if self.directed_edges[start_de_idx].is_visited
-                    || self.directed_edges[start_de_idx].is_marked
-                {
-                    continue;
-                }
-
-                ring_edges.clear();
-                let mut curr_de_idx = start_de_idx;
-                let mut is_valid_ring = true;
-
-                loop {
-                    let curr_de = &mut self.directed_edges[curr_de_idx];
-                    curr_de.is_visited = true;
-                    ring_edges.push(curr_de_idx);
-
-                    let next_de_idx = next_pointers[self.directed_edges[curr_de_idx].sym_idx];
-
-                    if next_de_idx == usize::MAX {
-                        is_valid_ring = false;
-                        break;
-                    }
-
-                    curr_de_idx = next_de_idx;
-
-                    if curr_de_idx == start_de_idx {
-                        break;
-                    }
-
-                    if self.directed_edges[curr_de_idx].is_visited {
-                        is_valid_ring = false;
-                        break;
-                    }
-                }
-
-                if is_valid_ring && !ring_edges.is_empty() {
-                    let mut coords = Vec::with_capacity(ring_edges.len() + 1);
-                    let mut ids = Vec::with_capacity(ring_edges.len());
-                    let start_node_idx = self.directed_edges[ring_edges[0]].src;
-                    coords.push(Coord3D {
-                        x: self.nodes_x[start_node_idx],
-                        y: self.nodes_y[start_node_idx],
-                        z: self.nodes_z[start_node_idx],
-                    });
-
-                    for &de_idx in &ring_edges {
-                        let de = &self.directed_edges[de_idx];
-                        let edge_idx = de.edge_idx;
-                        ids.push(self.edges[edge_idx].line.line_id);
-
-                        let dst_idx = de.dst;
-                        coords.push(Coord3D {
-                            x: self.nodes_x[dst_idx],
-                            y: self.nodes_y[dst_idx],
-                            z: self.nodes_z[dst_idx],
-                        });
-                    }
-
-                    rings.push((coords, ids));
-                }
-            }
-            rings
+            // Extract the minimal rings from the graph.
+            self.extract_valid_rings(&next_pointers)
         })
+    }
+
+    /// Step 1: computeNextCWEdges over every node.
+    /// Edges in nodes_outgoing are in CCW order. For each pair of consecutive outgoing
+    /// edges (prev, curr), set next(sym(prev)) = curr, and close the cycle.
+    fn compute_next_cw_edges(&self, next_pointers: &mut [usize]) {
+        let mut valid_edges = Vec::new();
+        for outgoing in &self.nodes_outgoing {
+            valid_edges.clear();
+            valid_edges.extend(
+                outgoing
+                    .iter()
+                    .copied()
+                    .filter(|&idx| !self.directed_edges[idx].is_marked),
+            );
+
+            if valid_edges.is_empty() {
+                continue;
+            }
+
+            let mut next = *valid_edges.last().unwrap();
+            for &curr in &valid_edges {
+                next_pointers[curr] = next;
+                next = curr;
+            }
+        }
+    }
+
+    /// Step 2: find and label maximal rings.
+    fn find_and_label_maximal_rings(
+        &self,
+        next_pointers: &[usize],
+        labels: &mut [i64],
+    ) -> Vec<DirEdgeId> {
+        let mut maximal_ring_starts = Vec::new();
+        let mut curr_label = 1_i64;
+        for start_de_idx in 0..self.directed_edges.len() {
+            if self.directed_edges[start_de_idx].is_marked || labels[start_de_idx] >= 0 {
+                continue;
+            }
+
+            maximal_ring_starts.push(start_de_idx);
+            let mut curr = start_de_idx;
+            loop {
+                if labels[curr] >= 0 {
+                    break;
+                }
+                labels[curr] = curr_label;
+
+                let next = next_pointers[self.directed_edges[curr].sym_idx];
+                if next == usize::MAX || next == start_de_idx {
+                    break;
+                }
+                curr = next;
+            }
+            curr_label += 1;
+        }
+        maximal_ring_starts
+    }
+
+    /// Step 3: convert maximal to minimal rings by relinking intersection nodes.
+    /// findIntersectionNodes + computeNextCCWEdges, scoped by ring label.
+    fn convert_maximal_to_minimal_rings(
+        &self,
+        maximal_ring_starts: &[DirEdgeId],
+        next_pointers: &mut [usize],
+        labels: &[i64],
+    ) {
+        let mut intersection_nodes = Vec::<NodeId>::new();
+        let mut seen_intersection_nodes = vec![false; self.nodes_x.len()];
+
+        for &start_de_idx in maximal_ring_starts {
+            let ring_label = labels[start_de_idx];
+            if ring_label < 0 {
+                continue;
+            }
+
+            intersection_nodes.clear();
+
+            // findIntersectionNodes(startDE, label)
+            let mut curr = start_de_idx;
+            loop {
+                let node = self.directed_edges[curr].src;
+
+                // Degree of this node within the current ring label.
+                let mut degree_for_label = 0;
+                for &out_de in &self.nodes_outgoing[node] {
+                    if labels[out_de] == ring_label {
+                        degree_for_label += 1;
+                    }
+                }
+
+                if degree_for_label > 1 && !seen_intersection_nodes[node] {
+                    seen_intersection_nodes[node] = true;
+                    intersection_nodes.push(node);
+                }
+
+                let next = next_pointers[self.directed_edges[curr].sym_idx];
+                if next == usize::MAX || next == start_de_idx {
+                    break;
+                }
+                curr = next;
+            }
+
+            // computeNextCCWEdges(node, label)
+            for &node in &intersection_nodes {
+                let outgoing = &self.nodes_outgoing[node];
+                let mut first_out: Option<DirEdgeId> = None;
+                let mut prev_in: Option<DirEdgeId> = None;
+
+                // Traverse node star in reverse to process CCW linking semantics.
+                for &de_idx in outgoing.iter().rev() {
+                    let sym_idx = self.directed_edges[de_idx].sym_idx;
+
+                    let out_de = (labels[de_idx] == ring_label).then_some(de_idx);
+                    let in_de = (labels[sym_idx] == ring_label).then_some(sym_idx);
+
+                    if out_de.is_none() && in_de.is_none() {
+                        continue;
+                    }
+
+                    if let Some(in_de_idx) = in_de {
+                        prev_in = Some(in_de_idx);
+                    }
+
+                    if let Some(out_de_idx) = out_de {
+                        if let Some(prev_in_idx) = prev_in.take() {
+                            next_pointers[self.directed_edges[prev_in_idx].sym_idx] = out_de_idx;
+                        }
+                        if first_out.is_none() {
+                            first_out = Some(out_de_idx);
+                        }
+                    }
+                }
+
+                if let (Some(prev_in_idx), Some(first_out_idx)) = (prev_in, first_out) {
+                    next_pointers[self.directed_edges[prev_in_idx].sym_idx] = first_out_idx;
+                }
+
+                seen_intersection_nodes[node] = false;
+            }
+        }
+    }
+
+    /// Extracts valid rings by following `next_pointers`.
+    fn extract_valid_rings(
+        &mut self,
+        next_pointers: &[usize],
+    ) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
+        for de in &mut self.directed_edges {
+            de.is_visited = false;
+        }
+
+        // Reuse vector to avoid allocations
+        let mut ring_edges = Vec::new();
+        let mut rings = Vec::new();
+
+        for start_de_idx in 0..self.directed_edges.len() {
+            if self.directed_edges[start_de_idx].is_visited
+                || self.directed_edges[start_de_idx].is_marked
+            {
+                continue;
+            }
+
+            ring_edges.clear();
+            let mut curr_de_idx = start_de_idx;
+            let mut is_valid_ring = true;
+
+            loop {
+                let curr_de = &mut self.directed_edges[curr_de_idx];
+                curr_de.is_visited = true;
+                ring_edges.push(curr_de_idx);
+
+                let next_de_idx = next_pointers[self.directed_edges[curr_de_idx].sym_idx];
+
+                if next_de_idx == usize::MAX {
+                    is_valid_ring = false;
+                    break;
+                }
+
+                curr_de_idx = next_de_idx;
+
+                if curr_de_idx == start_de_idx {
+                    break;
+                }
+
+                if self.directed_edges[curr_de_idx].is_visited {
+                    is_valid_ring = false;
+                    break;
+                }
+            }
+
+            if is_valid_ring && !ring_edges.is_empty() {
+                let mut coords = Vec::with_capacity(ring_edges.len() + 1);
+                let mut ids = Vec::with_capacity(ring_edges.len());
+                let start_node_idx = self.directed_edges[ring_edges[0]].src;
+                coords.push(Coord3D {
+                    x: self.nodes_x[start_node_idx],
+                    y: self.nodes_y[start_node_idx],
+                    z: self.nodes_z[start_node_idx],
+                });
+
+                for &de_idx in &ring_edges {
+                    let de = &self.directed_edges[de_idx];
+                    let edge_idx = de.edge_idx;
+                    ids.push(self.edges[edge_idx].line.line_id);
+
+                    let dst_idx = de.dst;
+                    coords.push(Coord3D {
+                        x: self.nodes_x[dst_idx],
+                        y: self.nodes_y[dst_idx],
+                        z: self.nodes_z[dst_idx],
+                    });
+                }
+
+                rings.push((coords, ids));
+            }
+        }
+        rings
     }
 }

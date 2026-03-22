@@ -288,9 +288,9 @@ fn polygonize_internal<'py>(
         let exterior_pts = PyList::empty_bound(py);
         for c in &poly.exterior {
             if stride == 3 {
-                exterior_pts.append(PyTuple::new_bound(py, &[c.x, c.y, c.z]))?;
+                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
             } else {
-                exterior_pts.append(PyTuple::new_bound(py, &[c.x, c.y]))?;
+                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
             }
         }
         let shell = PyTuple::new_bound(py, exterior_pts);
@@ -305,9 +305,9 @@ fn polygonize_internal<'py>(
             let ring_pts = PyList::empty_bound(py);
             for c in ring {
                 if stride == 3 {
-                    ring_pts.append(PyTuple::new_bound(py, &[c.x, c.y, c.z]))?;
+                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
                 } else {
-                    ring_pts.append(PyTuple::new_bound(py, &[c.x, c.y]))?;
+                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
                 }
             }
             holes.append(PyTuple::new_bound(py, ring_pts))?;
@@ -341,9 +341,9 @@ fn polygonize_internal<'py>(
         let dangle_pts = PyList::empty_bound(py);
         for c in dangle {
             if stride == 3 {
-                dangle_pts.append(PyTuple::new_bound(py, &[c.x, c.y, c.z]))?;
+                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
             } else {
-                dangle_pts.append(PyTuple::new_bound(py, &[c.x, c.y]))?;
+                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
             }
         }
         py_dangles.append(PyTuple::new_bound(py, dangle_pts))?;
@@ -355,9 +355,9 @@ fn polygonize_internal<'py>(
         let invalid_pts = PyList::empty_bound(py);
         for c in invalid_ring {
             if stride == 3 {
-                invalid_pts.append(PyTuple::new_bound(py, &[c.x, c.y, c.z]))?;
+                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
             } else {
-                invalid_pts.append(PyTuple::new_bound(py, &[c.x, c.y]))?;
+                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
             }
         }
         py_invalid_rings.append(PyTuple::new_bound(py, invalid_pts))?;
