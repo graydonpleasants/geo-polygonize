@@ -45,7 +45,7 @@ const session = await jules.session({
     github: repoInfo.fullName,
     baseBranch,
   },
-  autoPr: true,
+  automationMode: 'AUTO_CREATE_PR',
   requirePlanApproval: false
 })
 
