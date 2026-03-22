@@ -5,30 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.25.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.24.0...geo-polygonize-v0.25.0) (2026-03-21)
-
-
-### Features
-
-* **wasm:** add Set and Map stringification to debug output in generated bindings ([4171203](https://github.com/graydonpleasants/geo-polygonize/commit/41712031fb297e1d1e60576f697b526a492e40fd))
-
-## [0.24.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.23.0...geo-polygonize-v0.24.0) (2026-03-21)
-
-
-### Features
-
-* **core:** add SBOM generation, supply chain checks, and release provenance ([#353](https://github.com/graydonpleasants/geo-polygonize/issues/353)) ([6b1fa0d](https://github.com/graydonpleasants/geo-polygonize/commit/6b1fa0dc61a55b98346b5f487186ed9d02304773))
-
-
-### Bug Fixes
-
-* **core:** apply formatting to tiling.rs ([efcba02](https://github.com/graydonpleasants/geo-polygonize/commit/efcba025bd071843885a3347a86c4ca1025b12ec))
-
-
-### Performance Improvements
-
-* **core:** optimize lexicographic min vertex search in tiling ([f42d529](https://github.com/graydonpleasants/geo-polygonize/commit/f42d529086b3677a1ba9cbe86d749a19c3172481))
-
 ## [0.23.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.22.1...geo-polygonize-v0.23.0) (2026-03-21)
 
 

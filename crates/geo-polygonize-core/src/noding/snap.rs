@@ -1,7 +1,7 @@
 use crate::noding::grid::UniformGrid;
+use crate::options::SnapStrategy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
-use crate::options::SnapStrategy;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
 use wide::f64x4;
