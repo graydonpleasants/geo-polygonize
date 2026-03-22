@@ -546,7 +546,6 @@ impl PlanarGraph {
         cuts
     }
 
-
     /// Extracts rings from the graph following the GEOS flow.
     pub fn get_edge_rings(&mut self) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
         NEXT_POINTERS.with(|cell| {
@@ -560,10 +559,15 @@ impl PlanarGraph {
             self.compute_next_cw_edges(&mut next_pointers);
 
             // Step 2: find and label maximal rings.
-            let maximal_ring_starts = self.find_and_label_maximal_rings(&next_pointers, &mut labels);
+            let maximal_ring_starts =
+                self.find_and_label_maximal_rings(&next_pointers, &mut labels);
 
             // Step 3: convert maximal to minimal rings by relinking intersection nodes.
-            self.convert_maximal_to_minimal_rings(&maximal_ring_starts, &mut next_pointers, &labels);
+            self.convert_maximal_to_minimal_rings(
+                &maximal_ring_starts,
+                &mut next_pointers,
+                &labels,
+            );
 
             // Extract the minimal rings from the graph.
             self.extract_valid_rings(&next_pointers)
@@ -713,10 +717,7 @@ impl PlanarGraph {
     }
 
     /// Extracts valid rings by following `next_pointers`.
-    fn extract_valid_rings(
-        &mut self,
-        next_pointers: &[usize],
-    ) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
+    fn extract_valid_rings(&mut self, next_pointers: &[usize]) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
         for de in &mut self.directed_edges {
             de.is_visited = false;
         }
