@@ -210,7 +210,7 @@ pub struct PolygonizerDiagnostics {
 - [x] Add a `report_mode` flag that returns structured execution metadata without changing semantics.
 
 ### 4.3 Provenance Acceptance Fixtures
-- [ ] Add fixtures validating mixed-boundary attribution and profile-tag passthrough.
+- [x] Add fixtures validating mixed-boundary attribution and profile-tag passthrough.
 
 ---
 
