@@ -18,3 +18,4 @@ fuzz/corpus
 fuzz/artifacts
 fuzz/coverage
 dhat-heap.json
+venv_test/
