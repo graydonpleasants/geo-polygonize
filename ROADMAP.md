@@ -188,10 +188,10 @@ pub struct PolygonizerDiagnostics {
 
 ### 3.2 Allocation Checks
 - [x] Use `dhat-rs` for allocation regression checks.
-- [ ] Use `iai-callgrind` for instruction counts / cache behavior.
+- [x] Use `iai-callgrind` for instruction counts / cache behavior.
 
 ### 3.3 Perf Workflows
-- [ ] Add a dedicated `perf` workflow with stable microbench baselines.
+- [x] Add a dedicated `perf` workflow with stable microbench baselines.
 
 ## 4. Binding Contracts & Report Mode (Agent Track D)
 
