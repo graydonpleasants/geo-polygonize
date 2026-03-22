@@ -1100,7 +1100,11 @@ mod tests {
     #[test]
     fn test_guaranteed_interior_probe() {
         // 1. Less than 4 points
-        let coords1 = vec![Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(0.0, 1.0, 0.0)];
+        let coords1 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(0.0, 1.0, 0.0),
+        ];
         assert_eq!(guaranteed_interior_probe(&coords1), None);
 
         // 2. Less than 3 unique points
@@ -1148,7 +1152,8 @@ mod tests {
             Coord3D::new(0.0, 10.0, 0.0),
             Coord3D::new(0.0, 0.0, 0.0),
         ];
-        let probe5 = guaranteed_interior_probe(&coords5).expect("Should find a point via bisector fallback");
+        let probe5 =
+            guaranteed_interior_probe(&coords5).expect("Should find a point via bisector fallback");
         let coords5_2d: Vec<_> = coords5.iter().map(|c| c.to_coord_2d()).collect();
         let p5 = Polygon::new(LineString::from(coords5_2d), vec![]);
         assert!(p5.contains(&probe5));
