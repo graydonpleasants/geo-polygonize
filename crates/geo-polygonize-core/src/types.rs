@@ -409,4 +409,35 @@ mod tests {
         let poly = Polygon3D::new(vec![], vec![vec![]], vec![], vec![vec![]]);
         assert_eq!(poly.centroid_2d(), None);
     }
+
+    #[test]
+    fn test_ring_area_and_centroid_2d_degenerate() {
+        // Empty slice
+        assert_eq!(Polygon3D::ring_area_and_centroid_2d(&[]), (0.0, 0.0, 0.0));
+
+        // Single point
+        assert_eq!(
+            Polygon3D::ring_area_and_centroid_2d(&[Coord3D::new(1.0, 1.0, 1.0)]),
+            (0.0, 0.0, 0.0)
+        );
+
+        // Two points (line segment)
+        assert_eq!(
+            Polygon3D::ring_area_and_centroid_2d(&[
+                Coord3D::new(1.0, 1.0, 1.0),
+                Coord3D::new(2.0, 2.0, 2.0)
+            ]),
+            (0.0, 0.0, 0.0)
+        );
+
+        // Three points but collinear (zero area)
+        assert_eq!(
+            Polygon3D::ring_area_and_centroid_2d(&[
+                Coord3D::new(1.0, 1.0, 1.0),
+                Coord3D::new(2.0, 2.0, 2.0),
+                Coord3D::new(3.0, 3.0, 3.0)
+            ]),
+            (0.0, 0.0, 0.0)
+        );
+    }
 }
