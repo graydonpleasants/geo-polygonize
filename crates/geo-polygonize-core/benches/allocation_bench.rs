@@ -1,8 +1,8 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use geo_polygonize_core::Polygonizer;
 use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::Polygonizer;
 use geo_types::{Coord, LineString};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
