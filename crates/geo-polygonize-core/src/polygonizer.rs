@@ -260,32 +260,8 @@ impl Polygonizer {
         dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
-        let mut shells = Vec::new();
-        let mut holes = Vec::new();
-        let mut invalid_rings_candidates = Vec::new();
-
         let t_ring_extraction_start = get_time();
-        shells.reserve(rings_with_ids.len() / 2);
-        holes.reserve(rings_with_ids.len() / 2);
-
-        for (ring_coords, ring_ids) in rings_with_ids {
-            // Create Polygon3D
-            let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
-            let area = poly3d.signed_area_2d();
-
-            if !area.is_finite() || area.abs() < 1e-9 {
-                invalid_rings_candidates.push(poly3d);
-                continue;
-            }
-
-            if area > 0.0 {
-                // CCW -> Shell
-                shells.push(poly3d);
-            } else {
-                // CW -> Hole
-                holes.push(poly3d);
-            }
-        }
+        let (shells, holes, invalid_rings_candidates) = extract_and_classify_rings(rings_with_ids);
 
         if let Some(ref mut d) = diag {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
@@ -296,127 +272,8 @@ impl Polygonizer {
 
         let t_containment_start = get_time();
         // 5. Establish Topology
-
-        // Build Containment Forest for shells
-        let mut forest = ContainmentForest::new(&shells, &self.options.containment.index_backend);
-
-        // Filter shells
-        if self.options.extract_only_polygonal {
-            let keep_mask =
-                forest.filter_polygonal(&shells, &self.options.containment.touch_policy);
-            let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
-
-            if removed_count > 0 {
-                let mut new_shells = Vec::new();
-
-                for (keep, s) in keep_mask.into_iter().zip(shells) {
-                    if keep {
-                        new_shells.push(s);
-                    } else {
-                        // We do not need to track discarded edges from 2D shells for topological hole assignment
-                        // because we already established nesting correctly using the container counts.
-                    }
-                }
-                shells = new_shells;
-
-                // Rebuild helper structures
-                forest = ContainmentForest::new(&shells, &self.options.containment.index_backend);
-            }
-        }
-
-        // Process hole assignment
-        let process_hole_assignment =
-            |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-                let best_shell_idx =
-                    forest.assign_hole(&hole_3d, &shells, &self.options.containment.touch_policy);
-                best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
-            };
-
-        let assignments: Vec<_>;
-        #[cfg(feature = "parallel")]
-        {
-            assignments = holes
-                .into_par_iter()
-                .filter_map(process_hole_assignment)
-                .collect();
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            assignments = holes
-                .into_iter()
-                .filter_map(process_hole_assignment)
-                .collect();
-        }
-
-        // Group holes by shell
-        let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
-        let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
-
-        for (idx, hole_coords, hole_ids) in assignments {
-            shell_holes[idx].push(hole_coords);
-            shell_holes_ids[idx].push(hole_ids);
-        }
-
-        // Helper to rotate a closed ring to its canonical start coordinate (lexicographically smallest)
-        // while preserving the association with edge IDs.
-        let canonicalize_ring = |ring: &mut Vec<Coord3D>, ids: Option<&mut Vec<u32>>| {
-            if ring.is_empty() {
-                return;
-            }
-            // A closed ring has first == last point. Ignore the duplicate last point for finding min.
-            let n = if ring.len() > 1 && ring.first() == ring.last() {
-                ring.len() - 1
-            } else {
-                ring.len()
-            };
-
-            let min_idx = (0..n)
-                .min_by(|&i, &j| {
-                    ring[i]
-                        .x
-                        .total_cmp(&ring[j].x)
-                        .then(ring[i].y.total_cmp(&ring[j].y))
-                        .then(ring[i].z.total_cmp(&ring[j].z))
-                })
-                .unwrap_or(0);
-
-            if min_idx > 0 {
-                let mut new_ring = Vec::with_capacity(ring.len());
-                new_ring.extend_from_slice(&ring[min_idx..n]);
-                new_ring.extend_from_slice(&ring[0..min_idx]);
-                // Re-close the ring
-                new_ring.push(new_ring[0]);
-                *ring = new_ring;
-
-                // Rotate the IDs.
-                // A closed ring of N vertices (with first==last) corresponds to N-1 edges (and N-1 IDs).
-                if let Some(ids_vec) = ids {
-                    if !ids_vec.is_empty() {
-                        let mut new_ids = Vec::with_capacity(ids_vec.len());
-                        new_ids.extend_from_slice(&ids_vec[min_idx..]);
-                        new_ids.extend_from_slice(&ids_vec[0..min_idx]);
-                        *ids_vec = new_ids;
-                    }
-                }
-            }
-        };
-
-        // Helper to canonicalize open linestrings (like dangles) by reversing them if
-        // their last coordinate is lexicographically smaller than their first coordinate.
-        let canonicalize_open_line = |line: &mut Vec<Coord3D>| {
-            if line.len() > 1 {
-                let first = line.first().unwrap();
-                let last = line.last().unwrap();
-                let cmp = last
-                    .x
-                    .total_cmp(&first.x)
-                    .then(last.y.total_cmp(&first.y))
-                    .then(last.z.total_cmp(&first.z));
-                if cmp == std::cmp::Ordering::Less {
-                    line.reverse();
-                }
-            }
-        };
+        let (shells, shell_holes, shell_holes_ids) =
+            establish_topology(shells, holes, &self.options);
 
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
@@ -427,214 +284,10 @@ impl Polygonizer {
             process_invalid_rings(invalid_rings_candidates, &shells_2d)
         };
 
-        let mut result = Vec::with_capacity(shells.len());
-        for ((shell, mut holes), mut holes_ids) in shells
-            .into_iter()
-            .zip(shell_holes.into_iter())
-            .zip(shell_holes_ids.into_iter())
-        {
-            let mut exterior = shell.exterior;
-            let mut exterior_ids = shell.exterior_ids;
+        let mut result =
+            construct_final_polygons(shells, shell_holes, shell_holes_ids, &self.options);
 
-            if self.options.determinism.canonical_ring_rotation {
-                canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
-                for (h, h_ids) in holes.iter_mut().zip(holes_ids.iter_mut()) {
-                    canonicalize_ring(h, Some(h_ids));
-                }
-            }
-
-            if self.options.determinism.canonical_sort {
-                let mut combined_holes: Vec<_> = holes
-                    .into_iter()
-                    .zip(holes_ids)
-                    .map(|(h, hi)| {
-                        let area = Polygon3D::ring_signed_area_2d(&h).abs();
-                        (h, hi, area)
-                    })
-                    .collect();
-
-                let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
-                if use_stable_tie_breaks {
-                    let mut combined_holes_with_bbox: Vec<_> = combined_holes
-                        .into_iter()
-                        .map(|(h, hi, area)| {
-                            let b = bounding_rect_3d(&h).unwrap_or(geo::Rect::new(
-                                geo::Coord { x: 0.0, y: 0.0 },
-                                geo::Coord { x: 0.0, y: 0.0 },
-                            ));
-                            (h, hi, area, b)
-                        })
-                        .collect();
-                    combined_holes_with_bbox.sort_unstable_by(
-                        |(h1, _, area1, b1), (h2, _, area2, b2)| {
-                            area2.total_cmp(area1).then_with(|| {
-                                b1.min()
-                                    .x
-                                    .total_cmp(&b2.min().x)
-                                    .then(b1.min().y.total_cmp(&b2.min().y))
-                                    .then(h1.len().cmp(&h2.len()))
-                            })
-                        },
-                    );
-
-                    let mut h = Vec::with_capacity(combined_holes_with_bbox.len());
-                    let mut hi = Vec::with_capacity(combined_holes_with_bbox.len());
-                    for (hole, ids, _, _) in combined_holes_with_bbox {
-                        h.push(hole);
-                        hi.push(ids);
-                    }
-                    holes = h;
-                    holes_ids = hi;
-                } else {
-                    combined_holes
-                        .sort_unstable_by(|(_, _, area1), (_, _, area2)| area2.total_cmp(area1));
-
-                    let mut h = Vec::with_capacity(combined_holes.len());
-                    let mut hi = Vec::with_capacity(combined_holes.len());
-                    for (hole, ids, _) in combined_holes {
-                        h.push(hole);
-                        hi.push(ids);
-                    }
-                    holes = h;
-                    holes_ids = hi;
-                }
-            }
-
-            let mut p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
-
-            if self.options.provenance.enabled {
-                let mut b_ids = Vec::new();
-                if self.options.provenance.include_boundary_line_ids {
-                    for &id in &p.exterior_ids {
-                        if id != 0 {
-                            b_ids.push(id as u64);
-                        }
-                    }
-                    for hole_ids in &p.interiors_ids {
-                        for &id in hole_ids {
-                            if id != 0 {
-                                b_ids.push(id as u64);
-                            }
-                        }
-                    }
-                    b_ids.sort_unstable();
-                    b_ids.dedup();
-                }
-
-                p.provenance = Some(crate::types::PolygonProvenance {
-                    boundary_line_ids: b_ids,
-                    input_profile_id: self.options.input_profile_id.clone(),
-                });
-            }
-
-            // Check area of 2D projection
-            if p.unsigned_area_2d() > 1e-6 {
-                result.push(p);
-            }
-        }
-
-        if self.options.determinism.canonical_sort {
-            let use_stable_tie_breaks = self.options.determinism.stable_tie_breaks;
-            if use_stable_tie_breaks {
-                let mut result_with_cache: Vec<_> = result
-                    .into_iter()
-                    .map(|p| {
-                        let area = p.exterior_unsigned_area_2d();
-                        let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
-                            geo::Coord { x: 0.0, y: 0.0 },
-                            geo::Coord { x: 0.0, y: 0.0 },
-                        ));
-                        (p, area, b)
-                    })
-                    .collect();
-
-                result_with_cache.sort_unstable_by(|(p1, area1, b1), (p2, area2, b2)| {
-                    area2.total_cmp(area1).then_with(|| {
-                        b1.min()
-                            .x
-                            .total_cmp(&b2.min().x)
-                            .then(b1.min().y.total_cmp(&b2.min().y))
-                            .then(p1.interiors.len().cmp(&p2.interiors.len()))
-                    })
-                });
-
-                result = result_with_cache.into_iter().map(|(p, _, _)| p).collect();
-            } else {
-                let mut result_with_cache: Vec<_> = result
-                    .into_iter()
-                    .map(|p| {
-                        let area = p.exterior_unsigned_area_2d();
-                        (p, area)
-                    })
-                    .collect();
-
-                result_with_cache.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
-
-                result = result_with_cache.into_iter().map(|(p, _)| p).collect();
-            }
-
-            if self.options.determinism.canonical_ring_rotation {
-                for d in dangles.iter_mut() {
-                    canonicalize_open_line(d);
-                }
-                for ir in invalid_rings.iter_mut() {
-                    canonicalize_ring(ir, None);
-                }
-            }
-
-            if use_stable_tie_breaks {
-                dangles.sort_by(|l1, l2| {
-                    let b1 = bounding_rect_3d(l1).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    let b2 = bounding_rect_3d(l2).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    b1.min()
-                        .x
-                        .total_cmp(&b2.min().x)
-                        .then(b1.min().y.total_cmp(&b2.min().y))
-                        .then(l1.len().cmp(&l2.len()))
-                });
-            }
-
-            let mut combined_invalid: Vec<_> = invalid_rings
-                .into_iter()
-                .map(|r| {
-                    let area = Polygon3D::ring_signed_area_2d(&r).abs();
-                    (r, area)
-                })
-                .collect();
-
-            if use_stable_tie_breaks {
-                let mut invalid_with_bbox: Vec<_> = combined_invalid
-                    .into_iter()
-                    .map(|(r, area)| {
-                        let b = bounding_rect_3d(&r).unwrap_or(geo::Rect::new(
-                            geo::Coord { x: 0.0, y: 0.0 },
-                            geo::Coord { x: 0.0, y: 0.0 },
-                        ));
-                        (r, area, b)
-                    })
-                    .collect();
-
-                invalid_with_bbox.sort_unstable_by(|(r1, area1, b1), (r2, area2, b2)| {
-                    area2.total_cmp(area1).then_with(|| {
-                        b1.min()
-                            .x
-                            .total_cmp(&b2.min().x)
-                            .then(b1.min().y.total_cmp(&b2.min().y))
-                            .then(r1.len().cmp(&r2.len()))
-                    })
-                });
-                invalid_rings = invalid_with_bbox.into_iter().map(|(r, _, _)| r).collect();
-            } else {
-                combined_invalid.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
-                invalid_rings = combined_invalid.into_iter().map(|(r, _)| r).collect();
-            }
-        }
+        result = apply_determinism(result, &mut dangles, &mut invalid_rings, &self.options);
 
         if let Some(ref mut d) = diag {
             d.phase_times.containment = get_elapsed(t_containment_start);
@@ -647,6 +300,367 @@ impl Polygonizer {
             diagnostics: diag,
         })
     }
+}
+
+pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Vec<u32>>) {
+    if ring.is_empty() {
+        return;
+    }
+    let n = if ring.len() > 1 && ring.first() == ring.last() {
+        ring.len() - 1
+    } else {
+        ring.len()
+    };
+
+    let min_idx = (0..n)
+        .min_by(|&i, &j| {
+            ring[i]
+                .x
+                .total_cmp(&ring[j].x)
+                .then(ring[i].y.total_cmp(&ring[j].y))
+                .then(ring[i].z.total_cmp(&ring[j].z))
+        })
+        .unwrap_or(0);
+
+    if min_idx > 0 {
+        let mut new_ring = Vec::with_capacity(ring.len());
+        new_ring.extend_from_slice(&ring[min_idx..n]);
+        new_ring.extend_from_slice(&ring[0..min_idx]);
+        new_ring.push(new_ring[0]);
+        *ring = new_ring;
+
+        if let Some(ref mut ids_vec) = ids {
+            if !ids_vec.is_empty() {
+                let mut new_ids = Vec::with_capacity(ids_vec.len());
+                new_ids.extend_from_slice(&ids_vec[min_idx..]);
+                new_ids.extend_from_slice(&ids_vec[0..min_idx]);
+                **ids_vec = new_ids;
+            }
+        }
+    }
+}
+
+pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
+    if line.len() > 1 {
+        let first = line.first().unwrap();
+        let last = line.last().unwrap();
+        let cmp = last
+            .x
+            .total_cmp(&first.x)
+            .then(last.y.total_cmp(&first.y))
+            .then(last.z.total_cmp(&first.z));
+        if cmp == std::cmp::Ordering::Less {
+            line.reverse();
+        }
+    }
+}
+
+fn extract_and_classify_rings(
+    rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
+) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
+    let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
+    let mut holes = Vec::with_capacity(rings_with_ids.len() / 2);
+    let mut invalid_rings_candidates = Vec::new();
+
+    for (ring_coords, ring_ids) in rings_with_ids {
+        let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
+        let area = poly3d.signed_area_2d();
+
+        if !area.is_finite() || area.abs() < 1e-9 {
+            invalid_rings_candidates.push(poly3d);
+            continue;
+        }
+
+        if area > 0.0 {
+            shells.push(poly3d);
+        } else {
+            holes.push(poly3d);
+        }
+    }
+
+    (shells, holes, invalid_rings_candidates)
+}
+
+#[allow(clippy::type_complexity)]
+fn establish_topology(
+    mut shells: Vec<Polygon3D>,
+    holes: Vec<Polygon3D>,
+    options: &PolygonizerOptions,
+) -> (Vec<Polygon3D>, Vec<Vec<Vec<Coord3D>>>, Vec<Vec<Vec<u32>>>) {
+    let mut forest = ContainmentForest::new(&shells, &options.containment.index_backend);
+
+    if options.extract_only_polygonal {
+        let keep_mask = forest.filter_polygonal(&shells, &options.containment.touch_policy);
+        let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
+
+        if removed_count > 0 {
+            let mut new_shells = Vec::new();
+
+            for (keep, s) in keep_mask.into_iter().zip(shells) {
+                if keep {
+                    new_shells.push(s);
+                }
+            }
+            shells = new_shells;
+            forest = ContainmentForest::new(&shells, &options.containment.index_backend);
+        }
+    }
+
+    let process_hole_assignment = |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
+        let best_shell_idx =
+            forest.assign_hole(&hole_3d, &shells, &options.containment.touch_policy);
+        best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
+    };
+
+    let assignments: Vec<_>;
+    #[cfg(feature = "parallel")]
+    {
+        assignments = holes
+            .into_par_iter()
+            .filter_map(process_hole_assignment)
+            .collect();
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        assignments = holes
+            .into_iter()
+            .filter_map(process_hole_assignment)
+            .collect();
+    }
+
+    let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
+    let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
+
+    for (idx, hole_coords, hole_ids) in assignments {
+        shell_holes[idx].push(hole_coords);
+        shell_holes_ids[idx].push(hole_ids);
+    }
+
+    (shells, shell_holes, shell_holes_ids)
+}
+
+fn construct_final_polygons(
+    shells: Vec<Polygon3D>,
+    shell_holes: Vec<Vec<Vec<Coord3D>>>,
+    shell_holes_ids: Vec<Vec<Vec<u32>>>,
+    options: &PolygonizerOptions,
+) -> Vec<Polygon3D> {
+    let mut result = Vec::with_capacity(shells.len());
+    for ((shell, mut holes), mut holes_ids) in shells
+        .into_iter()
+        .zip(shell_holes.into_iter())
+        .zip(shell_holes_ids.into_iter())
+    {
+        let mut exterior = shell.exterior;
+        let mut exterior_ids = shell.exterior_ids;
+
+        if options.determinism.canonical_ring_rotation {
+            canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
+            for (h, h_ids) in holes.iter_mut().zip(holes_ids.iter_mut()) {
+                canonicalize_ring(h, Some(h_ids));
+            }
+        }
+
+        if options.determinism.canonical_sort {
+            let mut combined_holes: Vec<_> = holes
+                .into_iter()
+                .zip(holes_ids)
+                .map(|(h, hi)| {
+                    let area = Polygon3D::ring_signed_area_2d(&h).abs();
+                    (h, hi, area)
+                })
+                .collect();
+
+            let use_stable_tie_breaks = options.determinism.stable_tie_breaks;
+            if use_stable_tie_breaks {
+                let mut combined_holes_with_bbox: Vec<_> = combined_holes
+                    .into_iter()
+                    .map(|(h, hi, area)| {
+                        let b = bounding_rect_3d(&h).unwrap_or(geo::Rect::new(
+                            geo::Coord { x: 0.0, y: 0.0 },
+                            geo::Coord { x: 0.0, y: 0.0 },
+                        ));
+                        (h, hi, area, b)
+                    })
+                    .collect();
+                combined_holes_with_bbox.sort_unstable_by(
+                    |(h1, _, area1, b1), (h2, _, area2, b2)| {
+                        area2.total_cmp(area1).then_with(|| {
+                            b1.min()
+                                .x
+                                .total_cmp(&b2.min().x)
+                                .then(b1.min().y.total_cmp(&b2.min().y))
+                                .then(h1.len().cmp(&h2.len()))
+                        })
+                    },
+                );
+
+                let mut h = Vec::with_capacity(combined_holes_with_bbox.len());
+                let mut hi = Vec::with_capacity(combined_holes_with_bbox.len());
+                for (hole, ids, _, _) in combined_holes_with_bbox {
+                    h.push(hole);
+                    hi.push(ids);
+                }
+                holes = h;
+                holes_ids = hi;
+            } else {
+                combined_holes
+                    .sort_unstable_by(|(_, _, area1), (_, _, area2)| area2.total_cmp(area1));
+
+                let mut h = Vec::with_capacity(combined_holes.len());
+                let mut hi = Vec::with_capacity(combined_holes.len());
+                for (hole, ids, _) in combined_holes {
+                    h.push(hole);
+                    hi.push(ids);
+                }
+                holes = h;
+                holes_ids = hi;
+            }
+        }
+
+        let mut p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
+
+        if options.provenance.enabled {
+            let mut b_ids = Vec::new();
+            if options.provenance.include_boundary_line_ids {
+                for &id in &p.exterior_ids {
+                    if id != 0 {
+                        b_ids.push(id as u64);
+                    }
+                }
+                for hole_ids in &p.interiors_ids {
+                    for &id in hole_ids {
+                        if id != 0 {
+                            b_ids.push(id as u64);
+                        }
+                    }
+                }
+                b_ids.sort_unstable();
+                b_ids.dedup();
+            }
+
+            p.provenance = Some(crate::types::PolygonProvenance {
+                boundary_line_ids: b_ids,
+                input_profile_id: options.input_profile_id.clone(),
+            });
+        }
+
+        if p.unsigned_area_2d() > 1e-6 {
+            result.push(p);
+        }
+    }
+    result
+}
+
+fn apply_determinism(
+    mut result: Vec<Polygon3D>,
+    dangles: &mut [Vec<Coord3D>],
+    invalid_rings: &mut Vec<Vec<Coord3D>>,
+    options: &PolygonizerOptions,
+) -> Vec<Polygon3D> {
+    if options.determinism.canonical_sort {
+        let use_stable_tie_breaks = options.determinism.stable_tie_breaks;
+        if use_stable_tie_breaks {
+            let mut result_with_cache: Vec<_> = result
+                .into_iter()
+                .map(|p| {
+                    let area = p.exterior_unsigned_area_2d();
+                    let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    (p, area, b)
+                })
+                .collect();
+
+            result_with_cache.sort_unstable_by(|(p1, area1, b1), (p2, area2, b2)| {
+                area2.total_cmp(area1).then_with(|| {
+                    b1.min()
+                        .x
+                        .total_cmp(&b2.min().x)
+                        .then(b1.min().y.total_cmp(&b2.min().y))
+                        .then(p1.interiors.len().cmp(&p2.interiors.len()))
+                })
+            });
+
+            result = result_with_cache.into_iter().map(|(p, _, _)| p).collect();
+        } else {
+            let mut result_with_cache: Vec<_> = result
+                .into_iter()
+                .map(|p| {
+                    let area = p.exterior_unsigned_area_2d();
+                    (p, area)
+                })
+                .collect();
+
+            result_with_cache.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+
+            result = result_with_cache.into_iter().map(|(p, _)| p).collect();
+        }
+
+        if options.determinism.canonical_ring_rotation {
+            for d in dangles.iter_mut() {
+                canonicalize_open_line(d);
+            }
+            for ir in invalid_rings.iter_mut() {
+                canonicalize_ring(ir, None);
+            }
+        }
+
+        if use_stable_tie_breaks {
+            dangles.sort_by(|l1, l2| {
+                let b1 = bounding_rect_3d(l1).unwrap_or(geo::Rect::new(
+                    geo::Coord { x: 0.0, y: 0.0 },
+                    geo::Coord { x: 0.0, y: 0.0 },
+                ));
+                let b2 = bounding_rect_3d(l2).unwrap_or(geo::Rect::new(
+                    geo::Coord { x: 0.0, y: 0.0 },
+                    geo::Coord { x: 0.0, y: 0.0 },
+                ));
+                b1.min()
+                    .x
+                    .total_cmp(&b2.min().x)
+                    .then(b1.min().y.total_cmp(&b2.min().y))
+                    .then(l1.len().cmp(&l2.len()))
+            });
+        }
+
+        let mut combined_invalid: Vec<_> = invalid_rings
+            .drain(..)
+            .map(|r| {
+                let area = Polygon3D::ring_signed_area_2d(&r).abs();
+                (r, area)
+            })
+            .collect();
+
+        if use_stable_tie_breaks {
+            let mut invalid_with_bbox: Vec<_> = combined_invalid
+                .into_iter()
+                .map(|(r, area)| {
+                    let b = bounding_rect_3d(&r).unwrap_or(geo::Rect::new(
+                        geo::Coord { x: 0.0, y: 0.0 },
+                        geo::Coord { x: 0.0, y: 0.0 },
+                    ));
+                    (r, area, b)
+                })
+                .collect();
+
+            invalid_with_bbox.sort_unstable_by(|(r1, area1, b1), (r2, area2, b2)| {
+                area2.total_cmp(area1).then_with(|| {
+                    b1.min()
+                        .x
+                        .total_cmp(&b2.min().x)
+                        .then(b1.min().y.total_cmp(&b2.min().y))
+                        .then(r1.len().cmp(&r2.len()))
+                })
+            });
+            invalid_rings.extend(invalid_with_bbox.into_iter().map(|(r, _, _)| r));
+        } else {
+            combined_invalid.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+            invalid_rings.extend(combined_invalid.into_iter().map(|(r, _)| r));
+        }
+    }
+    result
 }
 
 fn process_invalid_rings(
