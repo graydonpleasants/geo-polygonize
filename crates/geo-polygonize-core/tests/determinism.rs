@@ -225,7 +225,7 @@ fn test_determinism_parallel_vs_sequential_output() {
     // We are simulating what it means for it to be parallel vs sequential by using different features or thread counts
     // For now we just test it with different tile counts since that triggers parallel path if tiling is enabled
     // Note that parallel rayon is controlled by compile-time feature 'parallel', so we just verify tiling determinism.
-    use geo_polygonize_core::options::{TilingOptions, TileOwnershipPolicy, DedupPolicy};
+    use geo_polygonize_core::options::{DedupPolicy, TileOwnershipPolicy, TilingOptions};
 
     let create_polygons_from_lines = |lines: Vec<Line3D>, use_tiling: bool| {
         let mut poly = Polygonizer::new();
