@@ -31,7 +31,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install iai-callgrind-runner
-        run: cargo install iai-callgrind-runner --version 0.11.1
+        run: cargo install iai-callgrind-runner --version 0.16.1
 
       - name: Run IAI Callgrind Benchmarks
         run: cargo bench --bench iai_bench -p geo-polygonize-core
