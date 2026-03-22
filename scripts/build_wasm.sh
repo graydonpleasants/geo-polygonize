@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-WASM_BINDGEN_VERSION="0.2.106"
+WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
 
 # Ensure target is installed
