@@ -68,18 +68,19 @@ jobs:
         if: github.event_name == 'push'
         run: python3 scripts/generate_llms_txt.py
 
-      - name: Commit and push changes
+      - name: Create Pull Request
         if: github.event_name == 'push'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add BENCHMARKS.md llms.txt
-          if git diff-index --quiet HEAD; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore(github): Update benchmarks and llms.txt [skip ci]"
-            git push origin HEAD:${{ github.ref }}
-          fi
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GH_PAT }}
+          commit-message: "chore(github): Update benchmarks and llms.txt"
+          title: "chore(github): Update benchmarks and llms.txt"
+          body: "Automated updates to benchmarks and llms.txt."
+          branch: update-benchmarks-llms
+          base: ${{ github.ref_name }}
+          add-paths: |
+            BENCHMARKS.md
+            llms.txt
 
       - name: Generate Benchmark Report
         if: github.event_name == 'pull_request'
