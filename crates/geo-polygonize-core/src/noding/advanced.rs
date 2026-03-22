@@ -50,9 +50,11 @@ impl AdvancedNoder {
 
                 if start_dist > eps && end_dist > eps {
                     // True interior intersection
-                    let total_dist = ((l.end.x - l.start.x).powi(2) + (l.end.y - l.start.y).powi(2)).sqrt();
+                    let total_dist =
+                        ((l.end.x - l.start.x).powi(2) + (l.end.y - l.start.y).powi(2)).sqrt();
                     let t = if total_dist > 0.0 {
-                        ((pt.x - l.start.x).powi(2) + (pt.y - l.start.y).powi(2)).sqrt() / total_dist
+                        ((pt.x - l.start.x).powi(2) + (pt.y - l.start.y).powi(2)).sqrt()
+                            / total_dist
                     } else {
                         0.5
                     };
@@ -77,17 +79,19 @@ impl AdvancedNoder {
                 splits.sort_by(|a, b| {
                     let dist_a = (a.x - line.start.x).powi(2) + (a.y - line.start.y).powi(2);
                     let dist_b = (b.x - line.start.x).powi(2) + (b.y - line.start.y).powi(2);
-                    dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                    dist_a
+                        .partial_cmp(&dist_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
 
                 // Remove very close splits
-                splits.dedup_by(|a, b| {
-                    (a.x - b.x).powi(2) + (a.y - b.y).powi(2) < eps
-                });
+                splits.dedup_by(|a, b| (a.x - b.x).powi(2) + (a.y - b.y).powi(2) < eps);
 
                 let mut current_start = line.start;
                 for split in splits {
-                    if (current_start.x - split.x).powi(2) + (current_start.y - split.y).powi(2) > eps {
+                    if (current_start.x - split.x).powi(2) + (current_start.y - split.y).powi(2)
+                        > eps
+                    {
                         noded_lines.push(Line3D {
                             start: current_start,
                             end: split,
@@ -97,7 +101,9 @@ impl AdvancedNoder {
                     }
                 }
 
-                if (current_start.x - line.end.x).powi(2) + (current_start.y - line.end.y).powi(2) > eps {
+                if (current_start.x - line.end.x).powi(2) + (current_start.y - line.end.y).powi(2)
+                    > eps
+                {
                     noded_lines.push(Line3D {
                         start: current_start,
                         end: line.end,
