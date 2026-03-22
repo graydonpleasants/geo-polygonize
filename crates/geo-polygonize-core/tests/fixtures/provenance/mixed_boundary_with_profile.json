@@ -1,0 +1,133 @@
+{
+  "name": "mixed_boundary_attribution_with_profile",
+  "profile_id": "test_profile_id_123",
+  "inputs": [
+    {
+      "start": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 10.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "id": 100
+    },
+    {
+      "start": {
+        "x": 10.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 10.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "id": 101
+    },
+    {
+      "start": {
+        "x": 10.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 0.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "id": 102
+    },
+    {
+      "start": {
+        "x": 0.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "id": 103
+    },
+    {
+      "start": {
+        "x": 10.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 20.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "id": 200
+    },
+    {
+      "start": {
+        "x": 20.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 20.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "id": 201
+    },
+    {
+      "start": {
+        "x": 20.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "end": {
+        "x": 10.0,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "id": 202
+    }
+  ],
+  "expected": {
+    "polygons": [
+      {
+        "exterior_ids": [
+          100,
+          101,
+          102,
+          103
+        ],
+        "interiors_ids": [],
+        "provenance_line_ids": [
+          100,
+          101,
+          102,
+          103
+        ],
+        "provenance_profile_id": "test_profile_id_123"
+      },
+      {
+        "exterior_ids": [
+          200,
+          201,
+          202,
+          101
+        ],
+        "interiors_ids": [],
+        "provenance_line_ids": [
+          101,
+          200,
+          201,
+          202
+        ],
+        "provenance_profile_id": "test_profile_id_123"
+      }
+    ]
+  }
+}
