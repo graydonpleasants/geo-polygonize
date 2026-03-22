@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.24.0...geo-polygonize-v0.25.0) (2026-03-22)
+
+
+### Features
+
+* **core:** Implement hardened GeosCompat snap strategy ([#371](https://github.com/graydonpleasants/geo-polygonize/issues/371)) ([55fbcc9](https://github.com/graydonpleasants/geo-polygonize/commit/55fbcc9dd07a15fcfff9634b1c65466244a1db89))
+* **wasm:** add Set and Map stringification to debug output in generated bindings ([4171203](https://github.com/graydonpleasants/geo-polygonize/commit/41712031fb297e1d1e60576f697b526a492e40fd))
+
+
+### Bug Fixes
+
+* **wasm:** update wasm-bindgen-rayon import resolution to use import.meta.resolve ([8dd29c5](https://github.com/graydonpleasants/geo-polygonize/commit/8dd29c5f9e1eacff53e5ac6e816aa702f8d7b546))
+
 ## [0.24.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.23.0...geo-polygonize-v0.24.0) (2026-03-22)
 
 
