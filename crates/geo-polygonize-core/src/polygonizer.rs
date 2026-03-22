@@ -969,6 +969,7 @@ fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geo::LineString;
 
     #[test]
     fn test_with_snap_grid() {
@@ -1094,5 +1095,62 @@ mod tests {
         assert!(!rings_share_edge(&shell_short, &hole_short, 0.1));
         // If eps is 0.001, it SHOULD share edge.
         assert!(rings_share_edge(&shell_short, &hole_short, 0.001));
+    }
+
+    #[test]
+    fn test_guaranteed_interior_probe() {
+        // 1. Less than 4 points
+        let coords1 = vec![Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(0.0, 1.0, 0.0)];
+        assert_eq!(guaranteed_interior_probe(&coords1), None);
+
+        // 2. Less than 3 unique points
+        let coords2 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert_eq!(guaranteed_interior_probe(&coords2), None);
+
+        // 3. Zero area / collinear
+        let coords3 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert_eq!(guaranteed_interior_probe(&coords3), None);
+
+        // 4. Simple convex polygon
+        let coords4 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        let probe4 = guaranteed_interior_probe(&coords4).expect("Should find a point");
+        let coords4_2d: Vec<_> = coords4.iter().map(|c| c.to_coord_2d()).collect();
+        let p4 = Polygon::new(LineString::from(coords4_2d), vec![]);
+        assert!(p4.contains(&probe4));
+
+        // 5. Highly concave polygon where centroid is outside
+        // A "U" shape:
+        // (0, 0) to (10, 0) to (10, 10) to (8, 10) to (8, 2) to (2, 2) to (2, 10) to (0, 10) to (0, 0)
+        let coords5 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(8.0, 10.0, 0.0),
+            Coord3D::new(8.0, 2.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+            Coord3D::new(2.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        let probe5 = guaranteed_interior_probe(&coords5).expect("Should find a point via bisector fallback");
+        let coords5_2d: Vec<_> = coords5.iter().map(|c| c.to_coord_2d()).collect();
+        let p5 = Polygon::new(LineString::from(coords5_2d), vec![]);
+        assert!(p5.contains(&probe5));
     }
 }
