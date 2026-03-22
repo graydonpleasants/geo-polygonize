@@ -57,6 +57,7 @@ pub struct Polygonizer {
     dirty: bool,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct PolygonizerResult {
     pub polygons: Vec<Polygon3D>,
     pub dangles: Vec<Vec<Coord3D>>,
