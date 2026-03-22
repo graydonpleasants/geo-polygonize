@@ -163,7 +163,10 @@ def test_import_error_fallback():
         print("ImportError fallback test passed!")
 
     # Reload again to restore the module state for other tests
-    importlib.reload(geo_polygonize.cffi_wrapper)
+    try:
+        importlib.reload(geo_polygonize.cffi_wrapper)
+    except ImportError:
+        pass
     importlib.reload(geo_polygonize)
 
 def test_return_polygons_without_shapely():

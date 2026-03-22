@@ -128,6 +128,63 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
     return result
 
+def explain_mismatch(result_a, result_b, tolerance=1e-5):
+    """
+    Compares two report-mode outputs and explains why they differ.
+    Checks options, topology metrics, and provenance.
+    """
+    mismatches = []
+
+    # 1. Compare Options
+    opts_a = result_a.get("options", {})
+    opts_b = result_b.get("options", {})
+
+    # Check top-level options that often cause differences
+    for key in ["node_input", "snap_grid_size", "extract_only_polygonal", "snap_strategy"]:
+        if opts_a.get(key) != opts_b.get(key):
+            mismatches.append(f"Option mismatch: '{key}' ({opts_a.get(key)} vs {opts_b.get(key)})")
+
+    # Deep check for specific nested policies
+    if opts_a.get("containment", {}).get("touch_policy") != opts_b.get("containment", {}).get("touch_policy"):
+        mismatches.append(f"Touch Policy mismatch: {opts_a.get('containment', {}).get('touch_policy')} vs {opts_b.get('containment', {}).get('touch_policy')}")
+    if opts_a.get("z", {}).get("policy") != opts_b.get("z", {}).get("policy"):
+        mismatches.append(f"Z Policy mismatch: {opts_a.get('z', {}).get('policy')} vs {opts_b.get('z', {}).get('policy')}")
+    if opts_a.get("target") != opts_b.get("target"):
+         mismatches.append(f"Target Profile mismatch: {opts_a.get('target')} vs {opts_b.get('target')}")
+
+    # 2. Compare Topology
+    diag_a = result_a.get("diagnostics", {})
+    diag_b = result_b.get("diagnostics", {})
+
+    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "invalid_ring_count"]
+    for key in topology_keys:
+        val_a = diag_a.get(key)
+        val_b = diag_b.get(key)
+        if val_a != val_b:
+            mismatches.append(f"Topology mismatch: {key} ({val_a} vs {val_b})")
+
+    polys_a = result_a.get("polygons", [])
+    polys_b = result_b.get("polygons", [])
+    if len(polys_a) != len(polys_b):
+        mismatches.append(f"Polygon count mismatch: {len(polys_a)} vs {len(polys_b)}")
+
+    # 3. Compare Provenance (if available and matching length)
+    if len(polys_a) == len(polys_b) and len(polys_a) > 0:
+        for i, (pa, pb) in enumerate(zip(polys_a, polys_b)):
+            prov_a = pa.get("provenance") if isinstance(pa, dict) else getattr(pa, "provenance", None)
+            prov_b = pb.get("provenance") if isinstance(pb, dict) else getattr(pb, "provenance", None)
+
+            if prov_a is not None and prov_b is not None:
+                 ids_a = prov_a.get("boundary_line_ids", []) if isinstance(prov_a, dict) else getattr(prov_a, "boundary_line_ids", [])
+                 ids_b = prov_b.get("boundary_line_ids", []) if isinstance(prov_b, dict) else getattr(prov_b, "boundary_line_ids", [])
+                 if set(ids_a) != set(ids_b):
+                     mismatches.append(f"Provenance mismatch on polygon {i}: {ids_a} vs {ids_b}")
+
+    return {
+        "is_match": len(mismatches) == 0,
+        "mismatches": mismatches
+    }
+
 def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, extract_only_polygonal=False, stride=None, line_ids=None, return_polygons=False):
     """
     Polygonize a set of lines.
