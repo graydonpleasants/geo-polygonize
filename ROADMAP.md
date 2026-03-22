@@ -187,7 +187,7 @@ pub struct PolygonizerDiagnostics {
 ```
 
 ### 3.2 Allocation Checks
-- [ ] Use `dhat-rs` for allocation regression checks.
+- [x] Use `dhat-rs` for allocation regression checks.
 - [ ] Use `iai-callgrind` for instruction counts / cache behavior.
 
 ### 3.3 Perf Workflows
