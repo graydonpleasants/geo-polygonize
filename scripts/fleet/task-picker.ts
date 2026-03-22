@@ -13,24 +13,31 @@
 // limitations under the License.
 
 import { jules } from '@google/jules-sdk'
-import { analyzeIssuesPrompt } from './prompts/analyze-issues.js'
 import { getIssuesAsMarkdown } from './github/markdown.js'
 import { getGitRepoInfo, getCurrentBranch } from './github/git.js'
-import { FLEET_ID } from './config.js'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { ROOT_DIR } from './config.js'
 
 const repoInfo = await getGitRepoInfo()
 const baseBranch = process.env.FLEET_BASE_BRANCH ?? await getCurrentBranch()
+
+console.log(`🔍 Starting Task Picker session for ${repoInfo.fullName} (branch: ${baseBranch})`)
+
+const roadmapPath = path.join(ROOT_DIR, 'ROADMAP.md')
+const roadmapText = readFileSync(roadmapPath, 'utf8')
 const issuesMarkdown = await getIssuesAsMarkdown()
-const prompt = analyzeIssuesPrompt({ issuesMarkdown, repoFullName: repoInfo.fullName })
 
-console.log(`🔍 Planning fleet for ${repoInfo.fullName} (branch: ${baseBranch})`)
-console.log(`🆔 Fleet ID: ${FLEET_ID}`);
+const prompt = `Analyze the ROADMAP.md and issue list to pick the next target task. Be ambitious and thorough.
 
-// Output FLEET_ID for GitHub Actions
-if (process.env.GITHUB_OUTPUT) {
-  const fs = await import("node:fs/promises");
-  await fs.appendFile(process.env.GITHUB_OUTPUT, `fleet_id=${FLEET_ID}\n`);
-}
+## ROADMAP.md
+\`\`\`markdown
+${roadmapText}
+\`\`\`
+
+## Issue List
+${issuesMarkdown}
+`
 
 const session = await jules.session({
   prompt,
@@ -38,7 +45,8 @@ const session = await jules.session({
     github: repoInfo.fullName,
     baseBranch,
   },
-  autoPr: true
+  autoPr: true,
+  requirePlanApproval: false
 })
 
-console.log(`✅ Planner session started: ${session.id}`)
+console.log(`✅ Task Picker session started: ${session.id}`)
