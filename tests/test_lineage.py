@@ -10,7 +10,7 @@ class TestLineage(unittest.TestCase):
             [10.0, 0.0], [0.0, 10.0],
             [0.0, 10.0], [0.0, 0.0]
         ])
-        offsets = np.array([0, 2, 4, 6], dtype=np.uint32)
+        offsets = np.array([0, 2, 4], dtype=np.uint32)
         line_ids = np.array([1, 2, 3], dtype=np.uint32)
 
         result = geo_polygonize.polygonize(coords, offsets, line_ids=line_ids)
@@ -43,7 +43,7 @@ class TestLineage(unittest.TestCase):
             [0.0, 10.0], [0.0, 0.0], # B4
         ]
         coords = np.array(coords_list)
-        offsets = np.array([0, 2, 4, 6, 8, 10, 12], dtype=np.uint32)
+        offsets = np.array([0, 2, 4, 6, 8, 10], dtype=np.uint32)
         line_ids = np.array([10, 20, 100, 101, 102, 103], dtype=np.uint32)
 
         result = geo_polygonize.polygonize(coords, offsets, node=True, line_ids=line_ids)

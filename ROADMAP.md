@@ -302,7 +302,7 @@ pub struct PolygonProvenance {
 - [x] Expand diagnostics/report payload to include polygon count, dangles, invalid rings, flat lines, snapped/intersection stats, and stage timings.
 
 ### 2.4 Report Mode for Hybrid Scoring / Debug
-- [ ] Same fixture run with report mode can explain mismatches by profile and boundary lines.
+- [x] Same fixture run with report mode can explain mismatches by profile and boundary lines.
 
 ## 3. Precision, Z Semantics, and Core Noding Cleanup (Agent Track C)
 
@@ -370,7 +370,7 @@ pub struct IPoint {
 
 ## 5. Compatibility Profiles & Differential Explainability (Agent Track E)
 - [x] Harden `snap_strategy=geos_compat`.
-- [ ] Extend report mode so mismatches can be attributed to profile, snap strategy, touch policy, and provenance differences.
+- [x] Extend report mode so mismatches can be attributed to profile, snap strategy, touch policy, and provenance differences.
 - [ ] Add a parity-focused compatibility corpus.
 
 ---
@@ -495,7 +495,7 @@ The roadmap is complete when:
 - [x] containment forest
 - [x] touch policies
 - [x] cross-tile dedup
-- [ ] report mode explains mismatches by profile and provenance
+- [x] report mode explains mismatches by profile and provenance
 
 ## Milestone M5: Native Scale Features + Compatibility Hardening
 - [x] `SpatialIndex2D` abstraction
