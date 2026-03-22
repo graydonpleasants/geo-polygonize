@@ -1,0 +1,37 @@
+name: Performance Tracking
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iai-callgrind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install iai-callgrind-runner
+        run: cargo install iai-callgrind-runner --version 0.16.1
+
+      - name: Run IAI Callgrind Benchmarks
+        run: cargo bench --bench iai_bench -p geo-polygonize-core

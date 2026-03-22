@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.26.0...geo-polygonize-v0.27.0) (2026-03-22)
+
+
+### Features
+
+* **perf:** add iai-callgrind benchmarks and perf tracking workflow ([2af925f](https://github.com/graydonpleasants/geo-polygonize/commit/2af925ff51956c30c1124f4af4d0efccdf26c8a8))
+* **perf:** add iai-callgrind benchmarks and perf tracking workflow ([3716a87](https://github.com/graydonpleasants/geo-polygonize/commit/3716a87d47a4ef3d387fec8df104c878455f09d3))
+
+
+### Bug Fixes
+
+* **build:** revert wasm_bindgen upgrade causing build failures ([c96f4a2](https://github.com/graydonpleasants/geo-polygonize/commit/c96f4a21f70efffc81c536e44c8aa4ce329aa6eb))
+* **github:** restore lost cron workflow changes ([#389](https://github.com/graydonpleasants/geo-polygonize/issues/389)) ([d4cb13e](https://github.com/graydonpleasants/geo-polygonize/commit/d4cb13ebeaa1b72ecdef09f41738a9f5ae09470f))
+
 ## [0.26.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.25.0...geo-polygonize-v0.26.0) (2026-03-22)
 
 

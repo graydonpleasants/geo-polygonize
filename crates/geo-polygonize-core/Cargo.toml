@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-core"
-version = "0.26.0"
+version = "0.27.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -32,6 +32,7 @@ humantime-serde = "1.1.1"
 ts-rs = "12.0.1"
 
 [dev-dependencies]
+iai-callgrind = "0.16.1"
 approx = "0.5"
 criterion = "0.5"
 rand = "0.8"
@@ -68,4 +69,8 @@ harness = false
 
 [[bench]]
 name = "allocation_bench"
+harness = false
+
+[[bench]]
+name = "iai_bench"
 harness = false
