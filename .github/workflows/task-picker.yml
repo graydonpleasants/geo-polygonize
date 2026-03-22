@@ -1,0 +1,38 @@
+name: Pick Next Target Task
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: task-picker
+  cancel-in-progress: false
+
+jobs:
+  pick-task:
+    if: "!startsWith(github.event.head_commit.message, 'chore')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.1"
+
+      - name: Install fleet dependencies
+        working-directory: scripts/fleet
+        run: bun install
+
+      - name: Pick Next Target Task
+        working-directory: scripts/fleet
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          FLEET_BASE_BRANCH: main
+        run: bun task-picker.ts
