@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.27.0...geo-polygonize-v0.28.0) (2026-03-22)
+
+
+### Features
+
+* **core:** add provenance acceptance fixtures ([1ffe32c](https://github.com/graydonpleasants/geo-polygonize/commit/1ffe32c5bd10734881cef5c079f94258562a1edc))
+
+
+### Bug Fixes
+
+* **github:** fix jules automation mode in fleet scripts ([#392](https://github.com/graydonpleasants/geo-polygonize/issues/392)) ([ab2e31d](https://github.com/graydonpleasants/geo-polygonize/commit/ab2e31df470df1e6b0df0ec0f114cde986ec4d63))
+
 ## [0.27.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.26.0...geo-polygonize-v0.27.0) (2026-03-22)
 
 
