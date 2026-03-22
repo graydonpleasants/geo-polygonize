@@ -132,6 +132,13 @@ build_variant_threads &
 
 wait
 
+echo "Patching wasm-bindgen-rayon workerHelpers.js..."
+for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
+    TEMP_FILE=$(mktemp)
+    sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$WORKER_HELPERS" > "$TEMP_FILE"
+    mv "$TEMP_FILE" "$WORKER_HELPERS"
+done
+
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
 export TS_RS_EXPORT_DIR="bindings"
