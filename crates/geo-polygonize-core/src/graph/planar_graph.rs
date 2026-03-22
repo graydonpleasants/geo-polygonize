@@ -568,12 +568,14 @@ impl PlanarGraph {
                         .filter(|&idx| !self.directed_edges[idx].is_marked),
                 );
 
-                if let Some(&last) = valid_edges.last() {
-                    let mut next = last;
-                    for &curr in &valid_edges {
-                        next_pointers[curr] = next;
-                        next = curr;
-                    }
+                if valid_edges.is_empty() {
+                    continue;
+                }
+
+                let mut next = *valid_edges.last().unwrap();
+                for &curr in &valid_edges {
+                    next_pointers[curr] = next;
+                    next = curr;
                 }
             }
 

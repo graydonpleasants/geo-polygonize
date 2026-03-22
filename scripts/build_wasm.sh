@@ -153,12 +153,6 @@ for DIR in pkg-scalar pkg-simd pkg-threads; do
     # 3. Replace original file
     mv "$TEMP_FILE" "$D_TS_FILE"
   fi
-
-  # Patch JS file to stringify Set and Map in debugString
-  JS_FILE="${DIR}/geo_polygonize.js"
-  if [ -f "$JS_FILE" ]; then
-    node scripts/patch_wasm_bindgen_output.cjs
-  fi
 done
 
 # Ensure wrapper exists

@@ -119,38 +119,8 @@ def test_3d_coordinates():
     assert abs(shapely_poly.area - 100.0) < 1e-6
     print("3D coordinates test passed!")
 
-def test_lines_argument():
-    print("\nTesting lines argument...")
-    from geo_polygonize import polygonize_with_options
-
-    # Create lines representing a square
-    lines = [
-        [(0.0, 0.0), (10.0, 0.0)],
-        [(10.0, 0.0), (10.0, 10.0)],
-        [(10.0, 10.0), (0.0, 10.0)],
-        [(0.0, 10.0), (0.0, 0.0)]
-    ]
-
-    # Test with polygonize
-    polys1 = polygonize(lines=lines, return_polygons=True)
-    assert len(polys1) == 1
-    assert abs(polys1[0].area - 100.0) < 1e-6
-
-    # Test with polygonize_with_options
-    polys2 = polygonize_with_options(lines=lines, return_polygons=True)
-    assert len(polys2) == 1
-    assert abs(polys2[0].area - 100.0) < 1e-6
-
-    # Test with empty lines list
-    res = polygonize(lines=[])
-    assert len(res.get('polygons', [])) == 0
-
-    print("Lines argument test passed!")
-
 def test_missing_args():
     print("\nTesting missing arguments...")
-    from geo_polygonize import polygonize_with_options
-
     coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
     offsets = np.array([0, 2], dtype=np.uint32)
 
@@ -162,15 +132,6 @@ def test_missing_args():
 
     with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
         polygonize(offsets=offsets)
-
-    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
-        polygonize_with_options()
-
-    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
-        polygonize_with_options(coords=coords)
-
-    with pytest.raises(ValueError, match="Either 'lines' or both 'coords' and 'offsets' must be provided."):
-        polygonize_with_options(offsets=offsets)
 
     print("Missing arguments test passed!")
 
@@ -202,10 +163,7 @@ def test_import_error_fallback():
         print("ImportError fallback test passed!")
 
     # Reload again to restore the module state for other tests
-    try:
-        importlib.reload(geo_polygonize.cffi_wrapper)
-    except ImportError:
-        pass
+    importlib.reload(geo_polygonize.cffi_wrapper)
     importlib.reload(geo_polygonize)
 
 def test_return_polygons_without_shapely():

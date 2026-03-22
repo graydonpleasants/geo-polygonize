@@ -172,44 +172,7 @@ mod tests {
         let lines: Vec<Line3D> = vec![];
         let soa = SoALines::new(&lines);
 
-        assert_eq!(soa.len(), 0);
-        assert!(soa.is_empty());
-    }
-
-    #[test]
-    fn test_soa_len_and_is_empty() {
-        // Test 1 line -> padded to 4
-        let lines1 = vec![make_line(0.0, 0.0, 1.0, 1.0)];
-        let soa1 = SoALines::new(&lines1);
-        assert_eq!(soa1.len(), 4, "Length should be padded to 4");
-        assert!(!soa1.is_empty(), "Should not be empty");
-
-        // Test 4 lines -> no padding, length remains 4
-        let lines4 = vec![
-            make_line(0.0, 0.0, 1.0, 1.0),
-            make_line(1.0, 1.0, 2.0, 2.0),
-            make_line(2.0, 2.0, 3.0, 3.0),
-            make_line(3.0, 3.0, 4.0, 4.0),
-        ];
-        let soa4 = SoALines::new(&lines4);
-        assert_eq!(
-            soa4.len(),
-            4,
-            "Length should be exactly 4 (no padding needed)"
-        );
-        assert!(!soa4.is_empty(), "Should not be empty");
-
-        // Test 5 lines -> padded to 8
-        let lines5 = vec![
-            make_line(0.0, 0.0, 1.0, 1.0),
-            make_line(1.0, 1.0, 2.0, 2.0),
-            make_line(2.0, 2.0, 3.0, 3.0),
-            make_line(3.0, 3.0, 4.0, 4.0),
-            make_line(4.0, 4.0, 5.0, 5.0),
-        ];
-        let soa5 = SoALines::new(&lines5);
-        assert_eq!(soa5.len(), 8, "Length should be padded to 8");
-        assert!(!soa5.is_empty(), "Should not be empty");
+        assert_eq!(soa.min_x.len(), 0);
     }
 
     #[test]

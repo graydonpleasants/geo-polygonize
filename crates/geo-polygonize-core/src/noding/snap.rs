@@ -1,4 +1,5 @@
 use crate::noding::grid::UniformGrid;
+use crate::options::SnapStrategy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -20,6 +21,7 @@ pub struct SnapNoder {
     pub grid_size: f64,
     pub max_iter: usize,
     pub strategy: NodingStrategy,
+    pub snap_strategy: SnapStrategy,
 }
 
 impl SnapNoder {
@@ -28,11 +30,17 @@ impl SnapNoder {
             grid_size,
             max_iter: 10,
             strategy: NodingStrategy::Auto,
+            snap_strategy: SnapStrategy::Grid,
         }
     }
 
     pub fn with_strategy(mut self, strategy: NodingStrategy) -> Self {
         self.strategy = strategy;
+        self
+    }
+
+    pub fn with_snap_strategy(mut self, snap_strategy: SnapStrategy) -> Self {
+        self.snap_strategy = snap_strategy;
         self
     }
 
@@ -207,9 +215,30 @@ impl SnapNoder {
         if self.grid_size == 0.0 {
             return c;
         }
+
+        let snap_val = |v: f64| -> f64 {
+            match self.snap_strategy {
+                SnapStrategy::Grid => (v / self.grid_size).round() * self.grid_size,
+                SnapStrategy::GeosCompat => {
+                    // GEOS C++ GEOSGeom_setPrecision uses std::round (round halfway cases away from zero).
+                    // This behaves identically to Rust's native `.round()`, however providing
+                    // a dedicated code path allows future divergence tuning for exact Shapely parity.
+                    {
+                        let scaled = v / self.grid_size;
+                        // GEOS rounding behavior (C++ std::round):
+                        // Round half away from zero.
+                        let sign = scaled.signum();
+                        let abs = scaled.abs();
+                        let abs_rounded = (abs + 0.5).floor();
+                        abs_rounded * sign * self.grid_size
+                    }
+                }
+            }
+        };
+
         Coord3D {
-            x: (c.x / self.grid_size).round() * self.grid_size,
-            y: (c.y / self.grid_size).round() * self.grid_size,
+            x: snap_val(c.x),
+            y: snap_val(c.y),
             z: c.z, // Keep Z unchanged
         }
     }
@@ -678,5 +707,30 @@ mod tests {
             events.is_empty(),
             "Disjoint lines should yield no intersection events"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_geos_compat {
+    use super::*;
+    use crate::options::SnapStrategy;
+    use crate::types::Coord3D;
+
+    #[test]
+    fn test_geos_compat_rounding() {
+        let noder = SnapNoder::new(1.0).with_snap_strategy(SnapStrategy::GeosCompat);
+
+        assert_eq!(noder.snap(Coord3D::new(0.5, 0.0, 0.0)).x, 1.0);
+        assert_eq!(noder.snap(Coord3D::new(1.5, 0.0, 0.0)).x, 2.0);
+        assert_eq!(noder.snap(Coord3D::new(2.5, 0.0, 0.0)).x, 3.0);
+
+        assert_eq!(noder.snap(Coord3D::new(-0.5, 0.0, 0.0)).x, -1.0);
+        assert_eq!(noder.snap(Coord3D::new(-1.5, 0.0, 0.0)).x, -2.0);
+        assert_eq!(noder.snap(Coord3D::new(-2.5, 0.0, 0.0)).x, -3.0);
+
+        assert_eq!(noder.snap(Coord3D::new(0.25, 0.0, 0.0)).x, 0.0);
+        assert_eq!(noder.snap(Coord3D::new(0.75, 0.0, 0.0)).x, 1.0);
+        assert_eq!(noder.snap(Coord3D::new(-0.25, 0.0, 0.0)).x, 0.0);
+        assert_eq!(noder.snap(Coord3D::new(-0.75, 0.0, 0.0)).x, -1.0);
     }
 }
