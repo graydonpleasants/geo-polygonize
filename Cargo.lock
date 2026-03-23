@@ -851,7 +851,11 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-core"
+<<<<<<< jules-sweepline-noder-1129215212416477489
 version = "0.27.0"
+=======
+version = "0.28.0"
+>>>>>>> main
 dependencies = [
  "approx",
  "arrow",
@@ -886,7 +890,11 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-wasm"
+<<<<<<< jules-sweepline-noder-1129215212416477489
 version = "0.27.0"
+=======
+version = "0.28.0"
+>>>>>>> main
 dependencies = [
  "arrow",
  "arrow-ipc",

@@ -381,17 +381,25 @@ pub struct IPoint {
 
 ## 1. Algorithmic State-of-the-Art (Agent Track F)
 - [ ] Implement a full sweep-line or monotone-chain noder to replace the prototype `Advanced` noder, achieving $O((N+K) \log N)$ complexity for massive datasets.
+- [ ] Introduce robust snap-rounding and exact arbitrary-precision arithmetic fallbacks for geometrically ambiguous configurations.
 
 ## 2. Zero-Copy & Ecosystem Integration (Agent Track F)
 - [ ] Add native zero-copy GeoArrow integration across Rust, Wasm, and Python for zero-serialization data transfer.
+- [ ] Support cloud-native geospatial formats such as GeoParquet and FlatGeobuf for streaming chunked reads/writes.
 - [ ] Build adapters for Ray, Dask, and Spark distributed computing environments.
 
 ## 3. Out-of-Core Processing (Agent Track F)
 - [ ] Implement out-of-core / streaming processing for datasets larger than available RAM.
+- [ ] Support disk-backed or memory-mapped spatial indexes for streaming data flows.
 
 ## 4. Next-Gen Runtime Acceleration (Agent Track F)
 - [ ] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
-- [ ] Investigate WebGPU and compute shaders for massively parallel point-in-polygon containment and intersection tests.
+- [ ] Investigate WebGPU and native `wgpu` compute shaders for massively parallel point-in-polygon containment and intersection tests across native and web platforms.
+
+## 5. Advanced Topology & Spatial Artifacts (Agent Track G)
+- [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
+- [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
+- [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
 
 ---
 
@@ -425,11 +433,11 @@ pub struct IPoint {
 21. hardened mismatch explainability by profile and provenance
 
 ## Fourth wave
-22. sweep-line or monotone-chain noder
-23. native zero-copy GeoArrow integration
-24. out-of-core / streaming processing
-25. WebAssembly Multithreading
-26. WebGPU / Compute Shader acceleration
+22. sweep-line or monotone-chain noder + arbitrary-precision fallback
+23. native zero-copy GeoArrow + GeoParquet/FlatGeobuf streaming IO
+24. out-of-core / streaming processing with disk-backed spatial indexing
+25. WebAssembly Multithreading + Native WGPU acceleration
+26. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
 
 ---
 
@@ -471,10 +479,16 @@ pub struct IPoint {
 
 ## Agent Track F
 - sweep-line noder
-- zero-copy GeoArrow
-- out-of-core processing
+- robust arbitrary-precision fallback
+- zero-copy GeoArrow / GeoParquet / FlatGeobuf IO
+- out-of-core processing and disk-backed indexing
 - WebAssembly multi-threading
-- GPU / WebGPU acceleration
+- GPU / WebGPU `wgpu` compute shader acceleration
+
+## Agent Track G
+- graph-native boolean operations via winding rules
+- shared-edge topology-preserving boundary simplification
+- TopoJSON / Mapbox Vector Tile generation
 
 ---
 
@@ -539,8 +553,13 @@ The roadmap is complete when:
 - [x] hardened `geos_compat` mode with scale guidance
 
 ## Milestone M6: Ecosystem Integrations & Extreme Scale
-- [ ] full sweep-line noder for $O((N+K) \log N)$ intersection scaling
-- [ ] native zero-copy GeoArrow data ingestion and output
-- [ ] out-of-core chunked execution pipeline
-- [ ] WebAssembly multithreading with `SharedArrayBuffer`
-- [ ] evaluate WebGPU compute shaders for containment tests
+- [ ] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
+- [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
+- [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
+- [ ] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
+- [ ] native `wgpu` compute shaders for massively parallel point-in-polygon tests
+
+## Milestone M7: Advanced Topology & Spatial Artifacts
+- [ ] post-polygonization Boolean operations directly via topological winding rules
+- [ ] shared-edge topology-preserving boundary simplification to prevent overlaps/gaps natively
+- [ ] direct emission of TopoJSON and Mapbox Vector Tiles (MVT)

@@ -40,8 +40,7 @@ const session = await jules.session({
     github: repoInfo.fullName,
     baseBranch,
   },
-  automationMode: 'AUTO_CREATE_PR',
-  requirePlanApproval: false
+  automationMode: 'AUTO_CREATE_PR'
 })
 
 console.log(`✅ Roadmap Analyzer session started: ${session.id}`)
