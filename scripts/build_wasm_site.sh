@@ -51,8 +51,9 @@ if [ -z "$SKIP_SIMD" ] || [ "$SKIP_SIMD" = "0" ] || [ "$SKIP_SIMD" = "false" ]; 
 else
     echo "Skipping SIMD build..."
     mkdir -p pkg-simd
-    echo "export const polygonize = () => {};" > pkg-simd/geo_polygonize.js
-    echo "export const polygonize = () => {};" > pkg-simd/geo_polygonize.d.ts
+    cp pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js
+    cp pkg-scalar/geo_polygonize.d.ts pkg-simd/geo_polygonize.d.ts
+    cp pkg-scalar/geo_polygonize_bg.wasm pkg-simd/geo_polygonize_bg.wasm
 fi
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
