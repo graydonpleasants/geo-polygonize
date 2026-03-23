@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000200 | 0.000709 | 0.002520 | 3.55x | 0.28x | 12.60x |
-| 10 | 0.000409 | 0.002211 | 0.001200 | 5.41x | 1.84x | 2.94x |
-| 20 | 0.001049 | 0.008256 | 0.004490 | 7.87x | 1.84x | 4.28x |
-| 50 | 0.004337 | 0.052597 | 0.010530 | 12.13x | 4.99x | 2.43x |
-| 100 | 0.018240 | 0.240220 | 0.029700 | 13.17x | 8.09x | 1.63x |
+| 5 | 0.000186 | 0.000687 | 0.002490 | 3.69x | 0.28x | 13.37x |
+| 10 | 0.000396 | 0.002234 | 0.001290 | 5.64x | 1.73x | 3.26x |
+| 20 | 0.001038 | 0.008187 | 0.003650 | 7.88x | 2.24x | 3.52x |
+| 50 | 0.004306 | 0.051329 | 0.011250 | 11.92x | 4.56x | 2.61x |
+| 100 | 0.020473 | 0.219467 | 0.029340 | 10.72x | 7.48x | 1.43x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000935 | 0.008238 | 0.001070 | 8.81x | 7.70x | 1.14x |
-| 100 | 0.003069 | 0.026532 | 0.004140 | 8.65x | 6.41x | 1.35x |
-| 200 | 0.011148 | 0.106587 | 0.015720 | 9.56x | 6.78x | 1.41x |
+| 50 | 0.000919 | 0.008088 | 0.001050 | 8.80x | 7.70x | 1.14x |
+| 100 | 0.002990 | 0.027007 | 0.003820 | 9.03x | 7.07x | 1.28x |
+| 200 | 0.010523 | 0.101042 | 0.015150 | 9.60x | 6.67x | 1.44x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.29.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.29.1...geo-polygonize-v0.29.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* ignore Vitepress dead link for playground ([84159bf](https://github.com/graydonpleasants/geo-polygonize/commit/84159bf741400c9761ec0bd01ddea88176139f16))
 
 ## [0.29.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.29.0...geo-polygonize-v0.29.1) (2026-03-23)
 
@@ -2353,7 +2360,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.29.1"
+version = "0.29.2"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2463,7 +2470,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.29.1"
+version = "0.29.2"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -14354,7 +14361,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.29.1"
+version = "0.29.2"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14364,7 +14371,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.29.1" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.29.2" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
