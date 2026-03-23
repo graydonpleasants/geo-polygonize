@@ -1,42 +1,6 @@
 {
   "options": {
     "structs": {
-      "ContainmentOptions": {
-        "name": "ContainmentOptions",
-        "docs": "",
-        "fields": [
-          {
-            "name": "touch_policy",
-            "docs": "",
-            "ty": "TouchPolicy",
-            "is_optional": false
-          },
-          {
-            "name": "index_backend",
-            "docs": "",
-            "ty": "IndexBackend",
-            "is_optional": false
-          }
-        ]
-      },
-      "NodingOptions": {
-        "name": "NodingOptions",
-        "docs": "",
-        "fields": [
-          {
-            "name": "backend",
-            "docs": "",
-            "ty": "NodingBackend",
-            "is_optional": false
-          },
-          {
-            "name": "snap_mode",
-            "docs": "",
-            "ty": "SnapMode",
-            "is_optional": false
-          }
-        ]
-      },
       "DeterminismOptions": {
         "name": "DeterminismOptions",
         "docs": "",
@@ -57,6 +21,72 @@
             "name": "stable_tie_breaks",
             "docs": "",
             "ty": "bool",
+            "is_optional": false
+          }
+        ]
+      },
+      "ProvenanceOptions": {
+        "name": "ProvenanceOptions",
+        "docs": "",
+        "fields": [
+          {
+            "name": "enabled",
+            "docs": "",
+            "ty": "bool",
+            "is_optional": false
+          },
+          {
+            "name": "include_boundary_line_ids",
+            "docs": "",
+            "ty": "bool",
+            "is_optional": false
+          }
+        ]
+      },
+      "ZOptions": {
+        "name": "ZOptions",
+        "docs": "",
+        "fields": [
+          {
+            "name": "policy",
+            "docs": "",
+            "ty": "ZPolicy",
+            "is_optional": false
+          }
+        ]
+      },
+      "TilingOptions": {
+        "name": "TilingOptions",
+        "docs": "",
+        "fields": [
+          {
+            "name": "ownership_policy",
+            "docs": "",
+            "ty": "TileOwnershipPolicy",
+            "is_optional": false
+          },
+          {
+            "name": "dedup_policy",
+            "docs": "",
+            "ty": "DedupPolicy",
+            "is_optional": false
+          }
+        ]
+      },
+      "NodingOptions": {
+        "name": "NodingOptions",
+        "docs": "",
+        "fields": [
+          {
+            "name": "backend",
+            "docs": "",
+            "ty": "NodingBackend",
+            "is_optional": false
+          },
+          {
+            "name": "snap_mode",
+            "docs": "",
+            "ty": "SnapMode",
             "is_optional": false
           }
         ]
@@ -145,54 +175,6 @@
           }
         ]
       },
-      "ZOptions": {
-        "name": "ZOptions",
-        "docs": "",
-        "fields": [
-          {
-            "name": "policy",
-            "docs": "",
-            "ty": "ZPolicy",
-            "is_optional": false
-          }
-        ]
-      },
-      "TilingOptions": {
-        "name": "TilingOptions",
-        "docs": "",
-        "fields": [
-          {
-            "name": "ownership_policy",
-            "docs": "",
-            "ty": "TileOwnershipPolicy",
-            "is_optional": false
-          },
-          {
-            "name": "dedup_policy",
-            "docs": "",
-            "ty": "DedupPolicy",
-            "is_optional": false
-          }
-        ]
-      },
-      "ProvenanceOptions": {
-        "name": "ProvenanceOptions",
-        "docs": "",
-        "fields": [
-          {
-            "name": "enabled",
-            "docs": "",
-            "ty": "bool",
-            "is_optional": false
-          },
-          {
-            "name": "include_boundary_line_ids",
-            "docs": "",
-            "ty": "bool",
-            "is_optional": false
-          }
-        ]
-      },
       "DiagnosticsOptions": {
         "name": "DiagnosticsOptions",
         "docs": "",
@@ -207,6 +189,24 @@
             "name": "report_mode",
             "docs": "",
             "ty": "bool",
+            "is_optional": false
+          }
+        ]
+      },
+      "ContainmentOptions": {
+        "name": "ContainmentOptions",
+        "docs": "",
+        "fields": [
+          {
+            "name": "touch_policy",
+            "docs": "",
+            "ty": "TouchPolicy",
+            "is_optional": false
+          },
+          {
+            "name": "index_backend",
+            "docs": "",
+            "ty": "IndexBackend",
             "is_optional": false
           }
         ]
@@ -235,46 +235,6 @@
           }
         ]
       },
-      "TargetProfile": {
-        "name": "TargetProfile",
-        "docs": "",
-        "variants": [
-          {
-            "name": "Native",
-            "docs": ""
-          },
-          {
-            "name": "WasmSingleThread",
-            "docs": ""
-          },
-          {
-            "name": "WasmThreads",
-            "docs": ""
-          }
-        ]
-      },
-      "ZPolicy": {
-        "name": "ZPolicy",
-        "docs": "",
-        "variants": [
-          {
-            "name": "Ignore",
-            "docs": ""
-          },
-          {
-            "name": "InterpolateAlongEdge",
-            "docs": ""
-          },
-          {
-            "name": "PreferNearestEndpoint",
-            "docs": ""
-          },
-          {
-            "name": "ErrorOnConflict",
-            "docs": ""
-          }
-        ]
-      },
       "NodingBackend": {
         "name": "NodingBackend",
         "docs": "",
@@ -285,6 +245,34 @@
           },
           {
             "name": "Advanced",
+            "docs": ""
+          }
+        ]
+      },
+      "SnapStrategy": {
+        "name": "SnapStrategy",
+        "docs": "Strategy for snapping coordinates to a grid.\n\n`Grid` applies a standard round-to-nearest integer grid policy `(coord / size).round() * size`.\n`GeosCompat` attempts to emulate GEOS / Shapely's `set_precision` behavior, which uses\nC++ std::round (rounding halfway cases away from zero).\n\n**Scale Guidance:**\nUse `Grid` for native Rust applications where absolute topological determinism and\nintuitive rounding is preferred.\nUse `GeosCompat` if you are using `geo-polygonize` to replace a Shapely / GEOS pipeline\nand require exact parity for edge cases at precision boundaries.\n\n**Expected Parity:**\nRust's native `f64::round()` rounds halfway cases away from zero. This perfectly\nmatches C++ `std::round` behavior, meaning that `Grid` and `GeosCompat` currently\nmap identical values for basic single-coordinate precision points (e.g., `-0.5` => `-1.0`\nand `0.5` => `1.0`).\n\n**Expected Divergence:**\nThe divergence between `Grid` and `GeosCompat` strategies typically arises under complex\ntopological scaling sequences rather than simple single point coordinate rounding, but\nthe option ensures the library remains semantically compatible with Python/C++ GEOS pipelines.",
+        "variants": [
+          {
+            "name": "Grid",
+            "docs": ""
+          },
+          {
+            "name": "GeosCompat",
+            "docs": ""
+          }
+        ]
+      },
+      "IndexBackend": {
+        "name": "IndexBackend",
+        "docs": "",
+        "variants": [
+          {
+            "name": "RStar",
+            "docs": ""
+          },
+          {
+            "name": "PackedNative",
             "docs": ""
           }
         ]
@@ -321,6 +309,24 @@
           }
         ]
       },
+      "TargetProfile": {
+        "name": "TargetProfile",
+        "docs": "",
+        "variants": [
+          {
+            "name": "Native",
+            "docs": ""
+          },
+          {
+            "name": "WasmSingleThread",
+            "docs": ""
+          },
+          {
+            "name": "WasmThreads",
+            "docs": ""
+          }
+        ]
+      },
       "TouchPolicy": {
         "name": "TouchPolicy",
         "docs": "",
@@ -339,30 +345,24 @@
           }
         ]
       },
-      "SnapStrategy": {
-        "name": "SnapStrategy",
-        "docs": "Strategy for snapping coordinates to a grid.\n\n`Grid` applies a standard round-to-nearest integer grid policy `(coord / size).round() * size`.\n`GeosCompat` attempts to emulate GEOS / Shapely's `set_precision` behavior, which uses\nC++ std::round (rounding halfway cases away from zero).\n\n**Scale Guidance:**\nUse `Grid` for native Rust applications where absolute topological determinism and\nintuitive rounding is preferred.\nUse `GeosCompat` if you are using `geo-polygonize` to replace a Shapely / GEOS pipeline\nand require exact parity for edge cases at precision boundaries.\n\n**Expected Parity:**\nRust's native `f64::round()` rounds halfway cases away from zero. This perfectly\nmatches C++ `std::round` behavior, meaning that `Grid` and `GeosCompat` currently\nmap identical values for basic single-coordinate precision points (e.g., `-0.5` => `-1.0`\nand `0.5` => `1.0`).\n\n**Expected Divergence:**\nThe divergence between `Grid` and `GeosCompat` strategies typically arises under complex\ntopological scaling sequences rather than simple single point coordinate rounding, but\nthe option ensures the library remains semantically compatible with Python/C++ GEOS pipelines.",
-        "variants": [
-          {
-            "name": "Grid",
-            "docs": ""
-          },
-          {
-            "name": "GeosCompat",
-            "docs": ""
-          }
-        ]
-      },
-      "IndexBackend": {
-        "name": "IndexBackend",
+      "ZPolicy": {
+        "name": "ZPolicy",
         "docs": "",
         "variants": [
           {
-            "name": "RStar",
+            "name": "Ignore",
             "docs": ""
           },
           {
-            "name": "PackedNative",
+            "name": "InterpolateAlongEdge",
+            "docs": ""
+          },
+          {
+            "name": "PreferNearestEndpoint",
+            "docs": ""
+          },
+          {
+            "name": "ErrorOnConflict",
             "docs": ""
           }
         ]
