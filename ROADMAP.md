@@ -393,7 +393,7 @@ pub struct IPoint {
 - [ ] Support disk-backed or memory-mapped spatial indexes for streaming data flows.
 
 ## 4. Next-Gen Runtime Acceleration (Agent Track F)
-- [ ] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
+- [x] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
 - [ ] Investigate WebGPU and native `wgpu` compute shaders for massively parallel point-in-polygon containment and intersection tests across native and web platforms.
 
 ## 5. Advanced Topology & Spatial Artifacts (Agent Track G)
@@ -556,7 +556,7 @@ The roadmap is complete when:
 - [x] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
 - [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
 - [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
-- [ ] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
+- [x] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
 - [ ] native `wgpu` compute shaders for massively parallel point-in-polygon tests
 
 ## Milestone M7: Advanced Topology & Spatial Artifacts
