@@ -36,14 +36,9 @@ pub fn parse_options(path: &str) -> Result<OptionsSchema> {
                     }
                 }
 
-                schema.structs.insert(
-                    name.clone(),
-                    StructDocs {
-                        name,
-                        docs,
-                        fields,
-                    },
-                );
+                schema
+                    .structs
+                    .insert(name.clone(), StructDocs { name, docs, fields });
             }
             Item::Enum(item_enum) => {
                 let name = item_enum.ident.to_string();
@@ -81,7 +76,11 @@ pub fn extract_docs(attrs: &[syn::Attribute]) -> String {
     for attr in attrs {
         if attr.path().is_ident("doc") {
             if let syn::Meta::NameValue(nv) = &attr.meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(lit_str), .. }) = &nv.value {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(lit_str),
+                    ..
+                }) = &nv.value
+                {
                     let text = lit_str.value();
                     let trimmed = text.strip_prefix(' ').unwrap_or(&text);
                     docs.push(trimmed.to_string());
