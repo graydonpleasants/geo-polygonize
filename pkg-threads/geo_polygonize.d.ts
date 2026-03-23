@@ -31,8 +31,22 @@ export function initThreadPool(num_threads: number): Promise<any>;
 
 export function polygonize(geojson_str: string, node_input?: boolean | null, snap_grid_size?: number | null, extract_only_polygonal?: boolean | null, report_mode?: boolean | null): string;
 
+/**
+ * Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
+ *
+ * This zero-copy path avoids JSON serialization overhead and returns a binary
+ * Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
+ * to be passed as a parsed JS object.
+ */
 export function polygonizeGeoArrowWithOptions(ipc_bytes: Uint8Array, options_val: Partial<PolygonizerOptions>): Uint8Array;
 
+/**
+ * Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
+ *
+ * This is the primary entry point for JavaScript users. It accepts a JSON string
+ * of options and returns a JSON string representing the result, including faces,
+ * dangles, cut-lines, and (optionally) provenance/diagnostics.
+ */
 export function polygonizeWithOptions(geojson_str: string, options_val: Partial<PolygonizerOptions>): string;
 
 export function polygonizeWithOptionsBuffer(coords: Float64Array, offsets: Uint32Array, stride: number, options_val: Partial<PolygonizerOptions>, line_ids?: Uint32Array | null): WasmPolygonResult;
