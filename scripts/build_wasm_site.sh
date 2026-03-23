@@ -12,7 +12,7 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+    if command -v cargo-binstall &> /dev/null; then cargo binstall wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --no-confirm; else cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION; fi
 fi
 
 build_variant() {
@@ -46,12 +46,19 @@ build_variant() {
 build_variant "scalar" ""
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128"
+if [ -z "$SKIP_SIMD" ] || [ "$SKIP_SIMD" = "0" ] || [ "$SKIP_SIMD" = "false" ]; then
+    build_variant "simd" "-C target-feature=+simd128"
+else
+    echo "Skipping SIMD build..."
+    mkdir -p pkg-simd
+    echo "export const polygonize = () => {};" > pkg-simd/geo_polygonize.js
+    echo "export const polygonize = () => {};" > pkg-simd/geo_polygonize.d.ts
+fi
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
 export TS_RS_EXPORT_DIR="bindings"
-cargo test -p geo-polygonize-core
+cd crates/geo-polygonize-core && cargo run --bin export_bindings --release && cd ../..
 mkdir -p pkg-wrapper/bindings
 cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
@@ -85,6 +92,6 @@ npx rollup -c
 # Prepare distribution files
 echo "Preparing dist..."
 cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
-cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+if [ -f "pkg-simd/geo_polygonize_bg.wasm" ]; then cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm; else cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm; fi
 
 echo "Site Wasm build complete! Artifacts are in dist/"

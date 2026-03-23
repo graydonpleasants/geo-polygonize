@@ -12,7 +12,7 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+    if command -v cargo-binstall &> /dev/null; then cargo binstall wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --no-confirm; else cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION; fi
 fi
 
 # Install binaryen (wasm-opt) if needed
@@ -142,7 +142,7 @@ done
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
 export TS_RS_EXPORT_DIR="bindings"
-cargo test -p geo-polygonize-core
+cd crates/geo-polygonize-core && cargo run --bin export_bindings --release && cd ../..
 mkdir -p pkg-wrapper/bindings
 cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
