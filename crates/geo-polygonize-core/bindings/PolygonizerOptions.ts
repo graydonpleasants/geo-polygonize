@@ -9,4 +9,85 @@ import type { TargetProfile } from "./TargetProfile";
 import type { TilingOptions } from "./TilingOptions";
 import type { ZOptions } from "./ZOptions";
 
-export type PolygonizerOptions = { target: TargetProfile, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean, snap_strategy: SnapStrategy, noding: NodingOptions, containment: ContainmentOptions, tiling?: TilingOptions, z: ZOptions, determinism: DeterminismOptions, diagnostics: DiagnosticsOptions, provenance: ProvenanceOptions, input_profile_id?: string, };
+/**
+ * The canonical configuration object for the `geo-polygonize` engine.
+ *
+ * This struct controls every aspect of the polygonization pipeline, including
+ * topological robustness, feature output, containment policies, noding, and determinism.
+ */
+export type PolygonizerOptions = {
+/**
+ * Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
+ *
+ * Default: `TargetProfile::Native`
+ */
+target: TargetProfile,
+/**
+ * Whether to robustly node the input before polygonization.
+ *
+ * Enable this for real-world linework where segment intersections may not
+ * already exist as explicit vertices. This is slower than the fast path but
+ * avoids missing faces and unresolved crossings.
+ *
+ * Default: `false`
+ */
+node_input: boolean,
+/**
+ * The snapping grid size used for vertex deduplication and noding operations.
+ *
+ * Vertices falling within the same grid cell are coalesced. A size of `0.0`
+ * indicates exact floating-point evaluation without grid snapping.
+ *
+ * Default: `1e-10`
+ */
+snap_grid_size: number,
+/**
+ * If `true`, only pure, outermost polygonal shells are returned.
+ *
+ * Floating dangles, internal cut-lines, or invalid rings will be discarded.
+ *
+ * Default: `false`
+ */
+extract_only_polygonal: boolean,
+/**
+ * The underlying strategy to apply when snapping coordinate geometries.
+ *
+ * See `SnapStrategy` for differences between strict `Grid` snapping and
+ * Shapely/GEOS `GeosCompat` strategies.
+ *
+ * Default: `SnapStrategy::Grid`
+ */
+snap_strategy: SnapStrategy,
+/**
+ * Configures the noding engine backend and behavior.
+ */
+noding: NodingOptions,
+/**
+ * Configures how topological relationships (containment) are calculated
+ * during face formation.
+ */
+containment: ContainmentOptions,
+/**
+ * Optional configuration for tiled, distributed execution across huge datasets.
+ */
+tiling?: TilingOptions,
+/**
+ * Configures Z-axis coordinate handling.
+ */
+z: ZOptions,
+/**
+ * Configuration for enforcing exact topological determinism.
+ */
+determinism: DeterminismOptions,
+/**
+ * Options for capturing diagnostic topology failures.
+ */
+diagnostics: DiagnosticsOptions,
+/**
+ * Options for mapping final faces back to original input geometry IDs.
+ */
+provenance: ProvenanceOptions,
+/**
+ * An optional identifier for the input dataset.
+ */
+input_profile_id?: string, };

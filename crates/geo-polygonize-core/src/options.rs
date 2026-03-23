@@ -3,20 +3,72 @@ use ts_rs::TS;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
+/// The canonical configuration object for the `geo-polygonize` engine.
+///
+/// This struct controls every aspect of the polygonization pipeline, including
+/// topological robustness, feature output, containment policies, noding, and determinism.
 pub struct PolygonizerOptions {
+    /// Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
+    ///
+    /// Default: `TargetProfile::Native`
     pub target: TargetProfile,
+
+    /// Whether to robustly node the input before polygonization.
+    ///
+    /// Enable this for real-world linework where segment intersections may not
+    /// already exist as explicit vertices. This is slower than the fast path but
+    /// avoids missing faces and unresolved crossings.
+    ///
+    /// Default: `false`
     pub node_input: bool,
+
+    /// The snapping grid size used for vertex deduplication and noding operations.
+    ///
+    /// Vertices falling within the same grid cell are coalesced. A size of `0.0`
+    /// indicates exact floating-point evaluation without grid snapping.
+    ///
+    /// Default: `1e-10`
     pub snap_grid_size: f64,
+
+    /// If `true`, only pure, outermost polygonal shells are returned.
+    ///
+    /// Floating dangles, internal cut-lines, or invalid rings will be discarded.
+    ///
+    /// Default: `false`
     pub extract_only_polygonal: bool,
+
+    /// The underlying strategy to apply when snapping coordinate geometries.
+    ///
+    /// See `SnapStrategy` for differences between strict `Grid` snapping and
+    /// Shapely/GEOS `GeosCompat` strategies.
+    ///
+    /// Default: `SnapStrategy::Grid`
     pub snap_strategy: SnapStrategy,
+
+    /// Configures the noding engine backend and behavior.
     pub noding: NodingOptions,
+
+    /// Configures how topological relationships (containment) are calculated
+    /// during face formation.
     pub containment: ContainmentOptions,
+
+    /// Optional configuration for tiled, distributed execution across huge datasets.
     #[ts(optional)]
     pub tiling: Option<TilingOptions>,
+
+    /// Configures Z-axis coordinate handling.
     pub z: ZOptions,
+
+    /// Configuration for enforcing exact topological determinism.
     pub determinism: DeterminismOptions,
+
+    /// Options for capturing diagnostic topology failures.
     pub diagnostics: DiagnosticsOptions,
+
+    /// Options for mapping final faces back to original input geometry IDs.
     pub provenance: ProvenanceOptions,
+
+    /// An optional identifier for the input dataset.
     #[ts(optional)]
     pub input_profile_id: Option<String>,
 }

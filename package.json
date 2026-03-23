@@ -6,7 +6,14 @@
   "scripts": {
     "build": "./scripts/build_wasm.sh",
     "test": "vitest run",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build:site-lib": "./scripts/build_wasm_site.sh",
+    "docs:extract": "cargo run -p xtask -- docs extract",
+    "docs:render": "cargo run -p xtask -- docs render",
+    "docs:gen:examples": "node ./scripts/docs/gen-examples.mjs",
+    "docs:gen": "npm run docs:extract && npm run docs:render && npm run docs:gen:examples",
+    "docs:dev": "npm run build:site-lib && npm run docs:gen && vitepress dev docs",
+    "docs:build": "npm run build:site-lib && npm run docs:gen && vitepress build docs && cd playground && npm install && npm run build"
   },
   "files": [
     "dist"
@@ -49,7 +56,9 @@
     "rollup": "^4.0.0",
     "tslib": "^2.6.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "vitepress": "^1.0.0",
+    "vite": "^4.2.0"
   },
   "sideEffects": false,
   "author": "",

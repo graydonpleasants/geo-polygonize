@@ -203,6 +203,11 @@ export function polygonize(geojson_str, node_input, snap_grid_size, extract_only
 }
 
 /**
+ * Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
+ *
+ * This zero-copy path avoids JSON serialization overhead and returns a binary
+ * Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
+ * to be passed as a parsed JS object.
  * @param {Uint8Array} ipc_bytes
  * @param {any} options_val
  * @returns {Uint8Array}
@@ -220,6 +225,11 @@ export function polygonizeGeoArrowWithOptions(ipc_bytes, options_val) {
 }
 
 /**
+ * Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
+ *
+ * This is the primary entry point for JavaScript users. It accepts a JSON string
+ * of options and returns a JSON string representing the result, including faces,
+ * dangles, cut-lines, and (optionally) provenance/diagnostics.
  * @param {string} geojson_str
  * @param {any} options_val
  * @returns {string}

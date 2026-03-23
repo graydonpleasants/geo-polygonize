@@ -1,0 +1,7 @@
+# NodingBackend
+
+## Variants
+
+### `Snap`
+
+### `Advanced`

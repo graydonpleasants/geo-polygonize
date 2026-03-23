@@ -1,0 +1,59 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/**'
+      - 'python/**'
+      - 'docs/**'
+      - 'scripts/docs/**'
+      - 'xtask/**'
+
+jobs:
+  build_docs:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nightly Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          target: wasm32-unknown-unknown
+          override: true
+          components: rust-src
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Docs Metadata
+        run: npm run docs:gen
+
+      - name: Verify Clean Generated Output
+        run: git diff --exit-code docs/reference/generated/
+
+      - name: Build Site Wasm Library
+        run: npm run build:site-lib
+
+      - name: Build Playground
+        run: |
+          cd playground
+          npm install
+          npm run build
+
+      - name: Build Docs Site
+        run: npx vitepress build docs

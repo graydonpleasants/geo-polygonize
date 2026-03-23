@@ -18,6 +18,11 @@ use crate::error::{from_polygonizer_error, to_js_error};
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen(js_name = polygonizeWithOptions)]
+/// Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
+///
+/// This is the primary entry point for JavaScript users. It accepts a JSON string
+/// of options and returns a JSON string representing the result, including faces,
+/// dangles, cut-lines, and (optionally) provenance/diagnostics.
 pub fn polygonize_with_options_js(
     geojson_str: &str,
     options_val: JsValue,
@@ -472,6 +477,11 @@ pub fn polygonize_buffers(
 }
 
 #[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
+/// Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
+///
+/// This zero-copy path avoids JSON serialization overhead and returns a binary
+/// Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
+/// to be passed as a parsed JS object.
 pub fn polygonize_geoarrow_with_options_js(
     ipc_bytes: &[u8],
     options_val: JsValue,

@@ -1,0 +1,7 @@
+# DedupPolicy
+
+## Variants
+
+### `KeepAll`
+
+### `CanonicalRingHash`
