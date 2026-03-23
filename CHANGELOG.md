@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.0...geo-polygonize-v0.30.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* set base path in docs and playground configs ([6e9e66f](https://github.com/graydonpleasants/geo-polygonize/commit/6e9e66f7a99686f437a70b8e68dfb6e1051894f5))
+
 ## [0.30.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.29.2...geo-polygonize-v0.30.0) (2026-03-23)
 
 
