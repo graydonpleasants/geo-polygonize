@@ -159,7 +159,7 @@ impl Polygonizer {
 
         if self.options.node_input {
             // Sort by 2D coordinates
-            all_segments.sort_by(|a, b| {
+            all_segments.sort_unstable_by(|a, b| {
                 a.start
                     .x
                     .total_cmp(&b.start.x)
@@ -622,7 +622,7 @@ fn apply_determinism(
                 })
                 .collect();
 
-            dangles_with_cache.sort_by(|(l1, b1), (l2, b2)| {
+            dangles_with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
                 b1.min()
                     .x
                     .total_cmp(&b2.min().x)
