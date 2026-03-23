@@ -1,7 +1,6 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  base: '/geo-polygonize/',
   title: "geo-polygonize",
   description: "A native Rust port of the JTS/GEOS polygonization algorithm (Wasm)",
   ignoreDeadLinks: [
