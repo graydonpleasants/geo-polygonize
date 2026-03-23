@@ -3,6 +3,9 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: "geo-polygonize",
   description: "A native Rust port of the JTS/GEOS polygonization algorithm (Wasm)",
+  ignoreDeadLinks: [
+    /^\/playground\//,
+  ],
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
