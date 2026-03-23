@@ -1,6 +1,6 @@
+pub mod render_markdown;
 pub mod rust_options;
 pub mod rust_wasm;
-pub mod render_markdown;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
