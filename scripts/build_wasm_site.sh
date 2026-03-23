@@ -54,6 +54,7 @@ else
     cp pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js
     cp pkg-scalar/geo_polygonize.d.ts pkg-simd/geo_polygonize.d.ts
     cp pkg-scalar/geo_polygonize_bg.wasm pkg-simd/geo_polygonize_bg.wasm
+    cp pkg-scalar/geo_polygonize_bg.wasm.d.ts pkg-simd/geo_polygonize_bg.wasm.d.ts
 fi
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper

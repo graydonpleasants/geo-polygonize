@@ -1,8 +1,5 @@
 use crate::types::{Coord3D, Line3D};
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
-use robust::orient2d;
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
 
 pub struct AdvancedNoder;
 
@@ -17,314 +14,156 @@ impl AdvancedNoder {
         Self
     }
 
-    /// A full sweep-line algorithm to find all intersections in O((N+K) log N) scaling.
-    /// It incorporates an arbitrary-precision fallback using `robust::orient2d` for geometrically
-    /// ambiguous configurations.
     pub fn node(&self, lines: Vec<Line3D>) -> Vec<Line3D> {
         let mut segments = lines;
         let mut changed = true;
 
+        // Basic prototype: Repeated O(N^2) brute-force intersection finding.
+        // In a real advanced noder, this would be a sweep-line algorithm (e.g., Bentley-Ottmann)
+        // or a monotone-chain noder.
         while changed {
             changed = false;
-            let mut events = BinaryHeap::new();
+            let mut new_segments = Vec::with_capacity(segments.len());
+            let mut i = 0;
 
-            for (i, segment) in segments.iter().enumerate() {
-                let p1 = segment.start;
-                let p2 = segment.end;
+            while i < segments.len() {
+                let s1 = segments[i];
+                let mut intersected = false;
 
-                let (left, right) = if p1.x < p2.x || (p1.x == p2.x && p1.y <= p2.y) {
-                    (p1, p2)
-                } else {
-                    (p2, p1)
-                };
+                for j in (i + 1)..segments.len() {
+                    let s2 = segments[j];
 
-                events.push(Event {
-                    x: left.x,
-                    y: left.y,
-                    segment_idx: i,
-                    is_left: true,
-                });
-                events.push(Event {
-                    x: right.x,
-                    y: right.y,
-                    segment_idx: i,
-                    is_left: false,
-                });
-            }
+                    // Simple bounding box check
+                    let s1_min_x = f64::min(s1.start.x, s1.end.x);
+                    let s1_max_x = f64::max(s1.start.x, s1.end.x);
+                    let s1_min_y = f64::min(s1.start.y, s1.end.y);
+                    let s1_max_y = f64::max(s1.start.y, s1.end.y);
 
-            // Sweep-line status: active segments ordered by Y at current sweep X.
-            // Using Vec with binary search insertion for O(log M) search and O(M) insertion.
-            let mut active_segments: Vec<usize> = Vec::new();
-            let mut intersections = Vec::new();
-            let mut checked_pairs = HashSet::new();
-            while let Some(event) = events.pop() {
-                let current_x = event.x;
-                let s_idx = event.segment_idx;
+                    let s2_min_x = f64::min(s2.start.x, s2.end.x);
+                    let s2_max_x = f64::max(s2.start.x, s2.end.x);
+                    let s2_min_y = f64::min(s2.start.y, s2.end.y);
+                    let s2_max_y = f64::max(s2.start.y, s2.end.y);
 
-                if event.is_left {
-                    // Find position to insert in active_segments using binary search
-                    let insert_pos = active_segments
-                        .binary_search_by(|&idx| {
-                            let y_active = Self::y_at_x(&segments[idx], current_x);
-                            let y_new = Self::y_at_x(&segments[s_idx], current_x);
-                            y_active.partial_cmp(&y_new).unwrap_or(Ordering::Equal)
-                        })
-                        .unwrap_or_else(|pos| pos);
-
-                    active_segments.insert(insert_pos, s_idx);
-
-                    if insert_pos > 0 {
-                        let above_idx = active_segments[insert_pos - 1];
-                        if Self::check_and_record_intersection(
-                            &segments,
-                            s_idx,
-                            above_idx,
-                            &mut checked_pairs,
-                            &mut intersections,
-                        ) {
-                            changed = true;
-                        }
+                    if s1_max_x < s2_min_x
+                        || s1_min_x > s2_max_x
+                        || s1_max_y < s2_min_y
+                        || s1_min_y > s2_max_y
+                    {
+                        continue;
                     }
-                    if insert_pos < active_segments.len() - 1 {
-                        let below_idx = active_segments[insert_pos + 1];
-                        if Self::check_and_record_intersection(
-                            &segments,
-                            s_idx,
-                            below_idx,
-                            &mut checked_pairs,
-                            &mut intersections,
-                        ) {
-                            changed = true;
-                        }
-                    }
-                } else {
-                    // Right endpoint
-                    if let Some(pos) = active_segments.iter().position(|&x| x == s_idx) {
-                        if pos > 0 && pos < active_segments.len() - 1 {
-                            let above_idx = active_segments[pos - 1];
-                            let below_idx = active_segments[pos + 1];
-                            if Self::check_and_record_intersection(
-                                &segments,
-                                above_idx,
-                                below_idx,
-                                &mut checked_pairs,
-                                &mut intersections,
-                            ) {
-                                changed = true;
+
+                    if let Some(intersection) = line_intersection(
+                        geo::Line::new(s1.start.to_coord_2d(), s1.end.to_coord_2d()),
+                        geo::Line::new(s2.start.to_coord_2d(), s2.end.to_coord_2d()),
+                    ) {
+                        match intersection {
+                            LineIntersection::SinglePoint {
+                                intersection: pt, ..
+                            } => {
+                                let eps = 1e-9;
+                                // Ignore intersections at existing endpoints
+                                let s1_start_dist =
+                                    (pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2);
+                                let s1_end_dist =
+                                    (pt.x - s1.end.x).powi(2) + (pt.y - s1.end.y).powi(2);
+                                let s2_start_dist =
+                                    (pt.x - s2.start.x).powi(2) + (pt.y - s2.start.y).powi(2);
+                                let s2_end_dist =
+                                    (pt.x - s2.end.x).powi(2) + (pt.y - s2.end.y).powi(2);
+
+                                if s1_start_dist > eps
+                                    && s1_end_dist > eps
+                                    && s2_start_dist > eps
+                                    && s2_end_dist > eps
+                                {
+                                    // Found a true interior intersection!
+                                    // We'll interpolate Z just roughly for prototype.
+                                    let t1 = ((pt.x - s1.start.x).powi(2)
+                                        + (pt.y - s1.start.y).powi(2))
+                                    .sqrt()
+                                        / ((s1.end.x - s1.start.x).powi(2)
+                                            + (s1.end.y - s1.start.y).powi(2))
+                                        .sqrt();
+                                    let z_interp = s1.start.z + t1 * (s1.end.z - s1.start.z);
+
+                                    let intersect_coord = Coord3D {
+                                        x: pt.x,
+                                        y: pt.y,
+                                        z: z_interp,
+                                    };
+
+                                    // Split both segments. For prototype, we'll just queue the splits and restart.
+                                    // Remove s2, replace it with splits
+                                    segments.remove(j);
+                                    let s2_1 = Line3D {
+                                        start: s2.start,
+                                        end: intersect_coord,
+                                        line_id: s2.line_id,
+                                    };
+                                    let s2_2 = Line3D {
+                                        start: intersect_coord,
+                                        end: s2.end,
+                                        line_id: s2.line_id,
+                                    };
+                                    if (s2_1.start.x - s2_1.end.x).powi(2)
+                                        + (s2_1.start.y - s2_1.end.y).powi(2)
+                                        > eps
+                                    {
+                                        segments.push(s2_1);
+                                    }
+                                    if (s2_2.start.x - s2_2.end.x).powi(2)
+                                        + (s2_2.start.y - s2_2.end.y).powi(2)
+                                        > eps
+                                    {
+                                        segments.push(s2_2);
+                                    }
+
+                                    // Split s1
+                                    let s1_1 = Line3D {
+                                        start: s1.start,
+                                        end: intersect_coord,
+                                        line_id: s1.line_id,
+                                    };
+                                    let s1_2 = Line3D {
+                                        start: intersect_coord,
+                                        end: s1.end,
+                                        line_id: s1.line_id,
+                                    };
+                                    if (s1_1.start.x - s1_1.end.x).powi(2)
+                                        + (s1_1.start.y - s1_1.end.y).powi(2)
+                                        > eps
+                                    {
+                                        new_segments.push(s1_1);
+                                    }
+                                    if (s1_2.start.x - s1_2.end.x).powi(2)
+                                        + (s1_2.start.y - s1_2.end.y).powi(2)
+                                        > eps
+                                    {
+                                        new_segments.push(s1_2);
+                                    }
+
+                                    intersected = true;
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                            LineIntersection::Collinear { .. } => {
+                                // Ignore collinear overlaps in this simple prototype
                             }
                         }
-                        active_segments.remove(pos);
                     }
                 }
-            }
 
+                if !intersected {
+                    new_segments.push(s1);
+                }
+                i += 1;
+            }
             if changed {
-                segments = Self::split_segments(segments, intersections);
+                segments = new_segments;
             }
         }
 
         segments
     }
-
-    fn y_at_x(line: &Line3D, x: f64) -> f64 {
-        let dx = line.end.x - line.start.x;
-        if dx == 0.0 {
-            return f64::min(line.start.y, line.end.y);
-        }
-        let dy = line.end.y - line.start.y;
-        let slope = dy / dx;
-        line.start.y + slope * (x - line.start.x)
-    }
-
-    /// Computes intersection using standard floating-point algorithm, falling back to robust
-    /// arbitrary-precision orientation predicates if geometrically ambiguous or collinear.
-    fn check_and_record_intersection(
-        segments: &[Line3D],
-        idx_a: usize,
-        idx_b: usize,
-        checked_pairs: &mut HashSet<(usize, usize)>,
-        intersections: &mut Vec<IntersectionSplit>,
-    ) -> bool {
-        let pair = if idx_a < idx_b {
-            (idx_a, idx_b)
-        } else {
-            (idx_b, idx_a)
-        };
-        if !checked_pairs.insert(pair) {
-            return false;
-        }
-
-        let s1 = &segments[idx_a];
-        let s2 = &segments[idx_b];
-
-        // Arbitrary-precision fallback via robust orientation checks.
-        // If s1 points bounding box strictly separates s2 endpoints, they don't intersect.
-        let a = robust::Coord {
-            x: s1.start.x,
-            y: s1.start.y,
-        };
-        let b = robust::Coord {
-            x: s1.end.x,
-            y: s1.end.y,
-        };
-        let c = robust::Coord {
-            x: s2.start.x,
-            y: s2.start.y,
-        };
-        let d = robust::Coord {
-            x: s2.end.x,
-            y: s2.end.y,
-        };
-
-        let o1 = orient2d(a, b, c);
-        let o2 = orient2d(a, b, d);
-        let o3 = orient2d(c, d, a);
-        let o4 = orient2d(c, d, b);
-
-        // Check exact topological intersection
-        let intersects_strictly =
-            o1 != o2 && o3 != o4 && o1 != 0.0 && o2 != 0.0 && o3 != 0.0 && o4 != 0.0;
-
-        if intersects_strictly {
-            if let Some(LineIntersection::SinglePoint {
-                intersection: pt, ..
-            }) = line_intersection(
-                geo::Line::new(s1.start.to_coord_2d(), s1.end.to_coord_2d()),
-                geo::Line::new(s2.start.to_coord_2d(), s2.end.to_coord_2d()),
-            ) {
-                let eps = 1e-9;
-                let s1_start_dist = (pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2);
-                let s1_end_dist = (pt.x - s1.end.x).powi(2) + (pt.y - s1.end.y).powi(2);
-                let s2_start_dist = (pt.x - s2.start.x).powi(2) + (pt.y - s2.start.y).powi(2);
-                let s2_end_dist = (pt.x - s2.end.x).powi(2) + (pt.y - s2.end.y).powi(2);
-
-                if s1_start_dist > eps
-                    && s1_end_dist > eps
-                    && s2_start_dist > eps
-                    && s2_end_dist > eps
-                {
-                    let t1 = ((pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2)).sqrt()
-                        / ((s1.end.x - s1.start.x).powi(2) + (s1.end.y - s1.start.y).powi(2))
-                            .sqrt();
-                    let z_interp = s1.start.z + t1 * (s1.end.z - s1.start.z);
-
-                    let intersect_coord = Coord3D {
-                        x: pt.x,
-                        y: pt.y,
-                        z: z_interp,
-                    };
-                    intersections.push(IntersectionSplit {
-                        segment_idx: idx_a,
-                        point: intersect_coord,
-                    });
-                    intersections.push(IntersectionSplit {
-                        segment_idx: idx_b,
-                        point: intersect_coord,
-                    });
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    fn split_segments(segments: Vec<Line3D>, splits: Vec<IntersectionSplit>) -> Vec<Line3D> {
-        let mut new_segments = Vec::new();
-        let mut splits_by_segment: std::collections::HashMap<usize, Vec<Coord3D>> =
-            std::collections::HashMap::new();
-
-        for split in splits {
-            splits_by_segment
-                .entry(split.segment_idx)
-                .or_default()
-                .push(split.point);
-        }
-
-        for (i, segment) in segments.into_iter().enumerate() {
-            if let Some(mut pts) = splits_by_segment.remove(&i) {
-                pts.sort_by(|a, b| {
-                    let dist_a = (a.x - segment.start.x).powi(2) + (a.y - segment.start.y).powi(2);
-                    let dist_b = (b.x - segment.start.x).powi(2) + (b.y - segment.start.y).powi(2);
-                    dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
-                });
-
-                let mut current_start = segment.start;
-                let line_id = segment.line_id;
-
-                for pt in pts {
-                    let eps = 1e-9;
-                    if (current_start.x - pt.x).powi(2) + (current_start.y - pt.y).powi(2) > eps {
-                        new_segments.push(Line3D {
-                            start: current_start,
-                            end: pt,
-                            line_id,
-                        });
-                        current_start = pt;
-                    }
-                }
-                let eps = 1e-9;
-                if (current_start.x - segment.end.x).powi(2)
-                    + (current_start.y - segment.end.y).powi(2)
-                    > eps
-                {
-                    new_segments.push(Line3D {
-                        start: current_start,
-                        end: segment.end,
-                        line_id,
-                    });
-                }
-            } else {
-                new_segments.push(segment);
-            }
-        }
-        new_segments
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Event {
-    x: f64,
-    #[allow(dead_code)]
-    y: f64,
-    segment_idx: usize,
-    is_left: bool,
-}
-
-impl Ord for Event {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // We use a max-heap, so we reverse the ordering to get a min-heap behavior.
-        // Primary sort: X coordinate.
-        match other.x.partial_cmp(&self.x).unwrap_or(Ordering::Equal) {
-            Ordering::Equal => {
-                // To fix the vertical line issue, left endpoints MUST be processed before right endpoints
-                // when X coordinates are identical.
-                // Reversing for min-heap means left (true) should be considered "greater" than right (false).
-                match (self.is_left, other.is_left) {
-                    (true, false) => Ordering::Greater, // Process left before right
-                    (false, true) => Ordering::Less,
-                    _ => Ordering::Equal,
-                }
-            }
-            ord => ord,
-        }
-    }
-}
-
-impl PartialOrd for Event {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Event {
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.is_left == other.is_left
-    }
-}
-
-impl Eq for Event {}
-
-struct IntersectionSplit {
-    segment_idx: usize,
-    point: Coord3D,
 }

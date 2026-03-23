@@ -14,18 +14,6 @@ on:
       - 'scripts/docs/**'
       - 'xtask/**'
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build_docs:
     name: Build Docs
@@ -46,9 +34,6 @@ jobs:
         with:
           workspaces: |
             . -> target
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
 
       - name: Install Node
         uses: actions/setup-node@v4
@@ -80,22 +65,3 @@ jobs:
 
       - name: Build Docs Site
         run: npx vitepress build docs
-
-      - name: Upload artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/.vitepress/dist
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build_docs
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

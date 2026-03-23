@@ -380,8 +380,8 @@ pub struct IPoint {
 **Goal**: Push the library beyond standard in-memory operations by integrating advanced geometric algorithms, zero-copy data standards, and massive parallelization technologies across all targets.
 
 ## 1. Algorithmic State-of-the-Art (Agent Track F)
-- [x] Implement a full sweep-line or monotone-chain noder to replace the prototype `Advanced` noder, achieving $O((N+K) \log N)$ complexity for massive datasets.
-- [x] Introduce robust snap-rounding and exact arbitrary-precision arithmetic fallbacks for geometrically ambiguous configurations.
+- [ ] Implement a full sweep-line or monotone-chain noder to replace the prototype `Advanced` noder, achieving $O((N+K) \log N)$ complexity for massive datasets.
+- [ ] Introduce robust snap-rounding and exact arbitrary-precision arithmetic fallbacks for geometrically ambiguous configurations.
 
 ## 2. Zero-Copy & Ecosystem Integration (Agent Track F)
 - [ ] Add native zero-copy GeoArrow integration across Rust, Wasm, and Python for zero-serialization data transfer.
@@ -553,7 +553,7 @@ The roadmap is complete when:
 - [x] hardened `geos_compat` mode with scale guidance
 
 ## Milestone M6: Ecosystem Integrations & Extreme Scale
-- [x] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
+- [ ] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
 - [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
 - [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
 - [ ] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
