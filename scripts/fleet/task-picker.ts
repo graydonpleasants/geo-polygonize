@@ -30,9 +30,6 @@ const issuesMarkdown = await getIssuesAsMarkdown()
 
 const prompt = `Analyze the ROADMAP.md and issue list to pick the next target task. Be ambitious and thorough.
 
-**Important Instructions:**
-As your very first step, you must use the \`gh\` CLI to create a new GitHub issue for the task you select. Add an "in progress" label to it, and include a link to your Jules session so subsequent runs know this task is currently being worked on.
-
 ## ROADMAP.md
 \`\`\`markdown
 ${roadmapText}
@@ -48,7 +45,8 @@ const session = await jules.session({
     github: repoInfo.fullName,
     baseBranch,
   },
-  automationMode: 'AUTO_CREATE_PR'
+  automationMode: 'AUTO_CREATE_PR',
+  requirePlanApproval: false
 })
 
 console.log(`✅ Task Picker session started: ${session.id}`)
