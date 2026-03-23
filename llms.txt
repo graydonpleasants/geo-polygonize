@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000188 | 0.000671 | 0.002410 | 3.57x | 0.28x | 12.83x |
-| 10 | 0.000393 | 0.002195 | 0.001240 | 5.58x | 1.77x | 3.15x |
-| 20 | 0.001029 | 0.008174 | 0.003450 | 7.94x | 2.37x | 3.35x |
-| 50 | 0.004283 | 0.050448 | 0.011450 | 11.78x | 4.41x | 2.67x |
-| 100 | 0.016223 | 0.212396 | 0.029170 | 13.09x | 7.28x | 1.80x |
+| 5 | 0.000169 | 0.000609 | 0.002280 | 3.61x | 0.27x | 13.50x |
+| 10 | 0.000372 | 0.002043 | 0.001140 | 5.49x | 1.79x | 3.07x |
+| 20 | 0.000990 | 0.007654 | 0.003410 | 7.73x | 2.24x | 3.45x |
+| 50 | 0.004495 | 0.049421 | 0.011630 | 10.99x | 4.25x | 2.59x |
+| 100 | 0.019210 | 0.214324 | 0.029430 | 11.16x | 7.28x | 1.53x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000922 | 0.007626 | 0.001100 | 8.27x | 6.93x | 1.19x |
-| 100 | 0.002976 | 0.025271 | 0.003720 | 8.49x | 6.79x | 1.25x |
-| 200 | 0.010617 | 0.097155 | 0.015360 | 9.15x | 6.33x | 1.45x |
+| 50 | 0.000903 | 0.007514 | 0.001110 | 8.33x | 6.77x | 1.23x |
+| 100 | 0.003057 | 0.024147 | 0.003760 | 7.90x | 6.42x | 1.23x |
+| 200 | 0.011067 | 0.097433 | 0.015250 | 8.80x | 6.39x | 1.38x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.29.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.29.0...geo-polygonize-v0.29.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* add license field to xtask Cargo.toml ([91f2aee](https://github.com/graydonpleasants/geo-polygonize/commit/91f2aee1fbec685d2a744aea8f596d594cd6d618))
+* correctly run cargo fmt after fixing unstable iteration order ([e23b88b](https://github.com/graydonpleasants/geo-polygonize/commit/e23b88bfd63fc543455a8fad7e6824beccb16aff))
+* stabilize docs generation output and add license to xtask ([8e1b9c0](https://github.com/graydonpleasants/geo-polygonize/commit/8e1b9c09ac68acf4f490954aad6366c6de17dd89))
+* stabilize docs generation output with BTreeMap sorting ([4d3c245](https://github.com/graydonpleasants/geo-polygonize/commit/4d3c245455f7f13c680b57e70c6d6955e5f87bba))
 
 ## [0.29.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.28.0...geo-polygonize-v0.29.0) (2026-03-22)
 
@@ -1120,6 +1130,7 @@ File: Cargo.toml
 ```
 [workspace]
 members = [
+    "xtask",
     "crates/geo-polygonize-core",
     "crates/geo-polygonize-wasm"
 ]
@@ -2342,7 +2353,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.29.0"
+version = "0.29.1"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2452,7 +2463,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.29.0"
+version = "0.29.1"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -5350,20 +5361,72 @@ use ts_rs::TS;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
+/// The canonical configuration object for the `geo-polygonize` engine.
+///
+/// This struct controls every aspect of the polygonization pipeline, including
+/// topological robustness, feature output, containment policies, noding, and determinism.
 pub struct PolygonizerOptions {
+    /// Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
+    ///
+    /// Default: `TargetProfile::Native`
     pub target: TargetProfile,
+
+    /// Whether to robustly node the input before polygonization.
+    ///
+    /// Enable this for real-world linework where segment intersections may not
+    /// already exist as explicit vertices. This is slower than the fast path but
+    /// avoids missing faces and unresolved crossings.
+    ///
+    /// Default: `false`
     pub node_input: bool,
+
+    /// The snapping grid size used for vertex deduplication and noding operations.
+    ///
+    /// Vertices falling within the same grid cell are coalesced. A size of `0.0`
+    /// indicates exact floating-point evaluation without grid snapping.
+    ///
+    /// Default: `1e-10`
     pub snap_grid_size: f64,
+
+    /// If `true`, only pure, outermost polygonal shells are returned.
+    ///
+    /// Floating dangles, internal cut-lines, or invalid rings will be discarded.
+    ///
+    /// Default: `false`
     pub extract_only_polygonal: bool,
+
+    /// The underlying strategy to apply when snapping coordinate geometries.
+    ///
+    /// See `SnapStrategy` for differences between strict `Grid` snapping and
+    /// Shapely/GEOS `GeosCompat` strategies.
+    ///
+    /// Default: `SnapStrategy::Grid`
     pub snap_strategy: SnapStrategy,
+
+    /// Configures the noding engine backend and behavior.
     pub noding: NodingOptions,
+
+    /// Configures how topological relationships (containment) are calculated
+    /// during face formation.
     pub containment: ContainmentOptions,
+
+    /// Optional configuration for tiled, distributed execution across huge datasets.
     #[ts(optional)]
     pub tiling: Option<TilingOptions>,
+
+    /// Configures Z-axis coordinate handling.
     pub z: ZOptions,
+
+    /// Configuration for enforcing exact topological determinism.
     pub determinism: DeterminismOptions,
+
+    /// Options for capturing diagnostic topology failures.
     pub diagnostics: DiagnosticsOptions,
+
+    /// Options for mapping final faces back to original input geometry IDs.
     pub provenance: ProvenanceOptions,
+
+    /// An optional identifier for the input dataset.
     #[ts(optional)]
     pub input_profile_id: Option<String>,
 }
@@ -14291,7 +14354,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.29.0"
+version = "0.29.1"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14301,7 +14364,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.29.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.29.1" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -14404,6 +14467,11 @@ use crate::error::{from_polygonizer_error, to_js_error};
 pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[wasm_bindgen(js_name = polygonizeWithOptions)]
+/// Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
+///
+/// This is the primary entry point for JavaScript users. It accepts a JSON string
+/// of options and returns a JSON string representing the result, including faces,
+/// dangles, cut-lines, and (optionally) provenance/diagnostics.
 pub fn polygonize_with_options_js(
     geojson_str: &str,
     options_val: JsValue,
@@ -14858,6 +14926,11 @@ pub fn polygonize_buffers(
 }
 
 #[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
+/// Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
+///
+/// This zero-copy path avoids JSON serialization overhead and returns a binary
+/// Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
+/// to be passed as a parsed JS object.
 pub fn polygonize_geoarrow_with_options_js(
     ipc_bytes: &[u8],
     options_val: JsValue,
@@ -15738,6 +15811,26 @@ This document does not fully specify:
 
 ```
 
+File: docs/index.md
+```
+---
+layout: home
+
+hero:
+  name: "geo-polygonize"
+  text: "A native Rust port of the JTS/GEOS polygonization algorithm"
+  tagline: "High-performance polygonization for Wasm, Python, and native Rust."
+  actions:
+    - theme: brand
+      text: Getting Started
+      link: /guide/getting-started
+    - theme: alt
+      text: Reference
+      link: /reference/
+---
+
+```
+
 File: docs/issue-map.md
 ```
 # Issue Map
@@ -16153,6 +16246,571 @@ For each GitHub issue, use:
 - **Suggested PR slices**
 - **Bench / fixture impact**
 - **Binding impact**
+
+```
+
+File: docs/examples/basic-square.md
+```
+# Basic Square
+
+A simple example showing the polygonization of a single unit square.
+
+## Configuration
+
+```json
+{
+  "node_input": false,
+  "snap_grid_size": 0
+}
+```
+
+## Input Geometry
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [0.0, 0.0],
+          [1.0, 0.0],
+          [1.0, 1.0],
+          [0.0, 1.0],
+          [0.0, 0.0]
+        ]
+      }
+    }
+  ]
+}
+
+```
+
+## Interactive Playground
+
+You can experiment with this scenario in the [Playground](/playground/?scenario=basic-square).
+
+```
+
+File: docs/examples/index.md
+```
+# Examples Catalog
+
+* [Basic Square](./basic-square.md) - A simple example showing the polygonization of a single unit square.
+
+```
+
+File: docs/guide/getting-started.md
+```
+# Getting Started
+
+Welcome to the `geo-polygonize` documentation!
+
+This library provides high-performance polygonization of lines and rings. It is written in Rust and exposes APIs for:
+
+* **JavaScript/TypeScript** via WebAssembly
+* **Python** via a CFFI/PyO3 extension
+* **Rust** via a native crate
+
+## Installation
+
+See the respective integration guides for details.
+
+```
+
+File: docs/guide/wasm.md
+```
+# WASM Integration
+
+The `geo-polygonize` WebAssembly package can be used in the browser or in Node.js.
+
+## Installation
+
+```bash
+npm install geo-polygonize
+```
+
+```
+
+File: docs/reference/index.md
+```
+# Reference
+
+Welcome to the `geo-polygonize` API reference.
+
+* [Options](./options.md)
+* [WASM API](./wasm-api.md)
+
+```
+
+File: docs/reference/options.md
+```
+# Configuration Options
+
+The following reference docs are auto-generated from the Rust source.
+
+* [`ContainmentOptions`](./options/ContainmentOptions.md)
+* [`DeterminismOptions`](./options/DeterminismOptions.md)
+* [`DiagnosticsOptions`](./options/DiagnosticsOptions.md)
+* [`NodingOptions`](./options/NodingOptions.md)
+* [`PolygonizerOptions`](./options/PolygonizerOptions.md)
+* [`ProvenanceOptions`](./options/ProvenanceOptions.md)
+* [`TilingOptions`](./options/TilingOptions.md)
+* [`ZOptions`](./options/ZOptions.md)
+
+## Enums
+
+* [`DedupPolicy`](./options/DedupPolicy.md)
+* [`IndexBackend`](./options/IndexBackend.md)
+* [`NodingBackend`](./options/NodingBackend.md)
+* [`SnapMode`](./options/SnapMode.md)
+* [`SnapStrategy`](./options/SnapStrategy.md)
+* [`TargetProfile`](./options/TargetProfile.md)
+* [`TileOwnershipPolicy`](./options/TileOwnershipPolicy.md)
+* [`TouchPolicy`](./options/TouchPolicy.md)
+* [`ZPolicy`](./options/ZPolicy.md)
+
+```
+
+File: docs/reference/wasm-api.md
+```
+# WASM API Reference
+
+Auto-generated reference for the `geo-polygonize` WebAssembly bindings.
+
+## `polygonize_with_options_js`
+
+Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
+
+This is the primary entry point for JavaScript users. It accepts a JSON string
+of options and returns a JSON string representing the result, including faces,
+dangles, cut-lines, and (optionally) provenance/diagnostics.
+
+### Signature
+
+```typescript
+function polygonize_with_options_js(geojson_str: string, options_val: any): any
+```
+
+## `polygonize`
+
+### Signature
+
+```typescript
+function polygonize(geojson_str: string, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean, report_mode: boolean): any
+```
+
+## `polygonize_with_options_buffer_js`
+
+### Signature
+
+```typescript
+function polygonize_with_options_buffer_js(coords: number, offsets: number, stride: number, options_val: any, line_ids: number): any
+```
+
+## `polygonize_buffers`
+
+### Signature
+
+```typescript
+function polygonize_buffers(coords: number, offsets: number, stride: number, node_input: boolean, snap_grid_size: number, line_ids: number): any
+```
+
+## `polygonize_geoarrow_with_options_js`
+
+Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
+
+This zero-copy path avoids JSON serialization overhead and returns a binary
+Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
+to be passed as a parsed JS object.
+
+### Signature
+
+```typescript
+function polygonize_geoarrow_with_options_js(ipc_bytes: number, options_val: any): any
+```
+
+## `polygonize_geoarrow`
+
+### Signature
+
+```typescript
+function polygonize_geoarrow(ipc_bytes: number, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean): any
+```
+
+```
+
+File: docs/reference/options/ContainmentOptions.md
+```
+# ContainmentOptions
+
+## Fields
+
+### `touch_policy`
+
+**Type:** `TouchPolicy`
+
+### `index_backend`
+
+**Type:** `IndexBackend`
+
+```
+
+File: docs/reference/options/DedupPolicy.md
+```
+# DedupPolicy
+
+## Variants
+
+### `KeepAll`
+
+### `CanonicalRingHash`
+
+```
+
+File: docs/reference/options/DeterminismOptions.md
+```
+# DeterminismOptions
+
+## Fields
+
+### `canonical_sort`
+
+**Type:** `bool`
+
+### `canonical_ring_rotation`
+
+**Type:** `bool`
+
+### `stable_tie_breaks`
+
+**Type:** `bool`
+
+```
+
+File: docs/reference/options/DiagnosticsOptions.md
+```
+# DiagnosticsOptions
+
+## Fields
+
+### `enabled`
+
+**Type:** `bool`
+
+### `report_mode`
+
+**Type:** `bool`
+
+```
+
+File: docs/reference/options/IndexBackend.md
+```
+# IndexBackend
+
+## Variants
+
+### `RStar`
+
+### `PackedNative`
+
+```
+
+File: docs/reference/options/NodingBackend.md
+```
+# NodingBackend
+
+## Variants
+
+### `Snap`
+
+### `Advanced`
+
+```
+
+File: docs/reference/options/NodingOptions.md
+```
+# NodingOptions
+
+## Fields
+
+### `backend`
+
+**Type:** `NodingBackend`
+
+### `snap_mode`
+
+**Type:** `SnapMode`
+
+```
+
+File: docs/reference/options/PolygonizerOptions.md
+```
+# PolygonizerOptions
+
+The canonical configuration object for the `geo-polygonize` engine.
+
+This struct controls every aspect of the polygonization pipeline, including
+topological robustness, feature output, containment policies, noding, and determinism.
+
+## Fields
+
+### `target`
+
+**Type:** `TargetProfile`
+
+Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
+
+Default: `TargetProfile::Native`
+
+### `node_input`
+
+**Type:** `bool`
+
+Whether to robustly node the input before polygonization.
+
+Enable this for real-world linework where segment intersections may not
+already exist as explicit vertices. This is slower than the fast path but
+avoids missing faces and unresolved crossings.
+
+Default: `false`
+
+### `snap_grid_size`
+
+**Type:** `f64`
+
+The snapping grid size used for vertex deduplication and noding operations.
+
+Vertices falling within the same grid cell are coalesced. A size of `0.0`
+indicates exact floating-point evaluation without grid snapping.
+
+Default: `1e-10`
+
+### `extract_only_polygonal`
+
+**Type:** `bool`
+
+If `true`, only pure, outermost polygonal shells are returned.
+
+Floating dangles, internal cut-lines, or invalid rings will be discarded.
+
+Default: `false`
+
+### `snap_strategy`
+
+**Type:** `SnapStrategy`
+
+The underlying strategy to apply when snapping coordinate geometries.
+
+See `SnapStrategy` for differences between strict `Grid` snapping and
+Shapely/GEOS `GeosCompat` strategies.
+
+Default: `SnapStrategy::Grid`
+
+### `noding`
+
+**Type:** `NodingOptions`
+
+Configures the noding engine backend and behavior.
+
+### `containment`
+
+**Type:** `ContainmentOptions`
+
+Configures how topological relationships (containment) are calculated
+during face formation.
+
+### `tiling`
+
+**Type:** `Option<TilingOptions>` (Optional)
+
+Optional configuration for tiled, distributed execution across huge datasets.
+
+### `z`
+
+**Type:** `ZOptions`
+
+Configures Z-axis coordinate handling.
+
+### `determinism`
+
+**Type:** `DeterminismOptions`
+
+Configuration for enforcing exact topological determinism.
+
+### `diagnostics`
+
+**Type:** `DiagnosticsOptions`
+
+Options for capturing diagnostic topology failures.
+
+### `provenance`
+
+**Type:** `ProvenanceOptions`
+
+Options for mapping final faces back to original input geometry IDs.
+
+### `input_profile_id`
+
+**Type:** `Option<String>` (Optional)
+
+An optional identifier for the input dataset.
+
+```
+
+File: docs/reference/options/ProvenanceOptions.md
+```
+# ProvenanceOptions
+
+## Fields
+
+### `enabled`
+
+**Type:** `bool`
+
+### `include_boundary_line_ids`
+
+**Type:** `bool`
+
+```
+
+File: docs/reference/options/SnapMode.md
+```
+# SnapMode
+
+## Variants
+
+### `FloatExact`
+
+### `FloatEpsilonDedup`
+
+### `IntegerGrid`
+
+```
+
+File: docs/reference/options/SnapStrategy.md
+```
+# SnapStrategy
+
+Strategy for snapping coordinates to a grid.
+
+`Grid` applies a standard round-to-nearest integer grid policy `(coord / size).round() * size`.
+`GeosCompat` attempts to emulate GEOS / Shapely's `set_precision` behavior, which uses
+C++ std::round (rounding halfway cases away from zero).
+
+**Scale Guidance:**
+Use `Grid` for native Rust applications where absolute topological determinism and
+intuitive rounding is preferred.
+Use `GeosCompat` if you are using `geo-polygonize` to replace a Shapely / GEOS pipeline
+and require exact parity for edge cases at precision boundaries.
+
+**Expected Parity:**
+Rust's native `f64::round()` rounds halfway cases away from zero. This perfectly
+matches C++ `std::round` behavior, meaning that `Grid` and `GeosCompat` currently
+map identical values for basic single-coordinate precision points (e.g., `-0.5` => `-1.0`
+and `0.5` => `1.0`).
+
+**Expected Divergence:**
+The divergence between `Grid` and `GeosCompat` strategies typically arises under complex
+topological scaling sequences rather than simple single point coordinate rounding, but
+the option ensures the library remains semantically compatible with Python/C++ GEOS pipelines.
+
+## Variants
+
+### `Grid`
+
+### `GeosCompat`
+
+```
+
+File: docs/reference/options/TargetProfile.md
+```
+# TargetProfile
+
+## Variants
+
+### `Native`
+
+### `WasmSingleThread`
+
+### `WasmThreads`
+
+```
+
+File: docs/reference/options/TileOwnershipPolicy.md
+```
+# TileOwnershipPolicy
+
+## Variants
+
+### `Centroid`
+
+### `RepresentativePointInsidePolygon`
+
+### `LexicographicMinVertex`
+
+### `CanonicalBoundaryHash`
+
+```
+
+File: docs/reference/options/TilingOptions.md
+```
+# TilingOptions
+
+## Fields
+
+### `ownership_policy`
+
+**Type:** `TileOwnershipPolicy`
+
+### `dedup_policy`
+
+**Type:** `DedupPolicy`
+
+```
+
+File: docs/reference/options/TouchPolicy.md
+```
+# TouchPolicy
+
+## Variants
+
+### `AllowPointTouchDisallowEdgeShare`
+
+### `TreatAnyTouchAsDisjoint`
+
+### `AllowEdgeShare`
+
+```
+
+File: docs/reference/options/ZOptions.md
+```
+# ZOptions
+
+## Fields
+
+### `policy`
+
+**Type:** `ZPolicy`
+
+```
+
+File: docs/reference/options/ZPolicy.md
+```
+# ZPolicy
+
+## Variants
+
+### `Ignore`
+
+### `InterpolateAlongEdge`
+
+### `PreferNearestEndpoint`
+
+### `ErrorOnConflict`
 
 ```
 
@@ -17640,6 +18298,101 @@ echo "Build complete! Artifacts are in dist/"
 
 ```
 
+File: scripts/build_wasm_site.sh
+```
+#!/bin/bash
+set -e
+
+# Configuration
+WASM_BINDGEN_VERSION="0.2.114"
+TARGET="wasm32-unknown-unknown"
+
+# Ensure target is installed
+echo "Checking for $TARGET..."
+rustup target add $TARGET
+
+# Install wasm-bindgen-cli if needed
+if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
+    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+
+build_variant() {
+    local VARIANT=$1
+    local OUT_DIR="pkg-$VARIANT"
+    local FLAGS=$2
+
+    echo "Building $VARIANT version for docs site..."
+
+    # 1. Cargo Build
+    RUSTFLAGS="$FLAGS" cargo build -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
+
+    # 2. Wasm Bindgen
+    echo "Running wasm-bindgen for $VARIANT..."
+    CRATE_NAME="geo_polygonize_wasm"
+    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        echo "Error: $WASM_PATH not found!"
+        return 1
+    fi
+
+    rm -rf $OUT_DIR
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+
+    # Remove .gitignore if generated
+    rm -f $OUT_DIR/.gitignore
+}
+
+# Build Scalar
+build_variant "scalar" ""
+
+# Build SIMD
+build_variant "simd" "-C target-feature=+simd128"
+
+# Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
+echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
+export TS_RS_EXPORT_DIR="bindings"
+cargo test -p geo-polygonize-core
+mkdir -p pkg-wrapper/bindings
+cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
+
+for DIR in pkg-scalar pkg-simd; do
+  D_TS_FILE="${DIR}/geo_polygonize.d.ts"
+
+  if [ -f "$D_TS_FILE" ]; then
+    TEMP_FILE=$(mktemp)
+    echo "import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';" > "$TEMP_FILE"
+    sed -e 's/options_val: any/options_val: Partial<PolygonizerOptions>/g' "$D_TS_FILE" >> "$TEMP_FILE"
+    mv "$TEMP_FILE" "$D_TS_FILE"
+  fi
+done
+
+# We mock threads folder to avoid rollup failure when doing slim build
+mkdir -p pkg-threads
+echo "export const threads = 'mocked for site build';" > pkg-threads/index.js
+echo "export const threads = 'mocked for site build';" > pkg-threads/index.d.ts
+echo "export const polygonizeWithOptions = () => {};" >> pkg-threads/index.js
+echo "export const initThreadPool = () => {};" >> pkg-threads/index.js
+
+# Install npm deps
+if [ ! -d "node_modules" ]; then
+    npm install
+fi
+
+# Bundle with Rollup
+echo "Running rollup..."
+npx rollup -c
+
+# Prepare distribution files
+echo "Preparing dist..."
+cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
+cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+
+echo "Site Wasm build complete! Artifacts are in dist/"
+
+```
+
 File: scripts/generate_complex_geojson.py
 ```
 import json
@@ -18637,6 +19390,513 @@ def test_xyz_preservation_and_interpolation():
 
 if __name__ == "__main__":
     test_xyz_preservation_and_interpolation()
+
+```
+
+File: xtask/Cargo.toml
+```
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+quote = "1.0"
+
+```
+
+File: xtask/src/main.rs
+```
+pub mod docs;
+
+use std::env;
+use std::fs;
+
+fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 3 || args[1] != "docs" {
+        println!("Usage:");
+        println!("  cargo run -p xtask -- docs extract");
+        println!("  cargo run -p xtask -- docs render");
+        return Ok(());
+    }
+
+    match args[2].as_str() {
+        "extract" => {
+            println!("Extracting docs metadata...");
+            let meta = docs::extract_docs()?;
+            fs::create_dir_all("docs/reference/generated")?;
+            fs::write(
+                "docs/reference/generated/metadata.json",
+                serde_json::to_string_pretty(&meta)?,
+            )?;
+            println!("Wrote docs/reference/generated/metadata.json");
+        }
+        "render" => {
+            println!("Rendering markdown from metadata...");
+            let content = fs::read_to_string("docs/reference/generated/metadata.json")?;
+            let meta: docs::DocsMetadata = serde_json::from_str(&content)?;
+            docs::render_markdown::render(&meta)?;
+            println!("Rendered markdown to docs/reference");
+        }
+        _ => {
+            println!("Unknown command: {}", args[2]);
+        }
+    }
+
+    Ok(())
+}
+
+```
+
+File: xtask/src/docs/mod.rs
+```
+pub mod render_markdown;
+pub mod rust_options;
+pub mod rust_wasm;
+
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DocsMetadata {
+    pub options: OptionsSchema,
+    pub wasm: WasmApi,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct OptionsSchema {
+    pub structs: BTreeMap<String, StructDocs>,
+    pub enums: BTreeMap<String, EnumDocs>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct StructDocs {
+    pub name: String,
+    pub docs: String,
+    pub fields: Vec<FieldDocs>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FieldDocs {
+    pub name: String,
+    pub docs: String,
+    pub ty: String,
+    pub is_optional: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct EnumDocs {
+    pub name: String,
+    pub docs: String,
+    pub variants: Vec<VariantDocs>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VariantDocs {
+    pub name: String,
+    pub docs: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct WasmApi {
+    pub functions: Vec<FunctionDocs>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FunctionDocs {
+    pub name: String, // JS name
+    pub rust_name: String,
+    pub docs: String,
+    pub params: Vec<ParamDocs>,
+    pub returns: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ParamDocs {
+    pub name: String,
+    pub ty: String,
+}
+
+pub fn extract_docs() -> anyhow::Result<DocsMetadata> {
+    let options_path = "crates/geo-polygonize-core/src/options.rs";
+    let wasm_path = "crates/geo-polygonize-wasm/src/lib.rs";
+
+    let options = rust_options::parse_options(options_path)?;
+    let wasm = rust_wasm::parse_wasm(wasm_path)?;
+
+    Ok(DocsMetadata { options, wasm })
+}
+
+```
+
+File: xtask/src/docs/render_markdown.rs
+```
+use super::DocsMetadata;
+use anyhow::Result;
+use std::fs;
+use std::path::Path;
+
+pub fn render(metadata: &DocsMetadata) -> Result<()> {
+    let out_dir = Path::new("docs/reference");
+    fs::create_dir_all(out_dir)?;
+
+    render_options(metadata, out_dir)?;
+    render_wasm_api(metadata, out_dir)?;
+
+    Ok(())
+}
+
+fn render_options(metadata: &DocsMetadata, out_dir: &Path) -> Result<()> {
+    let mut index = String::new();
+    index.push_str("# Configuration Options\n\n");
+    index.push_str("The following reference docs are auto-generated from the Rust source.\n\n");
+
+    // Sort structs
+    let structs: Vec<_> = metadata.options.structs.values().collect();
+
+    for s in structs {
+        index.push_str(&format!("* [`{}`](./options/{}.md)\n", s.name, s.name));
+
+        let mut page = String::new();
+        page.push_str(&format!("# {}\n\n", s.name));
+        if !s.docs.is_empty() {
+            page.push_str(&format!("{}\n\n", s.docs));
+        }
+
+        page.push_str("## Fields\n\n");
+        for f in &s.fields {
+            page.push_str(&format!("### `{}`\n\n", f.name));
+            page.push_str(&format!("**Type:** `{}`", f.ty));
+            if f.is_optional {
+                page.push_str(" (Optional)");
+            }
+            page.push_str("\n\n");
+
+            if !f.docs.is_empty() {
+                page.push_str(&format!("{}\n\n", f.docs));
+            }
+        }
+
+        let dir = out_dir.join("options");
+        fs::create_dir_all(&dir)?;
+        fs::write(dir.join(format!("{}.md", s.name)), page)?;
+    }
+
+    // Sort enums
+    let enums: Vec<_> = metadata.options.enums.values().collect();
+
+    index.push_str("\n## Enums\n\n");
+    for e in enums {
+        index.push_str(&format!("* [`{}`](./options/{}.md)\n", e.name, e.name));
+
+        let mut page = String::new();
+        page.push_str(&format!("# {}\n\n", e.name));
+        if !e.docs.is_empty() {
+            page.push_str(&format!("{}\n\n", e.docs));
+        }
+
+        page.push_str("## Variants\n\n");
+        for v in &e.variants {
+            page.push_str(&format!("### `{}`\n\n", v.name));
+            if !v.docs.is_empty() {
+                page.push_str(&format!("{}\n\n", v.docs));
+            }
+        }
+
+        let dir = out_dir.join("options");
+        fs::create_dir_all(&dir)?;
+        fs::write(dir.join(format!("{}.md", e.name)), page)?;
+    }
+
+    fs::write(out_dir.join("options.md"), index)?;
+    Ok(())
+}
+
+fn render_wasm_api(metadata: &DocsMetadata, out_dir: &Path) -> Result<()> {
+    let mut page = String::new();
+    page.push_str(
+        "# WASM API Reference
+
+",
+    );
+    page.push_str(
+        "Auto-generated reference for the `geo-polygonize` WebAssembly bindings.
+
+",
+    );
+
+    for f in &metadata.wasm.functions {
+        page.push_str(&format!(
+            "## `{}`
+
+",
+            f.name
+        ));
+        if !f.docs.is_empty() {
+            page.push_str(&format!(
+                "{}
+
+",
+                f.docs
+            ));
+        }
+
+        page.push_str(
+            "### Signature
+
+```typescript
+",
+        );
+        page.push_str(&format!("function {}(", f.name));
+
+        let params: Vec<_> = f
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, map_rust_ty_to_ts(&p.ty)))
+            .collect();
+        page.push_str(&params.join(", "));
+
+        page.push(')');
+        if let Some(ret) = &f.returns {
+            page.push_str(&format!(": {}", map_rust_ty_to_ts(ret)));
+        } else {
+            page.push_str(": void");
+        }
+        page.push_str(
+            "
+```
+
+",
+        );
+    }
+
+    fs::write(out_dir.join("wasm-api.md"), page)?;
+    Ok(())
+}
+
+fn map_rust_ty_to_ts(ty: &str) -> String {
+    if ty.contains("JsValue") {
+        "any".to_string()
+    } else if ty.contains("String") || ty.contains("&str") {
+        "string".to_string()
+    } else if ty.contains("bool") {
+        "boolean".to_string()
+    } else if ty.contains("f64")
+        || ty.contains("u32")
+        || ty.contains("usize")
+        || ty.contains("i32")
+        || ty.contains("u8")
+    {
+        "number".to_string()
+    } else if ty.contains("Vec<u8>") || ty.contains("&[u8]") {
+        "Uint8Array".to_string()
+    } else {
+        ty.to_string()
+    }
+}
+
+```
+
+File: xtask/src/docs/rust_options.rs
+```
+use super::{EnumDocs, FieldDocs, OptionsSchema, StructDocs, VariantDocs};
+use anyhow::Result;
+use std::collections::BTreeMap;
+use std::fs;
+use syn::{Fields, Item, Type};
+
+pub fn parse_options(path: &str) -> Result<OptionsSchema> {
+    let content = fs::read_to_string(path)?;
+    let syntax = syn::parse_file(&content)?;
+
+    let mut schema = OptionsSchema {
+        structs: BTreeMap::new(),
+        enums: BTreeMap::new(),
+    };
+
+    for item in syntax.items {
+        match item {
+            Item::Struct(item_struct) => {
+                let name = item_struct.ident.to_string();
+                let docs = extract_docs(&item_struct.attrs);
+
+                let mut fields = Vec::new();
+                if let Fields::Named(named_fields) = item_struct.fields {
+                    for field in named_fields.named {
+                        let field_name = field.ident.unwrap().to_string();
+                        let field_docs = extract_docs(&field.attrs);
+                        let is_optional = has_ts_optional_attr(&field.attrs);
+                        let ty = type_to_string(&field.ty);
+
+                        fields.push(FieldDocs {
+                            name: field_name,
+                            docs: field_docs,
+                            ty,
+                            is_optional,
+                        });
+                    }
+                }
+
+                schema
+                    .structs
+                    .insert(name.clone(), StructDocs { name, docs, fields });
+            }
+            Item::Enum(item_enum) => {
+                let name = item_enum.ident.to_string();
+                let docs = extract_docs(&item_enum.attrs);
+
+                let mut variants = Vec::new();
+                for variant in item_enum.variants {
+                    let variant_name = variant.ident.to_string();
+                    let variant_docs = extract_docs(&variant.attrs);
+
+                    variants.push(VariantDocs {
+                        name: variant_name,
+                        docs: variant_docs,
+                    });
+                }
+
+                schema.enums.insert(
+                    name.clone(),
+                    EnumDocs {
+                        name,
+                        docs,
+                        variants,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    Ok(schema)
+}
+
+pub fn extract_docs(attrs: &[syn::Attribute]) -> String {
+    let mut docs = Vec::new();
+    for attr in attrs {
+        if attr.path().is_ident("doc") {
+            if let syn::Meta::NameValue(nv) = &attr.meta {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(lit_str),
+                    ..
+                }) = &nv.value
+                {
+                    let text = lit_str.value();
+                    let trimmed = text.strip_prefix(' ').unwrap_or(&text);
+                    docs.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    docs.join("\n")
+}
+
+fn has_ts_optional_attr(attrs: &[syn::Attribute]) -> bool {
+    for attr in attrs {
+        if attr.path().is_ident("ts") {
+            let mut is_opt = false;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("optional") {
+                    is_opt = true;
+                }
+                Ok(())
+            });
+            if is_opt {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn type_to_string(ty: &Type) -> String {
+    quote::quote!(#ty).to_string().replace(' ', "")
+}
+
+```
+
+File: xtask/src/docs/rust_wasm.rs
+```
+use super::{FunctionDocs, ParamDocs, WasmApi};
+use anyhow::Result;
+use std::fs;
+use syn::{Item, ReturnType};
+
+pub fn parse_wasm(path: &str) -> Result<WasmApi> {
+    let content = fs::read_to_string(path)?;
+    let syntax = syn::parse_file(&content)?;
+
+    let mut api = WasmApi::default();
+
+    for item in syntax.items {
+        if let Item::Fn(item_fn) = item {
+            // Check for #[wasm_bindgen] attr
+            let mut is_wasm = false;
+            let mut js_name = item_fn.sig.ident.to_string();
+
+            for attr in &item_fn.attrs {
+                if attr.path().is_ident("wasm_bindgen") {
+                    is_wasm = true;
+                    // Try to parse js_name = ...
+                    let _ = attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("js_name") {
+                            let value = meta.value()?;
+                            if let syn::Expr::Lit(syn::ExprLit {
+                                lit: syn::Lit::Str(lit_str),
+                                ..
+                            }) = value.parse()?
+                            {
+                                js_name = lit_str.value();
+                            }
+                        }
+                        Ok(())
+                    });
+                }
+            }
+
+            if is_wasm {
+                let rust_name = item_fn.sig.ident.to_string();
+                let docs = super::rust_options::extract_docs(&item_fn.attrs);
+
+                let mut params = Vec::new();
+                for arg in &item_fn.sig.inputs {
+                    if let syn::FnArg::Typed(pat_type) = arg {
+                        if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                            params.push(ParamDocs {
+                                name: pat_ident.ident.to_string(),
+                                ty: super::rust_options::type_to_string(&pat_type.ty),
+                            });
+                        }
+                    }
+                }
+
+                let returns = match &item_fn.sig.output {
+                    ReturnType::Default => None,
+                    ReturnType::Type(_, ty) => Some(super::rust_options::type_to_string(ty)),
+                };
+
+                api.functions.push(FunctionDocs {
+                    name: js_name,
+                    rust_name,
+                    docs,
+                    params,
+                    returns,
+                });
+            }
+        }
+    }
+
+    Ok(api)
+}
 
 ```
 
