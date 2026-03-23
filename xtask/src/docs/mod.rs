@@ -1,9 +1,9 @@
-pub mod render_markdown;
 pub mod rust_options;
 pub mod rust_wasm;
+pub mod render_markdown;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DocsMetadata {
@@ -13,8 +13,8 @@ pub struct DocsMetadata {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct OptionsSchema {
-    pub structs: HashMap<String, StructDocs>,
-    pub enums: HashMap<String, EnumDocs>,
+    pub structs: BTreeMap<String, StructDocs>,
+    pub enums: BTreeMap<String, EnumDocs>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

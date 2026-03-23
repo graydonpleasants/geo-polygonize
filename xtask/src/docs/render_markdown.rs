@@ -19,8 +19,7 @@ fn render_options(metadata: &DocsMetadata, out_dir: &Path) -> Result<()> {
     index.push_str("The following reference docs are auto-generated from the Rust source.\n\n");
 
     // Sort structs
-    let mut structs: Vec<_> = metadata.options.structs.values().collect();
-    structs.sort_by_key(|s| &s.name);
+    let structs: Vec<_> = metadata.options.structs.values().collect();
 
     for s in structs {
         index.push_str(&format!("* [`{}`](./options/{}.md)\n", s.name, s.name));
@@ -51,8 +50,7 @@ fn render_options(metadata: &DocsMetadata, out_dir: &Path) -> Result<()> {
     }
 
     // Sort enums
-    let mut enums: Vec<_> = metadata.options.enums.values().collect();
-    enums.sort_by_key(|e| &e.name);
+    let enums: Vec<_> = metadata.options.enums.values().collect();
 
     index.push_str("\n## Enums\n\n");
     for e in enums {
