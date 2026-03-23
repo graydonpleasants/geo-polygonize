@@ -31,7 +31,7 @@ const issuesMarkdown = await getIssuesAsMarkdown()
 const prompt = `Analyze the ROADMAP.md and issue list to pick the next target task. Be ambitious and thorough.
 
 **Important Instructions:**
-As your very first step, you must use the \`gh\` CLI to create a new GitHub issue for the task you select. Add an "in progress" label to it, and include a link to your Jules session so subsequent runs know this task is currently being worked on.
+As your very first step, you must use the \`gh\` CLI to create a new GitHub issue for the task you select. Add an "in progress" label to it, and include a link to your Jules session so subsequent runs know this task is currently being worked on. When you submit your changes, ensure your Pull Request description includes "Fixes #<issue_number>" so the issue closes automatically upon merge.
 
 ## ROADMAP.md
 \`\`\`markdown
