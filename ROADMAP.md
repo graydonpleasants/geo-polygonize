@@ -400,6 +400,12 @@ pub struct IPoint {
 - [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
 - [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
 - [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
+- [ ] Robust geometry buffering via offset curves.
+- [ ] Incremental real-time topology (stateful polygonizer).
+
+## 6. Geodesic & Database Integrations (Agent Track H)
+- [ ] Geodesic/non-planar coordinate support.
+- [ ] Native database extensions for DuckDB and PostGIS.
 
 ---
 
@@ -438,6 +444,8 @@ pub struct IPoint {
 24. out-of-core / streaming processing with disk-backed spatial indexing
 25. WebAssembly Multithreading + Native WGPU acceleration
 26. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
+27. Robust geometry buffering and incremental real-time topology
+28. Geodesic/non-planar coordinate support and database extensions (DuckDB, PostGIS)
 
 ---
 
@@ -489,6 +497,12 @@ pub struct IPoint {
 - graph-native boolean operations via winding rules
 - shared-edge topology-preserving boundary simplification
 - TopoJSON / Mapbox Vector Tile generation
+- robust geometry buffering via offset curves
+- incremental real-time topology (stateful polygonizer)
+
+## Agent Track H
+- geodesic/non-planar coordinate support
+- native database extensions for DuckDB and PostGIS
 
 ---
 
@@ -563,3 +577,9 @@ The roadmap is complete when:
 - [ ] post-polygonization Boolean operations directly via topological winding rules
 - [ ] shared-edge topology-preserving boundary simplification to prevent overlaps/gaps natively
 - [ ] direct emission of TopoJSON and Mapbox Vector Tiles (MVT)
+- [ ] robust geometry buffering via offset curves
+- [ ] incremental real-time topology (stateful polygonizer)
+
+## Milestone M8: Geodesic & Database Integrations
+- [ ] geodesic/non-planar coordinate support
+- [ ] native database extensions for DuckDB and PostGIS
