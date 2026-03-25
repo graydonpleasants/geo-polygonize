@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000191 | 0.000685 | 0.002540 | 3.58x | 0.27x | 13.29x |
-| 10 | 0.000397 | 0.002191 | 0.001340 | 5.53x | 1.64x | 3.38x |
-| 20 | 0.001024 | 0.008129 | 0.003540 | 7.94x | 2.30x | 3.46x |
-| 50 | 0.004266 | 0.050250 | 0.011400 | 11.78x | 4.41x | 2.67x |
-| 100 | 0.019773 | 0.208812 | 0.029380 | 10.56x | 7.11x | 1.49x |
+| 5 | 0.000188 | 0.000693 | 0.002440 | 3.68x | 0.28x | 12.96x |
+| 10 | 0.000394 | 0.002232 | 0.001250 | 5.66x | 1.79x | 3.17x |
+| 20 | 0.001003 | 0.008223 | 0.003430 | 8.20x | 2.40x | 3.42x |
+| 50 | 0.004252 | 0.051285 | 0.010850 | 12.06x | 4.73x | 2.55x |
+| 100 | 0.016173 | 0.225922 | 0.029110 | 13.97x | 7.76x | 1.80x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000926 | 0.008016 | 0.001070 | 8.66x | 7.49x | 1.16x |
-| 100 | 0.002991 | 0.025537 | 0.004090 | 8.54x | 6.24x | 1.37x |
-| 200 | 0.010496 | 0.098473 | 0.015150 | 9.38x | 6.50x | 1.44x |
+| 50 | 0.000897 | 0.008112 | 0.001050 | 9.04x | 7.73x | 1.17x |
+| 100 | 0.003002 | 0.026084 | 0.003790 | 8.69x | 6.88x | 1.26x |
+| 200 | 0.010706 | 0.101679 | 0.015060 | 9.50x | 6.75x | 1.41x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -10173,13 +10173,11 @@ impl AdvancedNoder {
 
                 events.push(Event {
                     x: left.x,
-                    y: left.y,
                     segment_idx: i,
                     is_left: true,
                 });
                 events.push(Event {
                     x: right.x,
-                    y: right.y,
                     segment_idx: i,
                     is_left: false,
                 });
@@ -10417,8 +10415,6 @@ impl AdvancedNoder {
 #[derive(Debug, Clone, Copy)]
 struct Event {
     x: f64,
-    #[allow(dead_code)]
-    y: f64,
     segment_idx: usize,
     is_left: bool,
 }
