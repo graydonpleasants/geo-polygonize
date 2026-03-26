@@ -1186,4 +1186,64 @@ mod tests {
         let p5 = Polygon::new(LineString::from(coords5_2d), vec![]);
         assert!(p5.contains(&probe5));
     }
+
+    #[test]
+    fn test_rings_touch_at_vertex() {
+        let shell = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // 1. Exact touch at one vertex (0,0)
+        let hole1 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(1.0, -1.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole1, 1e-10));
+
+        // 2. Touch within epsilon of vertex (10,10)
+        let hole2 = vec![
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole2, 1e-10));
+
+        // 3. No touch (just outside epsilon of vertex 10,10)
+        let hole3 = vec![
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole3, 1e-10));
+
+        // 4. Touch at multiple vertices
+        let hole4 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(5.0, -5.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole4, 1e-10));
+
+        // 5. Disjoint
+        let hole5 = vec![
+            Coord3D::new(20.0, 20.0, 0.0),
+            Coord3D::new(21.0, 20.0, 0.0),
+            Coord3D::new(21.0, 21.0, 0.0),
+            Coord3D::new(20.0, 20.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole5, 1e-10));
+
+        // 6. Empty rings
+        assert!(!rings_touch_at_vertex(&[], &hole1, 1e-10));
+        assert!(!rings_touch_at_vertex(&shell, &[], 1e-10));
+    }
 }
