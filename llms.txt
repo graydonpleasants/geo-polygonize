@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000182 | 0.000677 | 0.002640 | 3.73x | 0.26x | 14.54x |
-| 10 | 0.000399 | 0.002202 | 0.001360 | 5.52x | 1.62x | 3.41x |
-| 20 | 0.001054 | 0.008091 | 0.003670 | 7.68x | 2.20x | 3.48x |
-| 50 | 0.004367 | 0.050132 | 0.011570 | 11.48x | 4.33x | 2.65x |
-| 100 | 0.017545 | 0.216484 | 0.029530 | 12.34x | 7.33x | 1.68x |
+| 5 | 0.000191 | 0.000693 | 0.002490 | 3.64x | 0.28x | 13.06x |
+| 10 | 0.000408 | 0.002222 | 0.001260 | 5.45x | 1.76x | 3.09x |
+| 20 | 0.001009 | 0.008233 | 0.003380 | 8.16x | 2.44x | 3.35x |
+| 50 | 0.004293 | 0.052575 | 0.012070 | 12.25x | 4.36x | 2.81x |
+| 100 | 0.016448 | 0.233885 | 0.029490 | 14.22x | 7.93x | 1.79x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000929 | 0.008255 | 0.001070 | 8.88x | 7.71x | 1.15x |
-| 100 | 0.003017 | 0.025742 | 0.004040 | 8.53x | 6.37x | 1.34x |
-| 200 | 0.010716 | 0.102222 | 0.015170 | 9.54x | 6.74x | 1.42x |
+| 50 | 0.000898 | 0.008337 | 0.001040 | 9.28x | 8.02x | 1.16x |
+| 100 | 0.003005 | 0.026319 | 0.003830 | 8.76x | 6.87x | 1.27x |
+| 200 | 0.010878 | 0.103541 | 0.015300 | 9.52x | 6.77x | 1.41x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.31.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.2...geo-polygonize-v0.31.0) (2026-03-27)
+
+
+### Features
+
+* **core:** implement GeoParquet streaming IO across Rust, Wasm, Python ([#445](https://github.com/graydonpleasants/geo-polygonize/issues/445)) ([bd21255](https://github.com/graydonpleasants/geo-polygonize/commit/bd21255e7e330222fb1b5e17c62be7b97ad48635))
+
+
+### Performance Improvements
+
+* **core:** optimize canonicalize_ring with slice iterator ([64a1a90](https://github.com/graydonpleasants/geo-polygonize/commit/64a1a90a9b030b7b71fd068d4950b48e6a9536dd))
+* **core:** Replace sort_by with sort_unstable_by and remove bounds checks ([#453](https://github.com/graydonpleasants/geo-polygonize/issues/453)) ([afea1d8](https://github.com/graydonpleasants/geo-polygonize/commit/afea1d81c9e2e27ee9fb20ae1d53d9c9706b3035))
 
 ## [0.30.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.1...geo-polygonize-v0.30.2) (2026-03-24)
 
@@ -1914,13 +1927,26 @@ pub struct IPoint {
 - [ ] Support disk-backed or memory-mapped spatial indexes for streaming data flows.
 
 ## 4. Next-Gen Runtime Acceleration (Agent Track F)
-- [ ] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
+- [x] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
 - [ ] Investigate WebGPU and native `wgpu` compute shaders for massively parallel point-in-polygon containment and intersection tests across native and web platforms.
 
 ## 5. Advanced Topology & Spatial Artifacts (Agent Track G)
 - [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
 - [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
 - [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
+- [ ] Robust geometry buffering (offset curves) utilizing the advanced sweep-line noder to cleanly resolve complex self-intersections.
+
+## 6. Incremental & Real-Time Topology (Agent Track H)
+- [ ] Stateful, incremental `Polygonizer` that allows adding or removing lines dynamically without rebuilding the entire containment forest or graph.
+- [ ] Support for delta-updates to polygon sets for interactive real-time editing applications (e.g. browser-based mapping tools).
+
+## 7. Geodesic & Non-Planar Geometry (Agent Track I)
+- [ ] Native support for geographic coordinates (longitude/latitude) using spherical/ellipsoidal algorithms rather than projecting to Cartesian planes.
+- [ ] Geodesic noding and robust intersection calculation for polar and anti-meridian geometries.
+
+## 8. Database & Embedded Analytics (Agent Track J)
+- [ ] Native DuckDB spatial extension utilizing the Wasm or native core for lightning-fast SQL-based polygonization.
+- [ ] Custom PostGIS user-defined functions (UDFs) to replace slow `ST_Polygonize` workflows with `geo-polygonize` internally.
 
 ---
 
@@ -1959,6 +1985,12 @@ pub struct IPoint {
 24. out-of-core / streaming processing with disk-backed spatial indexing
 25. WebAssembly Multithreading + Native WGPU acceleration
 26. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
+27. Robust geometry buffering via offset curves
+
+## Fifth wave
+28. Incremental and real-time topology (stateful Polygonizer)
+29. Geodesic / Non-Planar coordinates (ellipsoidal noding and intersection)
+30. Database extensions (DuckDB extension, PostGIS UDFs)
 
 ---
 
@@ -2010,6 +2042,19 @@ pub struct IPoint {
 - graph-native boolean operations via winding rules
 - shared-edge topology-preserving boundary simplification
 - TopoJSON / Mapbox Vector Tile generation
+- Robust geometry buffering
+
+## Agent Track H
+- stateful incremental polygonizer
+- delta-updates for interactive editing
+
+## Agent Track I
+- native spherical/ellipsoidal algorithms
+- geodesic noding and intersection handling
+
+## Agent Track J
+- DuckDB spatial extension
+- PostGIS UDFs
 
 ---
 
@@ -2077,13 +2122,19 @@ The roadmap is complete when:
 - [x] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
 - [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
 - [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
-- [ ] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
+- [x] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
 - [ ] native `wgpu` compute shaders for massively parallel point-in-polygon tests
 
 ## Milestone M7: Advanced Topology & Spatial Artifacts
 - [ ] post-polygonization Boolean operations directly via topological winding rules
 - [ ] shared-edge topology-preserving boundary simplification to prevent overlaps/gaps natively
 - [ ] direct emission of TopoJSON and Mapbox Vector Tiles (MVT)
+- [ ] Robust geometry buffering (offset curves)
+
+## Milestone M8: Real-Time, Global, and Database Integration
+- [ ] Stateful, incremental `Polygonizer` for real-time interactive mapping
+- [ ] Geodesic and spherical noding/intersections
+- [ ] DuckDB extension and PostGIS UDF wrappers
 
 ```
 
@@ -2196,6 +2247,7 @@ feature-depth = 1
 # output a note when they are encountered.
 ignore = [
     "RUSTSEC-2025-0141",
+    "RUSTSEC-2024-0436",
 ]
 # If this is true, then cargo deny will use the git executable to fetch advisory database.
 # If this is false, then it uses a built-in git library.
@@ -2381,7 +2433,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.30.2"
+version = "0.31.0"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2485,13 +2537,16 @@ File: .jules/bolt.md
 **Learning:** In spatial sorts, repeatedly evaluating geometric properties like bounds and areas in `O(N log N)` `sort_by` comparators creates a hidden performance bottleneck.
 **Action:** Always pre-calculate expensive sorting properties using a Schwartzian Transform pattern (mapping to a tuple with the cached data) and use `sort_unstable_by` for operations with deterministic tie-breaks.
 
+## 2024-05-28 - [Eliminate Bounds Checks via Iterator Enumerate]
+**Learning:** An index-based range iterator in Rust, like `(0..n).min_by(|i, j| slice[*i].cmp(&slice[*j]))`, requires the compiler to insert bounds-checking on each iteration because the closure receives raw index values that it uses to index the slice. This hurts performance in hot paths. Using `.iter().enumerate().min_by(...)` provides identical functionality, but eliminates the bounds-checking overhead while preserving the readability of iterator-chain methods, preventing the need to rewrite standard logic into lower-level manual `for` loops.
+**Action:** To safely eliminate array bounds checks in Rust while preserving readability during a sequence scan (like finding the minimum index of a collection using `min_by`), prefer iterating over the slice directly (e.g., `slice.iter().enumerate().min_by(...)`) instead of using an index range `(0..n)` which forces the compiler to insert bounds checks. Never sacrifice readability by converting these to manual `for` loops just for micro-optimizations.
 ```
 
 File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.30.2"
+version = "0.31.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2521,6 +2576,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 humantime-serde = "1.1.1"
 ts-rs = "12.0.1"
+geoparquet = { version = "0.7.0", optional = true }
+parquet = "57.3.0"
 
 [dev-dependencies]
 iai-callgrind = "0.16.1"
@@ -2536,6 +2593,7 @@ dhat = "0.3.3"
 
 [features]
 default = ["parallel"]
+geoparquet = ["dep:geoparquet"]
 parallel = ["dep:rayon"]
 python = ["dep:pyo3", "dep:numpy"]
 
@@ -4798,10 +4856,8 @@ impl ContainmentForest {
             }
         }
 
-        // ⚡ Bolt: Iterator Array Optimization
-        // Using iterators avoids O(N) array bounds-checking overhead compared to explicit index looping
         for (keep, count) in keep_mask.iter_mut().zip(container_counts.iter()) {
-            if *keep && *count % 2 != 0 {
+            if *keep && count % 2 != 0 {
                 *keep = false;
             }
         }
@@ -5239,6 +5295,160 @@ mod tests {
 
 ```
 
+File: crates/geo-polygonize-core/src/geoparquet_api.rs
+```
+use crate::arrow_api::polygonize_arrow;
+use crate::error::PolygonizeError;
+use crate::options::PolygonizerOptions;
+use arrow::array::Array;
+use arrow::datatypes::{Field, Schema};
+use arrow::record_batch::RecordBatch;
+use geoarrow::array::GeoArrowArray;
+use geoarrow::datatypes::CoordType;
+use geoparquet::reader::GeoParquetReaderBuilder;
+use geoparquet::writer::{GeoParquetRecordBatchEncoder, GeoParquetWriterOptions};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::ArrowWriter;
+use std::fs::File;
+use std::sync::Arc;
+
+pub fn polygonize_geoparquet_file(
+    input_path: &str,
+    output_path: &str,
+    geometry_column_name: &str,
+    options: PolygonizerOptions,
+) -> Result<(), PolygonizeError> {
+    let file = File::open(input_path).map_err(|e| PolygonizeError::InvalidGeometry {
+        reason: e.to_string(),
+    })?;
+
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(|e| {
+        PolygonizeError::InvalidGeometry {
+            reason: e.to_string(),
+        }
+    })?;
+
+    let geo_meta = builder.geoparquet_metadata().transpose().map_err(|e| {
+        PolygonizeError::InvalidGeometry {
+            reason: e.to_string(),
+        }
+    })?;
+
+    let _schema = if let Some(meta) = &geo_meta {
+        // True = convert geometries to geoarrow from wkb, Interleaved
+
+        builder
+            .geoarrow_schema(meta, true, CoordType::Interleaved)
+            .map_err(|e| PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            })?
+    } else {
+        builder.schema().clone()
+    };
+
+    let reader = builder
+        .build()
+        .map_err(|e| PolygonizeError::InvalidGeometry {
+            reason: e.to_string(),
+        })?;
+
+    let out_file = File::create(output_path).map_err(|e| PolygonizeError::InvalidGeometry {
+        reason: e.to_string(),
+    })?;
+    let mut parquet_writer: Option<ArrowWriter<File>> = None;
+    let mut gpq_encoder: Option<GeoParquetRecordBatchEncoder> = None;
+
+    for batch_res in reader {
+        let batch: RecordBatch = batch_res.map_err(|e| PolygonizeError::InvalidGeometry {
+            reason: e.to_string(),
+        })?;
+
+        let mut new_columns: Vec<Arc<dyn Array>> = Vec::new();
+        let mut actual_new_fields = Vec::new();
+
+        let schema_ref = batch.schema();
+
+        for (i, col) in batch.columns().iter().enumerate() {
+            let field = schema_ref.field(i);
+
+            if field.name() == geometry_column_name {
+                let polygon_array = polygonize_arrow(col.as_ref(), field, options.clone())?;
+                let arr_ref = polygon_array.into_array_ref();
+                let new_field = Arc::new(Field::new(
+                    field.name(),
+                    arr_ref.data_type().clone(),
+                    field.is_nullable(),
+                ));
+                actual_new_fields.push(new_field);
+                new_columns.push(arr_ref);
+            } else {
+                actual_new_fields.push(Arc::new(field.clone()));
+                new_columns.push(col.clone());
+            }
+        }
+
+        let new_schema = Arc::new(Schema::new(actual_new_fields));
+        let new_batch = RecordBatch::try_new(new_schema.clone(), new_columns).map_err(|e| {
+            PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            }
+        })?;
+
+        if parquet_writer.is_none() {
+            let writer_options = GeoParquetWriterOptions::default();
+            let encoder = GeoParquetRecordBatchEncoder::try_new(&new_schema, &writer_options)
+                .map_err(|e| PolygonizeError::InvalidGeometry {
+                    reason: e.to_string(),
+                })?;
+            let writer = ArrowWriter::try_new(
+                out_file.try_clone().unwrap(),
+                encoder.target_schema().clone(),
+                None,
+            )
+            .map_err(|e| PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            })?;
+            parquet_writer = Some(writer);
+            gpq_encoder = Some(encoder);
+        }
+
+        let encoded_batch = gpq_encoder
+            .as_mut()
+            .unwrap()
+            .encode_record_batch(&new_batch)
+            .map_err(|e| PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            })?;
+
+        parquet_writer
+            .as_mut()
+            .unwrap()
+            .write(&encoded_batch)
+            .map_err(|e| PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            })?;
+    }
+
+    if let (Some(mut writer), Some(encoder)) = (parquet_writer, gpq_encoder) {
+        let kv_metadata =
+            encoder
+                .into_keyvalue()
+                .map_err(|e| PolygonizeError::InvalidGeometry {
+                    reason: e.to_string(),
+                })?;
+        writer.append_key_value_metadata(kv_metadata);
+        writer
+            .close()
+            .map_err(|e| PolygonizeError::InvalidGeometry {
+                reason: e.to_string(),
+            })?;
+    }
+
+    Ok(())
+}
+
+```
+
 File: crates/geo-polygonize-core/src/index.rs
 ```
 use rstar::AABB;
@@ -5381,6 +5591,9 @@ mod polygonizer_tests;
 pub use polygonizer::{Polygonizer, PolygonizerResult};
 pub use tiling::TiledPolygonizer;
 pub use types::{Coord3D, Line3D, Polygon3D};
+
+#[cfg(feature = "geoparquet")]
+pub mod geoparquet_api;
 
 ```
 
@@ -5822,7 +6035,7 @@ impl Polygonizer {
 
         if self.options.node_input {
             // Sort by 2D coordinates
-            all_segments.sort_by(|a, b| {
+            all_segments.sort_unstable_by(|a, b| {
                 a.start
                     .x
                     .total_cmp(&b.start.x)
@@ -5975,14 +6188,17 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         ring.len()
     };
 
-    let min_idx = (0..n)
-        .min_by(|&i, &j| {
-            ring[i]
-                .x
-                .total_cmp(&ring[j].x)
-                .then(ring[i].y.total_cmp(&ring[j].y))
-                .then(ring[i].z.total_cmp(&ring[j].z))
+    // Bolt optimization: using `ring[..n].iter().enumerate().min_by(...)` instead of `(0..n).min_by(...)`
+    // eliminates bounds-checking overhead while preserving readability.
+    let min_idx = ring[..n]
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            a.x.total_cmp(&b.x)
+                .then(a.y.total_cmp(&b.y))
+                .then(a.z.total_cmp(&b.z))
         })
+        .map(|(i, _)| i)
         .unwrap_or(0);
 
     if min_idx > 0 {
@@ -6285,7 +6501,7 @@ fn apply_determinism(
                 })
                 .collect();
 
-            dangles_with_cache.sort_by(|(l1, b1), (l2, b2)| {
+            dangles_with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
                 b1.min()
                     .x
                     .total_cmp(&b2.min().x)
@@ -6845,6 +7061,66 @@ mod tests {
         let coords5_2d: Vec<_> = coords5.iter().map(|c| c.to_coord_2d()).collect();
         let p5 = Polygon::new(LineString::from(coords5_2d), vec![]);
         assert!(p5.contains(&probe5));
+    }
+
+    #[test]
+    fn test_rings_touch_at_vertex() {
+        let shell = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // 1. Exact touch at one vertex (0,0)
+        let hole1 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(1.0, -1.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole1, 1e-10));
+
+        // 2. Touch within epsilon of vertex (10,10)
+        let hole2 = vec![
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole2, 1e-10));
+
+        // 3. No touch (just outside epsilon of vertex 10,10)
+        let hole3 = vec![
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole3, 1e-10));
+
+        // 4. Touch at multiple vertices
+        let hole4 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(5.0, -5.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole4, 1e-10));
+
+        // 5. Disjoint
+        let hole5 = vec![
+            Coord3D::new(20.0, 20.0, 0.0),
+            Coord3D::new(21.0, 20.0, 0.0),
+            Coord3D::new(21.0, 21.0, 0.0),
+            Coord3D::new(20.0, 20.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole5, 1e-10));
+
+        // 6. Empty rings
+        assert!(!rings_touch_at_vertex(&[], &hole1, 1e-10));
+        assert!(!rings_touch_at_vertex(&shell, &[], 1e-10));
     }
 }
 
@@ -14545,7 +14821,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.30.2"
+version = "0.31.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14555,7 +14831,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.30.2" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.31.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
