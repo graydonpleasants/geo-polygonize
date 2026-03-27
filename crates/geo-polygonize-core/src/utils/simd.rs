@@ -65,7 +65,7 @@ impl SimdRing {
     "x86+avx",
     "x86_64+sse2",
     "x86+sse2",
-    "wasm32+simd128"
+
 ))]
 fn contains_impl(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
     let px = f64x4::splat(point.x);
