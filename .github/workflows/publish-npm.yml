@@ -40,7 +40,10 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Generate SBOM
-        uses: CycloneDX/gh-node-module-sbom-action@v1
+        uses: CycloneDX/gh-node-module-generatebom@v1
+        with:
+          path: './'
+          output: './bom.json'
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
