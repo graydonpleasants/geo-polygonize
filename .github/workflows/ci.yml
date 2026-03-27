@@ -28,6 +28,9 @@ jobs:
 
     - name: Cache Rust
       uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          . -> target
 
     - name: Check formatting
       run: cargo fmt -- --check
@@ -58,6 +61,9 @@ jobs:
 
     - name: Install NPM dependencies
       run: npm install
+
+    - name: Install cargo-binstall
+      uses: cargo-bins/cargo-binstall@main
 
     - name: Build WASM
       run: npm run build
