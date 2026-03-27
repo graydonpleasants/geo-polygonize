@@ -312,14 +312,17 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         ring.len()
     };
 
-    let min_idx = (0..n)
-        .min_by(|&i, &j| {
-            ring[i]
-                .x
-                .total_cmp(&ring[j].x)
-                .then(ring[i].y.total_cmp(&ring[j].y))
-                .then(ring[i].z.total_cmp(&ring[j].z))
+    // Bolt optimization: using `ring[..n].iter().enumerate().min_by(...)` instead of `(0..n).min_by(...)`
+    // eliminates bounds-checking overhead while preserving readability.
+    let min_idx = ring[..n]
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            a.x.total_cmp(&b.x)
+                .then(a.y.total_cmp(&b.y))
+                .then(a.z.total_cmp(&b.z))
         })
+        .map(|(i, _)| i)
         .unwrap_or(0);
 
     if min_idx > 0 {
@@ -1182,5 +1185,65 @@ mod tests {
         let coords5_2d: Vec<_> = coords5.iter().map(|c| c.to_coord_2d()).collect();
         let p5 = Polygon::new(LineString::from(coords5_2d), vec![]);
         assert!(p5.contains(&probe5));
+    }
+
+    #[test]
+    fn test_rings_touch_at_vertex() {
+        let shell = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+            Coord3D::new(0.0, 10.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+
+        // 1. Exact touch at one vertex (0,0)
+        let hole1 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, -1.0, 0.0),
+            Coord3D::new(1.0, -1.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole1, 1e-10));
+
+        // 2. Touch within epsilon of vertex (10,10)
+        let hole2 = vec![
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-11, 10.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole2, 1e-10));
+
+        // 3. No touch (just outside epsilon of vertex 10,10)
+        let hole3 = vec![
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+            Coord3D::new(11.0, 11.0, 0.0),
+            Coord3D::new(11.0, 10.0, 0.0),
+            Coord3D::new(10.0 + 1e-9, 10.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole3, 1e-10));
+
+        // 4. Touch at multiple vertices
+        let hole4 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(5.0, -5.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+        ];
+        assert!(rings_touch_at_vertex(&shell, &hole4, 1e-10));
+
+        // 5. Disjoint
+        let hole5 = vec![
+            Coord3D::new(20.0, 20.0, 0.0),
+            Coord3D::new(21.0, 20.0, 0.0),
+            Coord3D::new(21.0, 21.0, 0.0),
+            Coord3D::new(20.0, 20.0, 0.0),
+        ];
+        assert!(!rings_touch_at_vertex(&shell, &hole5, 1e-10));
+
+        // 6. Empty rings
+        assert!(!rings_touch_at_vertex(&[], &hole1, 1e-10));
+        assert!(!rings_touch_at_vertex(&shell, &[], 1e-10));
     }
 }

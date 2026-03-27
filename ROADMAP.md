@@ -393,19 +393,26 @@ pub struct IPoint {
 - [ ] Support disk-backed or memory-mapped spatial indexes for streaming data flows.
 
 ## 4. Next-Gen Runtime Acceleration (Agent Track F)
-- [ ] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
+- [x] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
 - [ ] Investigate WebGPU and native `wgpu` compute shaders for massively parallel point-in-polygon containment and intersection tests across native and web platforms.
 
 ## 5. Advanced Topology & Spatial Artifacts (Agent Track G)
 - [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
 - [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
 - [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
-- [ ] Robust geometry buffering via offset curves.
-- [ ] Incremental real-time topology (stateful polygonizer).
+- [ ] Robust geometry buffering (offset curves) utilizing the advanced sweep-line noder to cleanly resolve complex self-intersections.
 
-## 6. Geodesic & Database Integrations (Agent Track H)
-- [ ] Geodesic/non-planar coordinate support.
-- [ ] Native database extensions for DuckDB and PostGIS.
+## 6. Incremental & Real-Time Topology (Agent Track H)
+- [ ] Stateful, incremental `Polygonizer` that allows adding or removing lines dynamically without rebuilding the entire containment forest or graph.
+- [ ] Support for delta-updates to polygon sets for interactive real-time editing applications (e.g. browser-based mapping tools).
+
+## 7. Geodesic & Non-Planar Geometry (Agent Track I)
+- [ ] Native support for geographic coordinates (longitude/latitude) using spherical/ellipsoidal algorithms rather than projecting to Cartesian planes.
+- [ ] Geodesic noding and robust intersection calculation for polar and anti-meridian geometries.
+
+## 8. Database & Embedded Analytics (Agent Track J)
+- [ ] Native DuckDB spatial extension utilizing the Wasm or native core for lightning-fast SQL-based polygonization.
+- [ ] Custom PostGIS user-defined functions (UDFs) to replace slow `ST_Polygonize` workflows with `geo-polygonize` internally.
 
 ---
 
@@ -444,8 +451,12 @@ pub struct IPoint {
 24. out-of-core / streaming processing with disk-backed spatial indexing
 25. WebAssembly Multithreading + Native WGPU acceleration
 26. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
-27. Robust geometry buffering and incremental real-time topology
-28. Geodesic/non-planar coordinate support and database extensions (DuckDB, PostGIS)
+27. robust geometry buffering via offset curves
+
+## Fifth wave
+28. incremental and real-time topology (stateful `Polygonizer`)
+29. geodesic / non-planar coordinates (ellipsoidal noding and intersection)
+30. database extensions (DuckDB extension, PostGIS UDFs)
 
 ---
 
@@ -498,11 +509,18 @@ pub struct IPoint {
 - shared-edge topology-preserving boundary simplification
 - TopoJSON / Mapbox Vector Tile generation
 - robust geometry buffering via offset curves
-- incremental real-time topology (stateful polygonizer)
 
 ## Agent Track H
-- geodesic/non-planar coordinate support
-- native database extensions for DuckDB and PostGIS
+- stateful incremental polygonizer
+- delta-updates for interactive editing
+
+## Agent Track I
+- native spherical/ellipsoidal algorithms
+- geodesic noding and intersection handling
+
+## Agent Track J
+- DuckDB spatial extension
+- PostGIS UDFs
 
 ---
 
@@ -570,7 +588,7 @@ The roadmap is complete when:
 - [x] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
 - [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
 - [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
-- [ ] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
+- [x] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
 - [ ] native `wgpu` compute shaders for massively parallel point-in-polygon tests
 
 ## Milestone M7: Advanced Topology & Spatial Artifacts
@@ -578,8 +596,8 @@ The roadmap is complete when:
 - [ ] shared-edge topology-preserving boundary simplification to prevent overlaps/gaps natively
 - [ ] direct emission of TopoJSON and Mapbox Vector Tiles (MVT)
 - [ ] robust geometry buffering via offset curves
-- [ ] incremental real-time topology (stateful polygonizer)
 
-## Milestone M8: Geodesic & Database Integrations
-- [ ] geodesic/non-planar coordinate support
-- [ ] native database extensions for DuckDB and PostGIS
+## Milestone M8: Real-Time, Global, and Database Integration
+- [ ] stateful, incremental `Polygonizer` for real-time interactive mapping
+- [ ] geodesic and spherical noding/intersections
+- [ ] DuckDB extension and PostGIS UDF wrappers
