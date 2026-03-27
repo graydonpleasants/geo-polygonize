@@ -358,7 +358,7 @@ pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
     }
 }
 
-fn extract_and_classify_rings(
+pub fn extract_and_classify_rings(
     rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
 ) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
@@ -385,7 +385,7 @@ fn extract_and_classify_rings(
 }
 
 #[allow(clippy::type_complexity)]
-fn establish_topology(
+pub fn establish_topology(
     mut shells: Vec<Polygon3D>,
     holes: Vec<Polygon3D>,
     options: &PolygonizerOptions,
@@ -442,7 +442,7 @@ fn establish_topology(
     (shells, shell_holes, shell_holes_ids)
 }
 
-fn construct_final_polygons(
+pub fn construct_final_polygons(
     shells: Vec<Polygon3D>,
     shell_holes: Vec<Vec<Vec<Coord3D>>>,
     shell_holes_ids: Vec<Vec<Vec<u32>>>,

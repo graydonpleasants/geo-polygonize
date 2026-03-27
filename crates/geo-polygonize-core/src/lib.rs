@@ -34,3 +34,5 @@ pub use types::{Coord3D, Line3D, Polygon3D};
 
 #[cfg(feature = "geoparquet")]
 pub mod geoparquet_api;
+
+pub mod stateful;

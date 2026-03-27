@@ -108,3 +108,22 @@ fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
         3
     }
 }
+
+use std::collections::hash_map::DefaultHasher as AHasher;
+use std::hash::{Hash, Hasher};
+
+pub fn hash_ring(ids: &[u32]) -> u64 {
+    let mut hasher = AHasher::default();
+    ids.hash(&mut hasher);
+    hasher.finish()
+}
+
+use crate::types::Polygon3D;
+pub fn hash_polygon(poly: &Polygon3D) -> u64 {
+    let mut hasher = AHasher::default();
+    poly.exterior_ids.hash(&mut hasher);
+    for holes in &poly.interiors_ids {
+        holes.hash(&mut hasher);
+    }
+    hasher.finish()
+}

@@ -14,29 +14,31 @@ use rstar::AABB;
 
 pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
-    pub simd_shells: Vec<SimdRing>,
+    pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
-    pub shell_areas: Vec<f64>,
+    pub shell_areas: Vec<Option<f64>>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
-        let simd_shells: Vec<SimdRing>;
-        let shell_areas: Vec<f64>;
+        let simd_shells_raw: Vec<SimdRing>;
+        let shell_areas_raw: Vec<f64>;
         #[cfg(feature = "parallel")]
         {
-            (simd_shells, shell_areas) = shells
+            (simd_shells_raw, shell_areas_raw) = shells
                 .par_iter()
                 .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            (simd_shells, shell_areas) = shells
+            (simd_shells_raw, shell_areas_raw) = shells
                 .iter()
                 .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
         }
+        let simd_shells = simd_shells_raw.into_iter().map(Some).collect();
+        let shell_areas = shell_areas_raw.into_iter().map(Some).collect();
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
         for (i, shell) in shells.iter().enumerate() {
@@ -91,12 +93,12 @@ impl ContainmentForest {
                     }
 
                     // Check if shell[i] is inside shell[j]
-                    let simd_shell = &self.simd_shells[j];
+                    let simd_shell = self.simd_shells[j].as_ref().unwrap();
 
                     if simd_shell.contains(probe_pt.0) {
                         // Using cached areas instead of `shell.exterior_unsigned_area_2d()`
-                        let area_i = self.shell_areas[i];
-                        let area_j = self.shell_areas[j];
+                        let area_i = self.shell_areas[i].unwrap();
+                        let area_j = self.shell_areas[j].unwrap();
 
                         // If i is strictly contained inside j, increment container count
                         if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
@@ -157,11 +159,11 @@ impl ContainmentForest {
 
         for cand_idx in candidates {
             let idx = cand_idx;
-            let simd_shell = &self.simd_shells[idx];
+            let simd_shell = self.simd_shells[idx].as_ref().unwrap();
 
             if simd_shell.contains(probe_point.0) {
                 // Using cached areas instead of `shells[idx].exterior_unsigned_area_2d()`
-                let area = self.shell_areas[idx];
+                let area = self.shell_areas[idx].unwrap();
 
                 if area > hole_area + 1e-6 && area < min_area {
                     let touch_ok = match touch_policy {

@@ -11,10 +11,21 @@ pub trait SpatialIndex2D {
 use rstar::{RTree, RTreeObject};
 
 // Wrapper for Polygon indexable by rstar (2D)
+#[derive(Clone, Copy, Debug)]
 pub struct IndexedEnvelope {
     pub aabb: AABB<[f64; 2]>,
     pub index: usize,
 }
+
+impl PartialEq for IndexedEnvelope {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+            && self.aabb.lower() == other.aabb.lower()
+            && self.aabb.upper() == other.aabb.upper()
+    }
+}
+
+impl Eq for IndexedEnvelope {}
 
 impl RTreeObject for IndexedEnvelope {
     type Envelope = AABB<[f64; 2]>;
@@ -29,6 +40,14 @@ pub struct RStarBackend {
 }
 
 impl RStarBackend {
+    pub fn insert(&mut self, env: IndexedEnvelope) {
+        self.tree.insert(env);
+    }
+
+    pub fn remove(&mut self, env: &IndexedEnvelope) {
+        self.tree.remove(env);
+    }
+
     pub fn new(envelopes: Vec<IndexedEnvelope>) -> Self {
         Self {
             tree: RTree::bulk_load(envelopes),
@@ -85,6 +104,26 @@ impl SpatialIndex2D for PackedNativeBackend {
 pub enum SpatialIndexBackend {
     RStar(RStarBackend),
     PackedNative(PackedNativeBackend),
+}
+
+impl SpatialIndexBackend {
+    pub fn insert(&mut self, env: IndexedEnvelope) {
+        match self {
+            SpatialIndexBackend::RStar(backend) => backend.insert(env),
+            SpatialIndexBackend::PackedNative(_) => {
+                // Not supported
+            }
+        }
+    }
+
+    pub fn remove(&mut self, env: &IndexedEnvelope) {
+        match self {
+            SpatialIndexBackend::RStar(backend) => backend.remove(env),
+            SpatialIndexBackend::PackedNative(_) => {
+                // Not supported
+            }
+        }
+    }
 }
 
 impl SpatialIndex2D for SpatialIndexBackend {
