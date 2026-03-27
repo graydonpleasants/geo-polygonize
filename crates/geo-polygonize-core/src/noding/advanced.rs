@@ -214,7 +214,7 @@ impl AdvancedNoder {
                     && s2_end_dist > eps
                 {
                     let s1_len_sq = (s1.end.x - s1.start.x) * (s1.end.x - s1.start.x)
-                                  + (s1.end.y - s1.start.y) * (s1.end.y - s1.start.y);
+                        + (s1.end.y - s1.start.y) * (s1.end.y - s1.start.y);
                     let t1 = s1_start_dist.sqrt() / s1_len_sq.sqrt();
                     let z_interp = s1.start.z + t1 * (s1.end.z - s1.start.z);
 
