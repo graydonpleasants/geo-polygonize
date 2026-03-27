@@ -939,7 +939,12 @@ fn segments_overlap_with_length(
     let overlap_start = 0.0_f64.max(min_t);
     let overlap_end = 1.0_f64.min(max_t);
 
-    (overlap_end - overlap_start) * a_len_sq.sqrt() > eps
+    if overlap_end <= overlap_start {
+        return false;
+    }
+
+    let overlap_len = overlap_end - overlap_start;
+    overlap_len * overlap_len * a_len_sq > eps * eps
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
