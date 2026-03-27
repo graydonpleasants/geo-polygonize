@@ -1,4 +1,5 @@
 use crate::types::Line3D;
+use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGe;
 use wide::CmpLe;
@@ -83,22 +84,57 @@ impl SoALines {
         q_max_y: f64x4,
         index: usize,
     ) -> u8 {
-        // 2. Load Targets (4 at a time) using pre-calculated Min/Max
-        let t_min_x = f64x4::from(&self.min_x[index..index + 4]);
-        let t_min_y = f64x4::from(&self.min_y[index..index + 4]);
-        let t_max_x = f64x4::from(&self.max_x[index..index + 4]);
-        let t_max_y = f64x4::from(&self.max_y[index..index + 4]);
-
-        // 3. Perform Intersection Check
-        // Logic: Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
-        let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
-        let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
-
-        let overlap = overlap_x & overlap_y;
-
-        // 4. Pack result to u8
-        overlap.move_mask() as u8
+        intersects_bbox_batch_splatted_impl(
+            &self.min_x,
+            &self.min_y,
+            &self.max_x,
+            &self.max_y,
+            q_min_x,
+            q_max_x,
+            q_min_y,
+            q_max_y,
+            index,
+        )
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[multiversion(targets(
+    "x86_64+avx512f+avx512dq",
+    "x86_64+avx2",
+    "x86+avx2",
+    "x86_64+avx",
+    "x86+avx",
+    "x86_64+sse2",
+    "x86+sse2",
+    "wasm32+simd128"
+))]
+fn intersects_bbox_batch_splatted_impl(
+    min_x: &[f64],
+    min_y: &[f64],
+    max_x: &[f64],
+    max_y: &[f64],
+    q_min_x: f64x4,
+    q_max_x: f64x4,
+    q_min_y: f64x4,
+    q_max_y: f64x4,
+    index: usize,
+) -> u8 {
+    // 2. Load Targets (4 at a time) using pre-calculated Min/Max
+    let t_min_x = f64x4::from(&min_x[index..index + 4]);
+    let t_min_y = f64x4::from(&min_y[index..index + 4]);
+    let t_max_x = f64x4::from(&max_x[index..index + 4]);
+    let t_max_y = f64x4::from(&max_y[index..index + 4]);
+
+    // 3. Perform Intersection Check
+    // Logic: Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
+    let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
+    let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
+
+    let overlap = overlap_x & overlap_y;
+
+    // 4. Pack result to u8
+    overlap.move_mask() as u8
 }
 
 #[cfg(test)]
