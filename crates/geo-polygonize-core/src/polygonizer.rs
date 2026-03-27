@@ -3,6 +3,7 @@ use crate::diagnostics::PolygonizerDiagnostics;
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::advanced::AdvancedNoder;
+use crate::noding::spherical::SphericalNoder;
 use crate::noding::snap::SnapNoder;
 use crate::options::DiagnosticsOptions;
 use crate::options::{DeterminismOptions, PolygonizerOptions};
@@ -194,6 +195,10 @@ impl Polygonizer {
                 }
                 crate::options::NodingBackend::Advanced => {
                     let noder = AdvancedNoder::new();
+                    segments = noder.node(all_segments);
+                }
+                crate::options::NodingBackend::Spherical => {
+                    let noder = SphericalNoder::new();
                     segments = noder.node(all_segments);
                 }
             }

@@ -99,7 +99,10 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
     if line_ids is not None:
         line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
 
-    options_json = None if options is None else json.dumps(options)
+    options_dict = options or {}
+    if 'coordinate_type' not in options_dict:
+        options_dict['coordinate_type'] = 'Planar'
+    options_json = json.dumps(options_dict)
 
     try:
         result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)

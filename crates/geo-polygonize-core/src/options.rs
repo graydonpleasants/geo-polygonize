@@ -8,6 +8,11 @@ use ts_rs::TS;
 /// This struct controls every aspect of the polygonization pipeline, including
 /// topological robustness, feature output, containment policies, noding, and determinism.
 pub struct PolygonizerOptions {
+    /// Determines whether coordinates are treated as planar (Cartesian) or geodesic (spherical).
+    ///
+    /// Default: `CoordinateType::Planar`
+    pub coordinate_type: CoordinateType,
+
     /// Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
     ///
     /// Default: `TargetProfile::Native`
@@ -76,6 +81,7 @@ pub struct PolygonizerOptions {
 impl Default for PolygonizerOptions {
     fn default() -> Self {
         Self {
+            coordinate_type: CoordinateType::Planar,
             target: TargetProfile::Native,
             node_input: false,
             snap_grid_size: 1e-10,
@@ -172,6 +178,7 @@ pub enum TileOwnershipPolicy {
 pub enum NodingBackend {
     Snap,
     Advanced,
+    Spherical,
     // placeholders for future backends
 }
 
@@ -267,4 +274,11 @@ pub struct TilingOptions {
 #[ts(export)]
 pub struct ZOptions {
     pub policy: ZPolicy,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum CoordinateType {
+    Planar,
+    Geodesic,
 }
