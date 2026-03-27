@@ -12,7 +12,11 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+    if command -v cargo-binstall &> /dev/null; then
+        cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+    else
+        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+    fi
 fi
 
 build_variant() {
@@ -46,12 +50,17 @@ build_variant() {
 build_variant "scalar" ""
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128"
+if [ "$SKIP_SIMD" = "1" ]; then
+    echo "Skipping SIMD build as requested. Copying scalar to simd to satisfy dependencies..."
+    cp -r pkg-scalar pkg-simd
+else
+    build_variant "simd" "-C target-feature=+simd128"
+fi
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
-export TS_RS_EXPORT_DIR="bindings"
-cargo test -p geo-polygonize-core
+export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
+cargo run -p geo-polygonize-core --bin export_bindings --release
 mkdir -p pkg-wrapper/bindings
 cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
