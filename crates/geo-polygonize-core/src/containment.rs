@@ -126,10 +126,8 @@ impl ContainmentForest {
             }
         }
 
-        // ⚡ Bolt: Iterator Array Optimization
-        // Using iterators avoids O(N) array bounds-checking overhead compared to explicit index looping
         for (keep, count) in keep_mask.iter_mut().zip(container_counts.iter()) {
-            if *keep && *count % 2 != 0 {
+            if *keep && count % 2 != 0 {
                 *keep = false;
             }
         }
