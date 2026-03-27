@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000167 | 0.000615 | 0.002330 | 3.69x | 0.26x | 13.97x |
-| 10 | 0.000386 | 0.002061 | 0.001320 | 5.34x | 1.56x | 3.42x |
-| 20 | 0.001007 | 0.007661 | 0.005490 | 7.61x | 1.40x | 5.45x |
-| 50 | 0.004497 | 0.049874 | 0.011320 | 11.09x | 4.41x | 2.52x |
-| 100 | 0.019940 | 0.219765 | 0.029200 | 11.02x | 7.53x | 1.46x |
+| 5 | 0.000190 | 0.000678 | 0.002480 | 3.57x | 0.27x | 13.07x |
+| 10 | 0.000387 | 0.002201 | 0.001330 | 5.68x | 1.65x | 3.43x |
+| 20 | 0.001002 | 0.008222 | 0.003460 | 8.21x | 2.38x | 3.45x |
+| 50 | 0.004237 | 0.050742 | 0.011040 | 11.98x | 4.60x | 2.61x |
+| 100 | 0.015913 | 0.210733 | 0.029100 | 13.24x | 7.24x | 1.83x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000884 | 0.007611 | 0.001040 | 8.61x | 7.32x | 1.18x |
-| 100 | 0.002999 | 0.024303 | 0.003720 | 8.10x | 6.53x | 1.24x |
-| 200 | 0.010909 | 0.100061 | 0.014630 | 9.17x | 6.84x | 1.34x |
+| 50 | 0.000896 | 0.007685 | 0.001100 | 8.58x | 6.99x | 1.23x |
+| 100 | 0.002977 | 0.025380 | 0.003780 | 8.52x | 6.71x | 1.27x |
+| 200 | 0.010353 | 0.097847 | 0.015450 | 9.45x | 6.33x | 1.49x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.30.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.1...geo-polygonize-v0.30.2) (2026-03-24)
+
+
+### Performance Improvements
+
+* optimize container counts iteration using iterators ([47d33d5](https://github.com/graydonpleasants/geo-polygonize/commit/47d33d57551f2aae0e2e0be6cb68521a1fe7eaf3))
+
+## [0.30.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.0...geo-polygonize-v0.30.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* set base path in docs and playground configs ([6e9e66f](https://github.com/graydonpleasants/geo-polygonize/commit/6e9e66f7a99686f437a70b8e68dfb6e1051894f5))
 
 ## [0.30.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.29.2...geo-polygonize-v0.30.0) (2026-03-23)
 
@@ -2367,7 +2381,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.30.0"
+version = "0.30.2"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2477,7 +2491,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.30.0"
+version = "0.30.2"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -4784,9 +4798,11 @@ impl ContainmentForest {
             }
         }
 
-        for i in 0..shells.len() {
-            if keep_mask[i] && container_counts[i] % 2 != 0 {
-                keep_mask[i] = false;
+        // ⚡ Bolt: Iterator Array Optimization
+        // Using iterators avoids O(N) array bounds-checking overhead compared to explicit index looping
+        for (keep, count) in keep_mask.iter_mut().zip(container_counts.iter()) {
+            if *keep && *count % 2 != 0 {
+                *keep = false;
             }
         }
 
@@ -10157,13 +10173,11 @@ impl AdvancedNoder {
 
                 events.push(Event {
                     x: left.x,
-                    y: left.y,
                     segment_idx: i,
                     is_left: true,
                 });
                 events.push(Event {
                     x: right.x,
-                    y: right.y,
                     segment_idx: i,
                     is_left: false,
                 });
@@ -10401,8 +10415,6 @@ impl AdvancedNoder {
 #[derive(Debug, Clone, Copy)]
 struct Event {
     x: f64,
-    #[allow(dead_code)]
-    y: f64,
     segment_idx: usize,
     is_left: bool,
 }
@@ -14529,7 +14541,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.30.0"
+version = "0.30.2"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14539,7 +14551,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.30.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.30.2" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
