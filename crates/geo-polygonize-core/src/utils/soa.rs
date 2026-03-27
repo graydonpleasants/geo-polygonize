@@ -107,7 +107,6 @@ impl SoALines {
     "x86+avx",
     "x86_64+sse2",
     "x86+sse2",
-
 ))]
 fn intersects_bbox_batch_splatted_impl(
     min_x: &[f64],
