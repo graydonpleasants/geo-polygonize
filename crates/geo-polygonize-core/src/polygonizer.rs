@@ -312,14 +312,17 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         ring.len()
     };
 
-    let min_idx = (0..n)
-        .min_by(|&i, &j| {
-            ring[i]
-                .x
-                .total_cmp(&ring[j].x)
-                .then(ring[i].y.total_cmp(&ring[j].y))
-                .then(ring[i].z.total_cmp(&ring[j].z))
+    // Bolt optimization: using `ring[..n].iter().enumerate().min_by(...)` instead of `(0..n).min_by(...)`
+    // eliminates bounds-checking overhead while preserving readability.
+    let min_idx = ring[..n]
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            a.x.total_cmp(&b.x)
+                .then(a.y.total_cmp(&b.y))
+                .then(a.z.total_cmp(&b.z))
         })
+        .map(|(i, _)| i)
         .unwrap_or(0);
 
     if min_idx > 0 {

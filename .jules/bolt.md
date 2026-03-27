@@ -44,3 +44,7 @@
 ## 2024-05-24 - [Optimize Canonical Sorting]
 **Learning:** In spatial sorts, repeatedly evaluating geometric properties like bounds and areas in `O(N log N)` `sort_by` comparators creates a hidden performance bottleneck.
 **Action:** Always pre-calculate expensive sorting properties using a Schwartzian Transform pattern (mapping to a tuple with the cached data) and use `sort_unstable_by` for operations with deterministic tie-breaks.
+
+## 2024-05-28 - [Eliminate Bounds Checks via Iterator Enumerate]
+**Learning:** An index-based range iterator in Rust, like `(0..n).min_by(|i, j| slice[*i].cmp(&slice[*j]))`, requires the compiler to insert bounds-checking on each iteration because the closure receives raw index values that it uses to index the slice. This hurts performance in hot paths. Using `.iter().enumerate().min_by(...)` provides identical functionality, but eliminates the bounds-checking overhead while preserving the readability of iterator-chain methods, preventing the need to rewrite standard logic into lower-level manual `for` loops.
+**Action:** To safely eliminate array bounds checks in Rust while preserving readability during a sequence scan (like finding the minimum index of a collection using `min_by`), prefer iterating over the slice directly (e.g., `slice.iter().enumerate().min_by(...)`) instead of using an index range `(0..n)` which forces the compiler to insert bounds checks. Never sacrifice readability by converting these to manual `for` loops just for micro-optimizations.
