@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   maintenance:
+    if: "!startsWith(github.event.head_commit.message, 'chore(github): Update benchmarks and llms.txt')"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
