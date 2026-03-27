@@ -1,4 +1,4 @@
-import { expect, test, describe } from "bun:test";
+import { expect, test, describe } from "vitest";
 import { validateFleetId } from "./config";
 
 describe("validateFleetId", () => {
