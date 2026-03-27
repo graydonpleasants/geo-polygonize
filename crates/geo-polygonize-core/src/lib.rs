@@ -12,6 +12,7 @@ pub mod arrow_api;
 pub mod containment;
 pub mod diagnostics;
 pub mod error;
+pub mod gpu;
 pub mod ffi;
 pub mod graph;
 pub mod index;
@@ -34,3 +35,6 @@ pub use types::{Coord3D, Line3D, Polygon3D};
 
 #[cfg(feature = "geoparquet")]
 pub mod geoparquet_api;
+
+#[cfg(test)]
+mod gpu_tests;

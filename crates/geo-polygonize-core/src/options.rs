@@ -180,7 +180,7 @@ pub enum NodingBackend {
 pub enum IndexBackend {
     RStar,
     PackedNative,
-    // placeholders for future backends
+    GpuCompute,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

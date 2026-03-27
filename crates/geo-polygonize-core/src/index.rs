@@ -85,6 +85,7 @@ impl SpatialIndex2D for PackedNativeBackend {
 pub enum SpatialIndexBackend {
     RStar(RStarBackend),
     PackedNative(PackedNativeBackend),
+    GpuCompute(PackedNativeBackend), // Uses PackedNative as a fallback/accelerator
 }
 
 impl SpatialIndex2D for SpatialIndexBackend {
@@ -95,6 +96,9 @@ impl SpatialIndex2D for SpatialIndexBackend {
         match self {
             SpatialIndexBackend::RStar(backend) => backend.locate_in_envelope_intersecting(aabb),
             SpatialIndexBackend::PackedNative(backend) => {
+                backend.locate_in_envelope_intersecting(aabb)
+            }
+            SpatialIndexBackend::GpuCompute(backend) => {
                 backend.locate_in_envelope_intersecting(aabb)
             }
         }
