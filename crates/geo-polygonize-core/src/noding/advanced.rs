@@ -40,13 +40,11 @@ impl AdvancedNoder {
 
                 events.push(Event {
                     x: left.x,
-                    y: left.y,
                     segment_idx: i,
                     is_left: true,
                 });
                 events.push(Event {
                     x: right.x,
-                    y: right.y,
                     segment_idx: i,
                     is_left: false,
                 });
@@ -284,8 +282,6 @@ impl AdvancedNoder {
 #[derive(Debug, Clone, Copy)]
 struct Event {
     x: f64,
-    #[allow(dead_code)]
-    y: f64,
     segment_idx: usize,
     is_left: bool,
 }
