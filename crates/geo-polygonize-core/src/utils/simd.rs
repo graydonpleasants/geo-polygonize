@@ -1,4 +1,5 @@
 use geo::Coord;
+use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGt;
 
@@ -52,55 +53,69 @@ impl SimdRing {
             return false;
         }
 
-        let px = f64x4::splat(point.x);
-        let py = f64x4::splat(point.y);
-
-        let n = self.len - 1; // Number of segments
-
-        let mut i = 0;
-        let mut crossings = 0;
-
-        while i < n {
-            let remaining = n - i;
-            if remaining >= 4 {
-                let xi = f64x4::from(&self.x[i..i + 4]);
-                let yi = f64x4::from(&self.y[i..i + 4]);
-
-                let xj = f64x4::from(&self.x[i + 1..i + 5]);
-                let yj = f64x4::from(&self.y[i + 1..i + 5]);
-
-                let yi_gt_py = yi.cmp_gt(py);
-                let yj_gt_py = yj.cmp_gt(py);
-                let in_range = yi_gt_py ^ yj_gt_py;
-
-                let num = (xj - xi) * (py - yi);
-                let den = yj - yi;
-
-                let intersect_x = (num / den) + xi;
-                let x_cond = intersect_x.cmp_gt(px);
-
-                let is_crossing = in_range & x_cond;
-
-                crossings += is_crossing.move_mask().count_ones();
-
-                i += 4;
-            } else {
-                let p1x = self.x[i];
-                let p1y = self.y[i];
-                let p2x = self.x[i + 1];
-                let p2y = self.y[i + 1];
-
-                if ((p1y > point.y) != (p2y > point.y))
-                    && (point.x < (p2x - p1x) * (point.y - p1y) / (p2y - p1y) + p1x)
-                {
-                    crossings += 1;
-                }
-                i += 1;
-            }
-        }
-
-        crossings % 2 != 0
+        contains_impl(&self.x, &self.y, self.len, point)
     }
+}
+
+#[multiversion(targets(
+    "x86_64+avx512f+avx512dq",
+    "x86_64+avx2",
+    "x86+avx2",
+    "x86_64+avx",
+    "x86+avx",
+    "x86_64+sse2",
+    "x86+sse2",
+    "wasm32+simd128"
+))]
+fn contains_impl(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let px = f64x4::splat(point.x);
+    let py = f64x4::splat(point.y);
+
+    let n = len - 1; // Number of segments
+
+    let mut i = 0;
+    let mut crossings = 0;
+
+    while i < n {
+        let remaining = n - i;
+        if remaining >= 4 {
+            let xi = f64x4::from(&x[i..i + 4]);
+            let yi = f64x4::from(&y[i..i + 4]);
+
+            let xj = f64x4::from(&x[i + 1..i + 5]);
+            let yj = f64x4::from(&y[i + 1..i + 5]);
+
+            let yi_gt_py = yi.cmp_gt(py);
+            let yj_gt_py = yj.cmp_gt(py);
+            let in_range = yi_gt_py ^ yj_gt_py;
+
+            let num = (xj - xi) * (py - yi);
+            let den = yj - yi;
+
+            let intersect_x = (num / den) + xi;
+            let x_cond = intersect_x.cmp_gt(px);
+
+            let is_crossing = in_range & x_cond;
+
+            crossings += is_crossing.move_mask().count_ones();
+
+            i += 4;
+        } else {
+            let p1x = x[i];
+            let p1y = y[i];
+            let p2x = x[i + 1];
+            let p2y = y[i + 1];
+
+            if ((p1y > point.y) != (p2y > point.y))
+                && (point.x < (p2x - p1x) * (point.y - p1y) / (p2y - p1y) + p1x)
+            {
+                crossings += 1;
+            }
+            i += 1;
+        }
+    }
+
+    crossings % 2 != 0
 }
 
 #[cfg(test)]
