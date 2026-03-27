@@ -31,7 +31,7 @@ const issuesMarkdown = await getIssuesAsMarkdown()
 const prompt = `Analyze the ROADMAP.md and issue list to pick the next target task. Be ambitious and thorough.
 
 **Important Instructions:**
-As your very first step, you must use the \`gh\` CLI to create a new GitHub issue for the task you select. Add an "in progress" label to it, and include a link to your Jules session so subsequent runs know this task is currently being worked on. When you submit your changes, ensure your Pull Request description includes "Fixes #<issue_number>" so the issue closes automatically upon merge.
+As your very first step, you must use the \`gh\` CLI to create a new GitHub issue for the task you select. Add an "in progress" label to it, and include a link to your Jules session so subsequent runs know this task is currently being worked on. When you submit your changes using the \`submit\` tool, you **MUST** include "Fixes #<issue_number>" in both the \`commit_message\` and \`description\` parameters so the issue closes automatically upon merge.
 
 ## ROADMAP.md
 \`\`\`markdown
@@ -48,7 +48,8 @@ const session = await jules.session({
     github: repoInfo.fullName,
     baseBranch,
   },
-  automationMode: 'AUTO_CREATE_PR'
+  automationMode: 'AUTO_CREATE_PR',
+  requirePlanApproval: false
 })
 
 console.log(`✅ Task Picker session started: ${session.id}`)
