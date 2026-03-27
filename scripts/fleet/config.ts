@@ -14,7 +14,6 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findUpSync } from "find-up";
 
 /**
  * Validates the FLEET_ID to prevent path traversal and other injection attacks.
@@ -36,12 +35,20 @@ const rawFleetId = process.env.FLEET_ID || new Intl.DateTimeFormat("en-CA", {
 // Use FLEET_ID environment variable if provided, otherwise generate default date-based ID
 export const FLEET_ID = validateFleetId(rawFleetId);
 
-// Fallback logic for finding repo root if .git is not found (e.g. in some CI environments or submodules)
-// If findUpSync returns undefined, we assume we are in scripts/fleet/ and go up two levels.
-const gitDir = findUpSync(".git");
+// Lazy-load find-up to avoid top-level import issues in environments where it's not available (like tests)
+let ROOT_DIR_VAL: string;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const ROOT_DIR = gitDir ? path.dirname(gitDir) : path.resolve(__dirname, "../..");
+try {
+  const { findUpSync } = await import("find-up");
+  const gitDir = findUpSync(".git");
+  ROOT_DIR_VAL = gitDir ? path.dirname(gitDir) : path.resolve(__dirname, "../..");
+} catch (e) {
+  // If find-up is missing or fails, fallback to standard path resolution
+  ROOT_DIR_VAL = path.resolve(__dirname, "../..");
+}
+
+export const ROOT_DIR = ROOT_DIR_VAL;
 
 const BASE_FLEET_DIR = path.resolve(ROOT_DIR, ".fleet");
 export const FLEET_DIR = path.join(BASE_FLEET_DIR, FLEET_ID);
