@@ -1,4 +1,5 @@
 use geo::Coord;
+#[cfg(not(target_arch = "wasm32"))]
 use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGt;
@@ -57,15 +58,18 @@ impl SimdRing {
     }
 }
 
-#[multiversion(targets(
-    "x86_64+avx512f+avx512dq",
-    "x86_64+avx2",
-    "x86+avx2",
-    "x86_64+avx",
-    "x86+avx",
-    "x86_64+sse2",
-    "x86+sse2",
-))]
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    multiversion(targets(
+        "x86_64+avx512f+avx512dq",
+        "x86_64+avx2",
+        "x86+avx2",
+        "x86_64+avx",
+        "x86+avx",
+        "x86_64+sse2",
+        "x86+sse2",
+    ))
+)]
 fn contains_impl(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
     let px = f64x4::splat(point.x);
     let py = f64x4::splat(point.y);
