@@ -7,6 +7,14 @@ topological robustness, feature output, containment policies, noding, and determ
 
 ## Fields
 
+### `coordinate_type`
+
+**Type:** `CoordinateType`
+
+Determines whether coordinates are treated as planar (Cartesian) or geodesic (spherical).
+
+Default: `CoordinateType::Planar`
+
 ### `target`
 
 **Type:** `TargetProfile`

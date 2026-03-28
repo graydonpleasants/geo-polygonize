@@ -39,9 +39,14 @@ impl SphericalNoder {
 
                     // For now we'll use standard 2D Cartesian intersection
                     // until full geographic geodesic intersections are supported.
-                    if let Some(intersection) = line_intersection(seg1.to_line_2d(), seg2.to_line_2d()) {
+                    if let Some(intersection) =
+                        line_intersection(seg1.to_line_2d(), seg2.to_line_2d())
+                    {
                         match intersection {
-                            LineIntersection::SinglePoint { intersection: pt, is_proper } => {
+                            LineIntersection::SinglePoint {
+                                intersection: pt,
+                                is_proper,
+                            } => {
                                 if is_proper {
                                     let c = Coord3D::new(pt.x, pt.y, 0.0);
 

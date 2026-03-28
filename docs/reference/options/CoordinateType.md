@@ -1,0 +1,7 @@
+# CoordinateType
+
+## Variants
+
+### `Planar`
+
+### `Geodesic`

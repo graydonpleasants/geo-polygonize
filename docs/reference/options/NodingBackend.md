@@ -5,3 +5,5 @@
 ### `Snap`
 
 ### `Advanced`
+
+### `Spherical`

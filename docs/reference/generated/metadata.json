@@ -84,6 +84,12 @@
         "docs": "The canonical configuration object for the `geo-polygonize` engine.\n\nThis struct controls every aspect of the polygonization pipeline, including\ntopological robustness, feature output, containment policies, noding, and determinism.",
         "fields": [
           {
+            "name": "coordinate_type",
+            "docs": "Determines whether coordinates are treated as planar (Cartesian) or geodesic (spherical).\n\nDefault: `CoordinateType::Planar`",
+            "ty": "CoordinateType",
+            "is_optional": false
+          },
+          {
             "name": "target",
             "docs": "Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).\n\nDefault: `TargetProfile::Native`",
             "ty": "TargetProfile",
@@ -213,6 +219,20 @@
       }
     },
     "enums": {
+      "CoordinateType": {
+        "name": "CoordinateType",
+        "docs": "",
+        "variants": [
+          {
+            "name": "Planar",
+            "docs": ""
+          },
+          {
+            "name": "Geodesic",
+            "docs": ""
+          }
+        ]
+      },
       "DedupPolicy": {
         "name": "DedupPolicy",
         "docs": "",
@@ -251,6 +271,10 @@
           },
           {
             "name": "Advanced",
+            "docs": ""
+          },
+          {
+            "name": "Spherical",
             "docs": ""
           }
         ]

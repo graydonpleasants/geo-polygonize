@@ -13,6 +13,7 @@ The following reference docs are auto-generated from the Rust source.
 
 ## Enums
 
+* [`CoordinateType`](./options/CoordinateType.md)
 * [`DedupPolicy`](./options/DedupPolicy.md)
 * [`IndexBackend`](./options/IndexBackend.md)
 * [`NodingBackend`](./options/NodingBackend.md)
