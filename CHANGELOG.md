@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.31.0...geo-polygonize-v0.32.0) (2026-03-27)
+
+
+### Features
+
+* Add architecture-aware runtime SIMD dispatch for scalar, Wasm SIMD v128, x86_64 AVX2 ([e3ca33a](https://github.com/graydonpleasants/geo-polygonize/commit/e3ca33a4aa535f6d5d36481327e94c8228294a28))
+
+
+### Bug Fixes
+
+* disable multiversion macro on wasm32 to fix CI native dispatch failures ([1185832](https://github.com/graydonpleasants/geo-polygonize/commit/1185832f634e0b4ea5dd070b2d1fa81659204357))
+* fix rustfmt warnings ([125a6fb](https://github.com/graydonpleasants/geo-polygonize/commit/125a6fb345c2cf9b2d4a8a22f4eb770ecad031c4))
+* **github:** fix maintenance workflow infinite loop on automated pr merge ([#678](https://github.com/graydonpleasants/geo-polygonize/issues/678)) ([4d7c3bf](https://github.com/graydonpleasants/geo-polygonize/commit/4d7c3bfb705473734b3891f14932e2c12b20430c))
+* remove wasm32+simd128 multiversion target ([af3b5b5](https://github.com/graydonpleasants/geo-polygonize/commit/af3b5b5f60696d725d5a59f88256e535f267a140))
+
+## [0.31.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.2...geo-polygonize-v0.31.0) (2026-03-27)
+
+
+### Features
+
+* **core:** implement GeoParquet streaming IO across Rust, Wasm, Python ([#445](https://github.com/graydonpleasants/geo-polygonize/issues/445)) ([bd21255](https://github.com/graydonpleasants/geo-polygonize/commit/bd21255e7e330222fb1b5e17c62be7b97ad48635))
+
+
+### Performance Improvements
+
+* **core:** optimize canonicalize_ring with slice iterator ([64a1a90](https://github.com/graydonpleasants/geo-polygonize/commit/64a1a90a9b030b7b71fd068d4950b48e6a9536dd))
+* **core:** Replace sort_by with sort_unstable_by and remove bounds checks ([#453](https://github.com/graydonpleasants/geo-polygonize/issues/453)) ([afea1d8](https://github.com/graydonpleasants/geo-polygonize/commit/afea1d81c9e2e27ee9fb20ae1d53d9c9706b3035))
+
 ## [0.30.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.1...geo-polygonize-v0.30.2) (2026-03-24)
 
 

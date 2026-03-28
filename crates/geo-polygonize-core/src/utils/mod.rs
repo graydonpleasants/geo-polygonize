@@ -88,8 +88,14 @@ pub fn compare_angular(center: Coord<f64>, target_a: Coord<f64>, target_b: Coord
         // Sort by distance (shorter first? longer first?)
         // For simple polygonization, dedup usually handles this.
         // Let's pick: Farthest first?
-        let dist_a = (target_a.x - center.x).powi(2) + (target_a.y - center.y).powi(2);
-        let dist_b = (target_b.x - center.x).powi(2) + (target_b.y - center.y).powi(2);
+        let dx_a = target_a.x - center.x;
+        let dy_a = target_a.y - center.y;
+        let dist_a = dx_a * dx_a + dy_a * dy_a;
+
+        let dx_b = target_b.x - center.x;
+        let dy_b = target_b.y - center.y;
+        let dist_b = dx_b * dx_b + dy_b * dy_b;
+
         dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
     }
 }

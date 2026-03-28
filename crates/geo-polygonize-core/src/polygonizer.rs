@@ -159,7 +159,7 @@ impl Polygonizer {
 
         if self.options.node_input {
             // Sort by 2D coordinates
-            all_segments.sort_by(|a, b| {
+            all_segments.sort_unstable_by(|a, b| {
                 a.start
                     .x
                     .total_cmp(&b.start.x)
@@ -625,7 +625,7 @@ fn apply_determinism(
                 })
                 .collect();
 
-            dangles_with_cache.sort_by(|(l1, b1), (l2, b2)| {
+            dangles_with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
                 b1.min()
                     .x
                     .total_cmp(&b2.min().x)
@@ -942,7 +942,12 @@ fn segments_overlap_with_length(
     let overlap_start = 0.0_f64.max(min_t);
     let overlap_end = 1.0_f64.min(max_t);
 
-    (overlap_end - overlap_start) * a_len_sq.sqrt() > eps
+    if overlap_end <= overlap_start {
+        return false;
+    }
+
+    let overlap_len = overlap_end - overlap_start;
+    overlap_len * overlap_len * a_len_sq > eps * eps
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
