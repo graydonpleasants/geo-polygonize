@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
