@@ -684,15 +684,10 @@ impl PlanarGraph {
         let mut valid_edges = Vec::new();
         for outgoing in &self.nodes_outgoing {
             valid_edges.clear();
-            valid_edges.extend(
-                outgoing
-                    .iter()
-                    .copied()
-                    .filter(|&idx| {
-                        let de = &self.directed_edges[idx];
-                        !de.is_marked && !self.edges[de.edge_idx].deleted
-                    }),
-            );
+            valid_edges.extend(outgoing.iter().copied().filter(|&idx| {
+                let de = &self.directed_edges[idx];
+                !de.is_marked && !self.edges[de.edge_idx].deleted
+            }));
 
             if valid_edges.is_empty() {
                 continue;

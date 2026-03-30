@@ -62,7 +62,8 @@ impl StatefulPolygonizer {
 
         let mut filtered_shells = shells;
         if self.options.extract_only_polygonal {
-            let keep_mask = forest.filter_polygonal(&filtered_shells, &self.options.containment.touch_policy);
+            let keep_mask =
+                forest.filter_polygonal(&filtered_shells, &self.options.containment.touch_policy);
             let mut new_shells = Vec::new();
             for (keep, s) in keep_mask.into_iter().zip(filtered_shells) {
                 if keep {
@@ -70,15 +71,24 @@ impl StatefulPolygonizer {
                 }
             }
             filtered_shells = new_shells;
-            forest = ContainmentForest::new(&filtered_shells, &self.options.containment.index_backend);
+            forest =
+                ContainmentForest::new(&filtered_shells, &self.options.containment.index_backend);
         }
 
-        let process_hole_assignment = |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
-            let best_shell_idx = forest.assign_hole(&hole_3d, &filtered_shells, &self.options.containment.touch_policy);
-            best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
-        };
+        let process_hole_assignment =
+            |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
+                let best_shell_idx = forest.assign_hole(
+                    &hole_3d,
+                    &filtered_shells,
+                    &self.options.containment.touch_policy,
+                );
+                best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
+            };
 
-        let assignments: Vec<_> = holes.into_iter().filter_map(process_hole_assignment).collect();
+        let assignments: Vec<_> = holes
+            .into_iter()
+            .filter_map(process_hole_assignment)
+            .collect();
 
         let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; filtered_shells.len()];
         let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; filtered_shells.len()];
@@ -89,12 +99,8 @@ impl StatefulPolygonizer {
         }
 
         // Construct Final Polygons
-        let mut result = construct_final_polygons(
-            filtered_shells,
-            shell_holes,
-            shell_holes_ids,
-            &self.options,
-        );
+        let mut result =
+            construct_final_polygons(filtered_shells, shell_holes, shell_holes_ids, &self.options);
 
         let mut invalid_rings = if invalid_rings_candidates.is_empty() {
             Vec::new()
@@ -113,14 +119,18 @@ impl StatefulPolygonizer {
         // Simplistic diff by exterior coords comparison.
         // For production, we should hash or have ID mappings.
         for old_poly in &self.last_polygons {
-            let found = new_polygons.iter().any(|new_poly| new_poly.exterior == old_poly.exterior && new_poly.interiors == old_poly.interiors);
+            let found = new_polygons.iter().any(|new_poly| {
+                new_poly.exterior == old_poly.exterior && new_poly.interiors == old_poly.interiors
+            });
             if !found {
                 removed.push(old_poly.clone());
             }
         }
 
         for new_poly in &new_polygons {
-            let found = self.last_polygons.iter().any(|old_poly| old_poly.exterior == new_poly.exterior && old_poly.interiors == new_poly.interiors);
+            let found = self.last_polygons.iter().any(|old_poly| {
+                old_poly.exterior == new_poly.exterior && old_poly.interiors == new_poly.interiors
+            });
             if !found {
                 added.push(new_poly.clone());
             }
