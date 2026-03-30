@@ -1,3 +1,4 @@
+use crate::gpu::{GpuContainmentContext, GpuCoord, GpuPoint, GpuRing};
 use crate::index::{
     IndexedEnvelope, PackedNativeBackend, RStarBackend, SpatialIndex2D, SpatialIndexBackend,
 };
@@ -11,7 +12,6 @@ use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rstar::AABB;
-use crate::gpu::{GpuContainmentContext, GpuCoord, GpuRing, GpuPoint};
 
 pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
@@ -74,7 +74,11 @@ impl ContainmentForest {
             .collect();
 
         let is_gpu = matches!(self.tree, SpatialIndexBackend::GpuCompute(_));
-        let gpu_ctx = if is_gpu { GpuContainmentContext::new() } else { None };
+        let gpu_ctx = if is_gpu {
+            GpuContainmentContext::new()
+        } else {
+            None
+        };
 
         if let Some(ref gpu) = gpu_ctx {
             // Bulk GPU mode
@@ -113,12 +117,18 @@ impl ContainmentForest {
                 let shell = &shells[j];
                 let start_idx = gpu_coords.len() as u32;
                 for c in &shell.exterior {
-                    gpu_coords.push(GpuCoord { x: c.x as f32, y: c.y as f32 });
+                    gpu_coords.push(GpuCoord {
+                        x: c.x as f32,
+                        y: c.y as f32,
+                    });
                 }
                 let length = (gpu_coords.len() as u32) - start_idx;
 
                 gpu_rings.push(GpuRing { start_idx, length });
-                gpu_points.push(GpuPoint { x: probe_pt.x() as f32, y: probe_pt.y() as f32 });
+                gpu_points.push(GpuPoint {
+                    x: probe_pt.x() as f32,
+                    y: probe_pt.y() as f32,
+                });
             }
 
             let results = gpu.check_containment(&gpu_coords, &gpu_rings, &gpu_points);
@@ -186,15 +196,22 @@ impl ContainmentForest {
                             if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
                                 let touch_ok = match touch_policy {
                                     TouchPolicy::AllowPointTouchDisallowEdgeShare => {
-                                        !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
+                                        !rings_share_edge(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        )
                                     }
                                     TouchPolicy::TreatAnyTouchAsDisjoint => {
-                                        !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
-                                            && !rings_touch_at_vertex(
-                                                &shells[j].exterior,
-                                                &shell.exterior,
-                                                1e-10,
-                                            )
+                                        !rings_share_edge(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        ) && !rings_touch_at_vertex(
+                                            &shells[j].exterior,
+                                            &shell.exterior,
+                                            1e-10,
+                                        )
                                     }
                                     TouchPolicy::AllowEdgeShare => true,
                                 };
@@ -230,7 +247,10 @@ impl ContainmentForest {
         let hole_aabb: AABB<[f64; 2]> =
             AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-        let candidates: Vec<usize> = self.tree.locate_in_envelope_intersecting(&hole_aabb).collect();
+        let candidates: Vec<usize> = self
+            .tree
+            .locate_in_envelope_intersecting(&hole_aabb)
+            .collect();
 
         let mut best_shell_idx = None;
         let mut min_area = f64::MAX;
@@ -239,7 +259,11 @@ impl ContainmentForest {
         let hole_area = hole_3d.exterior_unsigned_area_2d();
 
         let is_gpu = matches!(self.tree, SpatialIndexBackend::GpuCompute(_));
-        let gpu_ctx = if is_gpu { GpuContainmentContext::new() } else { None };
+        let gpu_ctx = if is_gpu {
+            GpuContainmentContext::new()
+        } else {
+            None
+        };
 
         if let Some(ref gpu) = gpu_ctx {
             let mut gpu_coords = Vec::new();
@@ -250,12 +274,18 @@ impl ContainmentForest {
                 let shell = &shells[idx];
                 let start_idx = gpu_coords.len() as u32;
                 for c in &shell.exterior {
-                    gpu_coords.push(GpuCoord { x: c.x as f32, y: c.y as f32 });
+                    gpu_coords.push(GpuCoord {
+                        x: c.x as f32,
+                        y: c.y as f32,
+                    });
                 }
                 let length = (gpu_coords.len() as u32) - start_idx;
 
                 gpu_rings.push(GpuRing { start_idx, length });
-                gpu_points.push(GpuPoint { x: probe_point.0.x as f32, y: probe_point.0.y as f32 });
+                gpu_points.push(GpuPoint {
+                    x: probe_point.0.x as f32,
+                    y: probe_point.0.y as f32,
+                });
             }
 
             let results = gpu.check_containment(&gpu_coords, &gpu_rings, &gpu_points);

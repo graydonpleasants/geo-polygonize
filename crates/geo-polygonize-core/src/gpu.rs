@@ -150,31 +150,39 @@ impl GpuContainmentContext {
             return Vec::new();
         }
 
-        let coords_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Coords Buffer"),
-            contents: bytemuck::cast_slice(flat_coords),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let coords_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Coords Buffer"),
+                contents: bytemuck::cast_slice(flat_coords),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
 
-        let rings_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Rings Buffer"),
-            contents: bytemuck::cast_slice(rings),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let rings_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Rings Buffer"),
+                contents: bytemuck::cast_slice(rings),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
 
-        let points_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Points Buffer"),
-            contents: bytemuck::cast_slice(points),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let points_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Points Buffer"),
+                contents: bytemuck::cast_slice(points),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
 
         // Initialize results to 0
         let initial_results = vec![GpuResult { is_inside: 0 }; points.len()];
-        let results_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Results Buffer"),
-            contents: bytemuck::cast_slice(&initial_results),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        });
+        let results_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Results Buffer"),
+                contents: bytemuck::cast_slice(&initial_results),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            });
 
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Staging Buffer"),
@@ -233,7 +241,8 @@ impl GpuContainmentContext {
         self.queue.submit(Some(encoder.finish()));
 
         let buffer_slice = staging_buffer.slice(..);
-        let (sender, receiver) = futures_channel::oneshot::channel::<Result<(), wgpu::BufferAsyncError>>();
+        let (sender, receiver) =
+            futures_channel::oneshot::channel::<Result<(), wgpu::BufferAsyncError>>();
         buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
 
         // In wgpu v22.0.0 device polling is executed using `device.poll(wgpu::MaintainBase::Wait)`

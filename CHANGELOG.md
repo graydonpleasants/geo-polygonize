@@ -5,21 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.32.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.31.0...geo-polygonize-v0.32.0) (2026-03-27)
-
-
-### Features
-
-* Add architecture-aware runtime SIMD dispatch for scalar, Wasm SIMD v128, x86_64 AVX2 ([e3ca33a](https://github.com/graydonpleasants/geo-polygonize/commit/e3ca33a4aa535f6d5d36481327e94c8228294a28))
-
-
-### Bug Fixes
-
-* disable multiversion macro on wasm32 to fix CI native dispatch failures ([1185832](https://github.com/graydonpleasants/geo-polygonize/commit/1185832f634e0b4ea5dd070b2d1fa81659204357))
-* fix rustfmt warnings ([125a6fb](https://github.com/graydonpleasants/geo-polygonize/commit/125a6fb345c2cf9b2d4a8a22f4eb770ecad031c4))
-* **github:** fix maintenance workflow infinite loop on automated pr merge ([#678](https://github.com/graydonpleasants/geo-polygonize/issues/678)) ([4d7c3bf](https://github.com/graydonpleasants/geo-polygonize/commit/4d7c3bfb705473734b3891f14932e2c12b20430c))
-* remove wasm32+simd128 multiversion target ([af3b5b5](https://github.com/graydonpleasants/geo-polygonize/commit/af3b5b5f60696d725d5a59f88256e535f267a140))
-
 ## [0.31.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.2...geo-polygonize-v0.31.0) (2026-03-27)
 
 

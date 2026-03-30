@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000177 | 0.000699 | 0.002460 | 3.94x | 0.28x | 13.86x |
-| 10 | 0.000400 | 0.002240 | 0.001260 | 5.60x | 1.78x | 3.15x |
-| 20 | 0.001000 | 0.008253 | 0.003480 | 8.25x | 2.37x | 3.48x |
-| 50 | 0.004225 | 0.052277 | 0.013390 | 12.37x | 3.90x | 3.17x |
-| 100 | 0.016218 | 0.216769 | 0.029160 | 13.37x | 7.43x | 1.80x |
+| 5 | 0.000185 | 0.000643 | 0.002630 | 3.47x | 0.24x | 14.20x |
+| 10 | 0.000405 | 0.002155 | 0.001250 | 5.32x | 1.72x | 3.09x |
+| 20 | 0.001073 | 0.008117 | 0.003150 | 7.56x | 2.58x | 2.93x |
+| 50 | 0.004661 | 0.050401 | 0.011120 | 10.81x | 4.53x | 2.39x |
+| 100 | 0.018144 | 0.230609 | 0.031090 | 12.71x | 7.42x | 1.71x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000868 | 0.008077 | 0.001090 | 9.30x | 7.41x | 1.26x |
-| 100 | 0.002987 | 0.025754 | 0.003730 | 8.62x | 6.90x | 1.25x |
-| 200 | 0.010673 | 0.100626 | 0.015610 | 9.43x | 6.45x | 1.46x |
+| 50 | 0.000974 | 0.008128 | 0.001090 | 8.34x | 7.46x | 1.12x |
+| 100 | 0.003219 | 0.025664 | 0.004060 | 7.97x | 6.32x | 1.26x |
+| 200 | 0.011438 | 0.103213 | 0.016310 | 9.02x | 6.33x | 1.43x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,21 +252,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.32.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.31.0...geo-polygonize-v0.32.0) (2026-03-27)
-
-
-### Features
-
-* Add architecture-aware runtime SIMD dispatch for scalar, Wasm SIMD v128, x86_64 AVX2 ([e3ca33a](https://github.com/graydonpleasants/geo-polygonize/commit/e3ca33a4aa535f6d5d36481327e94c8228294a28))
-
-
-### Bug Fixes
-
-* disable multiversion macro on wasm32 to fix CI native dispatch failures ([1185832](https://github.com/graydonpleasants/geo-polygonize/commit/1185832f634e0b4ea5dd070b2d1fa81659204357))
-* fix rustfmt warnings ([125a6fb](https://github.com/graydonpleasants/geo-polygonize/commit/125a6fb345c2cf9b2d4a8a22f4eb770ecad031c4))
-* **github:** fix maintenance workflow infinite loop on automated pr merge ([#678](https://github.com/graydonpleasants/geo-polygonize/issues/678)) ([4d7c3bf](https://github.com/graydonpleasants/geo-polygonize/commit/4d7c3bfb705473734b3891f14932e2c12b20430c))
-* remove wasm32+simd128 multiversion target ([af3b5b5](https://github.com/graydonpleasants/geo-polygonize/commit/af3b5b5f60696d725d5a59f88256e535f267a140))
 
 ## [0.31.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.30.2...geo-polygonize-v0.31.0) (2026-03-27)
 
@@ -2448,7 +2433,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.32.0"
+version = "0.31.0"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2561,7 +2546,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.32.0"
+version = "0.31.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2593,9 +2578,6 @@ humantime-serde = "1.1.1"
 ts-rs = "12.0.1"
 geoparquet = { version = "0.7.0", optional = true }
 parquet = "57.3.0"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-multiversion = "0.8.0"
 
 [dev-dependencies]
 iai-callgrind = "0.16.1"
@@ -6836,12 +6818,7 @@ fn segments_overlap_with_length(
     let overlap_start = 0.0_f64.max(min_t);
     let overlap_end = 1.0_f64.min(max_t);
 
-    if overlap_end <= overlap_start {
-        return false;
-    }
-
-    let overlap_len = overlap_end - overlap_start;
-    overlap_len * overlap_len * a_len_sq > eps * eps
+    (overlap_end - overlap_start) * a_len_sq.sqrt() > eps
 }
 
 fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
@@ -9309,36 +9286,6 @@ mod tests {
 
 ```
 
-File: crates/geo-polygonize-core/src/bin/export_bindings.rs
-```
-use geo_polygonize_core::options::*;
-use ts_rs::TS;
-
-fn main() {
-    let config = ts_rs::Config::from_env();
-
-    // We export each root type with export_all so it writes out that type and its dependencies.
-    let _ = PolygonizerOptions::export_all(&config);
-    let _ = TargetProfile::export_all(&config);
-    let _ = SnapStrategy::export_all(&config);
-    let _ = SnapMode::export_all(&config);
-    let _ = ZPolicy::export_all(&config);
-    let _ = TouchPolicy::export_all(&config);
-    let _ = TileOwnershipPolicy::export_all(&config);
-    let _ = NodingBackend::export_all(&config);
-    let _ = IndexBackend::export_all(&config);
-    let _ = NodingOptions::export_all(&config);
-    let _ = ContainmentOptions::export_all(&config);
-    let _ = DeterminismOptions::export_all(&config);
-    let _ = geo_polygonize_core::diagnostics::DiagnosticsOptions::export_all(&config);
-    let _ = ProvenanceOptions::export_all(&config);
-    let _ = DedupPolicy::export_all(&config);
-    let _ = TilingOptions::export_all(&config);
-    let _ = ZOptions::export_all(&config);
-}
-
-```
-
 File: crates/geo-polygonize-core/src/graph/mod.rs
 ```
 pub mod planar_graph;
@@ -10655,31 +10602,19 @@ impl AdvancedNoder {
                 geo::Line::new(s2.start.to_coord_2d(), s2.end.to_coord_2d()),
             ) {
                 let eps = 1e-9;
-
-                let dx1_s = pt.x - s1.start.x;
-                let dy1_s = pt.y - s1.start.y;
-                let s1_start_dist = dx1_s * dx1_s + dy1_s * dy1_s;
-
-                let dx1_e = pt.x - s1.end.x;
-                let dy1_e = pt.y - s1.end.y;
-                let s1_end_dist = dx1_e * dx1_e + dy1_e * dy1_e;
-
-                let dx2_s = pt.x - s2.start.x;
-                let dy2_s = pt.y - s2.start.y;
-                let s2_start_dist = dx2_s * dx2_s + dy2_s * dy2_s;
-
-                let dx2_e = pt.x - s2.end.x;
-                let dy2_e = pt.y - s2.end.y;
-                let s2_end_dist = dx2_e * dx2_e + dy2_e * dy2_e;
+                let s1_start_dist = (pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2);
+                let s1_end_dist = (pt.x - s1.end.x).powi(2) + (pt.y - s1.end.y).powi(2);
+                let s2_start_dist = (pt.x - s2.start.x).powi(2) + (pt.y - s2.start.y).powi(2);
+                let s2_end_dist = (pt.x - s2.end.x).powi(2) + (pt.y - s2.end.y).powi(2);
 
                 if s1_start_dist > eps
                     && s1_end_dist > eps
                     && s2_start_dist > eps
                     && s2_end_dist > eps
                 {
-                    let s1_len_sq = (s1.end.x - s1.start.x) * (s1.end.x - s1.start.x)
-                        + (s1.end.y - s1.start.y) * (s1.end.y - s1.start.y);
-                    let t1 = s1_start_dist.sqrt() / s1_len_sq.sqrt();
+                    let t1 = ((pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2)).sqrt()
+                        / ((s1.end.x - s1.start.x).powi(2) + (s1.end.y - s1.start.y).powi(2))
+                            .sqrt();
                     let z_interp = s1.start.z + t1 * (s1.end.z - s1.start.z);
 
                     let intersect_coord = Coord3D {
@@ -10717,14 +10652,8 @@ impl AdvancedNoder {
         for (i, segment) in segments.into_iter().enumerate() {
             if let Some(mut pts) = splits_by_segment.remove(&i) {
                 pts.sort_by(|a, b| {
-                    let dx_a = a.x - segment.start.x;
-                    let dy_a = a.y - segment.start.y;
-                    let dist_a = dx_a * dx_a + dy_a * dy_a;
-
-                    let dx_b = b.x - segment.start.x;
-                    let dy_b = b.y - segment.start.y;
-                    let dist_b = dx_b * dx_b + dy_b * dy_b;
-
+                    let dist_a = (a.x - segment.start.x).powi(2) + (a.y - segment.start.y).powi(2);
+                    let dist_b = (b.x - segment.start.x).powi(2) + (b.y - segment.start.y).powi(2);
                     dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
                 });
 
@@ -10733,9 +10662,7 @@ impl AdvancedNoder {
 
                 for pt in pts {
                     let eps = 1e-9;
-                    let dx = current_start.x - pt.x;
-                    let dy = current_start.y - pt.y;
-                    if dx * dx + dy * dy > eps {
+                    if (current_start.x - pt.x).powi(2) + (current_start.y - pt.y).powi(2) > eps {
                         new_segments.push(Line3D {
                             start: current_start,
                             end: pt,
@@ -10745,9 +10672,10 @@ impl AdvancedNoder {
                     }
                 }
                 let eps = 1e-9;
-                let dx_end = current_start.x - segment.end.x;
-                let dy_end = current_start.y - segment.end.y;
-                if dx_end * dx_end + dy_end * dy_end > eps {
+                if (current_start.x - segment.end.x).powi(2)
+                    + (current_start.y - segment.end.y).powi(2)
+                    > eps
+                {
                     new_segments.push(Line3D {
                         start: current_start,
                         end: segment.end,
@@ -12479,14 +12407,8 @@ pub fn compare_angular(center: Coord<f64>, target_a: Coord<f64>, target_b: Coord
         // Sort by distance (shorter first? longer first?)
         // For simple polygonization, dedup usually handles this.
         // Let's pick: Farthest first?
-        let dx_a = target_a.x - center.x;
-        let dy_a = target_a.y - center.y;
-        let dist_a = dx_a * dx_a + dy_a * dy_a;
-
-        let dx_b = target_b.x - center.x;
-        let dy_b = target_b.y - center.y;
-        let dist_b = dx_b * dx_b + dy_b * dy_b;
-
+        let dist_a = (target_a.x - center.x).powi(2) + (target_a.y - center.y).powi(2);
+        let dist_b = (target_b.x - center.x).powi(2) + (target_b.y - center.y).powi(2);
         dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
     }
 }
@@ -12638,8 +12560,6 @@ where
 File: crates/geo-polygonize-core/src/utils/simd.rs
 ```
 use geo::Coord;
-#[cfg(not(target_arch = "wasm32"))]
-use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGt;
 
@@ -12693,71 +12613,55 @@ impl SimdRing {
             return false;
         }
 
-        contains_impl(&self.x, &self.y, self.len, point)
-    }
-}
+        let px = f64x4::splat(point.x);
+        let py = f64x4::splat(point.y);
 
-#[cfg_attr(
-    not(target_arch = "wasm32"),
-    multiversion(targets(
-        "x86_64+avx512f+avx512dq",
-        "x86_64+avx2",
-        "x86+avx2",
-        "x86_64+avx",
-        "x86+avx",
-        "x86_64+sse2",
-        "x86+sse2",
-    ))
-)]
-fn contains_impl(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
-    let px = f64x4::splat(point.x);
-    let py = f64x4::splat(point.y);
+        let n = self.len - 1; // Number of segments
 
-    let n = len - 1; // Number of segments
+        let mut i = 0;
+        let mut crossings = 0;
 
-    let mut i = 0;
-    let mut crossings = 0;
+        while i < n {
+            let remaining = n - i;
+            if remaining >= 4 {
+                let xi = f64x4::from(&self.x[i..i + 4]);
+                let yi = f64x4::from(&self.y[i..i + 4]);
 
-    while i < n {
-        let remaining = n - i;
-        if remaining >= 4 {
-            let xi = f64x4::from(&x[i..i + 4]);
-            let yi = f64x4::from(&y[i..i + 4]);
+                let xj = f64x4::from(&self.x[i + 1..i + 5]);
+                let yj = f64x4::from(&self.y[i + 1..i + 5]);
 
-            let xj = f64x4::from(&x[i + 1..i + 5]);
-            let yj = f64x4::from(&y[i + 1..i + 5]);
+                let yi_gt_py = yi.cmp_gt(py);
+                let yj_gt_py = yj.cmp_gt(py);
+                let in_range = yi_gt_py ^ yj_gt_py;
 
-            let yi_gt_py = yi.cmp_gt(py);
-            let yj_gt_py = yj.cmp_gt(py);
-            let in_range = yi_gt_py ^ yj_gt_py;
+                let num = (xj - xi) * (py - yi);
+                let den = yj - yi;
 
-            let num = (xj - xi) * (py - yi);
-            let den = yj - yi;
+                let intersect_x = (num / den) + xi;
+                let x_cond = intersect_x.cmp_gt(px);
 
-            let intersect_x = (num / den) + xi;
-            let x_cond = intersect_x.cmp_gt(px);
+                let is_crossing = in_range & x_cond;
 
-            let is_crossing = in_range & x_cond;
+                crossings += is_crossing.move_mask().count_ones();
 
-            crossings += is_crossing.move_mask().count_ones();
+                i += 4;
+            } else {
+                let p1x = self.x[i];
+                let p1y = self.y[i];
+                let p2x = self.x[i + 1];
+                let p2y = self.y[i + 1];
 
-            i += 4;
-        } else {
-            let p1x = x[i];
-            let p1y = y[i];
-            let p2x = x[i + 1];
-            let p2y = y[i + 1];
-
-            if ((p1y > point.y) != (p2y > point.y))
-                && (point.x < (p2x - p1x) * (point.y - p1y) / (p2y - p1y) + p1x)
-            {
-                crossings += 1;
+                if ((p1y > point.y) != (p2y > point.y))
+                    && (point.x < (p2x - p1x) * (point.y - p1y) / (p2y - p1y) + p1x)
+                {
+                    crossings += 1;
+                }
+                i += 1;
             }
-            i += 1;
         }
-    }
 
-    crossings % 2 != 0
+        crossings % 2 != 0
+    }
 }
 
 #[cfg(test)]
@@ -13071,8 +12975,6 @@ mod tests {
 File: crates/geo-polygonize-core/src/utils/soa.rs
 ```
 use crate::types::Line3D;
-#[cfg(not(target_arch = "wasm32"))]
-use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGe;
 use wide::CmpLe;
@@ -13157,59 +13059,22 @@ impl SoALines {
         q_max_y: f64x4,
         index: usize,
     ) -> u8 {
-        intersects_bbox_batch_splatted_impl(
-            &self.min_x,
-            &self.min_y,
-            &self.max_x,
-            &self.max_y,
-            q_min_x,
-            q_max_x,
-            q_min_y,
-            q_max_y,
-            index,
-        )
+        // 2. Load Targets (4 at a time) using pre-calculated Min/Max
+        let t_min_x = f64x4::from(&self.min_x[index..index + 4]);
+        let t_min_y = f64x4::from(&self.min_y[index..index + 4]);
+        let t_max_x = f64x4::from(&self.max_x[index..index + 4]);
+        let t_max_y = f64x4::from(&self.max_y[index..index + 4]);
+
+        // 3. Perform Intersection Check
+        // Logic: Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
+        let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
+        let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
+
+        let overlap = overlap_x & overlap_y;
+
+        // 4. Pack result to u8
+        overlap.move_mask() as u8
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg_attr(
-    not(target_arch = "wasm32"),
-    multiversion(targets(
-        "x86_64+avx512f+avx512dq",
-        "x86_64+avx2",
-        "x86+avx2",
-        "x86_64+avx",
-        "x86+avx",
-        "x86_64+sse2",
-        "x86+sse2",
-    ))
-)]
-fn intersects_bbox_batch_splatted_impl(
-    min_x: &[f64],
-    min_y: &[f64],
-    max_x: &[f64],
-    max_y: &[f64],
-    q_min_x: f64x4,
-    q_max_x: f64x4,
-    q_min_y: f64x4,
-    q_max_y: f64x4,
-    index: usize,
-) -> u8 {
-    // 2. Load Targets (4 at a time) using pre-calculated Min/Max
-    let t_min_x = f64x4::from(&min_x[index..index + 4]);
-    let t_min_y = f64x4::from(&min_y[index..index + 4]);
-    let t_max_x = f64x4::from(&max_x[index..index + 4]);
-    let t_max_y = f64x4::from(&max_y[index..index + 4]);
-
-    // 3. Perform Intersection Check
-    // Logic: Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
-    let overlap_x = q_min_x.cmp_le(t_max_x) & q_max_x.cmp_ge(t_min_x);
-    let overlap_y = q_min_y.cmp_le(t_max_y) & q_max_y.cmp_ge(t_min_y);
-
-    let overlap = overlap_x & overlap_y;
-
-    // 4. Pack result to u8
-    overlap.move_mask() as u8
 }
 
 #[cfg(test)]
@@ -14956,7 +14821,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.32.0"
+version = "0.31.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14966,7 +14831,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.32.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.31.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -18725,11 +18590,7 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    if command -v cargo-binstall &> /dev/null; then
-        cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-    else
-        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-    fi
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
 fi
 
 # Install binaryen (wasm-opt) if needed
@@ -18858,8 +18719,8 @@ done
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
-export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
-cargo run -p geo-polygonize-core --bin export_bindings --release
+export TS_RS_EXPORT_DIR="bindings"
+cargo test -p geo-polygonize-core
 mkdir -p pkg-wrapper/bindings
 cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
@@ -18920,11 +18781,7 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    if command -v cargo-binstall &> /dev/null; then
-        cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-    else
-        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-    fi
+    cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
 fi
 
 build_variant() {
@@ -18958,17 +18815,12 @@ build_variant() {
 build_variant "scalar" ""
 
 # Build SIMD
-if [ "$SKIP_SIMD" = "1" ]; then
-    echo "Skipping SIMD build as requested. Copying scalar to simd to satisfy dependencies..."
-    cp -r pkg-scalar pkg-simd
-else
-    build_variant "simd" "-C target-feature=+simd128"
-fi
+build_variant "simd" "-C target-feature=+simd128"
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
-export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
-cargo run -p geo-polygonize-core --bin export_bindings --release
+export TS_RS_EXPORT_DIR="bindings"
+cargo test -p geo-polygonize-core
 mkdir -p pkg-wrapper/bindings
 cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
