@@ -29,16 +29,29 @@ mod tests {
 
         let mut graph = PlanarGraph::new();
         // Point 1 with different Zs
-        let p1_a = Coord3D { x: 5.0, y: 5.0, z: 10.0 };
-        let p1_b = Coord3D { x: 5.0, y: 5.0, z: 20.0 };
+        let p1_a = Coord3D {
+            x: 5.0,
+            y: 5.0,
+            z: 10.0,
+        };
+        let p1_b = Coord3D {
+            x: 5.0,
+            y: 5.0,
+            z: 20.0,
+        };
         // Point 2 with different Zs
-        let p2_a = Coord3D { x: 10.0, y: 10.0, z: 10.0 };
-        let p2_b = Coord3D { x: 10.0, y: 10.0, z: 30.0 };
+        let p2_a = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 10.0,
+        };
+        let p2_b = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 30.0,
+        };
 
-        let lines = vec![
-            Line3D::new(p1_a, p2_a, 0),
-            Line3D::new(p1_b, p2_b, 1),
-        ];
+        let lines = vec![Line3D::new(p1_a, p2_a, 0), Line3D::new(p1_b, p2_b, 1)];
 
         graph.bulk_load(lines);
 
@@ -285,13 +298,29 @@ mod tests {
         use crate::types::Coord3D;
 
         let mut graph = PlanarGraph::new();
-        let p0 = Coord3D { x: 0.0, y: 0.0, z: 0.0 };
+        let p0 = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
         // Exactly zero length
-        let p1 = Coord3D { x: 0.0, y: 0.0, z: 0.0 };
+        let p1 = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
         // Almost zero length (differs by < 1e-12)
-        let p2 = Coord3D { x: 1e-13, y: 1e-13, z: 0.0 };
+        let p2 = Coord3D {
+            x: 1e-13,
+            y: 1e-13,
+            z: 0.0,
+        };
         // A valid segment
-        let p3 = Coord3D { x: 10.0, y: 10.0, z: 0.0 };
+        let p3 = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 0.0,
+        };
 
         let lines = vec![
             Line3D::new(p0, p1, 0),
