@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000186 | 0.000649 | 0.002490 | 3.49x | 0.26x | 13.41x |
-| 10 | 0.000429 | 0.002194 | 0.001350 | 5.11x | 1.63x | 3.14x |
-| 20 | 0.001076 | 0.008022 | 0.003290 | 7.45x | 2.44x | 3.06x |
-| 50 | 0.004667 | 0.050276 | 0.010830 | 10.77x | 4.64x | 2.32x |
-| 100 | 0.018383 | 0.213948 | 0.030720 | 11.64x | 6.96x | 1.67x |
+| 5 | 0.000186 | 0.000953 | 0.002410 | 5.12x | 0.40x | 12.94x |
+| 10 | 0.000399 | 0.003268 | 0.001370 | 8.19x | 2.39x | 3.43x |
+| 20 | 0.000965 | 0.009208 | 0.004010 | 9.54x | 2.30x | 4.16x |
+| 50 | 0.004097 | 0.051724 | 0.011640 | 12.62x | 4.44x | 2.84x |
+| 100 | 0.015649 | 0.208126 | 0.028630 | 13.30x | 7.27x | 1.83x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000962 | 0.007929 | 0.001070 | 8.24x | 7.41x | 1.11x |
-| 100 | 0.003254 | 0.025476 | 0.004310 | 7.83x | 5.91x | 1.32x |
-| 200 | 0.011435 | 0.099570 | 0.016160 | 8.71x | 6.16x | 1.41x |
+| 50 | 0.000866 | 0.007937 | 0.000980 | 9.16x | 8.10x | 1.13x |
+| 100 | 0.002901 | 0.025567 | 0.003750 | 8.81x | 6.82x | 1.29x |
+| 200 | 0.010592 | 0.098008 | 0.015090 | 9.25x | 6.49x | 1.42x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -10195,6 +10195,58 @@ mod tests {
     }
 
     #[test]
+    fn test_bulk_load_duplicate_nodes_different_z() {
+        use crate::types::Coord3D;
+
+        let mut graph = PlanarGraph::new();
+        // Point 1 with different Zs
+        let p1_a = Coord3D {
+            x: 5.0,
+            y: 5.0,
+            z: 10.0,
+        };
+        let p1_b = Coord3D {
+            x: 5.0,
+            y: 5.0,
+            z: 20.0,
+        };
+        // Point 2 with different Zs
+        let p2_a = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 10.0,
+        };
+        let p2_b = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 30.0,
+        };
+
+        let lines = vec![Line3D::new(p1_a, p2_a, 0), Line3D::new(p1_b, p2_b, 1)];
+
+        graph.bulk_load(lines);
+
+        // Nodes with the exact same (x, y) coordinates should be deduplicated.
+        // Even though Z coordinates are different, the deduplication in `bulk_load` ignores Z.
+        // We expect only 2 nodes (p1, p2) to be added.
+        assert_eq!(graph.nodes_x.len(), 2);
+
+        // However, the edges will remain because they aren't duplicates
+        // in terms of the list provided, and they don't have zero length.
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(graph.directed_edges.len(), 4);
+
+        // Verify that the edges point to the same two nodes.
+        // We sort the src, dst to safely verify the topology.
+        let mut n1 = [graph.directed_edges[0].src, graph.directed_edges[0].dst];
+        let mut n2 = [graph.directed_edges[2].src, graph.directed_edges[2].dst];
+        n1.sort_unstable();
+        n2.sort_unstable();
+
+        assert_eq!(n1, n2);
+    }
+
+    #[test]
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
@@ -10410,6 +10462,55 @@ mod tests {
         assert!(graph.directed_edges.is_empty());
         assert!(graph.nodes_outgoing.is_empty());
         assert!(graph.node_map.is_empty());
+    }
+
+    #[test]
+    fn test_bulk_load_zero_length_segment() {
+        use crate::types::Coord3D;
+
+        let mut graph = PlanarGraph::new();
+        let p0 = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        // Exactly zero length
+        let p1 = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        // Almost zero length (differs by < 1e-12)
+        let p2 = Coord3D {
+            x: 1e-13,
+            y: 1e-13,
+            z: 0.0,
+        };
+        // A valid segment
+        let p3 = Coord3D {
+            x: 10.0,
+            y: 10.0,
+            z: 0.0,
+        };
+
+        let lines = vec![
+            Line3D::new(p0, p1, 0),
+            Line3D::new(p0, p2, 1),
+            Line3D::new(p0, p3, 2),
+        ];
+
+        graph.bulk_load(lines);
+
+        // It should skip the first two zero-length / almost zero-length lines
+        // leaving only the valid segment (p0 -> p3).
+        // The nodes themselves are still added to `self.nodes_x`, etc.
+        // from the `entries` deduplication phase.
+        // p0, p1, p2, p3 will be collected. p0 and p1 will be deduplicated.
+        // p2 differs by < 1e-12 but dedup checks for exact equality, so p2 will NOT be deduplicated with p0.
+        // So nodes are p0, p2, p3 (3 nodes).
+        assert_eq!(graph.nodes_x.len(), 3);
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.directed_edges.len(), 2);
     }
 
     #[test]
@@ -12424,7 +12525,10 @@ pub mod soa;
 pub fn z_order_index(c: Coord<f64>) -> u64 {
     let x = sortable_float(c.x);
     let y = sortable_float(c.y);
-    part1by1(x) | (part1by1(y) << 1)
+    // Use the most significant 32 bits for Z-order index computation
+    // since `sortable_float` maps the float into a 64-bit unsigned int
+    // where the sign, exponent, and top mantissa are in the high bits.
+    part1by1(x >> 32) | (part1by1(y >> 32) << 1)
 }
 
 #[inline]
@@ -12524,6 +12628,129 @@ fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
         2
     } else {
         3
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sortable_float() {
+        // Test ordering preservation for typical values
+        let values = vec![
+            f64::NEG_INFINITY,
+            -1000.0,
+            -2.0,
+            -1.0,
+            -0.0,
+            0.0,
+            1.0,
+            2.0,
+            1000.0,
+            f64::INFINITY,
+        ];
+
+        for w in values.windows(2) {
+            let a = w[0];
+            let b = w[1];
+            assert!(
+                sortable_float(a) < sortable_float(b),
+                "Expected sortable_float({}) < sortable_float({}), but got {} >= {}",
+                a,
+                b,
+                sortable_float(a),
+                sortable_float(b)
+            );
+        }
+
+        // Test NaN behavior (NaN bits are preserved but ordering is tricky,
+        // generally we just want to ensure it doesn't crash and maps predictably)
+        let nan_mapped = sortable_float(f64::NAN);
+        assert!(nan_mapped > 0);
+    }
+
+    #[test]
+    fn test_part1by1() {
+        // Interleave lower 32 bits, separating them with zeros.
+        // 0b1 -> 0b1
+        assert_eq!(part1by1(0b1), 0b1);
+        // 0b11 -> 0b0101
+        assert_eq!(part1by1(0b11), 0b0101);
+        // 0b101 -> 0b0001_0000_0001
+        assert_eq!(part1by1(0b101), 0b10001);
+
+        // 0xFFFFFFFF (32 ones) -> 0x5555555555555555 (64 alternating ones and zeros)
+        assert_eq!(part1by1(0xFFFFFFFF), 0x5555555555555555);
+
+        // Higher bits are ignored by the `n &= 0x00000000FFFFFFFF;` line
+        assert_eq!(part1by1(0x1_FFFFFFFF), 0x5555555555555555);
+    }
+
+    #[test]
+    fn test_z_order_index_locality() {
+        // Points that are close in 2D space should have similar Z-order indices.
+        let p1 = Coord { x: 0.0, y: 0.0 };
+        let p2 = Coord {
+            x: 0.00001,
+            y: 0.00001,
+        };
+        let p3 = Coord { x: 100.0, y: 100.0 };
+
+        let z1 = z_order_index(p1);
+        let z2 = z_order_index(p2);
+        let z3 = z_order_index(p3);
+
+        // Calculate absolute differences
+        let diff12 = z1.abs_diff(z2);
+        let diff13 = z1.abs_diff(z3);
+
+        assert!(
+            diff12 < diff13,
+            "Expected points closer in 2D space to have closer Z-order indices. \
+            diff12: {}, diff13: {}",
+            diff12,
+            diff13
+        );
+    }
+
+    #[test]
+    fn test_z_order_index_quadrants() {
+        // Test points in different quadrants around the origin.
+        // For a standard Z-order curve with unsigned integers, interleaving X and Y
+        // puts Y on the even bits and X on the odd bits (or vice versa).
+        // Here we map negative floats to smaller unsigned integers, so the relative
+        // ordering should follow a Z-pattern across quadrants.
+
+        let p_bl = Coord { x: -1.0, y: -1.0 }; // Bottom-left (smallest x, smallest y)
+        let p_br = Coord { x: 1.0, y: -1.0 }; // Bottom-right (largest x, smallest y)
+        let p_tl = Coord { x: -1.0, y: 1.0 }; // Top-left (smallest x, largest y)
+        let p_tr = Coord { x: 1.0, y: 1.0 }; // Top-right (largest x, largest y)
+
+        let z_bl = z_order_index(p_bl);
+        let z_br = z_order_index(p_br);
+        let z_tl = z_order_index(p_tl);
+        let z_tr = z_order_index(p_tr);
+
+        // Verify the basic Z-pattern structure:
+        // bottom-left is the smallest overall because both components are negative
+        assert!(z_bl < z_br);
+        assert!(z_bl < z_tl);
+
+        // top-right is the largest overall because both components are positive
+        assert!(z_br < z_tr);
+        assert!(z_tl < z_tr);
+
+        // Given `part1by1(y) << 1`, Y provides the more significant bits locally
+        // between a horizontal pair vs vertical pair, though with 64-bit interleaved
+        // it applies strictly to every bit. We mainly just care that the function
+        // evaluates cleanly without panics and gives distinct values.
+        assert_ne!(z_bl, z_br);
+        assert_ne!(z_bl, z_tl);
+        assert_ne!(z_bl, z_tr);
+        assert_ne!(z_br, z_tl);
+        assert_ne!(z_br, z_tr);
+        assert_ne!(z_tl, z_tr);
     }
 }
 
