@@ -238,6 +238,10 @@
           {
             "name": "PackedNative",
             "docs": ""
+          },
+          {
+            "name": "GpuCompute",
+            "docs": ""
           }
         ]
       },

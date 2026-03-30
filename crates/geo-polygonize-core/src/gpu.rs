@@ -226,7 +226,7 @@ impl GpuContainmentContext {
             });
             cpass.set_pipeline(&self.pipeline);
             cpass.set_bind_group(0, &bind_group, &[]);
-            let workgroup_count = ((points.len() as u32) + 63) / 64;
+            let workgroup_count = (points.len() as u32).div_ceil(64);
             cpass.dispatch_workgroups(workgroup_count, 1, 1);
         }
 
