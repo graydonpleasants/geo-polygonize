@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000178 | 0.000700 | 0.002520 | 3.93x | 0.28x | 14.16x |
-| 10 | 0.000400 | 0.002264 | 0.001440 | 5.66x | 1.57x | 3.60x |
-| 20 | 0.001002 | 0.008336 | 0.003620 | 8.32x | 2.30x | 3.61x |
-| 50 | 0.004180 | 0.052136 | 0.010740 | 12.47x | 4.85x | 2.57x |
-| 100 | 0.016541 | 0.213552 | 0.029010 | 12.91x | 7.36x | 1.75x |
+| 5 | 0.000163 | 0.000603 | 0.002470 | 3.70x | 0.24x | 15.17x |
+| 10 | 0.000367 | 0.002017 | 0.001560 | 5.50x | 1.29x | 4.25x |
+| 20 | 0.000957 | 0.007591 | 0.003400 | 7.93x | 2.23x | 3.55x |
+| 50 | 0.004454 | 0.051498 | 0.011380 | 11.56x | 4.53x | 2.55x |
+| 100 | 0.018603 | 0.252896 | 0.029280 | 13.59x | 8.64x | 1.57x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000864 | 0.008064 | 0.001020 | 9.34x | 7.91x | 1.18x |
-| 100 | 0.002927 | 0.026149 | 0.003790 | 8.93x | 6.90x | 1.29x |
-| 200 | 0.010531 | 0.100433 | 0.015240 | 9.54x | 6.59x | 1.45x |
+| 50 | 0.000858 | 0.008367 | 0.001030 | 9.75x | 8.12x | 1.20x |
+| 100 | 0.002981 | 0.024519 | 0.004010 | 8.22x | 6.11x | 1.35x |
+| 200 | 0.011351 | 0.107786 | 0.015100 | 9.50x | 7.14x | 1.33x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -4772,6 +4772,8 @@ pub struct ContainmentForest {
     pub simd_shells: Vec<SimdRing>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<f64>,
+    // Bolt optimization: Cache AABBs to prevent O(N) recalculations of `bounding_rect_3d` in `filter_polygonal`.
+    pub shell_aabbs: Vec<Option<AABB<[f64; 2]>>>,
 }
 
 impl ContainmentForest {
@@ -4794,13 +4796,19 @@ impl ContainmentForest {
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
+        let mut shell_aabbs = Vec::with_capacity(shells.len());
+
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                 let aabb: AABB<[f64; 2]> =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
+                shell_aabbs.push(Some(aabb));
+            } else {
+                shell_aabbs.push(None);
             }
         }
+
         let tree = match index_backend {
             IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
             IndexBackend::PackedNative => {
@@ -4812,6 +4820,7 @@ impl ContainmentForest {
             tree,
             simd_shells,
             shell_areas,
+            shell_aabbs,
         }
     }
 
@@ -4825,15 +4834,13 @@ impl ContainmentForest {
             .collect();
 
         for (i, shell) in shells.iter().enumerate() {
-            let bbox: geo::Rect<f64> = match bounding_rect_3d(&shell.exterior) {
-                Some(b) => b,
+            let aabb = match self.shell_aabbs[i] {
+                Some(a) => a,
                 None => {
                     keep_mask[i] = false;
                     continue;
                 }
             };
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
             let candidates = self.tree.locate_in_envelope_intersecting(&aabb);
             let probe = probe_points[i];
