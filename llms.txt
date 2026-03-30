@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000163 | 0.000603 | 0.002470 | 3.70x | 0.24x | 15.17x |
-| 10 | 0.000367 | 0.002017 | 0.001560 | 5.50x | 1.29x | 4.25x |
-| 20 | 0.000957 | 0.007591 | 0.003400 | 7.93x | 2.23x | 3.55x |
-| 50 | 0.004454 | 0.051498 | 0.011380 | 11.56x | 4.53x | 2.55x |
-| 100 | 0.018603 | 0.252896 | 0.029280 | 13.59x | 8.64x | 1.57x |
+| 5 | 0.000177 | 0.000699 | 0.002460 | 3.94x | 0.28x | 13.86x |
+| 10 | 0.000400 | 0.002240 | 0.001260 | 5.60x | 1.78x | 3.15x |
+| 20 | 0.001000 | 0.008253 | 0.003480 | 8.25x | 2.37x | 3.48x |
+| 50 | 0.004225 | 0.052277 | 0.013390 | 12.37x | 3.90x | 3.17x |
+| 100 | 0.016218 | 0.216769 | 0.029160 | 13.37x | 7.43x | 1.80x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000858 | 0.008367 | 0.001030 | 9.75x | 8.12x | 1.20x |
-| 100 | 0.002981 | 0.024519 | 0.004010 | 8.22x | 6.11x | 1.35x |
-| 200 | 0.011351 | 0.107786 | 0.015100 | 9.50x | 7.14x | 1.33x |
+| 50 | 0.000868 | 0.008077 | 0.001090 | 9.30x | 7.41x | 1.26x |
+| 100 | 0.002987 | 0.025754 | 0.003730 | 8.62x | 6.90x | 1.25x |
+| 200 | 0.010673 | 0.100626 | 0.015610 | 9.43x | 6.45x | 1.46x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,13 +252,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.33.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.32.0...geo-polygonize-v0.33.0) (2026-03-30)
-
-
-### Features
-
-* **github:** revamp interactive documentation playground with SVG visualizer and comprehensive examples ([#694](https://github.com/graydonpleasants/geo-polygonize/issues/694)) ([1617023](https://github.com/graydonpleasants/geo-polygonize/commit/161702348367ea4edce471d59b3f1ac7051cd540))
 
 ## [0.32.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.31.0...geo-polygonize-v0.32.0) (2026-03-27)
 
@@ -2455,7 +2448,7 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.33.0"
+version = "0.32.0"
 requires-python = ">=3.7"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
@@ -2568,7 +2561,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.33.0"
+version = "0.32.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -4772,8 +4765,6 @@ pub struct ContainmentForest {
     pub simd_shells: Vec<SimdRing>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<f64>,
-    // Bolt optimization: Cache AABBs to prevent O(N) recalculations of `bounding_rect_3d` in `filter_polygonal`.
-    pub shell_aabbs: Vec<Option<AABB<[f64; 2]>>>,
 }
 
 impl ContainmentForest {
@@ -4796,19 +4787,13 @@ impl ContainmentForest {
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        let mut shell_aabbs = Vec::with_capacity(shells.len());
-
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                 let aabb: AABB<[f64; 2]> =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
-                shell_aabbs.push(Some(aabb));
-            } else {
-                shell_aabbs.push(None);
             }
         }
-
         let tree = match index_backend {
             IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
             IndexBackend::PackedNative => {
@@ -4820,7 +4805,6 @@ impl ContainmentForest {
             tree,
             simd_shells,
             shell_areas,
-            shell_aabbs,
         }
     }
 
@@ -4834,13 +4818,15 @@ impl ContainmentForest {
             .collect();
 
         for (i, shell) in shells.iter().enumerate() {
-            let aabb = match self.shell_aabbs[i] {
-                Some(a) => a,
+            let bbox: geo::Rect<f64> = match bounding_rect_3d(&shell.exterior) {
+                Some(b) => b,
                 None => {
                     keep_mask[i] = false;
                     continue;
                 }
             };
+            let aabb: AABB<[f64; 2]> =
+                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
             let candidates = self.tree.locate_in_envelope_intersecting(&aabb);
             let probe = probe_points[i];
@@ -14970,7 +14956,7 @@ File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.33.0"
+version = "0.32.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -14980,7 +14966,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.33.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.32.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -17582,192 +17568,6 @@ fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
 ```
 
 File: examples/simple.rs
-```
-//! Simple example of polygonizing a set of lines.
-
-use geo::Area;
-use geo_polygonize::Polygonizer;
-use geo_types::{Geometry, LineString};
-
-fn main() {
-    let mut polygonizer = Polygonizer::new();
-
-    // Create a simple square
-    let square_lines = LineString::from(vec![
-        (0.0, 0.0),
-        (10.0, 0.0),
-        (10.0, 10.0),
-        (0.0, 10.0),
-        (0.0, 0.0),
-    ]);
-
-    // Add geometry to the polygonizer
-    polygonizer.add_geometry(Geometry::LineString(square_lines));
-
-    // Compute polygons
-    let polygons = polygonizer.polygonize().expect("Failed to polygonize");
-
-    println!("Found {} polygon(s)", polygons.len());
-
-    for (i, poly) in polygons.iter().enumerate() {
-        println!("Polygon {}: Area = {}", i, poly.unsigned_area());
-    }
-}
-
-```
-
-File: playground/public/examples/polygonize.rs
-```
-use clap::Parser;
-use geo_polygonize_core::Polygonizer;
-use geo_types::Geometry as GeoGeometry;
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
-use std::convert::TryInto;
-use std::error::Error;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Input GeoJSON file (LineStrings)
-    #[arg(short, long)]
-    input: PathBuf,
-
-    /// Output GeoJSON file (Polygons)
-    #[arg(short, long)]
-    output: PathBuf,
-
-    /// Enable robust noding (split intersecting lines)
-    #[arg(long, default_value_t = false)]
-    node: bool,
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-
-    // Read Input
-    if !args.input.exists() {
-        eprintln!("Input file does not exist: {:?}", args.input);
-        return Ok(());
-    }
-
-    println!("Reading input from {:?}", args.input);
-    let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
-    let geojson: GeoJson = serde_json::from_reader(reader)?;
-
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = args.node;
-
-    let mut count = 0;
-
-    match geojson {
-        GeoJson::FeatureCollection(fc) => {
-            for feature in fc.features {
-                if let Some(geom) = feature.geometry {
-                    if let Ok(geo_geom) = geom.try_into() {
-                        add_geometry(&mut polygonizer, geo_geom);
-                        count += 1;
-                    }
-                }
-            }
-        }
-        GeoJson::Geometry(geom) => {
-            if let Ok(geo_geom) = geom.try_into() {
-                add_geometry(&mut polygonizer, geo_geom);
-                count += 1;
-            }
-        }
-        GeoJson::Feature(feature) => {
-            if let Some(geom) = feature.geometry {
-                if let Ok(geo_geom) = geom.try_into() {
-                    add_geometry(&mut polygonizer, geo_geom);
-                    count += 1;
-                }
-            }
-        }
-    }
-
-    println!("Added {} geometries. Polygonizing...", count);
-
-    let result = polygonizer.polygonize()?;
-    println!("Found {} polygons.", result.polygons.len());
-    println!("Found {} dangles.", result.dangles.len());
-
-    // Convert back to GeoJSON (handling 3D)
-    let features: Vec<Feature> = result
-        .polygons
-        .into_iter()
-        .map(|poly| {
-            // poly is Polygon3D
-            let exterior_ring: Vec<Vec<f64>> =
-                poly.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
-
-            let mut rings: Vec<Vec<Vec<f64>>> = vec![exterior_ring];
-
-            for interior in poly.interiors {
-                let interior_ring: Vec<Vec<f64>> =
-                    interior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
-                rings.push(interior_ring);
-            }
-
-            let geometry = Geometry::new(Value::Polygon(rings));
-
-            Feature {
-                bbox: None,
-                geometry: Some(geometry),
-                id: None,
-                properties: None,
-                foreign_members: None,
-            }
-        })
-        .collect();
-
-    let output_fc = FeatureCollection {
-        bbox: None,
-        features,
-        foreign_members: None,
-    };
-
-    let output_geojson = GeoJson::FeatureCollection(output_fc);
-
-    println!("Writing output to {:?}", args.output);
-    let file = File::create(&args.output)?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, &output_geojson)?;
-
-    Ok(())
-}
-
-fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
-    match geom {
-        GeoGeometry::LineString(ls) => {
-            polygonizer.add_geometry(GeoGeometry::LineString(ls));
-        }
-        GeoGeometry::MultiLineString(mls) => {
-            for ls in mls {
-                polygonizer.add_geometry(GeoGeometry::LineString(ls));
-            }
-        }
-        GeoGeometry::GeometryCollection(gc) => {
-            for g in gc {
-                add_geometry(polygonizer, g);
-            }
-        }
-        _ => {
-            // Ignore other types or try to add them if Polygonizer supports them?
-            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
-            // But usually we want LineStrings.
-            polygonizer.add_geometry(geom);
-        }
-    }
-}
-
-```
-
-File: playground/public/examples/simple.rs
 ```
 //! Simple example of polygonizing a set of lines.
 

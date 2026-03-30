@@ -16,18 +16,16 @@ pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
     pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
-    pub shell_areas: Vec<f64>,
-    // Bolt optimization: Cache AABBs to prevent O(N) recalculations of `bounding_rect_3d` in `filter_polygonal`.
-    pub shell_aabbs: Vec<Option<AABB<[f64; 2]>>>,
+    pub shell_areas: Vec<Option<f64>>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
-        let simd_shells: Vec<Option<SimdRing>>;
-        let shell_areas: Vec<Option<f64>>;
+        let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
+        let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
         #[cfg(feature = "parallel")]
         {
-            (simd_shells, shell_areas) = shells
+            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
                 .par_iter()
                 .map(|s| {
                     (
@@ -36,10 +34,12 @@ impl ContainmentForest {
                     )
                 })
                 .unzip();
+            simd_shells.extend(shells_p);
+            shell_areas.extend(areas_p);
         }
         #[cfg(not(feature = "parallel"))]
         {
-            (simd_shells, shell_areas) = shells
+            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
                 .iter()
                 .map(|s| {
                     (
@@ -48,22 +48,18 @@ impl ContainmentForest {
                     )
                 })
                 .unzip();
+            simd_shells.extend(shells_p);
+            shell_areas.extend(areas_p);
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        let mut shell_aabbs = Vec::with_capacity(shells.len());
-
         for (i, shell) in shells.iter().enumerate() {
             if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
                 let aabb: AABB<[f64; 2]> =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
-                shell_aabbs.push(Some(aabb));
-            } else {
-                shell_aabbs.push(None);
             }
         }
-
         let tree = match index_backend {
             IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
             IndexBackend::PackedNative => {
@@ -75,7 +71,6 @@ impl ContainmentForest {
             tree,
             simd_shells,
             shell_areas,
-            shell_aabbs,
         }
     }
 
@@ -89,13 +84,15 @@ impl ContainmentForest {
             .collect();
 
         for (i, shell) in shells.iter().enumerate() {
-            let aabb = match self.shell_aabbs[i] {
-                Some(a) => a,
+            let bbox: geo::Rect<f64> = match bounding_rect_3d(&shell.exterior) {
+                Some(b) => b,
                 None => {
                     keep_mask[i] = false;
                     continue;
                 }
             };
+            let aabb: AABB<[f64; 2]> =
+                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
             let candidates = self.tree.locate_in_envelope_intersecting(&aabb);
             let probe = probe_points[i];
