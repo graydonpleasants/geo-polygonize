@@ -1028,6 +1028,45 @@ mod tests {
     }
 
     #[test]
+    fn test_bounding_rect_3d() {
+        // 1. Empty slice
+        assert_eq!(bounding_rect_3d(&[]), None);
+
+        // 2. Single coordinate
+        let single = vec![Coord3D::new(5.0, 10.0, 15.0)];
+        let rect1 = bounding_rect_3d(&single).unwrap();
+        assert_eq!(rect1.min().x, 5.0);
+        assert_eq!(rect1.max().x, 5.0);
+        assert_eq!(rect1.min().y, 10.0);
+        assert_eq!(rect1.max().y, 10.0);
+
+        // 3. Multiple coordinates (Z should be ignored)
+        let coords = vec![
+            Coord3D::new(1.0, 2.0, 100.0),
+            Coord3D::new(-5.0, 8.0, -50.0),
+            Coord3D::new(10.0, -3.0, 0.0),
+            Coord3D::new(4.0, 12.0, 20.0),
+        ];
+        let rect2 = bounding_rect_3d(&coords).unwrap();
+        assert_eq!(rect2.min().x, -5.0);
+        assert_eq!(rect2.max().x, 10.0);
+        assert_eq!(rect2.min().y, -3.0);
+        assert_eq!(rect2.max().y, 12.0);
+
+        // 4. Multiple coordinates with same X/Y
+        let coords2 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 10.0),
+            Coord3D::new(0.0, 0.0, -10.0),
+        ];
+        let rect3 = bounding_rect_3d(&coords2).unwrap();
+        assert_eq!(rect3.min().x, 0.0);
+        assert_eq!(rect3.max().x, 0.0);
+        assert_eq!(rect3.min().y, 0.0);
+        assert_eq!(rect3.max().y, 0.0);
+    }
+
+    #[test]
     fn test_rings_share_edge() {
         let shell = vec![
             Coord3D::new(0.0, 0.0, 0.0),
