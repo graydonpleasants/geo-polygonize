@@ -410,8 +410,6 @@ impl PlanarGraph {
         }
     }
 
-    /// Sorts all outgoing edges of all nodes by angle.
-
     /// Dynamically adds a single line segment to the graph.
     /// Uses `add_node` internally which handles 2D deduplication.
     pub fn add_line(&mut self, line: Line3D) {

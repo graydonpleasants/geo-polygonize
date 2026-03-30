@@ -40,13 +40,11 @@ impl AdvancedNoder {
 
                 events.push(Event {
                     x: left.x,
-                    y: left.y,
                     segment_idx: i,
                     is_left: true,
                 });
                 events.push(Event {
                     x: right.x,
-                    y: right.y,
                     segment_idx: i,
                     is_left: false,
                 });
@@ -193,31 +191,19 @@ impl AdvancedNoder {
                 geo::Line::new(s2.start.to_coord_2d(), s2.end.to_coord_2d()),
             ) {
                 let eps = 1e-9;
-
-                let dx1_s = pt.x - s1.start.x;
-                let dy1_s = pt.y - s1.start.y;
-                let s1_start_dist = dx1_s * dx1_s + dy1_s * dy1_s;
-
-                let dx1_e = pt.x - s1.end.x;
-                let dy1_e = pt.y - s1.end.y;
-                let s1_end_dist = dx1_e * dx1_e + dy1_e * dy1_e;
-
-                let dx2_s = pt.x - s2.start.x;
-                let dy2_s = pt.y - s2.start.y;
-                let s2_start_dist = dx2_s * dx2_s + dy2_s * dy2_s;
-
-                let dx2_e = pt.x - s2.end.x;
-                let dy2_e = pt.y - s2.end.y;
-                let s2_end_dist = dx2_e * dx2_e + dy2_e * dy2_e;
+                let s1_start_dist = (pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2);
+                let s1_end_dist = (pt.x - s1.end.x).powi(2) + (pt.y - s1.end.y).powi(2);
+                let s2_start_dist = (pt.x - s2.start.x).powi(2) + (pt.y - s2.start.y).powi(2);
+                let s2_end_dist = (pt.x - s2.end.x).powi(2) + (pt.y - s2.end.y).powi(2);
 
                 if s1_start_dist > eps
                     && s1_end_dist > eps
                     && s2_start_dist > eps
                     && s2_end_dist > eps
                 {
-                    let s1_len_sq = (s1.end.x - s1.start.x) * (s1.end.x - s1.start.x)
-                        + (s1.end.y - s1.start.y) * (s1.end.y - s1.start.y);
-                    let t1 = s1_start_dist.sqrt() / s1_len_sq.sqrt();
+                    let t1 = ((pt.x - s1.start.x).powi(2) + (pt.y - s1.start.y).powi(2)).sqrt()
+                        / ((s1.end.x - s1.start.x).powi(2) + (s1.end.y - s1.start.y).powi(2))
+                            .sqrt();
                     let z_interp = s1.start.z + t1 * (s1.end.z - s1.start.z);
 
                     let intersect_coord = Coord3D {
@@ -255,14 +241,8 @@ impl AdvancedNoder {
         for (i, segment) in segments.into_iter().enumerate() {
             if let Some(mut pts) = splits_by_segment.remove(&i) {
                 pts.sort_by(|a, b| {
-                    let dx_a = a.x - segment.start.x;
-                    let dy_a = a.y - segment.start.y;
-                    let dist_a = dx_a * dx_a + dy_a * dy_a;
-
-                    let dx_b = b.x - segment.start.x;
-                    let dy_b = b.y - segment.start.y;
-                    let dist_b = dx_b * dx_b + dy_b * dy_b;
-
+                    let dist_a = (a.x - segment.start.x).powi(2) + (a.y - segment.start.y).powi(2);
+                    let dist_b = (b.x - segment.start.x).powi(2) + (b.y - segment.start.y).powi(2);
                     dist_a.partial_cmp(&dist_b).unwrap_or(Ordering::Equal)
                 });
 
@@ -271,9 +251,7 @@ impl AdvancedNoder {
 
                 for pt in pts {
                     let eps = 1e-9;
-                    let dx = current_start.x - pt.x;
-                    let dy = current_start.y - pt.y;
-                    if dx * dx + dy * dy > eps {
+                    if (current_start.x - pt.x).powi(2) + (current_start.y - pt.y).powi(2) > eps {
                         new_segments.push(Line3D {
                             start: current_start,
                             end: pt,
@@ -283,9 +261,10 @@ impl AdvancedNoder {
                     }
                 }
                 let eps = 1e-9;
-                let dx_end = current_start.x - segment.end.x;
-                let dy_end = current_start.y - segment.end.y;
-                if dx_end * dx_end + dy_end * dy_end > eps {
+                if (current_start.x - segment.end.x).powi(2)
+                    + (current_start.y - segment.end.y).powi(2)
+                    > eps
+                {
                     new_segments.push(Line3D {
                         start: current_start,
                         end: segment.end,
@@ -303,8 +282,6 @@ impl AdvancedNoder {
 #[derive(Debug, Clone, Copy)]
 struct Event {
     x: f64,
-    #[allow(dead_code)]
-    y: f64,
     segment_idx: usize,
     is_left: bool,
 }

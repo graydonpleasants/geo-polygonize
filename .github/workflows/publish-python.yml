@@ -71,11 +71,10 @@ jobs:
         with:
           packages-dir: dist
 
-      - name: Install SBOM Tool
-        run: pip install cyclonedx-bom
-
       - name: Generate SBOM
-        run: cyclonedx-py requirements python/requirements.txt -o bom.json
+        uses: CycloneDX/gh-python-sbom-action@v1
+        with:
+          args: --directory python
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4

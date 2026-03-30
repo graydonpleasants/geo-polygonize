@@ -30,17 +30,8 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-
       - name: Install dependencies
         run: npm ci
-
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
 
       - name: Build WebAssembly and TypeScript
         run: npm run build
@@ -49,10 +40,7 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Generate SBOM
-        uses: CycloneDX/gh-node-module-generatebom@v1
-        with:
-          path: './'
-          output: './bom.json'
+        uses: CycloneDX/gh-node-module-sbom-action@v1
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4

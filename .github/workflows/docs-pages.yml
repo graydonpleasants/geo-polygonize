@@ -43,9 +43,6 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -64,13 +61,8 @@ jobs:
       - name: Verify Clean Generated Output
         run: git diff --exit-code docs/reference/generated/
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
       - name: Build Site Wasm Library
         run: npm run build:site-lib
-        env:
-          SKIP_SIMD: ${{ github.event_name == 'pull_request' && '1' || '0' }}
 
       - name: Build Playground
         run: |
