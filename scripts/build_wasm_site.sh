@@ -40,7 +40,8 @@ build_variant() {
     fi
 
     rm -rf $OUT_DIR
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    # Use full path to avoid PATH issues in CI environments
+    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # Remove .gitignore if generated
     rm -f $OUT_DIR/.gitignore
