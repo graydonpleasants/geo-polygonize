@@ -18,6 +18,7 @@ pub mod index;
 pub mod noding;
 pub mod options;
 pub mod polygonizer;
+pub mod stateful;
 pub mod tiling;
 pub mod types;
 pub mod utils;
@@ -29,6 +30,7 @@ pub mod python;
 mod polygonizer_tests;
 
 pub use polygonizer::{Polygonizer, PolygonizerResult};
+pub use stateful::{PolygonizerUpdate, StatefulPolygonizer};
 pub use tiling::TiledPolygonizer;
 pub use types::{Coord3D, Line3D, Polygon3D};
 

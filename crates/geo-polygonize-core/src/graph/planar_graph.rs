@@ -32,6 +32,8 @@ pub struct Edge {
     pub dir_edges: [DirEdgeId; 2],
     /// Flag indicating if the edge is marked (e.g. visited or pruned).
     pub is_marked: bool,
+    /// Flag indicating if the edge has been dynamically deleted.
+    pub deleted: bool,
 }
 
 /// A directed half-edge in the planar graph.
@@ -168,6 +170,7 @@ fn create_edge_components(
         line,
         dir_edges: [de_u_v_idx, de_v_u_idx],
         is_marked: false,
+        deleted: false,
     };
 
     (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
@@ -344,6 +347,95 @@ impl PlanarGraph {
         }
     }
 
+    /// Adds a line to the graph and returns the new EdgeId.
+    pub fn add_line(&mut self, line: Line3D) -> EdgeId {
+        let p0 = line.start;
+        let p1 = line.end;
+
+        let u = self.add_node(p0);
+        let v = self.add_node(p1);
+
+        let edge_idx = self.edges.len();
+        let de_u_v_idx = self.directed_edges.len();
+        let de_v_u_idx = self.directed_edges.len() + 1;
+
+        let de_u_v = DirectedEdge {
+            src: u,
+            dst: v,
+            edge_idx,
+            sym_idx: de_v_u_idx,
+            is_visited: false,
+            is_marked: false,
+            edge_direction: true,
+        };
+
+        let de_v_u = DirectedEdge {
+            src: v,
+            dst: u,
+            edge_idx,
+            sym_idx: de_u_v_idx,
+            is_visited: false,
+            is_marked: false,
+            edge_direction: false,
+        };
+
+        self.directed_edges.push(de_u_v);
+        self.directed_edges.push(de_v_u);
+
+        self.edges.push(Edge {
+            line,
+            dir_edges: [de_u_v_idx, de_v_u_idx],
+            is_marked: false,
+            deleted: false,
+        });
+
+        self.nodes_outgoing[u].push(de_u_v_idx);
+        self.nodes_degree[u] += 1;
+
+        self.nodes_outgoing[v].push(de_v_u_idx);
+        self.nodes_degree[v] += 1;
+
+        edge_idx
+    }
+
+    /// Removes an edge by marking it as deleted by matching line ID.
+    pub fn remove_line_by_id(&mut self, line_id: u32) -> bool {
+        for edge in &mut self.edges {
+            if !edge.deleted && edge.line.line_id == line_id {
+                edge.deleted = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Resets all traversal and marked flags so a new polygonization pass can run.
+    pub fn reset_traversal_state(&mut self) {
+        // Recalculate degrees based only on non-deleted edges
+        for d in &mut self.nodes_degree {
+            *d = 0;
+        }
+        for (i, outgoing) in self.nodes_outgoing.iter().enumerate() {
+            for &de_idx in outgoing {
+                let de = &self.directed_edges[de_idx];
+                if !self.edges[de.edge_idx].deleted {
+                    self.nodes_degree[i] += 1;
+                }
+            }
+        }
+
+        for m in &mut self.nodes_marked {
+            *m = false;
+        }
+        for de in &mut self.directed_edges {
+            de.is_visited = false;
+            de.is_marked = false;
+        }
+        for edge in &mut self.edges {
+            edge.is_marked = false;
+        }
+    }
+
     /// Adds a line string to the graph.
     pub fn add_line_string(&mut self, line: LineString<f64>) {
         if line.0.is_empty() {
@@ -396,6 +488,7 @@ impl PlanarGraph {
                 line: Line3D::new(p0.into(), p1.into(), 0),
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
+                deleted: false,
             });
 
             self.nodes_outgoing[u].push(de_u_v_idx);
@@ -419,6 +512,9 @@ impl PlanarGraph {
             .par_iter_mut()
             .enumerate()
             .for_each(|(src_idx, adj)| {
+                // Filter out deleted edges before sorting
+                adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+
                 let center = Coord {
                     x: nodes_x[src_idx],
                     y: nodes_y[src_idx],
@@ -449,6 +545,9 @@ impl PlanarGraph {
             .iter_mut()
             .enumerate()
             .for_each(|(src_idx, adj)| {
+                // Filter out deleted edges before sorting
+                adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+
                 let center = Coord {
                     x: nodes_x[src_idx],
                     y: nodes_y[src_idx],
@@ -498,7 +597,8 @@ impl PlanarGraph {
 
             let mut found_de_idx = None;
             for &de_idx in &self.nodes_outgoing[node_idx] {
-                if !self.directed_edges[de_idx].is_marked {
+                let de = &self.directed_edges[de_idx];
+                if !de.is_marked && !self.edges[de.edge_idx].deleted {
                     found_de_idx = Some(de_idx);
                     break;
                 }
@@ -532,6 +632,9 @@ impl PlanarGraph {
     pub fn get_cut_edges(&self) -> Vec<Vec<Coord3D>> {
         let mut cuts = Vec::new();
         for edge in &self.edges {
+            if edge.deleted {
+                continue;
+            }
             let de1 = &self.directed_edges[edge.dir_edges[0]];
             let de2 = &self.directed_edges[edge.dir_edges[1]];
 
@@ -585,7 +688,10 @@ impl PlanarGraph {
                 outgoing
                     .iter()
                     .copied()
-                    .filter(|&idx| !self.directed_edges[idx].is_marked),
+                    .filter(|&idx| {
+                        let de = &self.directed_edges[idx];
+                        !de.is_marked && !self.edges[de.edge_idx].deleted
+                    }),
             );
 
             if valid_edges.is_empty() {
@@ -730,6 +836,10 @@ impl PlanarGraph {
             if self.directed_edges[start_de_idx].is_visited
                 || self.directed_edges[start_de_idx].is_marked
             {
+                continue;
+            }
+
+            if self.edges[self.directed_edges[start_de_idx].edge_idx].deleted {
                 continue;
             }
 
