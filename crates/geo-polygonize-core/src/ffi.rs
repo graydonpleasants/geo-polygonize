@@ -107,14 +107,15 @@ pub unsafe extern "C" fn polygonize_with_options_ffi(
     input_schema: *mut FFI_ArrowSchema,
     output_array: *mut FFI_ArrowArray,
     output_schema: *mut FFI_ArrowSchema,
-    options_json: *const std::os::raw::c_char,
+    options_json: *const u8,
+    options_json_len: usize,
 ) -> i32 {
     if options_json.is_null() {
         return 1;
     }
 
-    let c_str = std::ffi::CStr::from_ptr(options_json);
-    let options_str = match c_str.to_str() {
+    let slice = std::slice::from_raw_parts(options_json, options_json_len);
+    let options_str = match std::str::from_utf8(slice) {
         Ok(s) => s,
         Err(_) => return 1,
     };
