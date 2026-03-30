@@ -135,6 +135,21 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     """
     mismatches = []
 
+    if isinstance(result_a, list) and isinstance(result_b, list):
+        if len(result_a) != len(result_b):
+            mismatches.append(f"Polygon count mismatch: {len(result_a)} vs {len(result_b)}")
+
+        for i, (poly_a, poly_b) in enumerate(zip(result_a, result_b)):
+            if abs(poly_a.area - poly_b.area) > tolerance:
+                mismatches.append(f"Area mismatch on polygon {i}: {poly_a.area} vs {poly_b.area}")
+            elif not poly_a.equals_exact(poly_b, tolerance):
+                mismatches.append(f"Geometry mismatch on polygon {i}")
+
+        return {
+            "is_match": len(mismatches) == 0,
+            "mismatches": mismatches
+        }
+
     # 1. Compare Options
     opts_a = result_a.get("options", {})
     opts_b = result_b.get("options", {})
