@@ -178,7 +178,10 @@ mod tests {
     fn test_z_order_index_locality() {
         // Points that are close in 2D space should have similar Z-order indices.
         let p1 = Coord { x: 0.0, y: 0.0 };
-        let p2 = Coord { x: 0.00001, y: 0.00001 };
+        let p2 = Coord {
+            x: 0.00001,
+            y: 0.00001,
+        };
         let p3 = Coord { x: 100.0, y: 100.0 };
 
         let z1 = z_order_index(p1);
@@ -193,7 +196,8 @@ mod tests {
             diff12 < diff13,
             "Expected points closer in 2D space to have closer Z-order indices. \
             diff12: {}, diff13: {}",
-            diff12, diff13
+            diff12,
+            diff13
         );
     }
 
@@ -206,9 +210,9 @@ mod tests {
         // ordering should follow a Z-pattern across quadrants.
 
         let p_bl = Coord { x: -1.0, y: -1.0 }; // Bottom-left (smallest x, smallest y)
-        let p_br = Coord { x:  1.0, y: -1.0 }; // Bottom-right (largest x, smallest y)
-        let p_tl = Coord { x: -1.0, y:  1.0 }; // Top-left (smallest x, largest y)
-        let p_tr = Coord { x:  1.0, y:  1.0 }; // Top-right (largest x, largest y)
+        let p_br = Coord { x: 1.0, y: -1.0 }; // Bottom-right (largest x, smallest y)
+        let p_tl = Coord { x: -1.0, y: 1.0 }; // Top-left (smallest x, largest y)
+        let p_tr = Coord { x: 1.0, y: 1.0 }; // Top-right (largest x, largest y)
 
         let z_bl = z_order_index(p_bl);
         let z_br = z_order_index(p_br);
