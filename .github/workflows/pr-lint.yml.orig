@@ -28,8 +28,3 @@ jobs:
 
           # Require a scope to always be present
           requireScope: true
-          ignoreLabels: |
-            bot
-            ignore-semantic-pull-request
-          headerPattern: '^([a-zA-Z]+(?:\\([^)]+\\))?!?: .+)|(⚡ Bolt: .+)$'
-          headerPatternCorrespondence: type, scope, subject
