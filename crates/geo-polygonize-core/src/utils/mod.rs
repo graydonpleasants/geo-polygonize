@@ -12,7 +12,10 @@ pub mod soa;
 pub fn z_order_index(c: Coord<f64>) -> u64 {
     let x = sortable_float(c.x);
     let y = sortable_float(c.y);
-    part1by1(x) | (part1by1(y) << 1)
+    // Use the most significant 32 bits for Z-order index computation
+    // since `sortable_float` maps the float into a 64-bit unsigned int
+    // where the sign, exponent, and top mantissa are in the high bits.
+    part1by1(x >> 32) | (part1by1(y >> 32) << 1)
 }
 
 #[inline]
@@ -112,5 +115,128 @@ fn quadrant(c: Coord<f64>, t: Coord<f64>) -> u8 {
         2
     } else {
         3
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sortable_float() {
+        // Test ordering preservation for typical values
+        let values = vec![
+            f64::NEG_INFINITY,
+            -1000.0,
+            -2.0,
+            -1.0,
+            -0.0,
+            0.0,
+            1.0,
+            2.0,
+            1000.0,
+            f64::INFINITY,
+        ];
+
+        for w in values.windows(2) {
+            let a = w[0];
+            let b = w[1];
+            assert!(
+                sortable_float(a) < sortable_float(b),
+                "Expected sortable_float({}) < sortable_float({}), but got {} >= {}",
+                a,
+                b,
+                sortable_float(a),
+                sortable_float(b)
+            );
+        }
+
+        // Test NaN behavior (NaN bits are preserved but ordering is tricky,
+        // generally we just want to ensure it doesn't crash and maps predictably)
+        let nan_mapped = sortable_float(f64::NAN);
+        assert!(nan_mapped > 0);
+    }
+
+    #[test]
+    fn test_part1by1() {
+        // Interleave lower 32 bits, separating them with zeros.
+        // 0b1 -> 0b1
+        assert_eq!(part1by1(0b1), 0b1);
+        // 0b11 -> 0b0101
+        assert_eq!(part1by1(0b11), 0b0101);
+        // 0b101 -> 0b0001_0000_0001
+        assert_eq!(part1by1(0b101), 0b10001);
+
+        // 0xFFFFFFFF (32 ones) -> 0x5555555555555555 (64 alternating ones and zeros)
+        assert_eq!(part1by1(0xFFFFFFFF), 0x5555555555555555);
+
+        // Higher bits are ignored by the `n &= 0x00000000FFFFFFFF;` line
+        assert_eq!(part1by1(0x1_FFFFFFFF), 0x5555555555555555);
+    }
+
+    #[test]
+    fn test_z_order_index_locality() {
+        // Points that are close in 2D space should have similar Z-order indices.
+        let p1 = Coord { x: 0.0, y: 0.0 };
+        let p2 = Coord {
+            x: 0.00001,
+            y: 0.00001,
+        };
+        let p3 = Coord { x: 100.0, y: 100.0 };
+
+        let z1 = z_order_index(p1);
+        let z2 = z_order_index(p2);
+        let z3 = z_order_index(p3);
+
+        // Calculate absolute differences
+        let diff12 = z1.abs_diff(z2);
+        let diff13 = z1.abs_diff(z3);
+
+        assert!(
+            diff12 < diff13,
+            "Expected points closer in 2D space to have closer Z-order indices. \
+            diff12: {}, diff13: {}",
+            diff12,
+            diff13
+        );
+    }
+
+    #[test]
+    fn test_z_order_index_quadrants() {
+        // Test points in different quadrants around the origin.
+        // For a standard Z-order curve with unsigned integers, interleaving X and Y
+        // puts Y on the even bits and X on the odd bits (or vice versa).
+        // Here we map negative floats to smaller unsigned integers, so the relative
+        // ordering should follow a Z-pattern across quadrants.
+
+        let p_bl = Coord { x: -1.0, y: -1.0 }; // Bottom-left (smallest x, smallest y)
+        let p_br = Coord { x: 1.0, y: -1.0 }; // Bottom-right (largest x, smallest y)
+        let p_tl = Coord { x: -1.0, y: 1.0 }; // Top-left (smallest x, largest y)
+        let p_tr = Coord { x: 1.0, y: 1.0 }; // Top-right (largest x, largest y)
+
+        let z_bl = z_order_index(p_bl);
+        let z_br = z_order_index(p_br);
+        let z_tl = z_order_index(p_tl);
+        let z_tr = z_order_index(p_tr);
+
+        // Verify the basic Z-pattern structure:
+        // bottom-left is the smallest overall because both components are negative
+        assert!(z_bl < z_br);
+        assert!(z_bl < z_tl);
+
+        // top-right is the largest overall because both components are positive
+        assert!(z_br < z_tr);
+        assert!(z_tl < z_tr);
+
+        // Given `part1by1(y) << 1`, Y provides the more significant bits locally
+        // between a horizontal pair vs vertical pair, though with 64-bit interleaved
+        // it applies strictly to every bit. We mainly just care that the function
+        // evaluates cleanly without panics and gives distinct values.
+        assert_ne!(z_bl, z_br);
+        assert_ne!(z_bl, z_tl);
+        assert_ne!(z_bl, z_tr);
+        assert_ne!(z_br, z_tl);
+        assert_ne!(z_br, z_tr);
+        assert_ne!(z_tl, z_tr);
     }
 }
