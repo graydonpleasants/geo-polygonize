@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
