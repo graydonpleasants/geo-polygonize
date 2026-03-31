@@ -65,7 +65,7 @@ build_variant() {
     # The previous script used --out-name "geo_polygonize". We should stick to that if possible
     # to avoid breaking downstream consumers.
 
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -122,7 +122,7 @@ build_variant_threads() {
 
     rm -rf $OUT_DIR
     # Use --target web to ensure correct loading behavior for threads
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then

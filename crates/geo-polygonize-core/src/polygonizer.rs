@@ -358,7 +358,7 @@ pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
     }
 }
 
-fn extract_and_classify_rings(
+pub(crate) fn extract_and_classify_rings(
     rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
 ) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
@@ -442,7 +442,7 @@ fn establish_topology(
     (shells, shell_holes, shell_holes_ids)
 }
 
-fn construct_final_polygons(
+pub(crate) fn construct_final_polygons(
     shells: Vec<Polygon3D>,
     shell_holes: Vec<Vec<Vec<Coord3D>>>,
     shell_holes_ids: Vec<Vec<Vec<u32>>>,
@@ -555,7 +555,7 @@ fn construct_final_polygons(
     result
 }
 
-fn apply_determinism(
+pub(crate) fn apply_determinism(
     mut result: Vec<Polygon3D>,
     dangles: &mut [Vec<Coord3D>],
     invalid_rings: &mut Vec<Vec<Coord3D>>,
@@ -676,7 +676,7 @@ fn apply_determinism(
     result
 }
 
-fn process_invalid_rings(
+pub(crate) fn process_invalid_rings(
     rings: Vec<Polygon3D>,
     valid_shells_2d: &[Polygon<f64>],
 ) -> Vec<Vec<Coord3D>> {
