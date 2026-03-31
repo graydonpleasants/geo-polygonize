@@ -1,0 +1,40 @@
+polygonize/grid/5       time:   [423.78 µs 428.91 µs 433.74 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+polygonize/grid/10      time:   [891.26 µs 903.77 µs 915.64 µs]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high mild
+polygonize/grid/20      time:   [1.9511 ms 1.9779 ms 2.0170 ms]
+Found 3 outliers among 10 measurements (30.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+polygonize/grid/50      time:   [7.7051 ms 7.7314 ms 7.7586 ms]
+Found 3 outliers among 10 measurements (30.00%)
+  2 (20.00%) low mild
+  1 (10.00%) high severe
+polygonize/grid_tiled/50
+                        time:   [2.7791 ms 2.8030 ms 2.8379 ms]
+polygonize/grid/100     time:   [33.033 ms 34.122 ms 34.846 ms]
+polygonize/grid_tiled/100
+                        time:   [10.418 ms 10.480 ms 10.551 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+polygonize/bowtie_grid_auto/10
+                        time:   [538.05 µs 540.63 µs 544.50 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+polygonize/bowtie_grid_force_grid/10
+                        time:   [550.86 µs 566.51 µs 586.02 µs]
+polygonize/bowtie_grid_force_simd/10
+                        time:   [554.09 µs 556.66 µs 559.76 µs]
+polygonize/bowtie_grid_auto/20
+                        time:   [1.4750 ms 1.4841 ms 1.4948 ms]
+polygonize/bowtie_grid_force_grid/20
+                        time:   [1.4662 ms 1.4838 ms 1.5067 ms]
+polygonize/bowtie_grid_force_simd/20
+                        time:   [3.1099 ms 3.1289 ms 3.1523 ms]
+Found 3 outliers among 10 measurements (30.00%)
+  1 (10.00%) low mild
+  2 (20.00%) high mild
