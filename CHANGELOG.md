@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.33.0...geo-polygonize-v0.34.0) (2026-03-31)
+
+
+### Features
+
+* **core:** implement incremental stateful polygonizer ([#704](https://github.com/graydonpleasants/geo-polygonize/issues/704)) ([e88802b](https://github.com/graydonpleasants/geo-polygonize/commit/e88802b10a1a1a90de38c8b8b07da4b95b055971))
+
+
+### Bug Fixes
+
+* **playground:** correct vitepress build order and copy examples to public ([48c0a6f](https://github.com/graydonpleasants/geo-polygonize/commit/48c0a6fd81738483ad7735081556083e2a405794))
+
+
+### Build System
+
+* use full path for wasm-bindgen in build scripts ([d88e33b](https://github.com/graydonpleasants/geo-polygonize/commit/d88e33bc8363a7ce4749afdc4dfae1f24ba0af4c))
+
 ## [0.33.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.32.0...geo-polygonize-v0.33.0) (2026-03-30)
 
 
