@@ -182,4 +182,41 @@ describe('WASM Polygonizer', () => {
         }
     });
 
+    it('should throw error when stride is invalid in polygonize_buffers', async () => {
+        expect.assertions(2);
+        await init();
+        const { polygonize_buffers } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]);
+        const stride = 4; // Invalid stride
+        const node_input = false;
+        const snap_grid_size = 1e-10;
+
+        try {
+            polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toBe("stride must be 2 or 3");
+        }
+    });
+
+    it('should throw error when stride is invalid in polygonizeWithOptionsBuffer', async () => {
+        expect.assertions(2);
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]);
+        const stride = 1; // Invalid stride
+        const options = { target: 'WasmSingleThread', node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap', snap_mode: 'FloatEpsilonDedup' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare', index_backend: 'RStar' }, tiling: null, z: { policy: 'Ignore' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+
+        try {
+            polygonizeWithOptionsBuffer(coords, offsets, stride, options);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toBe("stride must be 2 or 3");
+        }
+    });
+
 });
