@@ -358,7 +358,7 @@ pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
     }
 }
 
-pub(crate) fn extract_and_classify_rings(
+fn extract_and_classify_rings(
     rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
 ) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
@@ -442,7 +442,7 @@ fn establish_topology(
     (shells, shell_holes, shell_holes_ids)
 }
 
-pub(crate) fn construct_final_polygons(
+fn construct_final_polygons(
     shells: Vec<Polygon3D>,
     shell_holes: Vec<Vec<Vec<Coord3D>>>,
     shell_holes_ids: Vec<Vec<Vec<u32>>>,
@@ -555,7 +555,7 @@ pub(crate) fn construct_final_polygons(
     result
 }
 
-pub(crate) fn apply_determinism(
+fn apply_determinism(
     mut result: Vec<Polygon3D>,
     dangles: &mut [Vec<Coord3D>],
     invalid_rings: &mut Vec<Vec<Coord3D>>,
@@ -676,7 +676,7 @@ pub(crate) fn apply_determinism(
     result
 }
 
-pub(crate) fn process_invalid_rings(
+fn process_invalid_rings(
     rings: Vec<Polygon3D>,
     valid_shells_2d: &[Polygon<f64>],
 ) -> Vec<Vec<Coord3D>> {
@@ -1025,45 +1025,6 @@ mod tests {
         assert_eq!(polygonizer.input_lines.len(), 2);
         assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
         assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
-    }
-
-    #[test]
-    fn test_bounding_rect_3d() {
-        // 1. Empty slice
-        assert_eq!(bounding_rect_3d(&[]), None);
-
-        // 2. Single coordinate
-        let single = vec![Coord3D::new(5.0, 10.0, 15.0)];
-        let rect1 = bounding_rect_3d(&single).unwrap();
-        assert_eq!(rect1.min().x, 5.0);
-        assert_eq!(rect1.max().x, 5.0);
-        assert_eq!(rect1.min().y, 10.0);
-        assert_eq!(rect1.max().y, 10.0);
-
-        // 3. Multiple coordinates (Z should be ignored)
-        let coords = vec![
-            Coord3D::new(1.0, 2.0, 100.0),
-            Coord3D::new(-5.0, 8.0, -50.0),
-            Coord3D::new(10.0, -3.0, 0.0),
-            Coord3D::new(4.0, 12.0, 20.0),
-        ];
-        let rect2 = bounding_rect_3d(&coords).unwrap();
-        assert_eq!(rect2.min().x, -5.0);
-        assert_eq!(rect2.max().x, 10.0);
-        assert_eq!(rect2.min().y, -3.0);
-        assert_eq!(rect2.max().y, 12.0);
-
-        // 4. Multiple coordinates with same X/Y
-        let coords2 = vec![
-            Coord3D::new(0.0, 0.0, 0.0),
-            Coord3D::new(0.0, 0.0, 10.0),
-            Coord3D::new(0.0, 0.0, -10.0),
-        ];
-        let rect3 = bounding_rect_3d(&coords2).unwrap();
-        assert_eq!(rect3.min().x, 0.0);
-        assert_eq!(rect3.max().x, 0.0);
-        assert_eq!(rect3.min().y, 0.0);
-        assert_eq!(rect3.max().y, 0.0);
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::options::TouchPolicy;
 use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
 };
-use crate::types::{Coord3D, Polygon3D};
+use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -14,42 +14,28 @@ use rstar::AABB;
 
 pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
-    pub simd_shells: Vec<Option<SimdRing>>,
+    pub simd_shells: Vec<SimdRing>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
-    pub shell_areas: Vec<Option<f64>>,
+    pub shell_areas: Vec<f64>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
-        let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
-        let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
+        let simd_shells: Vec<SimdRing>;
+        let shell_areas: Vec<f64>;
         #[cfg(feature = "parallel")]
         {
-            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
+            (simd_shells, shell_areas) = shells
                 .par_iter()
-                .map(|s| {
-                    (
-                        Some(SimdRing::new_3d(&s.exterior)),
-                        Some(s.exterior_unsigned_area_2d()),
-                    )
-                })
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
-            simd_shells.extend(shells_p);
-            shell_areas.extend(areas_p);
         }
         #[cfg(not(feature = "parallel"))]
         {
-            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
+            (simd_shells, shell_areas) = shells
                 .iter()
-                .map(|s| {
-                    (
-                        Some(SimdRing::new_3d(&s.exterior)),
-                        Some(s.exterior_unsigned_area_2d()),
-                    )
-                })
+                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
                 .unzip();
-            simd_shells.extend(shells_p);
-            shell_areas.extend(areas_p);
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -105,21 +91,12 @@ impl ContainmentForest {
                     }
 
                     // Check if shell[i] is inside shell[j]
-                    let simd_shell = match &self.simd_shells[j] {
-                        Some(s) => s,
-                        None => continue,
-                    };
+                    let simd_shell = &self.simd_shells[j];
 
                     if simd_shell.contains(probe_pt.0) {
                         // Using cached areas instead of `shell.exterior_unsigned_area_2d()`
-                        let area_i = match self.shell_areas[i] {
-                            Some(a) => a,
-                            None => continue,
-                        };
-                        let area_j = match self.shell_areas[j] {
-                            Some(a) => a,
-                            None => continue,
-                        };
+                        let area_i = self.shell_areas[i];
+                        let area_j = self.shell_areas[j];
 
                         // If i is strictly contained inside j, increment container count
                         if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
@@ -178,17 +155,11 @@ impl ContainmentForest {
 
         for cand_idx in candidates {
             let idx = cand_idx;
-            let simd_shell = match &self.simd_shells[idx] {
-                Some(s) => s,
-                None => continue,
-            };
+            let simd_shell = &self.simd_shells[idx];
 
             if simd_shell.contains(probe_point.0) {
                 // Using cached areas instead of `shells[idx].exterior_unsigned_area_2d()`
-                let area = match self.shell_areas[idx] {
-                    Some(a) => a,
-                    None => continue,
-                };
+                let area = self.shell_areas[idx];
 
                 if area > hole_area + 1e-6 && area < min_area {
                     let touch_ok = match touch_policy {
@@ -215,37 +186,5 @@ impl ContainmentForest {
         }
 
         best_shell_idx
-    }
-
-    pub fn insert_shell(&mut self, exterior: &[Coord3D], index: usize) {
-        if let Some(bbox) = bounding_rect_3d(exterior) {
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-            self.tree.insert(IndexedEnvelope { aabb, index });
-        }
-
-        if index >= self.simd_shells.len() {
-            self.simd_shells.resize_with(index + 1, || None);
-            self.shell_areas.resize_with(index + 1, || None);
-        }
-
-        self.simd_shells[index] = Some(SimdRing::new_3d(exterior));
-        self.shell_areas[index] = Some(Polygon3D::ring_signed_area_2d(exterior).abs());
-    }
-
-    pub fn remove_shell(&mut self, exterior: &[Coord3D], index: usize) -> bool {
-        if let Some(bbox) = bounding_rect_3d(exterior) {
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-            self.tree.remove(&IndexedEnvelope { aabb, index });
-        }
-
-        if index < self.simd_shells.len() {
-            self.simd_shells[index] = None;
-            self.shell_areas[index] = None;
-            true
-        } else {
-            false
-        }
     }
 }

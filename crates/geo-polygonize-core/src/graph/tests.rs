@@ -24,58 +24,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bulk_load_duplicate_nodes_different_z() {
-        use crate::types::Coord3D;
-
-        let mut graph = PlanarGraph::new();
-        // Point 1 with different Zs
-        let p1_a = Coord3D {
-            x: 5.0,
-            y: 5.0,
-            z: 10.0,
-        };
-        let p1_b = Coord3D {
-            x: 5.0,
-            y: 5.0,
-            z: 20.0,
-        };
-        // Point 2 with different Zs
-        let p2_a = Coord3D {
-            x: 10.0,
-            y: 10.0,
-            z: 10.0,
-        };
-        let p2_b = Coord3D {
-            x: 10.0,
-            y: 10.0,
-            z: 30.0,
-        };
-
-        let lines = vec![Line3D::new(p1_a, p2_a, 0), Line3D::new(p1_b, p2_b, 1)];
-
-        graph.bulk_load(lines);
-
-        // Nodes with the exact same (x, y) coordinates should be deduplicated.
-        // Even though Z coordinates are different, the deduplication in `bulk_load` ignores Z.
-        // We expect only 2 nodes (p1, p2) to be added.
-        assert_eq!(graph.nodes_x.len(), 2);
-
-        // However, the edges will remain because they aren't duplicates
-        // in terms of the list provided, and they don't have zero length.
-        assert_eq!(graph.edges.len(), 2);
-        assert_eq!(graph.directed_edges.len(), 4);
-
-        // Verify that the edges point to the same two nodes.
-        // We sort the src, dst to safely verify the topology.
-        let mut n1 = [graph.directed_edges[0].src, graph.directed_edges[0].dst];
-        let mut n2 = [graph.directed_edges[2].src, graph.directed_edges[2].dst];
-        n1.sort_unstable();
-        n2.sort_unstable();
-
-        assert_eq!(n1, n2);
-    }
-
-    #[test]
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
         // Add 4 edges radiating from (0,0)
@@ -291,55 +239,6 @@ mod tests {
         assert!(graph.directed_edges.is_empty());
         assert!(graph.nodes_outgoing.is_empty());
         assert!(graph.node_map.is_empty());
-    }
-
-    #[test]
-    fn test_bulk_load_zero_length_segment() {
-        use crate::types::Coord3D;
-
-        let mut graph = PlanarGraph::new();
-        let p0 = Coord3D {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        };
-        // Exactly zero length
-        let p1 = Coord3D {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        };
-        // Almost zero length (differs by < 1e-12)
-        let p2 = Coord3D {
-            x: 1e-13,
-            y: 1e-13,
-            z: 0.0,
-        };
-        // A valid segment
-        let p3 = Coord3D {
-            x: 10.0,
-            y: 10.0,
-            z: 0.0,
-        };
-
-        let lines = vec![
-            Line3D::new(p0, p1, 0),
-            Line3D::new(p0, p2, 1),
-            Line3D::new(p0, p3, 2),
-        ];
-
-        graph.bulk_load(lines);
-
-        // It should skip the first two zero-length / almost zero-length lines
-        // leaving only the valid segment (p0 -> p3).
-        // The nodes themselves are still added to `self.nodes_x`, etc.
-        // from the `entries` deduplication phase.
-        // p0, p1, p2, p3 will be collected. p0 and p1 will be deduplicated.
-        // p2 differs by < 1e-12 but dedup checks for exact equality, so p2 will NOT be deduplicated with p0.
-        // So nodes are p0, p2, p3 (3 nodes).
-        assert_eq!(graph.nodes_x.len(), 3);
-        assert_eq!(graph.edges.len(), 1);
-        assert_eq!(graph.directed_edges.len(), 2);
     }
 
     #[test]

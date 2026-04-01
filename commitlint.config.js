@@ -19,11 +19,11 @@ export default {
       ]
     ],
     // The subject can contain emojis, but we need to ensure the whole message
-    // starts with an alphanumeric character (the type) or matches the Bolt prefix.
+    // starts with an alphanumeric character (the type).
     'header-pattern': [
       2,
       'always',
-      /(^[a-zA-Z]+(\([^)]+\))?!?: .+)|(^⚡ Bolt: .+)/
+      /^[a-zA-Z]+(\([^)]+\))?!?: .+/
     ]
   },
   plugins: [
@@ -33,11 +33,11 @@ export default {
           // Commitlint's default parser might fail or misinterpret emojis at the start.
           // The safest way is to check the raw header.
           const { header } = parsed;
-          const regex = /(^[a-zA-Z]+(\([^)]+\))?!?: .+)|(^⚡ Bolt: .+)/;
+          const regex = /^[a-zA-Z]+(\([^)]+\))?!?: .+/;
           if (regex.test(header)) {
             return [true];
           }
-          return [false, `header must match pattern /(^[a-zA-Z]+(\\([^)]+\\))?!?: .+)|(^⚡ Bolt: .+)/, found: "${header}"`];
+          return [false, `header must match pattern /^[a-zA-Z]+(\\([^)]+\\))?!?: .+/, found: "${header}"`];
         }
       }
     }

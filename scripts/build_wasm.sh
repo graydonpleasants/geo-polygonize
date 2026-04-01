@@ -14,6 +14,7 @@ rustup target add $TARGET
 # Install wasm-bindgen-cli if needed
 if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
     echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+    cargo uninstall wasm-bindgen-cli || true
     if command -v cargo-binstall &> /dev/null; then
         cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     else
@@ -65,7 +66,7 @@ build_variant() {
     # The previous script used --out-name "geo_polygonize". We should stick to that if possible
     # to avoid breaking downstream consumers.
 
-    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -122,7 +123,7 @@ build_variant_threads() {
 
     rm -rf $OUT_DIR
     # Use --target web to ensure correct loading behavior for threads
-    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then

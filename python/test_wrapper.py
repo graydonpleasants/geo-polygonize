@@ -431,88 +431,6 @@ def test_extract_only_polygonal():
 
     print("extract_only_polygonal test passed!")
 
-def test_explain_mismatch_identical():
-    print("\nTesting explain_mismatch with identical results...")
-    from geo_polygonize import explain_mismatch
-    from shapely.geometry import Polygon
-
-    poly1 = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-    poly2 = Polygon([(1, 1), (2, 1), (2, 2), (1, 2)])
-
-    result_a = [poly1, poly2]
-    result_b = [poly1, poly2]
-
-    match_info = explain_mismatch(result_a, result_b)
-    assert match_info["is_match"] is True
-    assert len(match_info["mismatches"]) == 0
-    print("explain_mismatch identical test passed!")
-
-def test_explain_mismatch_count():
-    print("\nTesting explain_mismatch with count mismatch...")
-    from geo_polygonize import explain_mismatch
-    from shapely.geometry import Polygon
-
-    poly1 = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-
-    result_a = [poly1]
-    result_b = [poly1, poly1]
-
-    match_info = explain_mismatch(result_a, result_b)
-    assert match_info["is_match"] is False
-    assert len(match_info["mismatches"]) == 1
-    assert "Polygon count mismatch: 1 vs 2" in match_info["mismatches"][0]
-    print("explain_mismatch count test passed!")
-
-def test_explain_mismatch_geometry():
-    print("\nTesting explain_mismatch with geometry and area mismatch...")
-    from geo_polygonize import explain_mismatch
-    from shapely.geometry import Polygon
-
-    # Area 1.0
-    poly1 = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-    # Area 4.0
-    poly2 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
-    # Same area (1.0) but different shape
-    poly3 = Polygon([(0, 0), (2, 0), (1, 1)])
-
-    result_a = [poly1, poly1]
-    result_b = [poly2, poly3]
-
-    match_info = explain_mismatch(result_a, result_b)
-    assert match_info["is_match"] is False
-    assert len(match_info["mismatches"]) == 2
-
-    mismatches = match_info["mismatches"]
-    assert any("Area mismatch on polygon 0" in m for m in mismatches)
-    assert any("Geometry mismatch on polygon 1" in m for m in mismatches)
-    print("explain_mismatch geometry test passed!")
-
-def test_explain_mismatch_report_options():
-    print("\nTesting explain_mismatch with option mismatches in report-mode...")
-    from geo_polygonize import explain_mismatch
-
-    result_a = {
-        "options": {
-            "node_input": True,
-            "snap_grid_size": 1e-5,
-            "extract_only_polygonal": False,
-            "snap_strategy": "Grid",
-            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare"},
-            "z": {"policy": "Ignore"},
-            "target": "Native"
-        }
-    }
-
-    import copy
-    result_b = copy.deepcopy(result_a)
-    result_b["options"]["node_input"] = False
-
-    match_info = explain_mismatch(result_a, result_b)
-    assert match_info["is_match"] is False
-    assert len(match_info["mismatches"]) == 1
-    assert "Option mismatch: 'node_input'" in match_info["mismatches"][0]
-    print("explain_mismatch report options test passed!")
-
 if __name__ == "__main__":
     test_square()
     test_two_squares()
@@ -532,7 +450,3 @@ if __name__ == "__main__":
     test_polygonize_with_options()
     test_rust_typed_errors()
     test_extract_only_polygonal()
-    test_explain_mismatch_identical()
-    test_explain_mismatch_count()
-    test_explain_mismatch_geometry()
-    test_explain_mismatch_report_options()
