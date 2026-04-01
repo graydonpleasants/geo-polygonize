@@ -28,6 +28,21 @@ except ImportError:
     class PolygonizeTopologyError(ValueError):
         pass
 
+_MISMATCH_CHECK_OPTIONS = [
+    "node_input",
+    "snap_grid_size",
+    "extract_only_polygonal",
+    "snap_strategy",
+]
+
+_MISMATCH_CHECK_TOPOLOGY_KEYS = [
+    "ring_count",
+    "shell_count",
+    "hole_count",
+    "dangle_count",
+    "invalid_ring_count",
+]
+
 def polygonize_with_options(lines=None, coords=None, offsets=None, options=None, stride=None, line_ids=None, return_polygons=False):
     """
     Polygonize a set of lines with full canonical options.
@@ -140,7 +155,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     opts_b = result_b.get("options", {})
 
     # Check top-level options that often cause differences
-    for key in ["node_input", "snap_grid_size", "extract_only_polygonal", "snap_strategy"]:
+    for key in _MISMATCH_CHECK_OPTIONS:
         if opts_a.get(key) != opts_b.get(key):
             mismatches.append(f"Option mismatch: '{key}' ({opts_a.get(key)} vs {opts_b.get(key)})")
 
@@ -156,8 +171,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     diag_a = result_a.get("diagnostics", {})
     diag_b = result_b.get("diagnostics", {})
 
-    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "invalid_ring_count"]
-    for key in topology_keys:
+    for key in _MISMATCH_CHECK_TOPOLOGY_KEYS:
         val_a = diag_a.get(key)
         val_b = diag_b.get(key)
         if val_a != val_b:
