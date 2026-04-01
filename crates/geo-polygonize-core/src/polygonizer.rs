@@ -479,10 +479,7 @@ pub(crate) fn construct_final_polygons(
                 let mut combined_holes_with_bbox: Vec<_> = combined_holes
                     .into_iter()
                     .map(|(h, hi, area)| {
-                        let b = bounding_rect_3d(&h).unwrap_or(geo::Rect::new(
-                            geo::Coord { x: 0.0, y: 0.0 },
-                            geo::Coord { x: 0.0, y: 0.0 },
-                        ));
+                        let b = bounding_rect_3d_or_zero(&h);
                         (h, hi, area, b)
                     })
                     .collect();
@@ -568,10 +565,7 @@ pub(crate) fn apply_determinism(
                 .into_iter()
                 .map(|p| {
                     let area = p.exterior_unsigned_area_2d();
-                    let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
+                    let b = bounding_rect_3d_or_zero(&p.exterior);
                     (p, area, b)
                 })
                 .collect();
@@ -617,10 +611,7 @@ pub(crate) fn apply_determinism(
             let mut dangles_with_cache: Vec<_> = dangles
                 .iter_mut()
                 .map(|l| {
-                    let b = bounding_rect_3d(l).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
+                    let b = bounding_rect_3d_or_zero(l);
                     (std::mem::take(l), b)
                 })
                 .collect();
@@ -650,10 +641,7 @@ pub(crate) fn apply_determinism(
             let mut invalid_with_bbox: Vec<_> = combined_invalid
                 .into_iter()
                 .map(|(r, area)| {
-                    let b = bounding_rect_3d(&r).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
+                    let b = bounding_rect_3d_or_zero(&r);
                     (r, area, b)
                 })
                 .collect();
@@ -780,6 +768,13 @@ pub fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
     Some(geo::Rect::new(
         geo::Coord { x: min_x, y: min_y },
         geo::Coord { x: max_x, y: max_y },
+    ))
+}
+
+pub fn bounding_rect_3d_or_zero(coords: &[Coord3D]) -> geo::Rect<f64> {
+    bounding_rect_3d(coords).unwrap_or(geo::Rect::new(
+        geo::Coord { x: 0.0, y: 0.0 },
+        geo::Coord { x: 0.0, y: 0.0 },
     ))
 }
 
@@ -1031,6 +1026,11 @@ mod tests {
     fn test_bounding_rect_3d() {
         // 1. Empty slice
         assert_eq!(bounding_rect_3d(&[]), None);
+        let zero_rect = bounding_rect_3d_or_zero(&[]);
+        assert_eq!(zero_rect.min().x, 0.0);
+        assert_eq!(zero_rect.min().y, 0.0);
+        assert_eq!(zero_rect.max().x, 0.0);
+        assert_eq!(zero_rect.max().y, 0.0);
 
         // 2. Single coordinate
         let single = vec![Coord3D::new(5.0, 10.0, 15.0)];
