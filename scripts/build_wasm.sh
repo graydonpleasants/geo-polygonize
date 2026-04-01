@@ -74,6 +74,9 @@ build_variant() {
 
     # Remove .gitignore if generated
     rm -f $OUT_DIR/.gitignore
+
+    # Patch debugString
+    node scripts/patch_debug.cjs "$OUT_DIR/geo_polygonize.js"
 }
 
 # Build Scalar
@@ -130,6 +133,9 @@ build_variant_threads() {
     fi
 
     rm -f $OUT_DIR/.gitignore
+
+    # Patch debugString
+    node scripts/patch_debug.cjs "$OUT_DIR/geo_polygonize.js"
 }
 
 build_variant_threads &
