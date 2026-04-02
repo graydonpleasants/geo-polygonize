@@ -17,12 +17,14 @@ pub struct ContainmentForest {
     pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<Option<f64>>,
+    pub shell_bboxes: Vec<Option<AABB<[f64; 2]>>>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
         let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
         let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
+        let mut shell_bboxes: Vec<Option<AABB<[f64; 2]>>> = Vec::with_capacity(shells.len());
         #[cfg(feature = "parallel")]
         {
             let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
@@ -58,6 +60,9 @@ impl ContainmentForest {
                 let aabb: AABB<[f64; 2]> =
                     AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
+                shell_bboxes.push(Some(aabb));
+            } else {
+                shell_bboxes.push(None);
             }
         }
         let tree = match index_backend {
@@ -71,6 +76,7 @@ impl ContainmentForest {
             tree,
             simd_shells,
             shell_areas,
+            shell_bboxes,
         }
     }
 
@@ -84,15 +90,13 @@ impl ContainmentForest {
             .collect();
 
         for (i, shell) in shells.iter().enumerate() {
-            let bbox: geo::Rect<f64> = match bounding_rect_3d(&shell.exterior) {
-                Some(b) => b,
+            let aabb = match self.shell_bboxes[i] {
+                Some(a) => a,
                 None => {
                     keep_mask[i] = false;
                     continue;
                 }
             };
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
             let candidates = self.tree.locate_in_envelope_intersecting(&aabb);
             let probe = probe_points[i];
@@ -218,19 +222,24 @@ impl ContainmentForest {
     }
 
     pub fn insert_shell(&mut self, exterior: &[Coord3D], index: usize) {
-        if let Some(bbox) = bounding_rect_3d(exterior) {
+        let aabb_opt = if let Some(bbox) = bounding_rect_3d(exterior) {
             let aabb: AABB<[f64; 2]> =
                 AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
             self.tree.insert(IndexedEnvelope { aabb, index });
-        }
+            Some(aabb)
+        } else {
+            None
+        };
 
         if index >= self.simd_shells.len() {
             self.simd_shells.resize_with(index + 1, || None);
             self.shell_areas.resize_with(index + 1, || None);
+            self.shell_bboxes.resize_with(index + 1, || None);
         }
 
         self.simd_shells[index] = Some(SimdRing::new_3d(exterior));
         self.shell_areas[index] = Some(Polygon3D::ring_signed_area_2d(exterior).abs());
+        self.shell_bboxes[index] = aabb_opt;
     }
 
     pub fn remove_shell(&mut self, exterior: &[Coord3D], index: usize) -> bool {
@@ -243,6 +252,7 @@ impl ContainmentForest {
         if index < self.simd_shells.len() {
             self.simd_shells[index] = None;
             self.shell_areas[index] = None;
+            self.shell_bboxes[index] = None;
             true
         } else {
             false
