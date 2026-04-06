@@ -220,10 +220,15 @@ impl Polygon3D {
         if area == 0.0 {
             return (0.0, 0.0, 0.0);
         }
+
+        // Bolt optimization: Cache the reciprocal of (3.0 * twice_area).
+        // LLVM associativity rules prevent auto-vectorizing or optimizing floating point division into reciprocal multiplication here.
+        // Doing this manually saves an expensive division per coordinate calculation.
+        let inv_3_twice = (3.0 * twice_area).recip();
         (
             area,
-            cx / (3.0 * twice_area) + origin_x,
-            cy / (3.0 * twice_area) + origin_y,
+            cx * inv_3_twice + origin_x,
+            cy * inv_3_twice + origin_y,
         )
     }
 }
