@@ -189,8 +189,7 @@ impl Polygon3D {
             twice_area += (prev.x - curr.x) * (prev.y + curr.y);
             prev = *curr;
         }
-        // Bolt optimization: multiplication by 0.5 is faster than division by 2.0
-        twice_area * 0.5
+        twice_area / 2.0
     }
 
     #[inline]
@@ -217,18 +216,13 @@ impl Polygon3D {
             p1_x = p2_x;
             p1_y = p2_y;
         }
-        // Bolt optimization: multiplication by 0.5 is faster than division by 2.0
-        let area = twice_area * 0.5;
+        let area = twice_area / 2.0;
         if area == 0.0 {
             return (0.0, 0.0, 0.0);
         }
         // Bolt optimization: compute reciprocal once to replace two divisions with two multiplications
         let inv = 1.0 / (3.0 * twice_area);
-        (
-            area,
-            cx * inv + origin_x,
-            cy * inv + origin_y,
-        )
+        (area, cx * inv + origin_x, cy * inv + origin_y)
     }
 }
 
