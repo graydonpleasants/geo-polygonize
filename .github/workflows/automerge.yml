@@ -3,6 +3,10 @@ name: Enable automerge
 on:
   pull_request_target:
 
+permissions:
+  pull-requests: write
+  contents: write
+
 jobs:
   automerge:
     name: Enable automerge
@@ -11,6 +15,6 @@ jobs:
       - name: Enable automerge
         uses: daneden/enable-automerge-action@v1.0.2
         with:
-          github-token: ${{ secrets.GH_PAT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           allowed-author: "graydonpleasants"
           merge-method: "REBASE"
