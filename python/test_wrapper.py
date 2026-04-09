@@ -152,7 +152,6 @@ def test_odd_length_coordinates():
 def test_import_error_fallback():
     print("\nTesting ImportError fallback in __init__.py...")
     import importlib
-    import builtins
     import geo_polygonize
 
     with patch.dict('sys.modules', {'geo_polygonize.geo_polygonize_core': None, 'geo_polygonize_core': None}):
@@ -180,11 +179,8 @@ def test_return_polygons_without_shapely():
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
     # Mock shapely.geometry not being available
-    import sys
-    import builtins
-    import unittest.mock
 
-    with unittest.mock.patch.dict('sys.modules', {'shapely': None, 'shapely.geometry': None}):
+    with patch.dict('sys.modules', {'shapely': None, 'shapely.geometry': None}):
         try:
             polygonize(coords, offsets, return_polygons=True)
             assert False, "Should have raised ImportError"
@@ -201,7 +197,6 @@ def test_library_not_found(mock_glob, mock_exists):
     mock_exists.return_value = False
     mock_glob.return_value = []
 
-    import sys
     if 'geo_polygonize.cffi_wrapper' in sys.modules:
         del sys.modules['geo_polygonize.cffi_wrapper']
 
