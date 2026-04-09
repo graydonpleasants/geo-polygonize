@@ -8,9 +8,15 @@ jobs:
     name: Enable automerge
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Enable automerge
-        uses: daneden/enable-automerge-action@v1.0.2
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          allowed-author: "graydonpleasants"
-          merge-method: "REBASE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event.pull_request.user.login }}" = "graydonpleasants" ]; then
+            gh pr merge ${{ github.event.pull_request.number }} --auto --rebase
+          else
+            echo "Skipping automerge: author ${{ github.event.pull_request.user.login }} is not allowed."
+          fi
