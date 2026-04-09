@@ -126,7 +126,8 @@ pub unsafe extern "C" fn polygonize_with_options_ffi(
             Err(_) => return 1,
         };
 
-        let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str) {
+        let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str)
+        {
             Ok(o) => o,
             Err(_) => return 1,
         };
