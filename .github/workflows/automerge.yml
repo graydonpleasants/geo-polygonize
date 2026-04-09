@@ -7,10 +7,13 @@ jobs:
   automerge:
     name: Enable automerge
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
     steps:
       - name: Enable automerge
-        uses: daneden/enable-automerge-action@v1.0.2
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          allowed-author: "graydonpleasants"
-          merge-method: "REBASE"
+        if: github.event.pull_request.user.login == 'graydonpleasants'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --rebase "$PR_URL"
