@@ -50,6 +50,8 @@ const sessions = await Bun.file(path.join(FLEET_DIR, "sessions.json")).json() as
   sessionId: string;
 }>;
 
+const taskIdToSession = new Map(sessions.map(s => [s.taskId, s]));
+
 interface GitHubPR {
   number: number;
   head: { ref: string };
@@ -66,19 +68,54 @@ async function findFleetPRs() {
   });
 
   const prMap = new Map<string, GitHubPR>();
+
+  // Pre-process sessions for faster lookup
+  // A sessionId can correspond to multiple taskIds
+  const sessionIdToTaskIds = new Map<string, string[]>();
+  const escapedSessionIds: string[] = [];
+
   for (const session of sessions) {
-    const matchingPR = pulls.find((pr) =>
-      pr.head.ref.includes(session.sessionId) ||
-      pr.body?.includes(session.sessionId)
-    );
-    if (matchingPR) {
-      prMap.set(session.taskId, {
-        number: matchingPR.number,
-        head: { ref: matchingPR.head.ref },
-        body: matchingPR.body,
-      });
+    let taskIds = sessionIdToTaskIds.get(session.sessionId);
+    if (!taskIds) {
+      taskIds = [];
+      sessionIdToTaskIds.set(session.sessionId, taskIds);
+      // Escape regex special characters in session ID
+      escapedSessionIds.push(session.sessionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    }
+    taskIds.push(session.taskId);
+  }
+
+  if (escapedSessionIds.length === 0) return prMap;
+
+  // Build a combined regex for efficient searching in PR head ref or body.
+  // Sort by length descending to ensure the longest session ID matches if there's any overlap.
+  escapedSessionIds.sort((a, b) => b.length - a.length);
+  const combinedRegex = new RegExp(escapedSessionIds.join("|"), "g");
+
+  for (const pr of pulls) {
+    // Check both head ref and body for any session IDs
+    const refMatches = pr.head.ref.match(combinedRegex);
+    const bodyMatches = pr.body?.match(combinedRegex);
+
+    const allMatches = new Set([...(refMatches || []), ...(bodyMatches || [])]);
+
+    for (const sessionId of allMatches) {
+      const taskIds = sessionIdToTaskIds.get(sessionId);
+      if (taskIds) {
+        for (const taskId of taskIds) {
+          // Ensure we only set the first matching PR for a given taskId
+          if (!prMap.has(taskId)) {
+            prMap.set(taskId, {
+              number: pr.number,
+              head: { ref: pr.head.ref },
+              body: pr.body,
+            });
+          }
+        }
+      }
     }
   }
+
   return prMap;
 }
 
@@ -153,7 +190,7 @@ async function redispatchTask(
   console.log(`  📝 New session: ${session.id}`);
 
   // Update sessions.json with new session ID
-  const sessionEntry = sessions.find(s => s.taskId === task.id);
+  const sessionEntry = taskIdToSession.get(task.id);
   if (sessionEntry) {
     sessionEntry.sessionId = session.id;
     const sessionsPath = path.join(FLEET_DIR, "sessions.json");
@@ -204,7 +241,7 @@ if (prMap.size !== analysis.tasks.length) {
   process.exit(1);
 }
 
-for (const task of analysis.tasks) {
+for (const [index, task] of analysis.tasks.entries()) {
   let pr = prMap.get(task.id);
   if (!pr) {
     console.error(`❌ No PR found for task "${task.id}". Aborting.`);
@@ -218,7 +255,7 @@ for (const task of analysis.tasks) {
     console.log(`\n📦 Processing Task "${task.id}" → PR #${pr!.number}${retryCount > 0 ? ` (retry ${retryCount})` : ""}`);
 
     // Update branch from base before merging (skip for first PR on first attempt)
-    if (analysis.tasks.indexOf(task) > 0 || retryCount > 0) {
+    if (index > 0 || retryCount > 0) {
       console.log(`  🔄 Updating PR #${pr!.number} branch from ${BASE_BRANCH}...`);
       try {
         await octokit.rest.pulls.updateBranch({
