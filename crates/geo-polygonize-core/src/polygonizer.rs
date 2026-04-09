@@ -326,18 +326,16 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         .unwrap_or(0);
 
     if min_idx > 0 {
-        let mut new_ring = Vec::with_capacity(ring.len());
-        new_ring.extend_from_slice(&ring[min_idx..n]);
-        new_ring.extend_from_slice(&ring[0..min_idx]);
-        new_ring.push(new_ring[0]);
-        *ring = new_ring;
+        ring[..n].rotate_left(min_idx);
+        if ring.len() > n {
+            ring[n] = ring[0];
+        } else {
+            ring.push(ring[0]);
+        }
 
         if let Some(ref mut ids_vec) = ids {
             if !ids_vec.is_empty() {
-                let mut new_ids = Vec::with_capacity(ids_vec.len());
-                new_ids.extend_from_slice(&ids_vec[min_idx..]);
-                new_ids.extend_from_slice(&ids_vec[0..min_idx]);
-                **ids_vec = new_ids;
+                ids_vec.rotate_left(min_idx);
             }
         }
     }
