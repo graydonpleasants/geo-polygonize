@@ -10,7 +10,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  enable-automerge:
+  automerge:
+    name: Enable automerge
     if: >
       github.event.pull_request.user.login == 'graydonpleasants' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -19,7 +20,7 @@ jobs:
     steps:
       - name: Enable auto-merge
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh pr merge ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
