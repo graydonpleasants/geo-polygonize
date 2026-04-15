@@ -2,15 +2,22 @@ name: Enable automerge
 
 on:
   pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 jobs:
   automerge:
     name: Enable automerge
     runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'graydonpleasants'
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Enable automerge
-        uses: daneden/enable-automerge-action@v1.0.2
-        with:
-          github-token: ${{ secrets.GH_PAT }}
-          allowed-author: "graydonpleasants"
-          merge-method: "REBASE"
+        run: gh pr merge --auto --rebase "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
