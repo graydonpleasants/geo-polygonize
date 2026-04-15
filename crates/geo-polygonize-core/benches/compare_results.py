@@ -2,6 +2,7 @@ import re
 import sys
 import argparse
 import os
+from collections import defaultdict
 
 def parse_rust_output(filename):
     results = {}
@@ -246,10 +247,14 @@ def update_markdown(filename, rust_results, python_results, wasm_results):
         f.writelines(new_lines)
 
 def print_original_summary(rust_results, python_results, wasm_results):
-    all_keys = sorted(set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys()))
+    all_keys = set(rust_results.keys()) | set(python_results.keys()) | set(wasm_results.keys())
 
     # Group by category
-    categories = sorted(list(set(k[0] for k in all_keys)))
+    keys_by_cat = defaultdict(list)
+    for k in all_keys:
+        keys_by_cat[k[0]].append(k)
+
+    categories = sorted(keys_by_cat.keys())
 
     print("# Benchmark Comparison (Rust vs Python/Shapely vs Wasm)")
     print("")
@@ -259,7 +264,7 @@ def print_original_summary(rust_results, python_results, wasm_results):
         print(f"| Input Size | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) |")
         print(f"|---|---|---|---|---|")
 
-        keys_in_cat = sorted([k for k in all_keys if k[0] == cat], key=lambda x: x[1])
+        keys_in_cat = sorted(keys_by_cat[cat], key=lambda x: x[1])
 
         for k in keys_in_cat:
             size = k[1]
