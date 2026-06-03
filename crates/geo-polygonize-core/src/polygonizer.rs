@@ -961,32 +961,45 @@ fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
                 out.extend(ls.lines().map(Line3D::from));
             }
             Geometry::MultiLineString(mls) => {
+                // ⚡ Bolt: Pre-calculate total segment length across all LineStrings
+                // to avoid reallocating the output vector for every sub-geometry.
+                let total_len: usize = mls.0.iter().map(|ls| ls.0.len().saturating_sub(1)).sum();
+                out.reserve(total_len);
                 for ls in &mls.0 {
-                    let len = ls.0.len().saturating_sub(1);
-                    out.reserve(len);
                     out.extend(ls.lines().map(Line3D::from));
                 }
             }
             Geometry::Polygon(poly) => {
-                let ext = poly.exterior();
-                let len = ext.0.len().saturating_sub(1);
-                out.reserve(len);
-                out.extend(ext.lines().map(Line3D::from));
+                // ⚡ Bolt: Accumulate segment lengths for exterior and all interiors
+                // then reserve capacity once to improve performance on complex polygons.
+                let mut total_len = poly.exterior().0.len().saturating_sub(1);
+                total_len += poly
+                    .interiors()
+                    .iter()
+                    .map(|interior| interior.0.len().saturating_sub(1))
+                    .sum::<usize>();
+                out.reserve(total_len);
+                out.extend(poly.exterior().lines().map(Line3D::from));
                 for interior in poly.interiors() {
-                    let len = interior.0.len().saturating_sub(1);
-                    out.reserve(len);
                     out.extend(interior.lines().map(Line3D::from));
                 }
             }
             Geometry::MultiPolygon(mpoly) => {
+                // ⚡ Bolt: Pre-calculate total segment length across all sub-polygons
+                // and reserve capacity before doing any work.
+                let mut total_len = 0;
                 for poly in mpoly {
-                    let ext = poly.exterior();
-                    let len = ext.0.len().saturating_sub(1);
-                    out.reserve(len);
-                    out.extend(ext.lines().map(Line3D::from));
+                    total_len += poly.exterior().0.len().saturating_sub(1);
+                    total_len += poly
+                        .interiors()
+                        .iter()
+                        .map(|interior| interior.0.len().saturating_sub(1))
+                        .sum::<usize>();
+                }
+                out.reserve(total_len);
+                for poly in mpoly {
+                    out.extend(poly.exterior().lines().map(Line3D::from));
                     for interior in poly.interiors() {
-                        let len = interior.0.len().saturating_sub(1);
-                        out.reserve(len);
                         out.extend(interior.lines().map(Line3D::from));
                     }
                 }
