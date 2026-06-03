@@ -451,8 +451,8 @@ pub(crate) fn construct_final_polygons(
     let mut result = Vec::with_capacity(shells.len());
     for ((shell, mut holes), mut holes_ids) in shells
         .into_iter()
-        .zip(shell_holes.into_iter())
-        .zip(shell_holes_ids.into_iter())
+        .zip(shell_holes)
+        .zip(shell_holes_ids)
     {
         let mut exterior = shell.exterior;
         let mut exterior_ids = shell.exterior_ids;
