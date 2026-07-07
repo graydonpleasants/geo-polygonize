@@ -64,7 +64,7 @@ fn polygonize_with_options<'py>(
     stride: u8,
     options_json: Option<&str>,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let options: crate::options::PolygonizerOptions = if let Some(json) = options_json {
         serde_json::from_str(json)
             .map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
@@ -88,7 +88,7 @@ fn polygonize<'py>(
     stride: u8,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     report_mode: bool,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let mut options = crate::options::PolygonizerOptions::default();
     options.diagnostics.enabled = report_mode;
     options.diagnostics.report_mode = report_mode;
@@ -106,7 +106,7 @@ fn polygonize_internal<'py>(
     stride: u8,
     options: crate::options::PolygonizerOptions,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
@@ -276,49 +276,49 @@ fn polygonize_internal<'py>(
     // We will build Python polygons via the SimplePolygon class from geo_polygonize.types.
     // If geo_polygonize.types isn't available, we fallback to a simple dict representation?
     // The issue asks to "construct and return SimplePolygon objects directly".
-    let py_polygons = PyList::empty_bound(py);
+    let py_polygons = PyList::empty(py);
 
     // Attempt to import the Python class `SimplePolygon`
     let simple_polygon_cls = py
-        .import_bound("geo_polygonize.types")?
+        .import("geo_polygonize.types")?
         .getattr("SimplePolygon")?;
 
     for poly in &result.polygons {
         // Construct exterior tuples
-        let exterior_pts = PyList::empty_bound(py);
+        let exterior_pts = PyList::empty(py);
         for c in &poly.exterior {
             if stride == 3 {
-                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                exterior_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                exterior_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        let shell = PyTuple::new_bound(py, exterior_pts);
+        let shell = PyTuple::new(py, exterior_pts)?;
 
-        let shell_ids = PyTuple::new_bound(py, &poly.exterior_ids);
+        let shell_ids = PyTuple::new(py, &poly.exterior_ids)?;
 
         // Construct interiors
-        let holes = PyList::empty_bound(py);
-        let holes_ids = PyList::empty_bound(py);
+        let holes = PyList::empty(py);
+        let holes_ids = PyList::empty(py);
 
         for (h_idx, ring) in poly.interiors.iter().enumerate() {
-            let ring_pts = PyList::empty_bound(py);
+            let ring_pts = PyList::empty(py);
             for c in ring {
                 if stride == 3 {
-                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                    ring_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
                 } else {
-                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                    ring_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
                 }
             }
-            holes.append(PyTuple::new_bound(py, ring_pts))?;
+            holes.append(PyTuple::new(py, ring_pts)?)?;
 
-            let r_ids = PyTuple::new_bound(py, &poly.interiors_ids[h_idx]);
+            let r_ids = PyTuple::new(py, &poly.interiors_ids[h_idx])?;
             holes_ids.append(r_ids)?;
         }
 
         let py_provenance = if let Some(ref prov) = poly.provenance {
-            let prov_dict = PyDict::new_bound(py);
-            let b_ids = PyTuple::new_bound(py, &prov.boundary_line_ids);
+            let prov_dict = PyDict::new(py);
+            let b_ids = PyTuple::new(py, &prov.boundary_line_ids)?;
             prov_dict.set_item("boundary_line_ids", b_ids)?;
             if let Some(ref prof_id) = prov.input_profile_id {
                 prov_dict.set_item("input_profile_id", prof_id)?;
@@ -336,55 +336,52 @@ fn polygonize_internal<'py>(
     }
 
     // Construct dangles
-    let py_dangles = PyList::empty_bound(py);
+    let py_dangles = PyList::empty(py);
     for dangle in &result.dangles {
-        let dangle_pts = PyList::empty_bound(py);
+        let dangle_pts = PyList::empty(py);
         for c in dangle {
             if stride == 3 {
-                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                dangle_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                dangle_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        py_dangles.append(PyTuple::new_bound(py, dangle_pts))?;
+        py_dangles.append(PyTuple::new(py, dangle_pts)?)?;
     }
 
     // Construct cut edges
-    let py_cut_edges = PyList::empty_bound(py);
+    let py_cut_edges = PyList::empty(py);
     for cut_edge in &result.cut_edges {
-        let cut_edge_pts = PyList::empty_bound(py);
+        let cut_edge_pts = PyList::empty(py);
         for c in cut_edge {
             if stride == 3 {
-                cut_edge_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                cut_edge_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                cut_edge_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                cut_edge_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        py_cut_edges.append(PyTuple::new_bound(py, cut_edge_pts))?;
+        py_cut_edges.append(PyTuple::new(py, cut_edge_pts)?)?;
     }
 
     // Construct invalid rings
-    let py_invalid_rings = PyList::empty_bound(py);
+    let py_invalid_rings = PyList::empty(py);
     for invalid_ring in &result.invalid_rings {
-        let invalid_pts = PyList::empty_bound(py);
+        let invalid_pts = PyList::empty(py);
         for c in invalid_ring {
             if stride == 3 {
-                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                invalid_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                invalid_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        py_invalid_rings.append(PyTuple::new_bound(py, invalid_pts))?;
+        py_invalid_rings.append(PyTuple::new(py, invalid_pts)?)?;
     }
 
-    let dict = PyDict::new_bound(py);
-    dict.set_item("flat_coords", PyArray1::from_vec_bound(py, flat_coords))?;
-    dict.set_item("ring_offsets", PyArray1::from_vec_bound(py, ring_offsets))?;
-    dict.set_item(
-        "polygon_offsets",
-        PyArray1::from_vec_bound(py, polygon_offsets),
-    )?;
-    dict.set_item("flat_line_ids", PyArray1::from_vec_bound(py, flat_line_ids))?;
+    let dict = PyDict::new(py);
+    dict.set_item("flat_coords", PyArray1::from_vec(py, flat_coords))?;
+    dict.set_item("ring_offsets", PyArray1::from_vec(py, ring_offsets))?;
+    dict.set_item("polygon_offsets", PyArray1::from_vec(py, polygon_offsets))?;
+    dict.set_item("flat_line_ids", PyArray1::from_vec(py, flat_line_ids))?;
     dict.set_item("stride", stride)?;
 
     dict.set_item("polygons", py_polygons)?;
@@ -395,7 +392,7 @@ fn polygonize_internal<'py>(
     if let Some(ref diag) = result.diagnostics {
         // Map diagnostics using serde to a Python dict
         if let Ok(diag_json) = serde_json::to_string(diag) {
-            let json_module = py.import_bound("json")?;
+            let json_module = py.import("json")?;
             let loads_func = json_module.getattr("loads")?;
             let py_diag = loads_func.call1((diag_json,))?;
             dict.set_item("diagnostics", py_diag)?;
@@ -407,21 +404,18 @@ fn polygonize_internal<'py>(
 
 #[pymodule]
 fn geo_polygonize_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add(
-        "PolygonizeTypeError",
-        py.get_type_bound::<PolygonizeTypeError>(),
-    )?;
+    m.add("PolygonizeTypeError", py.get_type::<PolygonizeTypeError>())?;
     m.add(
         "PolygonizeGeometryError",
-        py.get_type_bound::<PolygonizeGeometryError>(),
+        py.get_type::<PolygonizeGeometryError>(),
     )?;
     m.add(
         "PolygonizeOptionsError",
-        py.get_type_bound::<PolygonizeOptionsError>(),
+        py.get_type::<PolygonizeOptionsError>(),
     )?;
     m.add(
         "PolygonizeTopologyError",
-        py.get_type_bound::<PolygonizeTopologyError>(),
+        py.get_type::<PolygonizeTopologyError>(),
     )?;
     m.add_function(wrap_pyfunction!(polygonize, m)?)?;
     m.add_function(wrap_pyfunction!(polygonize_with_options, m)?)?;
