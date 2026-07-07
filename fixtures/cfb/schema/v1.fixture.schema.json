@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/fixtures/cfb/schema/v1.fixture.schema.json",
+  "title": "CFB polygonization fixture v1",
+  "type": "object",
+  "required": ["caseId", "optionsProfile", "stride", "lines", "expected"],
+  "properties": {
+    "caseId": { "type": "string" },
+    "description": { "type": "string" },
+    "optionsProfile": { "type": "string" },
+    "stride": { "enum": [2, 3] },
+    "expectedStatus": { "enum": ["pass", "xfail"], "default": "pass" },
+    "reason": { "type": "string" },
+    "blockingForCfb": { "type": "boolean", "default": true },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "family", "coords"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "family": { "type": "string" },
+          "coords": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 3
+            }
+          }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["polygonCount", "totalArea", "dangleCount", "cutEdgeCount", "invalidRingCount"],
+      "properties": {
+        "polygonCount": { "type": "integer", "minimum": 0 },
+        "totalArea": { "type": "number" },
+        "areaTolerance": { "type": "number", "default": 1e-6 },
+        "canonicalRingHashes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dangleCount": { "type": "integer", "minimum": 0 },
+        "cutEdgeCount": { "type": "integer", "minimum": 0 },
+        "invalidRingCount": { "type": "integer", "minimum": 0 },
+        "boundaryLineIds": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

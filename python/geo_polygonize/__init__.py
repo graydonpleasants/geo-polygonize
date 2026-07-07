@@ -13,7 +13,11 @@ try:
         PolygonizeTopologyError
     )
 except ImportError:
-    from .cffi_wrapper import polygonize as _polygonize_impl
+    try:
+        from .cffi_wrapper import polygonize as _polygonize_impl
+    except Exception as import_error:
+        def _polygonize_impl(*args, _import_error=import_error, **kwargs):
+            raise ImportError("geo_polygonize native extension is not available") from _import_error
 
     # Fallback exception classes if C extension is missing
     class PolygonizeTypeError(ValueError):
@@ -128,6 +132,41 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
     return result
 
+def cfb_robust_options():
+    return {
+        "target": "Native",
+        "node_input": True,
+        "snap_grid_size": 0.5,
+        "extract_only_polygonal": False,
+        "snap_strategy": "GeosCompat",
+        "noding": {
+            "backend": "Snap",
+            "snap_mode": "FloatEpsilonDedup",
+        },
+        "containment": {
+            "touch_policy": "AllowPointTouchDisallowEdgeShare",
+            "index_backend": "RStar",
+        },
+        "tiling": None,
+        "z": {
+            "policy": "InterpolateAlongEdge",
+        },
+        "determinism": {
+            "canonical_sort": True,
+            "canonical_ring_rotation": True,
+            "stable_tie_breaks": True,
+        },
+        "diagnostics": {
+            "enabled": True,
+            "report_mode": True,
+        },
+        "provenance": {
+            "enabled": True,
+            "include_boundary_line_ids": True,
+        },
+        "input_profile_id": "cfb_robust_v1",
+    }
+
 def explain_mismatch(result_a, result_b, tolerance=1e-5):
     """
     Compares two report-mode outputs and explains why they differ.
@@ -156,7 +195,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     diag_a = result_a.get("diagnostics", {})
     diag_b = result_b.get("diagnostics", {})
 
-    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "invalid_ring_count"]
+    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "cut_edge_count", "invalid_ring_count"]
     for key in topology_keys:
         val_a = diag_a.get(key)
         val_b = diag_b.get(key)

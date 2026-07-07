@@ -37,6 +37,7 @@ export * from "./bindings/TilingOptions";
 export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
+export * from "./cfb";
 
 // Override the init function
 // input is ignored because we are using inlined Wasm

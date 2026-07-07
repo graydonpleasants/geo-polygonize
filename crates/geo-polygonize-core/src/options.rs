@@ -93,6 +93,44 @@ impl Default for PolygonizerOptions {
     }
 }
 
+impl PolygonizerOptions {
+    pub fn cfb_robust_v1() -> Self {
+        Self {
+            target: TargetProfile::Native,
+            node_input: true,
+            snap_grid_size: 0.5,
+            extract_only_polygonal: false,
+            snap_strategy: SnapStrategy::GeosCompat,
+            noding: NodingOptions {
+                backend: NodingBackend::Snap,
+                snap_mode: SnapMode::FloatEpsilonDedup,
+            },
+            containment: ContainmentOptions {
+                touch_policy: TouchPolicy::AllowPointTouchDisallowEdgeShare,
+                index_backend: IndexBackend::RStar,
+            },
+            tiling: None,
+            z: ZOptions {
+                policy: ZPolicy::InterpolateAlongEdge,
+            },
+            determinism: DeterminismOptions {
+                canonical_sort: true,
+                canonical_ring_rotation: true,
+                stable_tie_breaks: true,
+            },
+            diagnostics: DiagnosticsOptions {
+                enabled: true,
+                report_mode: true,
+            },
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            input_profile_id: Some("cfb_robust_v1".to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum TargetProfile {

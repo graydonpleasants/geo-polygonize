@@ -61,6 +61,7 @@ pub struct Polygonizer {
 pub struct PolygonizerResult {
     pub polygons: Vec<Polygon3D>,
     pub dangles: Vec<Vec<Coord3D>>,
+    pub cut_edges: Vec<Vec<Coord3D>>,
     pub invalid_rings: Vec<Vec<Coord3D>>,
     pub diagnostics: Option<PolygonizerDiagnostics>,
 }
@@ -253,11 +254,8 @@ impl Polygonizer {
             d.phase_times.graph_build = get_elapsed(t_graph_build_start);
             d.ring_count = rings_with_ids.len();
             d.cut_edge_count = cut_edges.len();
-            // Note: dangles length here does not include cut_edges yet
-            d.dangle_count = dangles.len() + cut_edges.len();
+            d.dangle_count = dangles.len();
         }
-
-        dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
         let t_ring_extraction_start = get_time();
@@ -287,7 +285,13 @@ impl Polygonizer {
         let mut result =
             construct_final_polygons(shells, shell_holes, shell_holes_ids, &self.options);
 
-        result = apply_determinism(result, &mut dangles, &mut invalid_rings, &self.options);
+        result = apply_determinism(
+            result,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &self.options,
+        );
 
         if let Some(ref mut d) = diag {
             d.phase_times.containment = get_elapsed(t_containment_start);
@@ -296,6 +300,7 @@ impl Polygonizer {
         Ok(PolygonizerResult {
             polygons: result,
             dangles,
+            cut_edges,
             invalid_rings,
             diagnostics: diag,
         })
@@ -326,18 +331,16 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         .unwrap_or(0);
 
     if min_idx > 0 {
-        let mut new_ring = Vec::with_capacity(ring.len());
-        new_ring.extend_from_slice(&ring[min_idx..n]);
-        new_ring.extend_from_slice(&ring[0..min_idx]);
-        new_ring.push(new_ring[0]);
-        *ring = new_ring;
+        ring[..n].rotate_left(min_idx);
+        if n < ring.len() {
+            ring[n] = ring[0];
+        } else {
+            ring.push(ring[0]);
+        }
 
         if let Some(ref mut ids_vec) = ids {
             if !ids_vec.is_empty() {
-                let mut new_ids = Vec::with_capacity(ids_vec.len());
-                new_ids.extend_from_slice(&ids_vec[min_idx..]);
-                new_ids.extend_from_slice(&ids_vec[0..min_idx]);
-                **ids_vec = new_ids;
+                ids_vec.rotate_left(min_idx);
             }
         }
     }
@@ -449,10 +452,8 @@ pub(crate) fn construct_final_polygons(
     options: &PolygonizerOptions,
 ) -> Vec<Polygon3D> {
     let mut result = Vec::with_capacity(shells.len());
-    for ((shell, mut holes), mut holes_ids) in shells
-        .into_iter()
-        .zip(shell_holes.into_iter())
-        .zip(shell_holes_ids.into_iter())
+    for ((shell, mut holes), mut holes_ids) in
+        shells.into_iter().zip(shell_holes).zip(shell_holes_ids)
     {
         let mut exterior = shell.exterior;
         let mut exterior_ids = shell.exterior_ids;
@@ -558,6 +559,7 @@ pub(crate) fn construct_final_polygons(
 pub(crate) fn apply_determinism(
     mut result: Vec<Polygon3D>,
     dangles: &mut [Vec<Coord3D>],
+    cut_edges: &mut [Vec<Coord3D>],
     invalid_rings: &mut Vec<Vec<Coord3D>>,
     options: &PolygonizerOptions,
 ) -> Vec<Polygon3D> {
@@ -605,6 +607,9 @@ pub(crate) fn apply_determinism(
             for d in dangles.iter_mut() {
                 canonicalize_open_line(d);
             }
+            for edge in cut_edges.iter_mut() {
+                canonicalize_open_line(edge);
+            }
             for ir in invalid_rings.iter_mut() {
                 canonicalize_ring(ir, None);
             }
@@ -636,6 +641,7 @@ pub(crate) fn apply_determinism(
             for (i, (l, _)) in dangles_with_cache.into_iter().enumerate() {
                 dangles[i] = l;
             }
+            sort_open_lines(cut_edges);
         }
 
         let mut combined_invalid: Vec<_> = invalid_rings
@@ -674,6 +680,31 @@ pub(crate) fn apply_determinism(
         }
     }
     result
+}
+
+fn sort_open_lines(lines: &mut [Vec<Coord3D>]) {
+    let mut with_cache: Vec<_> = lines
+        .iter_mut()
+        .map(|l| {
+            let b = bounding_rect_3d(l).unwrap_or(geo::Rect::new(
+                geo::Coord { x: 0.0, y: 0.0 },
+                geo::Coord { x: 0.0, y: 0.0 },
+            ));
+            (std::mem::take(l), b)
+        })
+        .collect();
+
+    with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
+        b1.min()
+            .x
+            .total_cmp(&b2.min().x)
+            .then(b1.min().y.total_cmp(&b2.min().y))
+            .then(l1.len().cmp(&l2.len()))
+    });
+
+    for (i, (line, _)) in with_cache.into_iter().enumerate() {
+        lines[i] = line;
+    }
 }
 
 pub(crate) fn process_invalid_rings(

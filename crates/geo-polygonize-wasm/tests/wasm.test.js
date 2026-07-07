@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import init, { polygonize } from '../../../dist/standard/es/index.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import init, { polygonize, cfbRobustOptions } from '../../../dist/standard/es/index.js';
 
 describe('WASM Polygonizer', () => {
     it('should polygonize a simple square', async () => {
@@ -179,6 +181,77 @@ describe('WASM Polygonizer', () => {
         } catch (e) {
             expect(e.name).toBe("InvalidBufferShape");
             expect(e.message).toMatch(/line_ids length 2 does not match line count 1/);
+        }
+    });
+
+    it('should throw error when stride is invalid in polygonize_buffers', async () => {
+        expect.assertions(2);
+        await init();
+        const { polygonize_buffers } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]);
+
+        try {
+            polygonize_buffers(coords, offsets, 4, false, 1e-10);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toBe("stride must be 2 or 3");
+        }
+    });
+
+    it('should throw error when stride is invalid in polygonizeWithOptionsBuffer', async () => {
+        expect.assertions(2);
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+
+        const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
+        const offsets = new Uint32Array([0]);
+        const options = { target: 'WasmSingleThread', node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap', snap_mode: 'FloatEpsilonDedup' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare', index_backend: 'RStar' }, tiling: null, z: { policy: 'Ignore' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+
+        try {
+            polygonizeWithOptionsBuffer(coords, offsets, 1, options);
+        } catch (e) {
+            expect(e.name).toBe("InvalidArgumentType");
+            expect(e.message).toBe("stride must be 2 or 3");
+        }
+    });
+
+    it('should run CFB fixtures through polygonizeWithOptionsBuffer', async () => {
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+        const fixtureDir = resolve('fixtures/cfb/cases');
+
+        for (const file of readdirSync(fixtureDir).filter((name) => name.endsWith('.json')).sort()) {
+            const fixture = JSON.parse(readFileSync(join(fixtureDir, file), 'utf8'));
+            if (fixture.expectedStatus === 'xfail') continue;
+
+            const coords = [];
+            const offsets = [];
+            const lineIds = [];
+            let offset = 0;
+
+            for (const line of fixture.lines) {
+                offsets.push(offset);
+                lineIds.push(line.id);
+                for (const point of line.coords) {
+                    coords.push(...point.slice(0, fixture.stride));
+                    offset += 1;
+                }
+            }
+
+            const result = polygonizeWithOptionsBuffer(
+                new Float64Array(coords),
+                new Uint32Array(offsets),
+                fixture.stride,
+                cfbRobustOptions,
+                new Uint32Array(lineIds),
+            );
+
+            expect(result.polygon_offsets_len()).toBe(fixture.expected.polygonCount);
+            expect(result.diagnostics.dangle_count).toBe(fixture.expected.dangleCount);
+            expect(result.diagnostics.cut_edge_count).toBe(fixture.expected.cutEdgeCount);
+            expect(result.diagnostics.invalid_ring_count).toBe(fixture.expected.invalidRingCount);
         }
     });
 

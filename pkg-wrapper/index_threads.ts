@@ -18,5 +18,6 @@ export * from "./bindings/TilingOptions";
 export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
+export * from "./cfb";
 
 export default init;
