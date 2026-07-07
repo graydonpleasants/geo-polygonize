@@ -16,7 +16,7 @@ Polygonizes linework provided as a GeoJSON FeatureCollection, Feature, or Geomet
 **Example:**
 
 ```javascript
-import { polygonize } from "geo-polygonize";
+import init, { polygonize } from "geo-polygonize";
 
 const geojson = {
     type: "FeatureCollection",
@@ -31,9 +31,30 @@ const geojson = {
     ]
 };
 
+await init();
+
 // With explicit parameters to match backend configurations
 const resultStr = polygonize(JSON.stringify(geojson), true, 0.5);
 const result = JSON.parse(resultStr);
+```
+
+For production app bundles, prefer `geo-polygonize/slim` with explicit Wasm
+asset URLs and the versioned CFB profile:
+
+```ts
+import { cfbRobustOptions, initBest } from "geo-polygonize/slim";
+import scalarUrl from "geo-polygonize/geo_polygonize.wasm?url";
+import simdUrl from "geo-polygonize/geo_polygonize_simd.wasm?url";
+
+const wasm = await initBest(
+  { module_or_path: scalarUrl },
+  { module_or_path: simdUrl },
+);
+
+const resultStr = wasm.polygonizeWithOptions(
+  JSON.stringify(geojson),
+  cfbRobustOptions,
+);
 ```
 
 ### `polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size)`

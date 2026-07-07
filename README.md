@@ -179,8 +179,8 @@ This library supports WebAssembly with an ergonomic dual-build configuration tha
 npm install geo-polygonize
 ```
 
-**Standard Usage (Bundlers / Browser):**
-The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
+**Standard Usage (Quick Demos):**
+The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed. For app builds, prefer the slim entry point below so your bundler keeps the Wasm assets out of the JavaScript chunk.
 
 ```javascript
 import init, { polygonize, polygonize_geoarrow } from "geo-polygonize";
@@ -210,24 +210,24 @@ async function run() {
 }
 ```
 
-**Slim Usage (Manual Loading):**
-If you prefer to manage the Wasm binary yourself (e.g., to reduce bundle size or load from a CDN), import from `geo-polygonize/slim`.
+**Slim Usage (Apps / Manual Loading):**
+For Vite and other app bundlers, import from `geo-polygonize/slim` and pass explicit Wasm asset URLs.
 
 ```javascript
-import { initBest, polygonize } from "geo-polygonize/slim";
+import { cfbRobustOptions, initBest } from "geo-polygonize/slim";
+import scalarUrl from "geo-polygonize/geo_polygonize.wasm?url";
+import simdUrl from "geo-polygonize/geo_polygonize_simd.wasm?url";
 
 async function run() {
-    // You must provide the compiled WebAssembly.Module or URL
-    // You can choose to load the SIMD or Scalar version based on your own detection or availability
-    const response = await fetch("geo_polygonize.wasm");
-    const buffer = await response.arrayBuffer();
-    const module = await WebAssembly.compile(buffer);
+    const wasm = await initBest(
+        { module_or_path: scalarUrl },
+        { module_or_path: simdUrl },
+    );
 
-    // Helper to initialize the best available implementation
-    // Pass the module to both arguments if you only have one version
-    await initBest(module, module);
-
-    // ... use polygonize
+    const result = wasm.polygonizeWithOptions(
+        JSON.stringify(geojson),
+        cfbRobustOptions,
+    );
 }
 ```
 

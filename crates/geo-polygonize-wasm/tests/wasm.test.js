@@ -1,9 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import init, { polygonize, cfbRobustOptions } from '../../../dist/standard/es/index.js';
 
 describe('WASM Polygonizer', () => {
+    it('should publish declaration paths referenced by wrapper types', () => {
+        expect(existsSync(resolve('dist/standard/pkg-scalar/geo_polygonize.d.ts'))).toBe(true);
+        expect(existsSync(resolve('dist/slim/pkg-scalar/geo_polygonize.d.ts'))).toBe(true);
+        expect(existsSync(resolve('dist/threads/pkg-threads/geo_polygonize.d.ts'))).toBe(true);
+    });
+
+    it('should initialize slim with module alias options', async () => {
+        const { cfbRobustOptions, initBest } = await import('../../../dist/slim/es/index_slim.js');
+        const wasm = await initBest(
+            { module: await WebAssembly.compile(readFileSync(resolve('dist/geo_polygonize.wasm'))) },
+            { module: await WebAssembly.compile(readFileSync(resolve('dist/geo_polygonize_simd.wasm'))) },
+        );
+
+        const input = {
+            type: "FeatureCollection",
+            features: [
+                {
+                    type: "Feature",
+                    geometry: {
+                        type: "LineString",
+                        coordinates: [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]
+                    }
+                }
+            ]
+        };
+
+        const result = JSON.parse(wasm.polygonizeWithOptions(JSON.stringify(input), cfbRobustOptions));
+        expect(result.features).toHaveLength(1);
+    });
+
     it('should polygonize a simple square', async () => {
         await init();
 

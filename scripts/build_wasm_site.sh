@@ -63,6 +63,15 @@ else
     build_variant "simd" "-C target-feature=+simd128"
 fi
 
+echo "Patching wasm-bindgen fallback URLs for Vite..."
+for BINDGEN_JS in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js; do
+    if [ -f "$BINDGEN_JS" ]; then
+        TEMP_FILE=$(mktemp)
+        sed -e "s/new URL('geo_polygonize_bg.wasm', import.meta.url)/new URL(\/\\* @vite-ignore \\*\/ 'geo_polygonize_bg.wasm', import.meta.url)/g" "$BINDGEN_JS" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$BINDGEN_JS"
+    fi
+done
+
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
 export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
@@ -81,6 +90,19 @@ for DIR in pkg-scalar pkg-simd; do
   fi
 done
 
+copy_wasm_bindgen_types() {
+    for ENV in standard slim; do
+        if [ -d "dist/$ENV/es/bindings" ]; then
+            mkdir -p "dist/$ENV/pkg-wrapper"
+            cp -r "dist/$ENV/es/bindings" "dist/$ENV/pkg-wrapper/"
+        fi
+    done
+
+    mkdir -p dist/standard/pkg-scalar dist/slim/pkg-scalar
+    cp pkg-scalar/*.d.ts dist/standard/pkg-scalar/
+    cp pkg-scalar/*.d.ts dist/slim/pkg-scalar/
+}
+
 # We mock threads folder to avoid rollup failure when doing slim build
 mkdir -p pkg-threads
 echo "export const threads = 'mocked for site build';" > pkg-threads/index.js
@@ -96,6 +118,7 @@ fi
 # Bundle with Rollup
 echo "Running rollup..."
 npx rollup -c
+copy_wasm_bindgen_types
 
 # Prepare distribution files
 echo "Preparing dist..."
