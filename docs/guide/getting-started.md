@@ -11,3 +11,9 @@ This library provides high-performance polygonization of lines and rings. It is 
 ## Installation
 
 See the respective integration guides for details.
+
+Python users install `geo-polygonize-py` and import `geo_polygonize`:
+
+```bash
+pip install geo-polygonize-py
+```

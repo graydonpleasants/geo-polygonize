@@ -9,6 +9,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__)))
 
 from geo_polygonize import polygonize
 
+def test_import_probe():
+    import geo_polygonize
+
+    ok, error = geo_polygonize.import_probe()
+    assert isinstance(ok, bool)
+    assert error is None or isinstance(error, str)
+    assert geo_polygonize.is_available() is ok
+
 def test_square():
     print("Testing square polygonization...")
     coords = np.array([
@@ -160,6 +168,7 @@ def test_import_error_fallback():
 
         import geo_polygonize.cffi_wrapper as cffi_wrapper
         assert geo_polygonize._polygonize_impl is cffi_wrapper.polygonize
+        assert geo_polygonize.import_probe() == (True, None)
         print("ImportError fallback test passed!")
 
     # Reload again to restore the module state for other tests
@@ -433,6 +442,7 @@ def test_extract_only_polygonal():
 
 if __name__ == "__main__":
     test_square()
+    test_import_probe()
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
