@@ -31,5 +31,3 @@ jobs:
           ignoreLabels: |
             bot
             ignore-semantic-pull-request
-          headerPattern: '^([a-zA-Z]+(?:\\([^)]+\\))?!?: .+)|(⚡ Bolt: .+)$'
-          headerPatternCorrespondence: type, scope, subject
