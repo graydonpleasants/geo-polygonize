@@ -14,7 +14,8 @@ jobs:
     name: Enable automerge
     if: >
       github.event.pull_request.user.login == 'graydonpleasants' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
     runs-on: ubuntu-latest
 
     steps:
