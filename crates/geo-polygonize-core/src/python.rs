@@ -349,6 +349,20 @@ fn polygonize_internal<'py>(
         py_dangles.append(PyTuple::new_bound(py, dangle_pts))?;
     }
 
+    // Construct cut edges
+    let py_cut_edges = PyList::empty_bound(py);
+    for cut_edge in &result.cut_edges {
+        let cut_edge_pts = PyList::empty_bound(py);
+        for c in cut_edge {
+            if stride == 3 {
+                cut_edge_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+            } else {
+                cut_edge_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+            }
+        }
+        py_cut_edges.append(PyTuple::new_bound(py, cut_edge_pts))?;
+    }
+
     // Construct invalid rings
     let py_invalid_rings = PyList::empty_bound(py);
     for invalid_ring in &result.invalid_rings {
@@ -375,6 +389,7 @@ fn polygonize_internal<'py>(
 
     dict.set_item("polygons", py_polygons)?;
     dict.set_item("dangles", py_dangles)?;
+    dict.set_item("cut_edges", py_cut_edges)?;
     dict.set_item("invalid_rings", py_invalid_rings)?;
 
     if let Some(ref diag) = result.diagnostics {

@@ -21,6 +21,7 @@ export * from "./bindings/TilingOptions";
 export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
+export * from "./cfb";
 
 // We provide a helper to choose based on feature detection if the user wants to use it
 let isSimdSupported: boolean | undefined;

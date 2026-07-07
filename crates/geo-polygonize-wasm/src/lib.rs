@@ -219,6 +219,9 @@ pub struct WasmPolygonResult {
     flat_line_ids: Vec<u32>,
     stride: u8,
     provenance: JsValue,
+    dangles: JsValue,
+    cut_edges: JsValue,
+    invalid_rings: JsValue,
     diagnostics: JsValue,
 }
 
@@ -258,6 +261,21 @@ impl WasmPolygonResult {
     #[wasm_bindgen(getter)]
     pub fn provenance(&self) -> JsValue {
         self.provenance.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn dangles(&self) -> JsValue {
+        self.dangles.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn cut_edges(&self) -> JsValue {
+        self.cut_edges.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn invalid_rings(&self) -> JsValue {
+        self.invalid_rings.clone()
     }
 
     #[wasm_bindgen(getter)]
@@ -613,6 +631,11 @@ fn polygonize_and_flatten(
     let mut flat_line_ids = Vec::new();
     let mut provenances = Vec::new();
 
+    let js_dangles = serde_wasm_bindgen::to_value(&result.dangles).unwrap_or(JsValue::NULL);
+    let js_cut_edges = serde_wasm_bindgen::to_value(&result.cut_edges).unwrap_or(JsValue::NULL);
+    let js_invalid_rings =
+        serde_wasm_bindgen::to_value(&result.invalid_rings).unwrap_or(JsValue::NULL);
+
     for poly in result.polygons {
         provenances.push(poly.provenance);
         polygon_offsets.push(ring_offsets.len() as u32);
@@ -670,6 +693,9 @@ fn polygonize_and_flatten(
         flat_line_ids,
         stride,
         provenance: js_provenance,
+        dangles: js_dangles,
+        cut_edges: js_cut_edges,
+        invalid_rings: js_invalid_rings,
         diagnostics: js_diagnostics,
     })
 }

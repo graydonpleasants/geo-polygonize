@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
@@ -18,6 +20,10 @@ if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '
         cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     fi
 fi
+if ! command -v wasm-bindgen &> /dev/null; then
+    cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
 # Install binaryen (wasm-opt) if needed
 if ! command -v wasm-opt &> /dev/null; then
@@ -63,7 +69,7 @@ build_variant() {
     # The previous script used --out-name "geo_polygonize". We should stick to that if possible
     # to avoid breaking downstream consumers.
 
-    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -77,10 +83,10 @@ build_variant() {
 }
 
 # Build Scalar
-build_variant "scalar" "" &
+build_variant "scalar" ""
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128" &
+build_variant "simd" "-C target-feature=+simd128"
 
 # Build Threads
 build_variant_threads() {
@@ -120,7 +126,7 @@ build_variant_threads() {
 
     rm -rf $OUT_DIR
     # Use --target web to ensure correct loading behavior for threads
-    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -132,9 +138,7 @@ build_variant_threads() {
     rm -f $OUT_DIR/.gitignore
 }
 
-build_variant_threads &
-
-wait
+build_variant_threads
 
 echo "Patching wasm-bindgen-rayon workerHelpers.js..."
 for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
@@ -20,6 +20,10 @@ if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '
         cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     fi
 fi
+if ! command -v wasm-bindgen &> /dev/null; then
+    cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
 build_variant() {
     local VARIANT=$1
@@ -42,8 +46,7 @@ build_variant() {
     fi
 
     rm -rf $OUT_DIR
-    # Use full path to avoid PATH issues in CI environments
-    ~/.cargo/bin/wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # Remove .gitignore if generated
     rm -f $OUT_DIR/.gitignore

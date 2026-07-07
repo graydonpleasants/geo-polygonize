@@ -52,7 +52,6 @@ impl StatefulPolygonizer {
 
         // Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
-        dangles.append(&mut cut_edges);
 
         // Classify Rings
         let (shells, holes, invalid_rings_candidates) = extract_and_classify_rings(rings_with_ids);
@@ -109,7 +108,13 @@ impl StatefulPolygonizer {
             process_invalid_rings(invalid_rings_candidates, &shells_2d)
         };
 
-        result = apply_determinism(result, &mut dangles, &mut invalid_rings, &self.options);
+        result = apply_determinism(
+            result,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &self.options,
+        );
 
         // Compute Delta
         let new_polygons = result;

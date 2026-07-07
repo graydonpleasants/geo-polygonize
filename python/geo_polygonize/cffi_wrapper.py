@@ -243,6 +243,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
             'flat_line_ids': flat_line_ids,
             'stride': int(out_stride),
             'dangles': dangles,
+            'cut_edges': [],
             'invalid_rings': invalid_rings
         }
 
