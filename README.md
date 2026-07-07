@@ -88,11 +88,15 @@ use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 
 ### Python
 
-The library provides native Python bindings via PyO3, packaged as `geo-polygonize`.
+The Python package is published as `geo-polygonize-py` and imported as `geo_polygonize`.
+
+```bash
+pip install geo-polygonize-py
+```
 
 ```python
 import numpy as np
-from geo_polygonize import polygonize
+from geo_polygonize import polygonize, import_probe
 
 # 1. Using Shapely LineStrings or coordinate lists directly
 lines = [
@@ -116,8 +120,54 @@ coords = np.array([
 # The final closing offset is computed implicitly.
 offsets = np.array([0, 5], dtype=np.uint32)
 
-# Returns a dictionary with 'flat_coords', 'ring_offsets', 'polygon_offsets', etc.
+# Returns a stable dictionary with 'polygons', diagnostics, and provenance.
 result_dict = polygonize(coords=coords, offsets=offsets)
+
+# Native-extension probes are cheap and safe for optional integrations.
+ok, error = import_probe()
+```
+
+CFB/autograder integrations should use the versioned production profile rather
+than assembling caller-side knobs or using legacy `polygonize(..., node=True,
+snap=0.5)` calls:
+
+```python
+from geo_polygonize import cfb_robust_options, polygonize_with_options
+
+result = polygonize_with_options(
+    coords=coords,
+    offsets=offsets,
+    options=cfb_robust_options(),
+)
+```
+
+The default return shape is a stable dictionary with `polygons` as
+`SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
+`Polygon` objects.
+
+For Shapely parity checks, compare report-mode outputs with the built-in
+mismatch helper:
+
+```python
+from geo_polygonize import explain_mismatch, polygonize_with_options
+
+options = cfb_robust_options()
+result_a = polygonize_with_options(coords=coords_a, offsets=offsets_a, options=options)
+result_b = polygonize_with_options(coords=coords_b, offsets=offsets_b, options=options)
+result_a["options"] = options
+result_b["options"] = options
+
+mismatch = explain_mismatch(result_a, result_b)
+```
+
+For a minimal Shapely smoke comparison, use area signatures:
+
+```python
+from shapely.ops import polygonize as shapely_polygonize
+
+rust_polys = polygonize_with_options(lines=lines, options=cfb_robust_options(), return_polygons=True)
+rust_areas = sorted(round(poly.area, 6) for poly in rust_polys)
+shapely_areas = sorted(round(poly.area, 6) for poly in shapely_polygonize(lines))
 ```
 
 ### WebAssembly (WASM)

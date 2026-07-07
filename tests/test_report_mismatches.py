@@ -17,6 +17,24 @@ def generate_winding_chaos():
     return lines
 
 class TestReportMismatches(unittest.TestCase):
+    def test_cfb_robust_report_mode_matches_itself(self):
+        coords = np.array([
+            0.0, 0.0, 10.0, 0.0,
+            10.0, 0.0, 10.0, 10.0,
+            10.0, 10.0, 0.0, 10.0,
+            0.0, 10.0, 0.0, 0.0
+        ], dtype=np.float64)
+        offsets = np.array([0, 2, 4, 6], dtype=np.uint32)
+        options = geo_polygonize.cfb_robust_options()
+
+        result_a = geo_polygonize.polygonize_with_options(coords=coords, offsets=offsets, options=options)
+        result_b = geo_polygonize.polygonize_with_options(coords=coords, offsets=offsets, options=options)
+        result_a["options"] = options
+        result_b["options"] = options
+
+        mismatch_info = geo_polygonize.explain_mismatch(result_a, result_b)
+        self.assertTrue(mismatch_info["is_match"], mismatch_info["mismatches"])
+
     def test_options_mismatch(self):
         coords = np.array([
             0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0,

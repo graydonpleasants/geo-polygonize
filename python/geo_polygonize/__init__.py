@@ -3,6 +3,10 @@ import numpy as np
 
 import json
 
+_IMPORT_OK = True
+_IMPORT_ERROR = None
+_polygonize_with_options_impl = None
+
 try:
     from .geo_polygonize_core import (
         polygonize as _polygonize_impl,
@@ -12,11 +16,14 @@ try:
         PolygonizeOptionsError,
         PolygonizeTopologyError
     )
-except ImportError:
+except Exception:
     try:
         from .cffi_wrapper import polygonize as _polygonize_impl
-    except Exception as import_error:
-        def _polygonize_impl(*args, _import_error=import_error, **kwargs):
+    except Exception as fallback_import_error:
+        _IMPORT_OK = False
+        _IMPORT_ERROR = fallback_import_error
+
+        def _polygonize_impl(*args, _import_error=fallback_import_error, **kwargs):
             raise ImportError("geo_polygonize native extension is not available") from _import_error
 
     # Fallback exception classes if C extension is missing
@@ -31,6 +38,14 @@ except ImportError:
 
     class PolygonizeTopologyError(ValueError):
         pass
+
+def import_probe():
+    """Return (ok, error) for geo_polygonize runtime availability."""
+    return _IMPORT_OK, None if _IMPORT_ERROR is None else str(_IMPORT_ERROR)
+
+def is_available():
+    """Return True when a geo_polygonize runtime backend is importable."""
+    return import_probe()[0]
 
 def polygonize_with_options(lines=None, coords=None, offsets=None, options=None, stride=None, line_ids=None, return_polygons=False):
     """
@@ -105,9 +120,9 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
     options_json = None if options is None else json.dumps(options)
 
-    try:
+    if _polygonize_with_options_impl is not None:
         result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
-    except NameError:
+    else:
         # Fallback for CFFI which does not support options mapping fully yet
         result = _polygonize_impl(coords, offsets, node=options_dict.get("node_input", False), snap=options_dict.get("snap_grid_size", 1e-10), extract_only_polygonal=options_dict.get("extract_only_polygonal", False), stride=stride, line_ids=line_ids)
 
