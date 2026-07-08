@@ -9,6 +9,29 @@ use wide::f64x4;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+fn nearest_reference_vertex(
+    coord: Coord3D,
+    reference_vertices: &[Coord3D],
+    tolerance_sq: f64,
+) -> Coord3D {
+    reference_vertices
+        .iter()
+        .filter_map(|&vertex| {
+            let dx = vertex.x - coord.x;
+            let dy = vertex.y - coord.y;
+            let dist_sq = dx * dx + dy * dy;
+            (dist_sq > 0.0 && dist_sq <= tolerance_sq).then_some((dist_sq, vertex))
+        })
+        .min_by(|(dist_a, a), (dist_b, b)| {
+            dist_a
+                .total_cmp(dist_b)
+                .then(a.x.total_cmp(&b.x))
+                .then(a.y.total_cmp(&b.y))
+        })
+        .map(|(_, vertex)| vertex)
+        .unwrap_or(coord)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NodingStrategy {
     Auto,
@@ -207,27 +230,29 @@ impl SnapNoder {
 
         // ponytail: O(segments * vertices); add a spatial index if CFB-scale pre-snap profiles hot.
         for &line in lines {
-            let dx = line.end.x - line.start.x;
-            let dy = line.end.y - line.start.y;
+            let start = nearest_reference_vertex(line.start, &reference_vertices, tolerance_sq);
+            let end = nearest_reference_vertex(line.end, &reference_vertices, tolerance_sq);
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
             let len_sq = dx * dx + dy * dy;
             if len_sq == 0.0 {
                 continue;
             }
 
             points.clear();
-            points.push((0.0, line.start));
-            points.push((1.0, line.end));
+            points.push((0.0, start));
+            points.push((1.0, end));
 
             for &vertex in &reference_vertices {
-                let vx = vertex.x - line.start.x;
-                let vy = vertex.y - line.start.y;
+                let vx = vertex.x - start.x;
+                let vy = vertex.y - start.y;
                 let t = (vx * dx + vy * dy) / len_sq;
                 if !(0.0..=1.0).contains(&t) {
                     continue;
                 }
 
-                let nearest_x = line.start.x + t * dx;
-                let nearest_y = line.start.y + t * dy;
+                let nearest_x = start.x + t * dx;
+                let nearest_y = start.y + t * dy;
                 let dist_x = vertex.x - nearest_x;
                 let dist_y = vertex.y - nearest_y;
                 if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
@@ -682,6 +707,27 @@ mod tests {
             .iter()
             .any(|line| line.start == Coord3D::new(5.0, -0.4, 0.0)
                 || line.end == Coord3D::new(5.0, -0.4, 0.0)));
+    }
+
+    #[test]
+    fn test_pre_snap_moves_nearby_endpoints() {
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 0.0),
+            make_line(10.3, 0.02, 20.0, 0.0),
+        ];
+
+        let snapped = SnapNoder::pre_snap_to_reference_vertices(&lines, 0.5);
+
+        assert!(snapped
+            .iter()
+            .any(|line| line.start == Coord3D::new(10.0, 0.0, 0.0)
+                || line.end == Coord3D::new(10.0, 0.0, 0.0)));
+        assert!(snapped
+            .iter()
+            .any(|line| (line.start == Coord3D::new(10.0, 0.0, 0.0)
+                && line.end == Coord3D::new(10.3, 0.02, 0.0))
+                || (line.start == Coord3D::new(10.3, 0.02, 0.0)
+                    && line.end == Coord3D::new(10.0, 0.0, 0.0))));
     }
 
     #[test]
