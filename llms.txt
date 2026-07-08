@@ -207,19 +207,19 @@ As of `geo-polygonize` v0.1.0 (with Parallel R-Tree noding, Memory Pooling, Tili
 
 | Input Size (NxN) | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 5 | 0.000186 | 0.000953 | 0.002410 | 5.12x | 0.40x | 12.94x |
-| 10 | 0.000399 | 0.003268 | 0.001370 | 8.19x | 2.39x | 3.43x |
-| 20 | 0.000965 | 0.009208 | 0.004010 | 9.54x | 2.30x | 4.16x |
-| 50 | 0.004097 | 0.051724 | 0.011640 | 12.62x | 4.44x | 2.84x |
-| 100 | 0.015649 | 0.208126 | 0.028630 | 13.30x | 7.27x | 1.83x |
+| 5 | 0.000175 | 0.000681 | 0.004480 | 3.90x | 0.15x | 25.64x |
+| 10 | 0.000396 | 0.002241 | 0.001690 | 5.65x | 1.33x | 4.26x |
+| 20 | 0.000956 | 0.008267 | 0.003190 | 8.64x | 2.59x | 3.34x |
+| 50 | 0.004170 | 0.050748 | 0.014190 | 12.17x | 3.58x | 3.40x |
+| 100 | 0.015383 | 0.211339 | 0.025620 | 13.74x | 8.25x | 1.67x |
 
 ### Random Lines
 
 | Count | Rust Time (s) | Python Time (s) | Wasm Time (s) | Speedup (Py/Rs) | Speedup (Py/Wasm) | Speedup (Wasm/Rs) |
 |---|---|---|---|---|---|---|
-| 50 | 0.000866 | 0.007937 | 0.000980 | 9.16x | 8.10x | 1.13x |
-| 100 | 0.002901 | 0.025567 | 0.003750 | 8.81x | 6.82x | 1.29x |
-| 200 | 0.010592 | 0.098008 | 0.015090 | 9.25x | 6.49x | 1.42x |
+| 50 | 0.000875 | 0.007804 | 0.000980 | 8.92x | 7.96x | 1.12x |
+| 100 | 0.002972 | 0.025490 | 0.003540 | 8.58x | 7.20x | 1.19x |
+| 200 | 0.010536 | 0.096319 | 0.014250 | 9.14x | 6.76x | 1.35x |
 
 **Analysis:**
 The library offers a pure Rust native alternative to GEOS.
@@ -252,6 +252,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.35.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.34.0...geo-polygonize-v0.35.0) (2026-07-08)
+
+
+### Features
+
+* **python:** add import probe helper ([18866aa](https://github.com/graydonpleasants/geo-polygonize/commit/18866aadeb2e756d877a05f79c457deb1434f39e))
+
+
+### Bug Fixes
+
+* **wasm:** ship generated declarations ([e96cb7d](https://github.com/graydonpleasants/geo-polygonize/commit/e96cb7d84afb8c9fabe6d771a2aeff3ec61ad980))
+
+## [0.34.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.33.0...geo-polygonize-v0.34.0) (2026-07-07)
+
+
+### Features
+
+* **core:** add CFB adoption hardening ([bbe187b](https://github.com/graydonpleasants/geo-polygonize/commit/bbe187b1625951df96f0d0ee4bba3268b511a09a))
+* **core:** implement incremental stateful polygonizer ([#704](https://github.com/graydonpleasants/geo-polygonize/issues/704)) ([e88802b](https://github.com/graydonpleasants/geo-polygonize/commit/e88802b10a1a1a90de38c8b8b07da4b95b055971))
+
+
+### Bug Fixes
+
+* **playground:** correct vitepress build order and copy examples to public ([48c0a6f](https://github.com/graydonpleasants/geo-polygonize/commit/48c0a6fd81738483ad7735081556083e2a405794))
+* **python:** upgrade pyo3 for advisory ([8f5b224](https://github.com/graydonpleasants/geo-polygonize/commit/8f5b224bf6101326c9cef1fa07ebeedbf2823cd1))
+
+
+### Build System
+
+* use full path for wasm-bindgen in build scripts ([d88e33b](https://github.com/graydonpleasants/geo-polygonize/commit/d88e33bc8363a7ce4749afdc4dfae1f24ba0af4c))
+
+## [0.33.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.32.0...geo-polygonize-v0.33.0) (2026-03-30)
+
+
+### Features
+
+* **github:** revamp interactive documentation playground with SVG visualizer and comprehensive examples ([#694](https://github.com/graydonpleasants/geo-polygonize/issues/694)) ([1617023](https://github.com/graydonpleasants/geo-polygonize/commit/161702348367ea4edce471d59b3f1ac7051cd540))
 
 ## [0.32.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.31.0...geo-polygonize-v0.32.0) (2026-03-27)
 
@@ -1307,11 +1345,15 @@ use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
 
 ### Python
 
-The library provides native Python bindings via PyO3, packaged as `geo-polygonize`.
+The Python package is published as `geo-polygonize-py` and imported as `geo_polygonize`.
+
+```bash
+pip install geo-polygonize-py
+```
 
 ```python
 import numpy as np
-from geo_polygonize import polygonize
+from geo_polygonize import polygonize, import_probe
 
 # 1. Using Shapely LineStrings or coordinate lists directly
 lines = [
@@ -1335,8 +1377,54 @@ coords = np.array([
 # The final closing offset is computed implicitly.
 offsets = np.array([0, 5], dtype=np.uint32)
 
-# Returns a dictionary with 'flat_coords', 'ring_offsets', 'polygon_offsets', etc.
+# Returns a stable dictionary with 'polygons', diagnostics, and provenance.
 result_dict = polygonize(coords=coords, offsets=offsets)
+
+# Native-extension probes are cheap and safe for optional integrations.
+ok, error = import_probe()
+```
+
+CFB/autograder integrations should use the versioned production profile rather
+than assembling caller-side knobs or using legacy `polygonize(..., node=True,
+snap=0.5)` calls:
+
+```python
+from geo_polygonize import cfb_robust_options, polygonize_with_options
+
+result = polygonize_with_options(
+    coords=coords,
+    offsets=offsets,
+    options=cfb_robust_options(),
+)
+```
+
+The default return shape is a stable dictionary with `polygons` as
+`SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
+`Polygon` objects.
+
+For Shapely parity checks, compare report-mode outputs with the built-in
+mismatch helper:
+
+```python
+from geo_polygonize import explain_mismatch, polygonize_with_options
+
+options = cfb_robust_options()
+result_a = polygonize_with_options(coords=coords_a, offsets=offsets_a, options=options)
+result_b = polygonize_with_options(coords=coords_b, offsets=offsets_b, options=options)
+result_a["options"] = options
+result_b["options"] = options
+
+mismatch = explain_mismatch(result_a, result_b)
+```
+
+For a minimal Shapely smoke comparison, use area signatures:
+
+```python
+from shapely.ops import polygonize as shapely_polygonize
+
+rust_polys = polygonize_with_options(lines=lines, options=cfb_robust_options(), return_polygons=True)
+rust_areas = sorted(round(poly.area, 6) for poly in rust_polys)
+shapely_areas = sorted(round(poly.area, 6) for poly in shapely_polygonize(lines))
 ```
 
 ### WebAssembly (WASM)
@@ -1348,8 +1436,8 @@ This library supports WebAssembly with an ergonomic dual-build configuration tha
 npm install geo-polygonize
 ```
 
-**Standard Usage (Bundlers / Browser):**
-The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed.
+**Standard Usage (Quick Demos):**
+The default entry point automatically handles feature detection (SIMD) and lazy-loading of the Wasm binary. The Wasm is inlined as a Base64 Data URI, so no extra bundler configuration is needed. For app builds, prefer the slim entry point below so your bundler keeps the Wasm assets out of the JavaScript chunk.
 
 ```javascript
 import init, { polygonize, polygonize_geoarrow } from "geo-polygonize";
@@ -1379,24 +1467,24 @@ async function run() {
 }
 ```
 
-**Slim Usage (Manual Loading):**
-If you prefer to manage the Wasm binary yourself (e.g., to reduce bundle size or load from a CDN), import from `geo-polygonize/slim`.
+**Slim Usage (Apps / Manual Loading):**
+For Vite and other app bundlers, import from `geo-polygonize/slim` and pass explicit Wasm asset URLs.
 
 ```javascript
-import { initBest, polygonize } from "geo-polygonize/slim";
+import { cfbRobustOptions, initBest } from "geo-polygonize/slim";
+import scalarUrl from "geo-polygonize/geo_polygonize.wasm?url";
+import simdUrl from "geo-polygonize/geo_polygonize_simd.wasm?url";
 
 async function run() {
-    // You must provide the compiled WebAssembly.Module or URL
-    // You can choose to load the SIMD or Scalar version based on your own detection or availability
-    const response = await fetch("geo_polygonize.wasm");
-    const buffer = await response.arrayBuffer();
-    const module = await WebAssembly.compile(buffer);
+    const wasm = await initBest(
+        { module_or_path: scalarUrl },
+        { module_or_path: simdUrl },
+    );
 
-    // Helper to initialize the best available implementation
-    // Pass the module to both arguments if you only have one version
-    await initBest(module, module);
-
-    // ... use polygonize
+    const result = wasm.polygonizeWithOptions(
+        JSON.stringify(geojson),
+        cfbRobustOptions,
+    );
 }
 ```
 
@@ -2263,6 +2351,8 @@ feature-depth = 1
 ignore = [
     "RUSTSEC-2025-0141",
     "RUSTSEC-2024-0436",
+    # iai-callgrind 0.16.1 pulls this through its benchmark macro dependency.
+    "RUSTSEC-2026-0173",
 ]
 # If this is true, then cargo deny will use the git executable to fetch advisory database.
 # If this is false, then it uses a built-in git library.
@@ -2448,8 +2538,8 @@ build-backend = "maturin"
 
 [project]
 name = "geo-polygonize-py"
-version = "0.32.0"
-requires-python = ">=3.7"
+version = "0.35.0"
+requires-python = ">=3.8"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
 license = {text = "MIT OR Apache-2.0"}
@@ -2561,7 +2651,7 @@ File: crates/geo-polygonize-core/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-core"
-version = "0.32.0"
+version = "0.35.0"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"
@@ -2582,8 +2672,8 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
-pyo3 = { version = "0.21", features = ["extension-module", "abi3-py37"], optional = true }
-numpy = { version = "0.21", optional = true }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py38"], optional = true }
+numpy = { version = "0.29", optional = true }
 arrow = { version = "57", features = ["ffi"] }
 geoarrow = "0.7.0"
 geo-traits = "0.3.0"
@@ -4754,7 +4844,7 @@ use crate::options::TouchPolicy;
 use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
 };
-use crate::types::Polygon3D;
+use crate::types::{Coord3D, Polygon3D};
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -4762,28 +4852,42 @@ use rstar::AABB;
 
 pub struct ContainmentForest {
     pub tree: SpatialIndexBackend,
-    pub simd_shells: Vec<SimdRing>,
+    pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
-    pub shell_areas: Vec<f64>,
+    pub shell_areas: Vec<Option<f64>>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
-        let simd_shells: Vec<SimdRing>;
-        let shell_areas: Vec<f64>;
+        let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
+        let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
         #[cfg(feature = "parallel")]
         {
-            (simd_shells, shell_areas) = shells
+            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
                 .par_iter()
-                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .map(|s| {
+                    (
+                        Some(SimdRing::new_3d(&s.exterior)),
+                        Some(s.exterior_unsigned_area_2d()),
+                    )
+                })
                 .unzip();
+            simd_shells.extend(shells_p);
+            shell_areas.extend(areas_p);
         }
         #[cfg(not(feature = "parallel"))]
         {
-            (simd_shells, shell_areas) = shells
+            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
                 .iter()
-                .map(|s| (SimdRing::new_3d(&s.exterior), s.exterior_unsigned_area_2d()))
+                .map(|s| {
+                    (
+                        Some(SimdRing::new_3d(&s.exterior)),
+                        Some(s.exterior_unsigned_area_2d()),
+                    )
+                })
                 .unzip();
+            simd_shells.extend(shells_p);
+            shell_areas.extend(areas_p);
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
@@ -4839,12 +4943,21 @@ impl ContainmentForest {
                     }
 
                     // Check if shell[i] is inside shell[j]
-                    let simd_shell = &self.simd_shells[j];
+                    let simd_shell = match &self.simd_shells[j] {
+                        Some(s) => s,
+                        None => continue,
+                    };
 
                     if simd_shell.contains(probe_pt.0) {
                         // Using cached areas instead of `shell.exterior_unsigned_area_2d()`
-                        let area_i = self.shell_areas[i];
-                        let area_j = self.shell_areas[j];
+                        let area_i = match self.shell_areas[i] {
+                            Some(a) => a,
+                            None => continue,
+                        };
+                        let area_j = match self.shell_areas[j] {
+                            Some(a) => a,
+                            None => continue,
+                        };
 
                         // If i is strictly contained inside j, increment container count
                         if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
@@ -4903,11 +5016,17 @@ impl ContainmentForest {
 
         for cand_idx in candidates {
             let idx = cand_idx;
-            let simd_shell = &self.simd_shells[idx];
+            let simd_shell = match &self.simd_shells[idx] {
+                Some(s) => s,
+                None => continue,
+            };
 
             if simd_shell.contains(probe_point.0) {
                 // Using cached areas instead of `shells[idx].exterior_unsigned_area_2d()`
-                let area = self.shell_areas[idx];
+                let area = match self.shell_areas[idx] {
+                    Some(a) => a,
+                    None => continue,
+                };
 
                 if area > hole_area + 1e-6 && area < min_area {
                     let touch_ok = match touch_policy {
@@ -4934,6 +5053,38 @@ impl ContainmentForest {
         }
 
         best_shell_idx
+    }
+
+    pub fn insert_shell(&mut self, exterior: &[Coord3D], index: usize) {
+        if let Some(bbox) = bounding_rect_3d(exterior) {
+            let aabb: AABB<[f64; 2]> =
+                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+            self.tree.insert(IndexedEnvelope { aabb, index });
+        }
+
+        if index >= self.simd_shells.len() {
+            self.simd_shells.resize_with(index + 1, || None);
+            self.shell_areas.resize_with(index + 1, || None);
+        }
+
+        self.simd_shells[index] = Some(SimdRing::new_3d(exterior));
+        self.shell_areas[index] = Some(Polygon3D::ring_signed_area_2d(exterior).abs());
+    }
+
+    pub fn remove_shell(&mut self, exterior: &[Coord3D], index: usize) -> bool {
+        if let Some(bbox) = bounding_rect_3d(exterior) {
+            let aabb: AABB<[f64; 2]> =
+                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+            self.tree.remove(&IndexedEnvelope { aabb, index });
+        }
+
+        if index < self.simd_shells.len() {
+            self.simd_shells[index] = None;
+            self.shell_areas[index] = None;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -5105,7 +5256,7 @@ impl SchemaExporter for MockSchemaExporter {
 /// - `input_array` and `input_schema` must be valid, non-null pointers to valid Arrow C Data Interface structures.
 /// - `output_array` and `output_schema` must be valid, non-null pointers to allocated but uninitialized or safe-to-overwrite Arrow C Data Interface structures.
 /// - `options` must be a valid, non-null pointer to a `PolygonizerOptions` struct.
-/// - We use `std::panic::catch_unwind` inside `polygonize_ffi_internal` to ensure panics don't cross the FFI boundary, returning a defined error code instead.
+/// - We use `std::panic::catch_unwind` at this boundary to ensure panics don't cross the FFI boundary, returning a defined error code (99) instead.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     input_array: *mut FFI_ArrowArray,
@@ -5114,61 +5265,71 @@ pub unsafe extern "C" fn polygonize_ffi(
     output_schema: *mut FFI_ArrowSchema,
     options: *const PolygonizerOptions,
 ) -> i32 {
-    if options.is_null() {
-        return 1;
-    }
-    let opts = &*options;
-    let mut arrow_opts = crate::options::PolygonizerOptions {
-        node_input: opts.node_input != 0,
-        snap_grid_size: opts.snap_grid_size,
-        extract_only_polygonal: opts.extract_only_polygonal != 0,
-        ..Default::default()
-    };
-    arrow_opts.diagnostics.enabled = opts.report_mode != 0;
-    arrow_opts.diagnostics.report_mode = opts.report_mode != 0;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        if options.is_null() {
+            return 1;
+        }
+        let opts = &*options;
+        let mut arrow_opts = crate::options::PolygonizerOptions {
+            node_input: opts.node_input != 0,
+            snap_grid_size: opts.snap_grid_size,
+            extract_only_polygonal: opts.extract_only_polygonal != 0,
+            ..Default::default()
+        };
+        arrow_opts.diagnostics.enabled = opts.report_mode != 0;
+        arrow_opts.diagnostics.report_mode = opts.report_mode != 0;
 
-    polygonize_ffi_internal(
-        input_array,
-        input_schema,
-        output_array,
-        output_schema,
-        arrow_opts,
-    )
+        polygonize_ffi_internal(
+            input_array,
+            input_schema,
+            output_array,
+            output_schema,
+            arrow_opts,
+        )
+    }))
+    .unwrap_or(99)
 }
 
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
+///
+/// We use `std::panic::catch_unwind` at this boundary to ensure panics don't cross the FFI boundary, returning a defined error code (99) instead.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_with_options_ffi(
     input_array: *mut FFI_ArrowArray,
     input_schema: *mut FFI_ArrowSchema,
     output_array: *mut FFI_ArrowArray,
     output_schema: *mut FFI_ArrowSchema,
-    options_json: *const std::os::raw::c_char,
+    options_json: *const u8,
+    options_json_len: usize,
 ) -> i32 {
-    if options_json.is_null() {
-        return 1;
-    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        if options_json.is_null() {
+            return 1;
+        }
 
-    let c_str = std::ffi::CStr::from_ptr(options_json);
-    let options_str = match c_str.to_str() {
-        Ok(s) => s,
-        Err(_) => return 1,
-    };
+        let slice = std::slice::from_raw_parts(options_json, options_json_len);
+        let options_str = match std::str::from_utf8(slice) {
+            Ok(s) => s,
+            Err(_) => return 1,
+        };
 
-    let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str) {
-        Ok(o) => o,
-        Err(_) => return 1,
-    };
+        let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str)
+        {
+            Ok(o) => o,
+            Err(_) => return 1,
+        };
 
-    polygonize_ffi_internal(
-        input_array,
-        input_schema,
-        output_array,
-        output_schema,
-        arrow_opts,
-    )
+        polygonize_ffi_internal(
+            input_array,
+            input_schema,
+            output_array,
+            output_schema,
+            arrow_opts,
+        )
+    }))
+    .unwrap_or(99)
 }
 
 unsafe fn polygonize_ffi_internal(
@@ -5178,56 +5339,53 @@ unsafe fn polygonize_ffi_internal(
     output_schema: *mut FFI_ArrowSchema,
     arrow_opts: crate::options::PolygonizerOptions,
 ) -> i32 {
-    std::panic::catch_unwind(|| {
-        if input_array.is_null()
-            || input_schema.is_null()
-            || output_array.is_null()
-            || output_schema.is_null()
-        {
-            return 1;
+    if input_array.is_null()
+        || input_schema.is_null()
+        || output_array.is_null()
+        || output_schema.is_null()
+    {
+        return 1;
+    }
+
+    let field = match Field::try_from(&*input_schema) {
+        Ok(f) => f,
+        Err(_) => return 2,
+    };
+
+    let array_val = std::ptr::replace(input_array, FFI_ArrowArray::empty());
+    let arrow_data = match from_ffi(array_val, &*input_schema) {
+        Ok(data) => data,
+        Err(_) => return 2,
+    };
+    let array = arrow::array::make_array(arrow_data);
+
+    match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
+        Ok(polygon_array) => {
+            let array_ref = polygon_array.into_array_ref();
+            let data = array_ref.to_data();
+
+            let ffi_array = FFI_ArrowArray::new(&data);
+            std::ptr::write(output_array, ffi_array);
+
+            let ffi_schema = match DefaultSchemaExporter::try_export(data.data_type()) {
+                Ok(s) => s,
+                Err(_) => return 4,
+            };
+            std::ptr::write(output_schema, ffi_schema);
+
+            0
         }
-
-        let field = match Field::try_from(&*input_schema) {
-            Ok(f) => f,
-            Err(_) => return 2,
-        };
-
-        let array_val = std::ptr::replace(input_array, FFI_ArrowArray::empty());
-        let arrow_data = match from_ffi(array_val, &*input_schema) {
-            Ok(data) => data,
-            Err(_) => return 2,
-        };
-        let array = arrow::array::make_array(arrow_data);
-
-        match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
-            Ok(polygon_array) => {
-                let array_ref = polygon_array.into_array_ref();
-                let data = array_ref.to_data();
-
-                let ffi_array = FFI_ArrowArray::new(&data);
-                std::ptr::write(output_array, ffi_array);
-
-                let ffi_schema = match DefaultSchemaExporter::try_export(data.data_type()) {
-                    Ok(s) => s,
-                    Err(_) => return 4,
-                };
-                std::ptr::write(output_schema, ffi_schema);
-
-                0
-            }
-            Err(e) => match e {
-                crate::error::PolygonizeError::InvalidBufferShape { .. } => 5,
-                crate::error::PolygonizeError::InvalidArgumentType { .. } => 6,
-                crate::error::PolygonizeError::InvalidGeometry { .. } => 7,
-                crate::error::PolygonizeError::TopologyFailure { .. } => 8,
-                crate::error::PolygonizeError::UnsupportedOptionCombination { .. } => 9,
-                crate::error::PolygonizeError::InternalInvariantViolation { .. } => 10,
-                crate::error::PolygonizeError::ArrowError(_) => 11,
-                _ => 12,
-            },
-        }
-    })
-    .unwrap_or(99)
+        Err(e) => match e {
+            crate::error::PolygonizeError::InvalidBufferShape { .. } => 5,
+            crate::error::PolygonizeError::InvalidArgumentType { .. } => 6,
+            crate::error::PolygonizeError::InvalidGeometry { .. } => 7,
+            crate::error::PolygonizeError::TopologyFailure { .. } => 8,
+            crate::error::PolygonizeError::UnsupportedOptionCombination { .. } => 9,
+            crate::error::PolygonizeError::InternalInvariantViolation { .. } => 10,
+            crate::error::PolygonizeError::ArrowError(_) => 11,
+            _ => 12,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -5477,15 +5635,28 @@ pub trait SpatialIndex2D {
         &'a self,
         aabb: &AABB<[f64; 2]>,
     ) -> Box<dyn Iterator<Item = usize> + 'a>;
+    fn insert(&mut self, env: IndexedEnvelope);
+    fn remove(&mut self, env: &IndexedEnvelope) -> bool;
 }
 
 use rstar::{RTree, RTreeObject};
 
 // Wrapper for Polygon indexable by rstar (2D)
+#[derive(Clone, Debug)]
 pub struct IndexedEnvelope {
     pub aabb: AABB<[f64; 2]>,
     pub index: usize,
 }
+
+impl PartialEq for IndexedEnvelope {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+            && self.aabb.lower() == other.aabb.lower()
+            && self.aabb.upper() == other.aabb.upper()
+    }
+}
+
+impl Eq for IndexedEnvelope {}
 
 impl RTreeObject for IndexedEnvelope {
     type Envelope = AABB<[f64; 2]>;
@@ -5517,6 +5688,14 @@ impl SpatialIndex2D for RStarBackend {
                 .locate_in_envelope_intersecting(aabb)
                 .map(|cand| cand.index),
         )
+    }
+
+    fn insert(&mut self, env: IndexedEnvelope) {
+        self.tree.insert(env);
+    }
+
+    fn remove(&mut self, env: &IndexedEnvelope) -> bool {
+        self.tree.remove(env).is_some()
     }
 }
 
@@ -5551,6 +5730,14 @@ impl SpatialIndex2D for PackedNativeBackend {
         let query_results = self.index.query(min[0], min[1], max[0], max[1]);
         Box::new(query_results.into_iter())
     }
+
+    fn insert(&mut self, _env: IndexedEnvelope) {
+        panic!("PackedNativeBackend does not support dynamic insertions.");
+    }
+
+    fn remove(&mut self, _env: &IndexedEnvelope) -> bool {
+        panic!("PackedNativeBackend does not support dynamic removals.");
+    }
 }
 
 pub enum SpatialIndexBackend {
@@ -5568,6 +5755,20 @@ impl SpatialIndex2D for SpatialIndexBackend {
             SpatialIndexBackend::PackedNative(backend) => {
                 backend.locate_in_envelope_intersecting(aabb)
             }
+        }
+    }
+
+    fn insert(&mut self, env: IndexedEnvelope) {
+        match self {
+            SpatialIndexBackend::RStar(backend) => backend.insert(env),
+            SpatialIndexBackend::PackedNative(backend) => backend.insert(env),
+        }
+    }
+
+    fn remove(&mut self, env: &IndexedEnvelope) -> bool {
+        match self {
+            SpatialIndexBackend::RStar(backend) => backend.remove(env),
+            SpatialIndexBackend::PackedNative(backend) => backend.remove(env),
         }
     }
 }
@@ -5596,6 +5797,7 @@ pub mod index;
 pub mod noding;
 pub mod options;
 pub mod polygonizer;
+pub mod stateful;
 pub mod tiling;
 pub mod types;
 pub mod utils;
@@ -5607,6 +5809,7 @@ pub mod python;
 mod polygonizer_tests;
 
 pub use polygonizer::{Polygonizer, PolygonizerResult};
+pub use stateful::{PolygonizerUpdate, StatefulPolygonizer};
 pub use tiling::TiledPolygonizer;
 pub use types::{Coord3D, Line3D, Polygon3D};
 
@@ -5708,6 +5911,44 @@ impl Default for PolygonizerOptions {
             diagnostics: DiagnosticsOptions::default(),
             provenance: ProvenanceOptions::default(),
             input_profile_id: None,
+        }
+    }
+}
+
+impl PolygonizerOptions {
+    pub fn cfb_robust_v1() -> Self {
+        Self {
+            target: TargetProfile::Native,
+            node_input: true,
+            snap_grid_size: 0.5,
+            extract_only_polygonal: false,
+            snap_strategy: SnapStrategy::GeosCompat,
+            noding: NodingOptions {
+                backend: NodingBackend::Snap,
+                snap_mode: SnapMode::FloatEpsilonDedup,
+            },
+            containment: ContainmentOptions {
+                touch_policy: TouchPolicy::AllowPointTouchDisallowEdgeShare,
+                index_backend: IndexBackend::RStar,
+            },
+            tiling: None,
+            z: ZOptions {
+                policy: ZPolicy::InterpolateAlongEdge,
+            },
+            determinism: DeterminismOptions {
+                canonical_sort: true,
+                canonical_ring_rotation: true,
+                stable_tie_breaks: true,
+            },
+            diagnostics: DiagnosticsOptions {
+                enabled: true,
+                report_mode: true,
+            },
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            input_profile_id: Some("cfb_robust_v1".to_string()),
         }
     }
 }
@@ -5955,6 +6196,7 @@ pub struct Polygonizer {
 pub struct PolygonizerResult {
     pub polygons: Vec<Polygon3D>,
     pub dangles: Vec<Vec<Coord3D>>,
+    pub cut_edges: Vec<Vec<Coord3D>>,
     pub invalid_rings: Vec<Vec<Coord3D>>,
     pub diagnostics: Option<PolygonizerDiagnostics>,
 }
@@ -6147,11 +6389,8 @@ impl Polygonizer {
             d.phase_times.graph_build = get_elapsed(t_graph_build_start);
             d.ring_count = rings_with_ids.len();
             d.cut_edge_count = cut_edges.len();
-            // Note: dangles length here does not include cut_edges yet
-            d.dangle_count = dangles.len() + cut_edges.len();
+            d.dangle_count = dangles.len();
         }
-
-        dangles.append(&mut cut_edges);
 
         // 4. Classify Rings (Shell vs Hole)
         let t_ring_extraction_start = get_time();
@@ -6181,7 +6420,13 @@ impl Polygonizer {
         let mut result =
             construct_final_polygons(shells, shell_holes, shell_holes_ids, &self.options);
 
-        result = apply_determinism(result, &mut dangles, &mut invalid_rings, &self.options);
+        result = apply_determinism(
+            result,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &self.options,
+        );
 
         if let Some(ref mut d) = diag {
             d.phase_times.containment = get_elapsed(t_containment_start);
@@ -6190,6 +6435,7 @@ impl Polygonizer {
         Ok(PolygonizerResult {
             polygons: result,
             dangles,
+            cut_edges,
             invalid_rings,
             diagnostics: diag,
         })
@@ -6220,18 +6466,16 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
         .unwrap_or(0);
 
     if min_idx > 0 {
-        let mut new_ring = Vec::with_capacity(ring.len());
-        new_ring.extend_from_slice(&ring[min_idx..n]);
-        new_ring.extend_from_slice(&ring[0..min_idx]);
-        new_ring.push(new_ring[0]);
-        *ring = new_ring;
+        ring[..n].rotate_left(min_idx);
+        if n < ring.len() {
+            ring[n] = ring[0];
+        } else {
+            ring.push(ring[0]);
+        }
 
         if let Some(ref mut ids_vec) = ids {
             if !ids_vec.is_empty() {
-                let mut new_ids = Vec::with_capacity(ids_vec.len());
-                new_ids.extend_from_slice(&ids_vec[min_idx..]);
-                new_ids.extend_from_slice(&ids_vec[0..min_idx]);
-                **ids_vec = new_ids;
+                ids_vec.rotate_left(min_idx);
             }
         }
     }
@@ -6252,7 +6496,7 @@ pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
     }
 }
 
-fn extract_and_classify_rings(
+pub(crate) fn extract_and_classify_rings(
     rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
 ) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
@@ -6336,17 +6580,15 @@ fn establish_topology(
     (shells, shell_holes, shell_holes_ids)
 }
 
-fn construct_final_polygons(
+pub(crate) fn construct_final_polygons(
     shells: Vec<Polygon3D>,
     shell_holes: Vec<Vec<Vec<Coord3D>>>,
     shell_holes_ids: Vec<Vec<Vec<u32>>>,
     options: &PolygonizerOptions,
 ) -> Vec<Polygon3D> {
     let mut result = Vec::with_capacity(shells.len());
-    for ((shell, mut holes), mut holes_ids) in shells
-        .into_iter()
-        .zip(shell_holes.into_iter())
-        .zip(shell_holes_ids.into_iter())
+    for ((shell, mut holes), mut holes_ids) in
+        shells.into_iter().zip(shell_holes).zip(shell_holes_ids)
     {
         let mut exterior = shell.exterior;
         let mut exterior_ids = shell.exterior_ids;
@@ -6449,9 +6691,10 @@ fn construct_final_polygons(
     result
 }
 
-fn apply_determinism(
+pub(crate) fn apply_determinism(
     mut result: Vec<Polygon3D>,
     dangles: &mut [Vec<Coord3D>],
+    cut_edges: &mut [Vec<Coord3D>],
     invalid_rings: &mut Vec<Vec<Coord3D>>,
     options: &PolygonizerOptions,
 ) -> Vec<Polygon3D> {
@@ -6499,6 +6742,9 @@ fn apply_determinism(
             for d in dangles.iter_mut() {
                 canonicalize_open_line(d);
             }
+            for edge in cut_edges.iter_mut() {
+                canonicalize_open_line(edge);
+            }
             for ir in invalid_rings.iter_mut() {
                 canonicalize_ring(ir, None);
             }
@@ -6530,6 +6776,7 @@ fn apply_determinism(
             for (i, (l, _)) in dangles_with_cache.into_iter().enumerate() {
                 dangles[i] = l;
             }
+            sort_open_lines(cut_edges);
         }
 
         let mut combined_invalid: Vec<_> = invalid_rings
@@ -6570,7 +6817,32 @@ fn apply_determinism(
     result
 }
 
-fn process_invalid_rings(
+fn sort_open_lines(lines: &mut [Vec<Coord3D>]) {
+    let mut with_cache: Vec<_> = lines
+        .iter_mut()
+        .map(|l| {
+            let b = bounding_rect_3d(l).unwrap_or(geo::Rect::new(
+                geo::Coord { x: 0.0, y: 0.0 },
+                geo::Coord { x: 0.0, y: 0.0 },
+            ));
+            (std::mem::take(l), b)
+        })
+        .collect();
+
+    with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
+        b1.min()
+            .x
+            .total_cmp(&b2.min().x)
+            .then(b1.min().y.total_cmp(&b2.min().y))
+            .then(l1.len().cmp(&l2.len()))
+    });
+
+    for (i, (line, _)) in with_cache.into_iter().enumerate() {
+        lines[i] = line;
+    }
+}
+
+pub(crate) fn process_invalid_rings(
     rings: Vec<Polygon3D>,
     valid_shells_2d: &[Polygon<f64>],
 ) -> Vec<Vec<Coord3D>> {
@@ -6919,6 +7191,45 @@ mod tests {
         assert_eq!(polygonizer.input_lines.len(), 2);
         assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
         assert_eq!(polygonizer.input_lines[1].end.y, 1.0);
+    }
+
+    #[test]
+    fn test_bounding_rect_3d() {
+        // 1. Empty slice
+        assert_eq!(bounding_rect_3d(&[]), None);
+
+        // 2. Single coordinate
+        let single = vec![Coord3D::new(5.0, 10.0, 15.0)];
+        let rect1 = bounding_rect_3d(&single).unwrap();
+        assert_eq!(rect1.min().x, 5.0);
+        assert_eq!(rect1.max().x, 5.0);
+        assert_eq!(rect1.min().y, 10.0);
+        assert_eq!(rect1.max().y, 10.0);
+
+        // 3. Multiple coordinates (Z should be ignored)
+        let coords = vec![
+            Coord3D::new(1.0, 2.0, 100.0),
+            Coord3D::new(-5.0, 8.0, -50.0),
+            Coord3D::new(10.0, -3.0, 0.0),
+            Coord3D::new(4.0, 12.0, 20.0),
+        ];
+        let rect2 = bounding_rect_3d(&coords).unwrap();
+        assert_eq!(rect2.min().x, -5.0);
+        assert_eq!(rect2.max().x, 10.0);
+        assert_eq!(rect2.min().y, -3.0);
+        assert_eq!(rect2.max().y, 12.0);
+
+        // 4. Multiple coordinates with same X/Y
+        let coords2 = vec![
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 10.0),
+            Coord3D::new(0.0, 0.0, -10.0),
+        ];
+        let rect3 = bounding_rect_3d(&coords2).unwrap();
+        assert_eq!(rect3.min().x, 0.0);
+        assert_eq!(rect3.max().x, 0.0);
+        assert_eq!(rect3.min().y, 0.0);
+        assert_eq!(rect3.max().y, 0.0);
     }
 
     #[test]
@@ -7915,7 +8226,7 @@ fn polygonize_with_options<'py>(
     stride: u8,
     options_json: Option<&str>,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let options: crate::options::PolygonizerOptions = if let Some(json) = options_json {
         serde_json::from_str(json)
             .map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
@@ -7939,7 +8250,7 @@ fn polygonize<'py>(
     stride: u8,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     report_mode: bool,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let mut options = crate::options::PolygonizerOptions::default();
     options.diagnostics.enabled = report_mode;
     options.diagnostics.report_mode = report_mode;
@@ -7957,7 +8268,7 @@ fn polygonize_internal<'py>(
     stride: u8,
     options: crate::options::PolygonizerOptions,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
@@ -8127,49 +8438,49 @@ fn polygonize_internal<'py>(
     // We will build Python polygons via the SimplePolygon class from geo_polygonize.types.
     // If geo_polygonize.types isn't available, we fallback to a simple dict representation?
     // The issue asks to "construct and return SimplePolygon objects directly".
-    let py_polygons = PyList::empty_bound(py);
+    let py_polygons = PyList::empty(py);
 
     // Attempt to import the Python class `SimplePolygon`
     let simple_polygon_cls = py
-        .import_bound("geo_polygonize.types")?
+        .import("geo_polygonize.types")?
         .getattr("SimplePolygon")?;
 
     for poly in &result.polygons {
         // Construct exterior tuples
-        let exterior_pts = PyList::empty_bound(py);
+        let exterior_pts = PyList::empty(py);
         for c in &poly.exterior {
             if stride == 3 {
-                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                exterior_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                exterior_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                exterior_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        let shell = PyTuple::new_bound(py, exterior_pts);
+        let shell = PyTuple::new(py, exterior_pts)?;
 
-        let shell_ids = PyTuple::new_bound(py, &poly.exterior_ids);
+        let shell_ids = PyTuple::new(py, &poly.exterior_ids)?;
 
         // Construct interiors
-        let holes = PyList::empty_bound(py);
-        let holes_ids = PyList::empty_bound(py);
+        let holes = PyList::empty(py);
+        let holes_ids = PyList::empty(py);
 
         for (h_idx, ring) in poly.interiors.iter().enumerate() {
-            let ring_pts = PyList::empty_bound(py);
+            let ring_pts = PyList::empty(py);
             for c in ring {
                 if stride == 3 {
-                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                    ring_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
                 } else {
-                    ring_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                    ring_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
                 }
             }
-            holes.append(PyTuple::new_bound(py, ring_pts))?;
+            holes.append(PyTuple::new(py, ring_pts)?)?;
 
-            let r_ids = PyTuple::new_bound(py, &poly.interiors_ids[h_idx]);
+            let r_ids = PyTuple::new(py, &poly.interiors_ids[h_idx])?;
             holes_ids.append(r_ids)?;
         }
 
         let py_provenance = if let Some(ref prov) = poly.provenance {
-            let prov_dict = PyDict::new_bound(py);
-            let b_ids = PyTuple::new_bound(py, &prov.boundary_line_ids);
+            let prov_dict = PyDict::new(py);
+            let b_ids = PyTuple::new(py, &prov.boundary_line_ids)?;
             prov_dict.set_item("boundary_line_ids", b_ids)?;
             if let Some(ref prof_id) = prov.input_profile_id {
                 prov_dict.set_item("input_profile_id", prof_id)?;
@@ -8187,51 +8498,63 @@ fn polygonize_internal<'py>(
     }
 
     // Construct dangles
-    let py_dangles = PyList::empty_bound(py);
+    let py_dangles = PyList::empty(py);
     for dangle in &result.dangles {
-        let dangle_pts = PyList::empty_bound(py);
+        let dangle_pts = PyList::empty(py);
         for c in dangle {
             if stride == 3 {
-                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                dangle_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                dangle_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                dangle_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        py_dangles.append(PyTuple::new_bound(py, dangle_pts))?;
+        py_dangles.append(PyTuple::new(py, dangle_pts)?)?;
+    }
+
+    // Construct cut edges
+    let py_cut_edges = PyList::empty(py);
+    for cut_edge in &result.cut_edges {
+        let cut_edge_pts = PyList::empty(py);
+        for c in cut_edge {
+            if stride == 3 {
+                cut_edge_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
+            } else {
+                cut_edge_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
+            }
+        }
+        py_cut_edges.append(PyTuple::new(py, cut_edge_pts)?)?;
     }
 
     // Construct invalid rings
-    let py_invalid_rings = PyList::empty_bound(py);
+    let py_invalid_rings = PyList::empty(py);
     for invalid_ring in &result.invalid_rings {
-        let invalid_pts = PyList::empty_bound(py);
+        let invalid_pts = PyList::empty(py);
         for c in invalid_ring {
             if stride == 3 {
-                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y, c.z]))?;
+                invalid_pts.append(PyTuple::new(py, [c.x, c.y, c.z])?)?;
             } else {
-                invalid_pts.append(PyTuple::new_bound(py, [c.x, c.y]))?;
+                invalid_pts.append(PyTuple::new(py, [c.x, c.y])?)?;
             }
         }
-        py_invalid_rings.append(PyTuple::new_bound(py, invalid_pts))?;
+        py_invalid_rings.append(PyTuple::new(py, invalid_pts)?)?;
     }
 
-    let dict = PyDict::new_bound(py);
-    dict.set_item("flat_coords", PyArray1::from_vec_bound(py, flat_coords))?;
-    dict.set_item("ring_offsets", PyArray1::from_vec_bound(py, ring_offsets))?;
-    dict.set_item(
-        "polygon_offsets",
-        PyArray1::from_vec_bound(py, polygon_offsets),
-    )?;
-    dict.set_item("flat_line_ids", PyArray1::from_vec_bound(py, flat_line_ids))?;
+    let dict = PyDict::new(py);
+    dict.set_item("flat_coords", PyArray1::from_vec(py, flat_coords))?;
+    dict.set_item("ring_offsets", PyArray1::from_vec(py, ring_offsets))?;
+    dict.set_item("polygon_offsets", PyArray1::from_vec(py, polygon_offsets))?;
+    dict.set_item("flat_line_ids", PyArray1::from_vec(py, flat_line_ids))?;
     dict.set_item("stride", stride)?;
 
     dict.set_item("polygons", py_polygons)?;
     dict.set_item("dangles", py_dangles)?;
+    dict.set_item("cut_edges", py_cut_edges)?;
     dict.set_item("invalid_rings", py_invalid_rings)?;
 
     if let Some(ref diag) = result.diagnostics {
         // Map diagnostics using serde to a Python dict
         if let Ok(diag_json) = serde_json::to_string(diag) {
-            let json_module = py.import_bound("json")?;
+            let json_module = py.import("json")?;
             let loads_func = json_module.getattr("loads")?;
             let py_diag = loads_func.call1((diag_json,))?;
             dict.set_item("diagnostics", py_diag)?;
@@ -8243,25 +8566,175 @@ fn polygonize_internal<'py>(
 
 #[pymodule]
 fn geo_polygonize_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add(
-        "PolygonizeTypeError",
-        py.get_type_bound::<PolygonizeTypeError>(),
-    )?;
+    m.add("PolygonizeTypeError", py.get_type::<PolygonizeTypeError>())?;
     m.add(
         "PolygonizeGeometryError",
-        py.get_type_bound::<PolygonizeGeometryError>(),
+        py.get_type::<PolygonizeGeometryError>(),
     )?;
     m.add(
         "PolygonizeOptionsError",
-        py.get_type_bound::<PolygonizeOptionsError>(),
+        py.get_type::<PolygonizeOptionsError>(),
     )?;
     m.add(
         "PolygonizeTopologyError",
-        py.get_type_bound::<PolygonizeTopologyError>(),
+        py.get_type::<PolygonizeTopologyError>(),
     )?;
     m.add_function(wrap_pyfunction!(polygonize, m)?)?;
     m.add_function(wrap_pyfunction!(polygonize_with_options, m)?)?;
     Ok(())
+}
+
+```
+
+File: crates/geo-polygonize-core/src/stateful.rs
+```
+use crate::containment::ContainmentForest;
+use crate::error::Result;
+use crate::graph::{EdgeId, PlanarGraph};
+use crate::options::PolygonizerOptions;
+use crate::polygonizer::{
+    apply_determinism, construct_final_polygons, extract_and_classify_rings, process_invalid_rings,
+};
+use crate::types::{Coord3D, Line3D, Polygon3D};
+use geo_types::Polygon;
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PolygonizerUpdate {
+    pub added: Vec<Polygon3D>,
+    pub removed: Vec<Polygon3D>,
+}
+
+pub struct StatefulPolygonizer {
+    pub graph: PlanarGraph,
+    pub options: PolygonizerOptions,
+    pub last_polygons: Vec<Polygon3D>,
+}
+
+impl StatefulPolygonizer {
+    pub fn new(options: PolygonizerOptions) -> Self {
+        Self {
+            graph: PlanarGraph::new(),
+            options,
+            last_polygons: Vec::new(),
+        }
+    }
+
+    pub fn add_line(&mut self, line: Line3D) -> EdgeId {
+        self.graph.add_line(line)
+    }
+
+    pub fn remove_line(&mut self, line_id: u32) -> bool {
+        self.graph.remove_line_by_id(line_id)
+    }
+
+    pub fn update(&mut self) -> Result<PolygonizerUpdate> {
+        // Reset traversal state
+        self.graph.reset_traversal_state();
+
+        // Sort edges
+        self.graph.sort_edges();
+
+        // Prune dangles
+        let mut dangles = self.graph.prune_dangles();
+
+        // Find rings
+        let rings_with_ids = self.graph.get_edge_rings();
+
+        // Find cut edges
+        let mut cut_edges = self.graph.get_cut_edges();
+
+        // Classify Rings
+        let (shells, holes, invalid_rings_candidates) = extract_and_classify_rings(rings_with_ids);
+
+        // Establish Topology
+        let mut forest = ContainmentForest::new(&shells, &self.options.containment.index_backend);
+
+        let mut filtered_shells = shells;
+        if self.options.extract_only_polygonal {
+            let keep_mask =
+                forest.filter_polygonal(&filtered_shells, &self.options.containment.touch_policy);
+            let mut new_shells = Vec::new();
+            for (keep, s) in keep_mask.into_iter().zip(filtered_shells) {
+                if keep {
+                    new_shells.push(s);
+                }
+            }
+            filtered_shells = new_shells;
+            forest =
+                ContainmentForest::new(&filtered_shells, &self.options.containment.index_backend);
+        }
+
+        let process_hole_assignment =
+            |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
+                let best_shell_idx = forest.assign_hole(
+                    &hole_3d,
+                    &filtered_shells,
+                    &self.options.containment.touch_policy,
+                );
+                best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
+            };
+
+        let assignments: Vec<_> = holes
+            .into_iter()
+            .filter_map(process_hole_assignment)
+            .collect();
+
+        let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; filtered_shells.len()];
+        let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; filtered_shells.len()];
+
+        for (idx, hole_coords, hole_ids) in assignments {
+            shell_holes[idx].push(hole_coords);
+            shell_holes_ids[idx].push(hole_ids);
+        }
+
+        // Construct Final Polygons
+        let mut result =
+            construct_final_polygons(filtered_shells, shell_holes, shell_holes_ids, &self.options);
+
+        let mut invalid_rings = if invalid_rings_candidates.is_empty() {
+            Vec::new()
+        } else {
+            let shells_2d: Vec<Polygon<f64>> = result.iter().map(|s| s.to_polygon_2d()).collect();
+            process_invalid_rings(invalid_rings_candidates, &shells_2d)
+        };
+
+        result = apply_determinism(
+            result,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &self.options,
+        );
+
+        // Compute Delta
+        let new_polygons = result;
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+
+        // Simplistic diff by exterior coords comparison.
+        // For production, we should hash or have ID mappings.
+        for old_poly in &self.last_polygons {
+            let found = new_polygons.iter().any(|new_poly| {
+                new_poly.exterior == old_poly.exterior && new_poly.interiors == old_poly.interiors
+            });
+            if !found {
+                removed.push(old_poly.clone());
+            }
+        }
+
+        for new_poly in &new_polygons {
+            let found = self.last_polygons.iter().any(|old_poly| {
+                old_poly.exterior == new_poly.exterior && old_poly.interiors == new_poly.interiors
+            });
+            if !found {
+                added.push(new_poly.clone());
+            }
+        }
+
+        self.last_polygons = new_polygons;
+
+        Ok(PolygonizerUpdate { added, removed })
+    }
 }
 
 ```
@@ -9385,6 +9858,8 @@ pub struct Edge {
     pub dir_edges: [DirEdgeId; 2],
     /// Flag indicating if the edge is marked (e.g. visited or pruned).
     pub is_marked: bool,
+    /// Flag indicating if the edge has been dynamically deleted.
+    pub deleted: bool,
 }
 
 /// A directed half-edge in the planar graph.
@@ -9521,6 +9996,7 @@ fn create_edge_components(
         line,
         dir_edges: [de_u_v_idx, de_v_u_idx],
         is_marked: false,
+        deleted: false,
     };
 
     (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
@@ -9697,6 +10173,95 @@ impl PlanarGraph {
         }
     }
 
+    /// Adds a line to the graph and returns the new EdgeId.
+    pub fn add_line(&mut self, line: Line3D) -> EdgeId {
+        let p0 = line.start;
+        let p1 = line.end;
+
+        let u = self.add_node(p0);
+        let v = self.add_node(p1);
+
+        let edge_idx = self.edges.len();
+        let de_u_v_idx = self.directed_edges.len();
+        let de_v_u_idx = self.directed_edges.len() + 1;
+
+        let de_u_v = DirectedEdge {
+            src: u,
+            dst: v,
+            edge_idx,
+            sym_idx: de_v_u_idx,
+            is_visited: false,
+            is_marked: false,
+            edge_direction: true,
+        };
+
+        let de_v_u = DirectedEdge {
+            src: v,
+            dst: u,
+            edge_idx,
+            sym_idx: de_u_v_idx,
+            is_visited: false,
+            is_marked: false,
+            edge_direction: false,
+        };
+
+        self.directed_edges.push(de_u_v);
+        self.directed_edges.push(de_v_u);
+
+        self.edges.push(Edge {
+            line,
+            dir_edges: [de_u_v_idx, de_v_u_idx],
+            is_marked: false,
+            deleted: false,
+        });
+
+        self.nodes_outgoing[u].push(de_u_v_idx);
+        self.nodes_degree[u] += 1;
+
+        self.nodes_outgoing[v].push(de_v_u_idx);
+        self.nodes_degree[v] += 1;
+
+        edge_idx
+    }
+
+    /// Removes an edge by marking it as deleted by matching line ID.
+    pub fn remove_line_by_id(&mut self, line_id: u32) -> bool {
+        for edge in &mut self.edges {
+            if !edge.deleted && edge.line.line_id == line_id {
+                edge.deleted = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Resets all traversal and marked flags so a new polygonization pass can run.
+    pub fn reset_traversal_state(&mut self) {
+        // Recalculate degrees based only on non-deleted edges
+        for d in &mut self.nodes_degree {
+            *d = 0;
+        }
+        for (i, outgoing) in self.nodes_outgoing.iter().enumerate() {
+            for &de_idx in outgoing {
+                let de = &self.directed_edges[de_idx];
+                if !self.edges[de.edge_idx].deleted {
+                    self.nodes_degree[i] += 1;
+                }
+            }
+        }
+
+        for m in &mut self.nodes_marked {
+            *m = false;
+        }
+        for de in &mut self.directed_edges {
+            de.is_visited = false;
+            de.is_marked = false;
+        }
+        for edge in &mut self.edges {
+            edge.is_marked = false;
+        }
+    }
+
     /// Adds a line string to the graph.
     pub fn add_line_string(&mut self, line: LineString<f64>) {
         if line.0.is_empty() {
@@ -9749,6 +10314,7 @@ impl PlanarGraph {
                 line: Line3D::new(p0.into(), p1.into(), 0),
                 dir_edges: [de_u_v_idx, de_v_u_idx],
                 is_marked: false,
+                deleted: false,
             });
 
             self.nodes_outgoing[u].push(de_u_v_idx);
@@ -9772,6 +10338,9 @@ impl PlanarGraph {
             .par_iter_mut()
             .enumerate()
             .for_each(|(src_idx, adj)| {
+                // Filter out deleted edges before sorting
+                adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+
                 let center = Coord {
                     x: nodes_x[src_idx],
                     y: nodes_y[src_idx],
@@ -9802,6 +10371,9 @@ impl PlanarGraph {
             .iter_mut()
             .enumerate()
             .for_each(|(src_idx, adj)| {
+                // Filter out deleted edges before sorting
+                adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+
                 let center = Coord {
                     x: nodes_x[src_idx],
                     y: nodes_y[src_idx],
@@ -9851,7 +10423,8 @@ impl PlanarGraph {
 
             let mut found_de_idx = None;
             for &de_idx in &self.nodes_outgoing[node_idx] {
-                if !self.directed_edges[de_idx].is_marked {
+                let de = &self.directed_edges[de_idx];
+                if !de.is_marked && !self.edges[de.edge_idx].deleted {
                     found_de_idx = Some(de_idx);
                     break;
                 }
@@ -9885,6 +10458,9 @@ impl PlanarGraph {
     pub fn get_cut_edges(&self) -> Vec<Vec<Coord3D>> {
         let mut cuts = Vec::new();
         for edge in &self.edges {
+            if edge.deleted {
+                continue;
+            }
             let de1 = &self.directed_edges[edge.dir_edges[0]];
             let de2 = &self.directed_edges[edge.dir_edges[1]];
 
@@ -9934,12 +10510,10 @@ impl PlanarGraph {
         let mut valid_edges = Vec::new();
         for outgoing in &self.nodes_outgoing {
             valid_edges.clear();
-            valid_edges.extend(
-                outgoing
-                    .iter()
-                    .copied()
-                    .filter(|&idx| !self.directed_edges[idx].is_marked),
-            );
+            valid_edges.extend(outgoing.iter().copied().filter(|&idx| {
+                let de = &self.directed_edges[idx];
+                !de.is_marked && !self.edges[de.edge_idx].deleted
+            }));
 
             if valid_edges.is_empty() {
                 continue;
@@ -10083,6 +10657,10 @@ impl PlanarGraph {
             if self.directed_edges[start_de_idx].is_visited
                 || self.directed_edges[start_de_idx].is_marked
             {
+                continue;
+            }
+
+            if self.edges[self.directed_edges[start_de_idx].edge_idx].deleted {
                 continue;
             }
 
@@ -13825,6 +14403,27 @@ fn test_ffi_arrow_integration_empty() {
 
 ```
 
+File: crates/geo-polygonize-core/tests/cfb_fixtures.rs
+```
+mod common {
+    pub mod cfb_fixture;
+}
+
+use common::cfb_fixture::{cfb_fixture_paths, read_cfb_fixture, run_cfb_fixture};
+
+#[test]
+fn cfb_fixtures_match_expected_output() {
+    let paths = cfb_fixture_paths();
+    assert!(!paths.is_empty(), "expected at least one CFB fixture");
+
+    for path in paths {
+        let fixture = read_cfb_fixture(&path);
+        run_cfb_fixture(&fixture);
+    }
+}
+
+```
+
 File: crates/geo-polygonize-core/tests/determinism.rs
 ```
 use geo_polygonize_core::options::DeterminismOptions;
@@ -15179,11 +15778,203 @@ fn test_ffi_null_pointers() {
 
 ```
 
+File: crates/geo-polygonize-core/tests/common/cfb_fixture.rs
+```
+use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::polygonizer::polygonize_with_options;
+use geo_polygonize_core::types::{Coord3D, Line3D, Polygon3D};
+use serde::Deserialize;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfbFixture {
+    pub case_id: String,
+    pub options_profile: String,
+    pub stride: u8,
+    #[serde(default = "pass_status")]
+    pub expected_status: String,
+    pub lines: Vec<CfbLine>,
+    pub expected: CfbExpected,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CfbLine {
+    pub id: u32,
+    pub coords: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfbExpected {
+    pub polygon_count: usize,
+    pub total_area: f64,
+    #[serde(default = "default_area_tolerance")]
+    pub area_tolerance: f64,
+    #[serde(default)]
+    pub canonical_ring_hashes: Vec<String>,
+    pub dangle_count: usize,
+    pub cut_edge_count: usize,
+    pub invalid_ring_count: usize,
+    #[serde(default)]
+    pub boundary_line_ids: Vec<u64>,
+}
+
+fn pass_status() -> String {
+    "pass".to_string()
+}
+
+fn default_area_tolerance() -> f64 {
+    1e-6
+}
+
+pub fn cfb_fixture_paths() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("fixtures")
+        .join("cfb")
+        .join("cases");
+
+    let mut paths: Vec<_> = fs::read_dir(root)
+        .expect("CFB fixture directory should exist")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    paths.sort();
+    paths
+}
+
+pub fn read_cfb_fixture(path: &Path) -> CfbFixture {
+    let content = fs::read_to_string(path).expect("failed to read CFB fixture");
+    serde_json::from_str(&content).expect("failed to parse CFB fixture")
+}
+
+pub fn run_cfb_fixture(fixture: &CfbFixture) {
+    let options = match fixture.options_profile.as_str() {
+        "cfb_robust_v1" => PolygonizerOptions::cfb_robust_v1(),
+        other => panic!("unsupported CFB options profile {other}"),
+    };
+    let lines = fixture_lines(fixture);
+
+    let result = polygonize_with_options(&lines, &options)
+        .unwrap_or_else(|err| panic!("{} failed: {err}", fixture.case_id));
+
+    let check = || {
+        assert_eq!(
+            result.polygons.len(),
+            fixture.expected.polygon_count,
+            "{} polygon count",
+            fixture.case_id
+        );
+
+        let total_area: f64 = result
+            .polygons
+            .iter()
+            .map(Polygon3D::unsigned_area_2d)
+            .sum();
+        assert!(
+            (total_area - fixture.expected.total_area).abs() <= fixture.expected.area_tolerance,
+            "{} total area: expected {}, got {}",
+            fixture.case_id,
+            fixture.expected.total_area,
+            total_area
+        );
+
+        assert_eq!(
+            result.dangles.len(),
+            fixture.expected.dangle_count,
+            "{} dangle count",
+            fixture.case_id
+        );
+        assert_eq!(
+            result.cut_edges.len(),
+            fixture.expected.cut_edge_count,
+            "{} cut-edge count",
+            fixture.case_id
+        );
+        assert_eq!(
+            result.invalid_rings.len(),
+            fixture.expected.invalid_ring_count,
+            "{} invalid-ring count",
+            fixture.case_id
+        );
+
+        if !fixture.expected.boundary_line_ids.is_empty() {
+            let mut actual: Vec<u64> = result
+                .polygons
+                .iter()
+                .filter_map(|poly| poly.provenance.as_ref())
+                .flat_map(|prov| prov.boundary_line_ids.iter().copied())
+                .collect();
+            actual.sort_unstable();
+            actual.dedup();
+
+            assert_eq!(
+                actual, fixture.expected.boundary_line_ids,
+                "{} boundary line IDs",
+                fixture.case_id
+            );
+        }
+
+        if !fixture.expected.canonical_ring_hashes.is_empty() {
+            let actual: Vec<String> = result
+                .polygons
+                .iter()
+                .map(|poly| canonical_ring_hash(&poly.exterior))
+                .collect();
+            assert_eq!(
+                actual, fixture.expected.canonical_ring_hashes,
+                "{} canonical ring hashes",
+                fixture.case_id
+            );
+        }
+    };
+
+    if fixture.expected_status == "xfail" {
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(check)).is_err();
+        assert!(failed, "{} unexpectedly passed", fixture.case_id);
+    } else {
+        check();
+    }
+}
+
+fn fixture_lines(fixture: &CfbFixture) -> Vec<Line3D> {
+    fixture
+        .lines
+        .iter()
+        .flat_map(|line| {
+            line.coords.windows(2).map(|pair| {
+                Line3D::new(
+                    coord(&pair[0], fixture.stride),
+                    coord(&pair[1], fixture.stride),
+                    line.id,
+                )
+            })
+        })
+        .collect()
+}
+
+fn coord(raw: &[f64], stride: u8) -> Coord3D {
+    let z = if stride == 3 { raw[2] } else { 0.0 };
+    Coord3D::new(raw[0], raw[1], z)
+}
+
+fn canonical_ring_hash(ring: &[Coord3D]) -> String {
+    ring.iter()
+        .map(|c| format!("{:.6},{:.6},{:.6}", c.x, c.y, c.z))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+```
+
 File: crates/geo-polygonize-wasm/Cargo.toml
 ```
 [package]
 name = "geo-polygonize-wasm"
-version = "0.32.0"
+version = "0.35.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -15193,7 +15984,7 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.32.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.35.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
@@ -15497,6 +16288,9 @@ pub struct WasmPolygonResult {
     flat_line_ids: Vec<u32>,
     stride: u8,
     provenance: JsValue,
+    dangles: JsValue,
+    cut_edges: JsValue,
+    invalid_rings: JsValue,
     diagnostics: JsValue,
 }
 
@@ -15536,6 +16330,21 @@ impl WasmPolygonResult {
     #[wasm_bindgen(getter)]
     pub fn provenance(&self) -> JsValue {
         self.provenance.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn dangles(&self) -> JsValue {
+        self.dangles.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn cut_edges(&self) -> JsValue {
+        self.cut_edges.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn invalid_rings(&self) -> JsValue {
+        self.invalid_rings.clone()
     }
 
     #[wasm_bindgen(getter)]
@@ -15891,6 +16700,11 @@ fn polygonize_and_flatten(
     let mut flat_line_ids = Vec::new();
     let mut provenances = Vec::new();
 
+    let js_dangles = serde_wasm_bindgen::to_value(&result.dangles).unwrap_or(JsValue::NULL);
+    let js_cut_edges = serde_wasm_bindgen::to_value(&result.cut_edges).unwrap_or(JsValue::NULL);
+    let js_invalid_rings =
+        serde_wasm_bindgen::to_value(&result.invalid_rings).unwrap_or(JsValue::NULL);
+
     for poly in result.polygons {
         provenances.push(poly.provenance);
         polygon_offsets.push(ring_offsets.len() as u32);
@@ -15948,6 +16762,9 @@ fn polygonize_and_flatten(
         flat_line_ids,
         stride,
         provenance: js_provenance,
+        dangles: js_dangles,
+        cut_edges: js_cut_edges,
+        invalid_rings: js_invalid_rings,
         diagnostics: js_diagnostics,
     })
 }
@@ -16079,7 +16896,7 @@ Polygonizes linework provided as a GeoJSON FeatureCollection, Feature, or Geomet
 **Example:**
 
 ```javascript
-import { polygonize } from "geo-polygonize";
+import init, { polygonize } from "geo-polygonize";
 
 const geojson = {
     type: "FeatureCollection",
@@ -16094,9 +16911,30 @@ const geojson = {
     ]
 };
 
+await init();
+
 // With explicit parameters to match backend configurations
 const resultStr = polygonize(JSON.stringify(geojson), true, 0.5);
 const result = JSON.parse(resultStr);
+```
+
+For production app bundles, prefer `geo-polygonize/slim` with explicit Wasm
+asset URLs and the versioned CFB profile:
+
+```ts
+import { cfbRobustOptions, initBest } from "geo-polygonize/slim";
+import scalarUrl from "geo-polygonize/geo_polygonize.wasm?url";
+import simdUrl from "geo-polygonize/geo_polygonize_simd.wasm?url";
+
+const wasm = await initBest(
+  { module_or_path: scalarUrl },
+  { module_or_path: simdUrl },
+);
+
+const resultStr = wasm.polygonizeWithOptions(
+  JSON.stringify(geojson),
+  cfbRobustOptions,
+);
 ```
 
 ### `polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size)`
@@ -17148,6 +17986,12 @@ This library provides high-performance polygonization of lines and rings. It is 
 
 See the respective integration guides for details.
 
+Python users install `geo-polygonize-py` and import `geo_polygonize`:
+
+```bash
+pip install geo-polygonize-py
+```
+
 ```
 
 File: docs/guide/wasm.md
@@ -17161,6 +18005,30 @@ The `geo-polygonize` WebAssembly package can be used in the browser or in Node.j
 ```bash
 npm install geo-polygonize
 ```
+
+## Browser Apps
+
+Use the slim entry point in Vite or similar app builds so the Wasm binaries stay
+as assets instead of being inlined into the JavaScript chunk.
+
+```ts
+import { cfbRobustOptions, initBest } from "geo-polygonize/slim";
+import scalarUrl from "geo-polygonize/geo_polygonize.wasm?url";
+import simdUrl from "geo-polygonize/geo_polygonize_simd.wasm?url";
+
+const wasm = await initBest(
+  { module_or_path: scalarUrl },
+  { module_or_path: simdUrl },
+);
+
+const result = wasm.polygonizeWithOptions(
+  JSON.stringify(geojson),
+  cfbRobustOptions,
+);
+```
+
+The default `geo-polygonize` import is convenient for quick demos, but it
+inlines the Wasm builds into the importing chunk.
 
 ```
 
@@ -17829,6 +18697,192 @@ fn main() {
 
 ```
 
+File: playground/public/examples/polygonize.rs
+```
+use clap::Parser;
+use geo_polygonize_core::Polygonizer;
+use geo_types::Geometry as GeoGeometry;
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use std::convert::TryInto;
+use std::error::Error;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Input GeoJSON file (LineStrings)
+    #[arg(short, long)]
+    input: PathBuf,
+
+    /// Output GeoJSON file (Polygons)
+    #[arg(short, long)]
+    output: PathBuf,
+
+    /// Enable robust noding (split intersecting lines)
+    #[arg(long, default_value_t = false)]
+    node: bool,
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    // Read Input
+    if !args.input.exists() {
+        eprintln!("Input file does not exist: {:?}", args.input);
+        return Ok(());
+    }
+
+    println!("Reading input from {:?}", args.input);
+    let file = File::open(&args.input)?;
+    let reader = BufReader::new(file);
+    let geojson: GeoJson = serde_json::from_reader(reader)?;
+
+    let mut polygonizer = Polygonizer::new();
+    polygonizer.node_input = args.node;
+
+    let mut count = 0;
+
+    match geojson {
+        GeoJson::FeatureCollection(fc) => {
+            for feature in fc.features {
+                if let Some(geom) = feature.geometry {
+                    if let Ok(geo_geom) = geom.try_into() {
+                        add_geometry(&mut polygonizer, geo_geom);
+                        count += 1;
+                    }
+                }
+            }
+        }
+        GeoJson::Geometry(geom) => {
+            if let Ok(geo_geom) = geom.try_into() {
+                add_geometry(&mut polygonizer, geo_geom);
+                count += 1;
+            }
+        }
+        GeoJson::Feature(feature) => {
+            if let Some(geom) = feature.geometry {
+                if let Ok(geo_geom) = geom.try_into() {
+                    add_geometry(&mut polygonizer, geo_geom);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    println!("Added {} geometries. Polygonizing...", count);
+
+    let result = polygonizer.polygonize()?;
+    println!("Found {} polygons.", result.polygons.len());
+    println!("Found {} dangles.", result.dangles.len());
+
+    // Convert back to GeoJSON (handling 3D)
+    let features: Vec<Feature> = result
+        .polygons
+        .into_iter()
+        .map(|poly| {
+            // poly is Polygon3D
+            let exterior_ring: Vec<Vec<f64>> =
+                poly.exterior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+
+            let mut rings: Vec<Vec<Vec<f64>>> = vec![exterior_ring];
+
+            for interior in poly.interiors {
+                let interior_ring: Vec<Vec<f64>> =
+                    interior.iter().map(|c| vec![c.x, c.y, c.z]).collect();
+                rings.push(interior_ring);
+            }
+
+            let geometry = Geometry::new(Value::Polygon(rings));
+
+            Feature {
+                bbox: None,
+                geometry: Some(geometry),
+                id: None,
+                properties: None,
+                foreign_members: None,
+            }
+        })
+        .collect();
+
+    let output_fc = FeatureCollection {
+        bbox: None,
+        features,
+        foreign_members: None,
+    };
+
+    let output_geojson = GeoJson::FeatureCollection(output_fc);
+
+    println!("Writing output to {:?}", args.output);
+    let file = File::create(&args.output)?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &output_geojson)?;
+
+    Ok(())
+}
+
+fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
+    match geom {
+        GeoGeometry::LineString(ls) => {
+            polygonizer.add_geometry(GeoGeometry::LineString(ls));
+        }
+        GeoGeometry::MultiLineString(mls) => {
+            for ls in mls {
+                polygonizer.add_geometry(GeoGeometry::LineString(ls));
+            }
+        }
+        GeoGeometry::GeometryCollection(gc) => {
+            for g in gc {
+                add_geometry(polygonizer, g);
+            }
+        }
+        _ => {
+            // Ignore other types or try to add them if Polygonizer supports them?
+            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
+            // But usually we want LineStrings.
+            polygonizer.add_geometry(geom);
+        }
+    }
+}
+
+```
+
+File: playground/public/examples/simple.rs
+```
+//! Simple example of polygonizing a set of lines.
+
+use geo::Area;
+use geo_polygonize::Polygonizer;
+use geo_types::{Geometry, LineString};
+
+fn main() {
+    let mut polygonizer = Polygonizer::new();
+
+    // Create a simple square
+    let square_lines = LineString::from(vec![
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+        (0.0, 0.0),
+    ]);
+
+    // Add geometry to the polygonizer
+    polygonizer.add_geometry(Geometry::LineString(square_lines));
+
+    // Compute polygons
+    let polygons = polygonizer.polygonize().expect("Failed to polygonize");
+
+    println!("Found {} polygon(s)", polygons.len());
+
+    for (i, poly) in polygons.iter().enumerate() {
+        println!("Polygon {}: Area = {}", i, poly.unsigned_area());
+    }
+}
+
+```
+
 File: python/test_wrapper.py
 ```
 import pytest
@@ -17841,6 +18895,14 @@ from unittest.mock import patch
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 
 from geo_polygonize import polygonize
+
+def test_import_probe():
+    import geo_polygonize
+
+    ok, error = geo_polygonize.import_probe()
+    assert isinstance(ok, bool)
+    assert error is None or isinstance(error, str)
+    assert geo_polygonize.is_available() is ok
 
 def test_square():
     print("Testing square polygonization...")
@@ -17993,6 +19055,7 @@ def test_import_error_fallback():
 
         import geo_polygonize.cffi_wrapper as cffi_wrapper
         assert geo_polygonize._polygonize_impl is cffi_wrapper.polygonize
+        assert geo_polygonize.import_probe() == (True, None)
         print("ImportError fallback test passed!")
 
     # Reload again to restore the module state for other tests
@@ -18266,6 +19329,7 @@ def test_extract_only_polygonal():
 
 if __name__ == "__main__":
     test_square()
+    test_import_probe()
     test_two_squares()
     test_square_with_hole()
     test_3d_coordinates()
@@ -18293,6 +19357,10 @@ import numpy as np
 
 import json
 
+_IMPORT_OK = True
+_IMPORT_ERROR = None
+_polygonize_with_options_impl = None
+
 try:
     from .geo_polygonize_core import (
         polygonize as _polygonize_impl,
@@ -18302,8 +19370,15 @@ try:
         PolygonizeOptionsError,
         PolygonizeTopologyError
     )
-except ImportError:
-    from .cffi_wrapper import polygonize as _polygonize_impl
+except Exception:
+    try:
+        from .cffi_wrapper import polygonize as _polygonize_impl
+    except Exception as fallback_import_error:
+        _IMPORT_OK = False
+        _IMPORT_ERROR = fallback_import_error
+
+        def _polygonize_impl(*args, _import_error=fallback_import_error, **kwargs):
+            raise ImportError("geo_polygonize native extension is not available") from _import_error
 
     # Fallback exception classes if C extension is missing
     class PolygonizeTypeError(ValueError):
@@ -18317,6 +19392,14 @@ except ImportError:
 
     class PolygonizeTopologyError(ValueError):
         pass
+
+def import_probe():
+    """Return (ok, error) for geo_polygonize runtime availability."""
+    return _IMPORT_OK, None if _IMPORT_ERROR is None else str(_IMPORT_ERROR)
+
+def is_available():
+    """Return True when a geo_polygonize runtime backend is importable."""
+    return import_probe()[0]
 
 def polygonize_with_options(lines=None, coords=None, offsets=None, options=None, stride=None, line_ids=None, return_polygons=False):
     """
@@ -18391,9 +19474,9 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
     options_json = None if options is None else json.dumps(options)
 
-    try:
+    if _polygonize_with_options_impl is not None:
         result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
-    except NameError:
+    else:
         # Fallback for CFFI which does not support options mapping fully yet
         result = _polygonize_impl(coords, offsets, node=options_dict.get("node_input", False), snap=options_dict.get("snap_grid_size", 1e-10), extract_only_polygonal=options_dict.get("extract_only_polygonal", False), stride=stride, line_ids=line_ids)
 
@@ -18417,6 +19500,41 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
         return shapely_polys
 
     return result
+
+def cfb_robust_options():
+    return {
+        "target": "Native",
+        "node_input": True,
+        "snap_grid_size": 0.5,
+        "extract_only_polygonal": False,
+        "snap_strategy": "GeosCompat",
+        "noding": {
+            "backend": "Snap",
+            "snap_mode": "FloatEpsilonDedup",
+        },
+        "containment": {
+            "touch_policy": "AllowPointTouchDisallowEdgeShare",
+            "index_backend": "RStar",
+        },
+        "tiling": None,
+        "z": {
+            "policy": "InterpolateAlongEdge",
+        },
+        "determinism": {
+            "canonical_sort": True,
+            "canonical_ring_rotation": True,
+            "stable_tie_breaks": True,
+        },
+        "diagnostics": {
+            "enabled": True,
+            "report_mode": True,
+        },
+        "provenance": {
+            "enabled": True,
+            "include_boundary_line_ids": True,
+        },
+        "input_profile_id": "cfb_robust_v1",
+    }
 
 def explain_mismatch(result_a, result_b, tolerance=1e-5):
     """
@@ -18446,7 +19564,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     diag_a = result_a.get("diagnostics", {})
     diag_b = result_b.get("diagnostics", {})
 
-    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "invalid_ring_count"]
+    topology_keys = ["ring_count", "shell_count", "hole_count", "dangle_count", "cut_edge_count", "invalid_ring_count"]
     for key in topology_keys:
         val_a = diag_a.get(key)
         val_b = diag_b.get(key)
@@ -18860,6 +19978,7 @@ def polygonize(coords_array: np.ndarray, offsets_array: np.ndarray, node: bool =
             'flat_line_ids': flat_line_ids,
             'stride': int(out_stride),
             'dangles': dangles,
+            'cut_edges': [],
             'invalid_rings': invalid_rings
         }
 
@@ -18941,6 +20060,8 @@ File: scripts/build_wasm.sh
 #!/bin/bash
 set -e
 
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
@@ -18958,6 +20079,10 @@ if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '
         cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     fi
 fi
+if ! command -v wasm-bindgen &> /dev/null; then
+    cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
 # Install binaryen (wasm-opt) if needed
 if ! command -v wasm-opt &> /dev/null; then
@@ -19003,7 +20128,7 @@ build_variant() {
     # The previous script used --out-name "geo_polygonize". We should stick to that if possible
     # to avoid breaking downstream consumers.
 
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -19017,10 +20142,10 @@ build_variant() {
 }
 
 # Build Scalar
-build_variant "scalar" "" &
+build_variant "scalar" ""
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128" &
+build_variant "simd" "-C target-feature=+simd128"
 
 # Build Threads
 build_variant_threads() {
@@ -19060,7 +20185,7 @@ build_variant_threads() {
 
     rm -rf $OUT_DIR
     # Use --target web to ensure correct loading behavior for threads
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
@@ -19072,15 +20197,22 @@ build_variant_threads() {
     rm -f $OUT_DIR/.gitignore
 }
 
-build_variant_threads &
-
-wait
+build_variant_threads
 
 echo "Patching wasm-bindgen-rayon workerHelpers.js..."
 for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
     TEMP_FILE=$(mktemp)
     sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$WORKER_HELPERS" > "$TEMP_FILE"
     mv "$TEMP_FILE" "$WORKER_HELPERS"
+done
+
+echo "Patching wasm-bindgen fallback URLs for Vite..."
+for BINDGEN_JS in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js pkg-threads/geo_polygonize.js; do
+    if [ -f "$BINDGEN_JS" ]; then
+        TEMP_FILE=$(mktemp)
+        sed -e "s/new URL('geo_polygonize_bg.wasm', import.meta.url)/new URL(\/\\* @vite-ignore \\*\/ 'geo_polygonize_bg.wasm', import.meta.url)/g" "$BINDGEN_JS" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$BINDGEN_JS"
+    fi
 done
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
@@ -19106,6 +20238,20 @@ for DIR in pkg-scalar pkg-simd pkg-threads; do
   fi
 done
 
+copy_wasm_bindgen_types() {
+    for ENV in standard slim threads; do
+        if [ -d "dist/$ENV/es/bindings" ]; then
+            mkdir -p "dist/$ENV/pkg-wrapper"
+            cp -r "dist/$ENV/es/bindings" "dist/$ENV/pkg-wrapper/"
+        fi
+    done
+
+    mkdir -p dist/standard/pkg-scalar dist/slim/pkg-scalar dist/threads/pkg-threads
+    cp pkg-scalar/*.d.ts dist/standard/pkg-scalar/
+    cp pkg-scalar/*.d.ts dist/slim/pkg-scalar/
+    cp pkg-threads/*.d.ts dist/threads/pkg-threads/
+}
+
 # Ensure wrapper exists
 if [ ! -d "pkg-wrapper" ]; then
     echo "pkg-wrapper directory missing!"
@@ -19120,6 +20266,7 @@ fi
 # Bundle with Rollup
 echo "Running rollup..."
 npx rollup -c
+copy_wasm_bindgen_types
 
 # Prepare distribution files
 echo "Preparing dist..."
@@ -19135,6 +20282,8 @@ File: scripts/build_wasm_site.sh
 ```
 #!/bin/bash
 set -e
+
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
@@ -19153,6 +20302,10 @@ if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '
         cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     fi
 fi
+if ! command -v wasm-bindgen &> /dev/null; then
+    cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+fi
+WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
 build_variant() {
     local VARIANT=$1
@@ -19175,7 +20328,7 @@ build_variant() {
     fi
 
     rm -rf $OUT_DIR
-    wasm-bindgen --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # Remove .gitignore if generated
     rm -f $OUT_DIR/.gitignore
@@ -19191,6 +20344,15 @@ if [ "$SKIP_SIMD" = "1" ]; then
 else
     build_variant "simd" "-C target-feature=+simd128"
 fi
+
+echo "Patching wasm-bindgen fallback URLs for Vite..."
+for BINDGEN_JS in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js; do
+    if [ -f "$BINDGEN_JS" ]; then
+        TEMP_FILE=$(mktemp)
+        sed -e "s/new URL('geo_polygonize_bg.wasm', import.meta.url)/new URL(\/\\* @vite-ignore \\*\/ 'geo_polygonize_bg.wasm', import.meta.url)/g" "$BINDGEN_JS" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$BINDGEN_JS"
+    fi
+done
 
 # Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
 echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
@@ -19210,6 +20372,19 @@ for DIR in pkg-scalar pkg-simd; do
   fi
 done
 
+copy_wasm_bindgen_types() {
+    for ENV in standard slim; do
+        if [ -d "dist/$ENV/es/bindings" ]; then
+            mkdir -p "dist/$ENV/pkg-wrapper"
+            cp -r "dist/$ENV/es/bindings" "dist/$ENV/pkg-wrapper/"
+        fi
+    done
+
+    mkdir -p dist/standard/pkg-scalar dist/slim/pkg-scalar
+    cp pkg-scalar/*.d.ts dist/standard/pkg-scalar/
+    cp pkg-scalar/*.d.ts dist/slim/pkg-scalar/
+}
+
 # We mock threads folder to avoid rollup failure when doing slim build
 mkdir -p pkg-threads
 echo "export const threads = 'mocked for site build';" > pkg-threads/index.js
@@ -19225,6 +20400,7 @@ fi
 # Bundle with Rollup
 echo "Running rollup..."
 npx rollup -c
+copy_wasm_bindgen_types
 
 # Prepare distribution files
 echo "Preparing dist..."
@@ -19873,6 +21049,94 @@ if __name__ == "__main__":
 
 ```
 
+File: tests/test_cfb_fixtures.py
+```
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+import geo_polygonize
+
+
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "cfb" / "cases"
+
+
+def _flatten_fixture(fixture):
+    coords = []
+    offsets = []
+    line_ids = []
+    offset = 0
+
+    for line in fixture["lines"]:
+        offsets.append(offset)
+        line_ids.append(line["id"])
+        for point in line["coords"]:
+            coords.extend(point[: fixture["stride"]])
+            offset += 1
+
+    return (
+        np.asarray(coords, dtype=np.float64),
+        np.asarray(offsets, dtype=np.uint32),
+        np.asarray(line_ids, dtype=np.uint32),
+    )
+
+
+def _run_fixture(path):
+    fixture = json.loads(path.read_text())
+    coords, offsets, line_ids = _flatten_fixture(fixture)
+
+    if fixture["optionsProfile"] != "cfb_robust_v1":
+        pytest.fail(f"unsupported fixture profile {fixture['optionsProfile']}")
+
+    try:
+        result = geo_polygonize.polygonize_with_options(
+            coords=coords,
+            offsets=offsets,
+            stride=fixture["stride"],
+            line_ids=line_ids,
+            options=geo_polygonize.cfb_robust_options(),
+        )
+    except Exception as exc:
+        pytest.skip(f"geo_polygonize native fixture runner unavailable: {exc}")
+
+    expected = fixture["expected"]
+    assert len(result["polygons"]) == expected["polygonCount"]
+    assert len(result["dangles"]) == expected["dangleCount"]
+    assert len(result.get("cut_edges", [])) == expected["cutEdgeCount"]
+    assert len(result["invalid_rings"]) == expected["invalidRingCount"]
+
+    area = 0.0
+    for polygon in result["polygons"]:
+        shell = np.asarray(polygon.shell)
+        x = shell[:, 0]
+        y = shell[:, 1]
+        area += abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2.0)
+
+    assert area == pytest.approx(expected["totalArea"], abs=expected.get("areaTolerance", 1e-6))
+
+    expected_ids = expected.get("boundaryLineIds", [])
+    if expected_ids:
+        actual_ids = sorted({
+            line_id
+            for polygon in result["polygons"]
+            for line_id in polygon.provenance.get("boundary_line_ids", [])
+        })
+        assert actual_ids == expected_ids
+
+
+@pytest.mark.parametrize("path", sorted(FIXTURE_DIR.glob("*.json")))
+def test_cfb_fixture(path):
+    fixture = json.loads(path.read_text())
+    if fixture.get("expectedStatus", "pass") == "xfail":
+        with pytest.raises(AssertionError):
+            _run_fixture(path)
+    else:
+        _run_fixture(path)
+
+```
+
 File: tests/test_dangles.py
 ```
 from geo_polygonize import polygonize as polygonize_pyo3
@@ -20014,6 +21278,24 @@ def generate_winding_chaos():
     return lines
 
 class TestReportMismatches(unittest.TestCase):
+    def test_cfb_robust_report_mode_matches_itself(self):
+        coords = np.array([
+            0.0, 0.0, 10.0, 0.0,
+            10.0, 0.0, 10.0, 10.0,
+            10.0, 10.0, 0.0, 10.0,
+            0.0, 10.0, 0.0, 0.0
+        ], dtype=np.float64)
+        offsets = np.array([0, 2, 4, 6], dtype=np.uint32)
+        options = geo_polygonize.cfb_robust_options()
+
+        result_a = geo_polygonize.polygonize_with_options(coords=coords, offsets=offsets, options=options)
+        result_b = geo_polygonize.polygonize_with_options(coords=coords, offsets=offsets, options=options)
+        result_a["options"] = options
+        result_b["options"] = options
+
+        mismatch_info = geo_polygonize.explain_mismatch(result_a, result_b)
+        self.assertTrue(mismatch_info["is_match"], mismatch_info["mismatches"])
+
     def test_options_mismatch(self):
         coords = np.array([
             0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0,
