@@ -1,6 +1,6 @@
 {
   "name": "geo-polygonize",
-  "version": "0.35.2",
+  "version": "0.36.0",
   "description": "A native Rust port of the JTS/GEOS polygonization algorithm (Wasm)",
   "type": "module",
   "scripts": {
