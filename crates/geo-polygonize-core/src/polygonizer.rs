@@ -393,7 +393,7 @@ fn establish_topology(
     holes: Vec<Polygon3D>,
     options: &PolygonizerOptions,
 ) -> (Vec<Polygon3D>, Vec<Vec<Vec<Coord3D>>>, Vec<Vec<Vec<u32>>>) {
-    let mut forest = ContainmentForest::new(&shells, &options.containment.index_backend);
+    let mut forest = ContainmentForest::new(&shells);
 
     if options.extract_only_polygonal {
         let keep_mask = forest.filter_polygonal(&shells, &options.containment.touch_policy);
@@ -408,7 +408,7 @@ fn establish_topology(
                 }
             }
             shells = new_shells;
-            forest = ContainmentForest::new(&shells, &options.containment.index_backend);
+            forest = ContainmentForest::new(&shells);
         }
     }
 

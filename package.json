@@ -7,7 +7,7 @@
     "build": "./scripts/build_wasm.sh",
     "test": "vitest run",
     "prepare": "husky",
-    "build:site-lib": "./scripts/build_wasm_site.sh",
+    "build:site-lib": "SITE_BUILD=1 ./scripts/build_wasm.sh",
     "docs:extract": "cargo run -p xtask -- docs extract",
     "docs:render": "cargo run -p xtask -- docs render",
     "docs:gen:examples": "node ./scripts/docs/gen-examples.mjs",

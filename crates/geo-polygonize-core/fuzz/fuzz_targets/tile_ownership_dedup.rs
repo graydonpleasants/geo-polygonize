@@ -1,9 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use geo_polygonize_core::options::{
-    DedupPolicy, PolygonizerOptions, TileOwnershipPolicy, TilingOptions,
-};
+use geo_polygonize_core::options::PolygonizerOptions;
 use geo_polygonize_core::polygonizer::polygonize_with_options;
 use geo_polygonize_core::types::{Coord3D, Line3D};
 use libfuzzer_sys::fuzz_target;
@@ -38,13 +36,7 @@ fuzz_target!(|input: FuzzInput| {
         });
     }
 
-    let options = PolygonizerOptions {
-        tiling: Some(TilingOptions {
-            ownership_policy: TileOwnershipPolicy::Centroid,
-            dedup_policy: DedupPolicy::CanonicalRingHash,
-        }),
-        ..Default::default()
-    };
+    let options = PolygonizerOptions::default();
 
     let _ = polygonize_with_options(&lines, &options);
 });

@@ -7,14 +7,6 @@ topological robustness, feature output, containment policies, noding, and determ
 
 ## Fields
 
-### `target`
-
-**Type:** `TargetProfile`
-
-Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
-
-Default: `TargetProfile::Native`
-
 ### `node_input`
 
 **Type:** `bool`
@@ -72,18 +64,6 @@ Configures the noding engine backend and behavior.
 Configures how topological relationships (containment) are calculated
 during face formation.
 
-### `tiling`
-
-**Type:** `Option<TilingOptions>` (Optional)
-
-Optional configuration for tiled, distributed execution across huge datasets.
-
-### `z`
-
-**Type:** `ZOptions`
-
-Configures Z-axis coordinate handling.
-
 ### `determinism`
 
 **Type:** `DeterminismOptions`
@@ -107,3 +87,4 @@ Options for mapping final faces back to original input geometry IDs.
 **Type:** `Option<String>` (Optional)
 
 An optional identifier for the input dataset.
+

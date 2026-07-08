@@ -13,3 +13,4 @@
 ### `stable_tie_breaks`
 
 **Type:** `bool`
+

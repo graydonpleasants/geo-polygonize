@@ -1,26 +1,23 @@
-use crate::index::{
-    IndexedEnvelope, PackedNativeBackend, RStarBackend, SpatialIndex2D, SpatialIndexBackend,
-};
-use crate::options::IndexBackend;
+use crate::index::{IndexedEnvelope, RStarBackend, SpatialIndex2D};
 use crate::options::TouchPolicy;
 use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
 };
-use crate::types::{Coord3D, Polygon3D};
+use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rstar::AABB;
 
 pub struct ContainmentForest {
-    pub tree: SpatialIndexBackend,
+    pub tree: RStarBackend,
     pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<Option<f64>>,
 }
 
 impl ContainmentForest {
-    pub fn new(shells: &[Polygon3D], index_backend: &IndexBackend) -> Self {
+    pub fn new(shells: &[Polygon3D]) -> Self {
         let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
         let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
         #[cfg(feature = "parallel")]
@@ -60,12 +57,7 @@ impl ContainmentForest {
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
             }
         }
-        let tree = match index_backend {
-            IndexBackend::RStar => SpatialIndexBackend::RStar(RStarBackend::new(indexed_shells)),
-            IndexBackend::PackedNative => {
-                SpatialIndexBackend::PackedNative(PackedNativeBackend::new(&indexed_shells))
-            }
-        };
+        let tree = RStarBackend::new(indexed_shells);
 
         Self {
             tree,
@@ -215,37 +207,5 @@ impl ContainmentForest {
         }
 
         best_shell_idx
-    }
-
-    pub fn insert_shell(&mut self, exterior: &[Coord3D], index: usize) {
-        if let Some(bbox) = bounding_rect_3d(exterior) {
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-            self.tree.insert(IndexedEnvelope { aabb, index });
-        }
-
-        if index >= self.simd_shells.len() {
-            self.simd_shells.resize_with(index + 1, || None);
-            self.shell_areas.resize_with(index + 1, || None);
-        }
-
-        self.simd_shells[index] = Some(SimdRing::new_3d(exterior));
-        self.shell_areas[index] = Some(Polygon3D::ring_signed_area_2d(exterior).abs());
-    }
-
-    pub fn remove_shell(&mut self, exterior: &[Coord3D], index: usize) -> bool {
-        if let Some(bbox) = bounding_rect_3d(exterior) {
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
-            self.tree.remove(&IndexedEnvelope { aabb, index });
-        }
-
-        if index < self.simd_shells.len() {
-            self.simd_shells[index] = None;
-            self.shell_areas[index] = None;
-            true
-        } else {
-            false
-        }
     }
 }

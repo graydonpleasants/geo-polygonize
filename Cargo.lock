@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-core"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "approx",
  "arrow",
@@ -985,7 +985,6 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
- "static_aabb2d_index",
  "thiserror 1.0.69",
  "ts-rs",
  "walkdir",
@@ -994,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-wasm"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -2464,15 +2463,6 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
-
-[[package]]
-name = "static_aabb2d_index"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1204bd3057a2225dc60d157bd921aaeaa4d318527bd32af4678cad39e5279849"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "strsim"

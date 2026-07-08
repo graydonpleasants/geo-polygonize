@@ -61,3 +61,4 @@ function polygonize_geoarrow_with_options_js(ipc_bytes: number, options_val: any
 ```typescript
 function polygonize_geoarrow(ipc_bytes: number, node_input: boolean, snap_grid_size: number, extract_only_polygonal: boolean): any
 ```
+

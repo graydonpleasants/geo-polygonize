@@ -8,11 +8,6 @@ use ts_rs::TS;
 /// This struct controls every aspect of the polygonization pipeline, including
 /// topological robustness, feature output, containment policies, noding, and determinism.
 pub struct PolygonizerOptions {
-    /// Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
-    ///
-    /// Default: `TargetProfile::Native`
-    pub target: TargetProfile,
-
     /// Whether to robustly node the input before polygonization.
     ///
     /// Enable this for real-world linework where segment intersections may not
@@ -52,13 +47,6 @@ pub struct PolygonizerOptions {
     /// during face formation.
     pub containment: ContainmentOptions,
 
-    /// Optional configuration for tiled, distributed execution across huge datasets.
-    #[ts(optional)]
-    pub tiling: Option<TilingOptions>,
-
-    /// Configures Z-axis coordinate handling.
-    pub z: ZOptions,
-
     /// Configuration for enforcing exact topological determinism.
     pub determinism: DeterminismOptions,
 
@@ -76,15 +64,12 @@ pub struct PolygonizerOptions {
 impl Default for PolygonizerOptions {
     fn default() -> Self {
         Self {
-            target: TargetProfile::Native,
             node_input: false,
             snap_grid_size: 1e-10,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::Grid,
             noding: NodingOptions::default(),
             containment: ContainmentOptions::default(),
-            tiling: None,
-            z: ZOptions::default(),
             determinism: DeterminismOptions::default(),
             diagnostics: DiagnosticsOptions::default(),
             provenance: ProvenanceOptions::default(),
@@ -96,22 +81,15 @@ impl Default for PolygonizerOptions {
 impl PolygonizerOptions {
     pub fn cfb_robust_v1() -> Self {
         Self {
-            target: TargetProfile::Native,
             node_input: true,
             snap_grid_size: 0.5,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::GeosCompat,
             noding: NodingOptions {
                 backend: NodingBackend::Snap,
-                snap_mode: SnapMode::FloatEpsilonDedup,
             },
             containment: ContainmentOptions {
                 touch_policy: TouchPolicy::AllowPointTouchDisallowEdgeShare,
-                index_backend: IndexBackend::RStar,
-            },
-            tiling: None,
-            z: ZOptions {
-                policy: ZPolicy::InterpolateAlongEdge,
             },
             determinism: DeterminismOptions {
                 canonical_sort: true,
@@ -129,14 +107,6 @@ impl PolygonizerOptions {
             input_profile_id: Some("cfb_robust_v1".to_string()),
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum TargetProfile {
-    Native,
-    WasmSingleThread,
-    WasmThreads,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -170,26 +140,6 @@ pub enum SnapStrategy {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
-pub enum SnapMode {
-    FloatExact,
-    FloatEpsilonDedup,
-    IntegerGrid,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum ZPolicy {
-    #[default]
-    Ignore,
-    InterpolateAlongEdge,
-    PreferNearestEndpoint,
-    ErrorOnConflict {
-        max_delta: f64,
-    },
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub enum TouchPolicy {
     AllowPointTouchDisallowEdgeShare,
     TreatAnyTouchAsDisjoint,
@@ -210,29 +160,18 @@ pub enum TileOwnershipPolicy {
 pub enum NodingBackend {
     Snap,
     Advanced,
-    // placeholders for future backends
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum IndexBackend {
-    RStar,
-    PackedNative,
-    // placeholders for future backends
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct NodingOptions {
     pub backend: NodingBackend,
-    pub snap_mode: SnapMode,
 }
 
 impl Default for NodingOptions {
     fn default() -> Self {
         Self {
             backend: NodingBackend::Snap,
-            snap_mode: SnapMode::FloatEpsilonDedup,
         }
     }
 }
@@ -241,14 +180,12 @@ impl Default for NodingOptions {
 #[ts(export)]
 pub struct ContainmentOptions {
     pub touch_policy: TouchPolicy,
-    pub index_backend: IndexBackend,
 }
 
 impl Default for ContainmentOptions {
     fn default() -> Self {
         Self {
             touch_policy: TouchPolicy::AllowPointTouchDisallowEdgeShare,
-            index_backend: IndexBackend::RStar,
         }
     }
 }
@@ -299,10 +236,4 @@ pub struct TilingOptions {
     pub ownership_policy: TileOwnershipPolicy,
     #[serde(default)]
     pub dedup_policy: DedupPolicy,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ZOptions {
-    pub policy: ZPolicy,
 }

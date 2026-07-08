@@ -2,7 +2,6 @@ import pytest
 import sys
 import os
 import numpy as np
-from unittest.mock import patch
 
 # Add python directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__)))
@@ -157,27 +156,6 @@ def test_odd_length_coordinates():
         assert "Coordinates array length must be multiple of" in str(e)
     print("Odd length coordinates test passed!")
 
-def test_import_error_fallback():
-    print("\nTesting ImportError fallback in __init__.py...")
-    import importlib
-    import builtins
-    import geo_polygonize
-
-    with patch.dict('sys.modules', {'geo_polygonize.geo_polygonize_core': None, 'geo_polygonize_core': None}):
-        importlib.reload(geo_polygonize)
-
-        import geo_polygonize.cffi_wrapper as cffi_wrapper
-        assert geo_polygonize._polygonize_impl is cffi_wrapper.polygonize
-        assert geo_polygonize.import_probe() == (True, None)
-        print("ImportError fallback test passed!")
-
-    # Reload again to restore the module state for other tests
-    try:
-        importlib.reload(geo_polygonize.cffi_wrapper)
-    except ImportError:
-        pass
-    importlib.reload(geo_polygonize)
-
 def test_return_polygons_without_shapely():
     print("\nTesting ImportError fallback in return_polygons...")
     coords = np.array([
@@ -202,26 +180,6 @@ def test_return_polygons_without_shapely():
             assert "return_polygons=True requires 'shapely' to be installed." in str(e)
     print("ImportError fallback test passed!")
     
-@patch('os.path.exists')
-@patch('glob.glob')
-def test_library_not_found(mock_glob, mock_exists):
-    print("\nTesting missing shared library...")
-    # Mock exists to always return False and glob to return empty list
-    mock_exists.return_value = False
-    mock_glob.return_value = []
-
-    import sys
-    if 'geo_polygonize.cffi_wrapper' in sys.modules:
-        del sys.modules['geo_polygonize.cffi_wrapper']
-
-    try:
-        import geo_polygonize.cffi_wrapper as cffi_wrapper
-        assert False, "Should have raised FileNotFoundError"
-    except FileNotFoundError as e:
-        print(f"Caught expected error: {e}")
-        assert "Could not find geo_polygonize_core shared library" in str(e)
-    print("Missing library test passed!")
-
 def test_invalid_shape_mismatch():
     print("\nTesting invalid shape mismatch...")
     # 2D coords with shape (1, 4) but stride=2
@@ -241,73 +199,6 @@ def test_invalid_stride():
         polygonize(coords, offsets, stride=4)
     print("Invalid stride test passed!")
 
-@patch('geo_polygonize.cffi_wrapper.lib', create=True)
-def test_invalid_input_status(mock_lib):
-    print("\nTesting invalid input status (status == 1)...")
-    import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTypeError
-
-    # Mock the return values
-    mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
-    # Legacy wrapper mocked test.
-    mock_lib.polygonize_result_get_status.return_value = 1
-    mock_lib.polygonize_result_free.return_value = None
-
-    # Valid-looking arrays to pass python-side checks
-    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
-    offsets = np.array([0, 2], dtype=np.uint32)
-
-    try:
-        cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTypeError"
-    except PolygonizeTypeError as e:
-        print(f"Caught expected error: {e}")
-        assert "Invalid input provided to polygonize" in str(e)
-    print("Invalid input status test passed!")
-
-@patch('geo_polygonize.cffi_wrapper.lib', create=True)
-def test_null_result_pointer(mock_lib):
-    print("\nTesting null result pointer...")
-    import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTopologyError
-
-    # Mock the return values
-    mock_lib.polygonize_ffi.return_value = cw.ffi.NULL
-
-    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
-    offsets = np.array([0, 2], dtype=np.uint32)
-
-    try:
-        cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTopologyError"
-    except PolygonizeTopologyError as e:
-        print(f"Caught expected error: {e}")
-        assert "Polygonization failed (returned NULL)" in str(e)
-    print("Null result pointer test passed!")
-
-@patch('geo_polygonize.cffi_wrapper.lib', create=True)
-def test_internal_error_status(mock_lib):
-    print("\nTesting internal error status (status == 2)...")
-    import geo_polygonize.cffi_wrapper as cw
-    from geo_polygonize import PolygonizeTopologyError
-
-    # Mock the return values
-    mock_lib.polygonize_ffi.return_value = "mock_res_ptr"
-    mock_lib.polygonize_result_get_status.return_value = 2
-    mock_lib.polygonize_result_free.return_value = None
-
-    coords = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float64)
-    offsets = np.array([0, 2], dtype=np.uint32)
-
-    try:
-        cw.polygonize(coords, offsets)
-        assert False, "Should have raised PolygonizeTopologyError"
-    except PolygonizeTopologyError as e:
-        print(f"Caught expected error: {e}")
-        assert "Internal error during polygonization: 2" in str(e)
-    print("Internal error status test passed!")
-
-
 def test_polygonize_with_options():
     print("\nTesting polygonize_with_options API...")
     from geo_polygonize import polygonize_with_options
@@ -321,22 +212,15 @@ def test_polygonize_with_options():
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
     options = {
-        "target": "Native",
         "node_input": True,
         "snap_grid_size": 1e-5,
         "extract_only_polygonal": False,
         "snap_strategy": "Grid",
         "noding": {
-            "backend": "Snap",
-            "snap_mode": "FloatEpsilonDedup"
+            "backend": "Snap"
         },
         "containment": {
-            "touch_policy": "AllowPointTouchDisallowEdgeShare",
-            "index_backend": "RStar"
-        },
-        "tiling": None,
-        "z": {
-            "policy": "Ignore"
+            "touch_policy": "AllowPointTouchDisallowEdgeShare"
         },
         "determinism": {
             "canonical_sort": True,
@@ -448,14 +332,9 @@ if __name__ == "__main__":
     test_3d_coordinates()
     test_missing_args()
     test_odd_length_coordinates()
-    test_import_error_fallback()
     test_return_polygons_without_shapely()
-    test_library_not_found()
     test_invalid_shape_mismatch()
     test_invalid_stride()
-    test_invalid_input_status()
-    test_internal_error_status()
-    test_null_result_pointer()
     test_3d_to_2d_slicing()
     test_polygonize_with_options()
     test_rust_typed_errors()

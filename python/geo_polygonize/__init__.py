@@ -5,7 +5,6 @@ import json
 
 _IMPORT_OK = True
 _IMPORT_ERROR = None
-_polygonize_with_options_impl = None
 
 try:
     from .geo_polygonize_core import (
@@ -16,17 +15,16 @@ try:
         PolygonizeOptionsError,
         PolygonizeTopologyError
     )
-except Exception:
-    try:
-        from .cffi_wrapper import polygonize as _polygonize_impl
-    except Exception as fallback_import_error:
-        _IMPORT_OK = False
-        _IMPORT_ERROR = fallback_import_error
+except Exception as import_error:
+    _IMPORT_OK = False
+    _IMPORT_ERROR = import_error
 
-        def _polygonize_impl(*args, _import_error=fallback_import_error, **kwargs):
-            raise ImportError("geo_polygonize native extension is not available") from _import_error
+    def _polygonize_impl(*args, _import_error=import_error, **kwargs):
+        raise ImportError("geo_polygonize native extension is not available") from _import_error
 
-    # Fallback exception classes if C extension is missing
+    def _polygonize_with_options_impl(*args, _import_error=import_error, **kwargs):
+        raise ImportError("geo_polygonize native extension is not available") from _import_error
+
     class PolygonizeTypeError(ValueError):
         pass
 
@@ -60,8 +58,6 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
     """
-    options_dict = options or {}
-
     if lines is not None:
         flat_coords = []
         parsed_offsets = []
@@ -120,11 +116,7 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
     options_json = None if options is None else json.dumps(options)
 
-    if _polygonize_with_options_impl is not None:
-        result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
-    else:
-        # Fallback for CFFI which does not support options mapping fully yet
-        result = _polygonize_impl(coords, offsets, node=options_dict.get("node_input", False), snap=options_dict.get("snap_grid_size", 1e-10), extract_only_polygonal=options_dict.get("extract_only_polygonal", False), stride=stride, line_ids=line_ids)
+    result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
 
     if return_polygons:
         try:
@@ -149,22 +141,15 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 
 def cfb_robust_options():
     return {
-        "target": "Native",
         "node_input": True,
         "snap_grid_size": 0.5,
         "extract_only_polygonal": False,
         "snap_strategy": "GeosCompat",
         "noding": {
             "backend": "Snap",
-            "snap_mode": "FloatEpsilonDedup",
         },
         "containment": {
             "touch_policy": "AllowPointTouchDisallowEdgeShare",
-            "index_backend": "RStar",
-        },
-        "tiling": None,
-        "z": {
-            "policy": "InterpolateAlongEdge",
         },
         "determinism": {
             "canonical_sort": True,
@@ -201,11 +186,6 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     # Deep check for specific nested policies
     if opts_a.get("containment", {}).get("touch_policy") != opts_b.get("containment", {}).get("touch_policy"):
         mismatches.append(f"Touch Policy mismatch: {opts_a.get('containment', {}).get('touch_policy')} vs {opts_b.get('containment', {}).get('touch_policy')}")
-    if opts_a.get("z", {}).get("policy") != opts_b.get("z", {}).get("policy"):
-        mismatches.append(f"Z Policy mismatch: {opts_a.get('z', {}).get('policy')} vs {opts_b.get('z', {}).get('policy')}")
-    if opts_a.get("target") != opts_b.get("target"):
-         mismatches.append(f"Target Profile mismatch: {opts_a.get('target')} vs {opts_b.get('target')}")
-
     # 2. Compare Topology
     diag_a = result_a.get("diagnostics", {})
     diag_b = result_b.get("diagnostics", {})
@@ -322,22 +302,15 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
 
     # Use the new options API as a wrapper
     options = {
-        "target": "Native",
         "node_input": node,
         "snap_grid_size": snap,
         "extract_only_polygonal": extract_only_polygonal,
         "snap_strategy": "Grid",
         "noding": {
-            "backend": "Snap",
-            "snap_mode": "FloatEpsilonDedup"
+            "backend": "Snap"
         },
         "containment": {
-            "touch_policy": "AllowPointTouchDisallowEdgeShare",
-            "index_backend": "RStar"
-        },
-        "tiling": None,
-        "z": {
-            "policy": "Ignore"
+            "touch_policy": "AllowPointTouchDisallowEdgeShare"
         },
         "determinism": {
             "canonical_sort": True,
