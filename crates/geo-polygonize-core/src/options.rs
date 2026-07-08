@@ -25,6 +25,16 @@ pub struct PolygonizerOptions {
     /// Default: `1e-10`
     pub snap_grid_size: f64,
 
+    /// Snap input segments to nearby vertices from exact-noded input linework before grid noding.
+    ///
+    /// A value of `0.0` disables pre-snap. This mirrors the CFB/Shapely
+    /// `snap(line, unary_union(all_lines), tolerance)` step closely enough to
+    /// close small CAD gaps before polygonization.
+    ///
+    /// Default: `0.0`
+    #[serde(default)]
+    pub pre_snap_tolerance: f64,
+
     /// If `true`, only pure, outermost polygonal shells are returned.
     ///
     /// Floating dangles, internal cut-lines, or invalid rings will be discarded.
@@ -66,6 +76,7 @@ impl Default for PolygonizerOptions {
         Self {
             node_input: false,
             snap_grid_size: 1e-10,
+            pre_snap_tolerance: 0.0,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::Grid,
             noding: NodingOptions::default(),
@@ -82,7 +93,8 @@ impl PolygonizerOptions {
     pub fn cfb_robust_v1() -> Self {
         Self {
             node_input: true,
-            snap_grid_size: 0.5,
+            snap_grid_size: 0.1,
+            pre_snap_tolerance: 0.5,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::GeosCompat,
             noding: NodingOptions {

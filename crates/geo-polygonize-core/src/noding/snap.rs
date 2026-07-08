@@ -183,6 +183,81 @@ impl SnapNoder {
         lines
     }
 
+    pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
+        if lines.is_empty() || tolerance <= 0.0 {
+            return lines.to_vec();
+        }
+
+        let mut reference_vertices: Vec<Coord3D> = SnapNoder::new(0.0)
+            .node(lines.to_vec())
+            .into_iter()
+            .flat_map(|line| [line.start, line.end])
+            .collect();
+
+        reference_vertices.sort_unstable_by(|a, b| {
+            a.x.total_cmp(&b.x)
+                .then(a.y.total_cmp(&b.y))
+                .then(a.z.total_cmp(&b.z))
+        });
+        reference_vertices.dedup_by(|a, b| a.x == b.x && a.y == b.y);
+
+        let tolerance_sq = tolerance * tolerance;
+        let mut snapped = Vec::with_capacity(lines.len());
+        let mut points = Vec::new();
+
+        // ponytail: O(segments * vertices); add a spatial index if CFB-scale pre-snap profiles hot.
+        for &line in lines {
+            let dx = line.end.x - line.start.x;
+            let dy = line.end.y - line.start.y;
+            let len_sq = dx * dx + dy * dy;
+            if len_sq == 0.0 {
+                continue;
+            }
+
+            points.clear();
+            points.push((0.0, line.start));
+            points.push((1.0, line.end));
+
+            for &vertex in &reference_vertices {
+                let vx = vertex.x - line.start.x;
+                let vy = vertex.y - line.start.y;
+                let t = (vx * dx + vy * dy) / len_sq;
+                if !(0.0..=1.0).contains(&t) {
+                    continue;
+                }
+
+                let nearest_x = line.start.x + t * dx;
+                let nearest_y = line.start.y + t * dy;
+                let dist_x = vertex.x - nearest_x;
+                let dist_y = vertex.y - nearest_y;
+                if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
+                    points.push((t, vertex));
+                }
+            }
+
+            points.sort_unstable_by(|(ta, a), (tb, b)| {
+                ta.total_cmp(tb).then_with(|| {
+                    if dx.abs() >= dy.abs() {
+                        b.y.total_cmp(&a.y).then(a.x.total_cmp(&b.x))
+                    } else {
+                        b.x.total_cmp(&a.x).then(a.y.total_cmp(&b.y))
+                    }
+                })
+            });
+            points.dedup_by(|a, b| (a.1.x - b.1.x).abs() < 1e-12 && (a.1.y - b.1.y).abs() < 1e-12);
+
+            for pair in points.windows(2) {
+                let p0 = pair[0].1;
+                let p1 = pair[1].1;
+                if p0.x != p1.x || p0.y != p1.y {
+                    snapped.push(Line3D::new(p0, p1, line.line_id));
+                }
+            }
+        }
+
+        snapped
+    }
+
     fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
         // Filter out invalid lines (NaN or infinite coordinates)
         lines.retain(|l| {
@@ -583,6 +658,30 @@ mod tests {
             .count();
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
+    }
+
+    #[test]
+    fn test_pre_snap_inserts_nearby_reference_vertices() {
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 0.0),
+            make_line(5.0, 0.4, 5.0, -0.4),
+        ];
+
+        let snapped = SnapNoder::pre_snap_to_reference_vertices(&lines, 0.5);
+
+        assert_eq!(
+            snapped[1].start,
+            Coord3D::new(5.0, 0.4, 0.0),
+            "GEOS-compatible snap tie order"
+        );
+        assert!(snapped
+            .iter()
+            .any(|line| line.start == Coord3D::new(5.0, 0.4, 0.0)
+                || line.end == Coord3D::new(5.0, 0.4, 0.0)));
+        assert!(snapped
+            .iter()
+            .any(|line| line.start == Coord3D::new(5.0, -0.4, 0.0)
+                || line.end == Coord3D::new(5.0, -0.4, 0.0)));
     }
 
     #[test]

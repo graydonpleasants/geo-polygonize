@@ -66,11 +66,14 @@ jobs:
       - name: Check formatting
         run: cargo fmt -- --check
 
+      - name: Check Cargo.lock
+        run: cargo check --locked
+
       - name: Lint with Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
 
   supply-chain:
     name: Supply Chain

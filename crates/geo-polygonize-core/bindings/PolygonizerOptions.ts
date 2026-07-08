@@ -33,6 +33,16 @@ node_input: boolean,
  */
 snap_grid_size: number, 
 /**
+ * Snap input segments to nearby vertices from exact-noded input linework before grid noding.
+ *
+ * A value of `0.0` disables pre-snap. This mirrors the CFB/Shapely
+ * `snap(line, unary_union(all_lines), tolerance)` step closely enough to
+ * close small CAD gaps before polygonization.
+ *
+ * Default: `0.0`
+ */
+pre_snap_tolerance: number, 
+/**
  * If `true`, only pure, outermost polygonal shells are returned.
  *
  * Floating dangles, internal cut-lines, or invalid rings will be discarded.
