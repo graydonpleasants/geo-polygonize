@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.35.0...geo-polygonize-v0.35.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **github:** make Python publish SBOM generation use pyproject metadata ([#749](https://github.com/graydonpleasants/geo-polygonize/issues/749)) ([c0032d6](https://github.com/graydonpleasants/geo-polygonize/commit/c0032d663fffcd0ef752aaa1e5460acadd49e35a))
+
 ## [0.35.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.34.0...geo-polygonize-v0.35.0) (2026-07-08)
 
 
