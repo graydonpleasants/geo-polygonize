@@ -119,11 +119,16 @@ jobs:
         with:
           packages-dir: dist
 
+      - name: Set up Python for SBOM
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install SBOM Tool
-        run: pip install cyclonedx-bom
+        run: python -m pip install cyclonedx-bom
 
       - name: Generate SBOM
-        run: cyclonedx-py requirements python/requirements.txt -o bom.json
+        run: python -c 'import tomllib; print(*tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"], sep="\n")' | cyclonedx-py requirements - --pyproject pyproject.toml --mc-type library -o bom.json
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
