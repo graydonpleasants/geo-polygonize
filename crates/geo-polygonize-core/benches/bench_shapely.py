@@ -6,6 +6,8 @@ import timeit
 import sys
 import random
 
+FAST_CI = "--fast-ci" in sys.argv
+
 def generate_grid(n):
     lines = []
     for i in range(n + 1):
@@ -44,10 +46,10 @@ def run_polygonize(lines):
     return polys
 
 def benchmark():
-    runs = 5
+    runs = 1 if FAST_CI else 5
 
     # Grid
-    grid_sizes = [5, 10, 20, 50, 100]
+    grid_sizes = [20] if FAST_CI else [5, 10, 20, 50, 100]
     print(f"=== Grid Benchmark ===")
     print(f"{'Size':<10} | {'Time (s)':<15} | {'Tiled Time (s)':<15} | {'Polys':<10}")
     print("-" * 40)
@@ -77,7 +79,7 @@ def benchmark():
         print(f"{size:<10} | {avg_time:<15.6f} | {tiled_time} | {len(polys):<10}")
 
     # Bowtie
-    dirty_sizes = [10, 20, 50]
+    dirty_sizes = [] if FAST_CI else [10, 20, 50]
     print(f"\n=== Bowtie Grid Benchmark ===")
     print(f"{'Size':<10} | {'Auto Time (s)':<15} | {'Force Grid (s)':<15} | {'Force SIMD (s)':<15}")
     print("-" * 70)
@@ -97,7 +99,7 @@ def benchmark():
 
     # Random
     # Matched to Rust bench max
-    random_counts = [50, 100, 200]
+    random_counts = [] if FAST_CI else [50, 100, 200]
     print(f"\n=== Random Benchmark ===")
     print(f"{'Count':<10} | {'Time (s)':<15} | {'Polys':<10}")
     print("-" * 40)
@@ -117,6 +119,9 @@ def benchmark():
 
         polys = run_polygonize(lines)
         print(f"{count:<10} | {avg_time:<15.6f} | {len(polys):<10}")
+
+    if FAST_CI:
+        return
 
     print(f"\n=== Large Parallel Benchmark ===")
     print(f"{'Count':<10} | {'Time (s)':<15}")

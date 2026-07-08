@@ -5,6 +5,11 @@ use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use std::time::Duration;
+
+fn fast_ci() -> bool {
+    std::env::var_os("BENCH_FAST_CI").is_some()
+}
 
 fn generate_grid(n: usize) -> Vec<LineString<f64>> {
     let mut lines = Vec::new();
@@ -203,7 +208,12 @@ fn bench_parallel_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
 fn bench_polygonize(c: &mut Criterion) {
     let mut group = c.benchmark_group("polygonize");
     group.sample_size(10);
-    group.measurement_time(std::time::Duration::from_secs(10));
+    if fast_ci() {
+        group.warm_up_time(Duration::from_secs(1));
+        group.measurement_time(Duration::from_secs(2));
+    } else {
+        group.measurement_time(Duration::from_secs(10));
+    }
 
     bench_grid_scenarios(&mut group);
     bench_bowtie_scenarios(&mut group);
