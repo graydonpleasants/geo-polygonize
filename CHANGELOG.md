@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.0...geo-polygonize-v0.36.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **github:** make release automation use PAT squash merges ([#764](https://github.com/graydonpleasants/geo-polygonize/issues/764)) ([e32b63e](https://github.com/graydonpleasants/geo-polygonize/commit/e32b63ec7657b6cbb19654e560eaa60ef161469f))
+
 ## [0.36.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.35.2...geo-polygonize-v0.36.0) (2026-07-08)
 
 
