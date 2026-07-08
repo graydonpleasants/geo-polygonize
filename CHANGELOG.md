@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.35.1...geo-polygonize-v0.35.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* **python:** include license files in sdist ([#753](https://github.com/graydonpleasants/geo-polygonize/issues/753)) ([a4fd019](https://github.com/graydonpleasants/geo-polygonize/commit/a4fd0197d0f9a245b4aae6de5ba8e9c340113b26))
+
 ## [0.35.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.35.0...geo-polygonize-v0.35.1) (2026-07-08)
 
 
