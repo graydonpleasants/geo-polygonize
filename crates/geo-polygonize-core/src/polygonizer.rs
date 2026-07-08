@@ -159,6 +159,13 @@ impl Polygonizer {
         let segments;
 
         if self.options.node_input {
+            if self.options.pre_snap_tolerance > 0.0 {
+                all_segments = SnapNoder::pre_snap_to_reference_vertices(
+                    &all_segments,
+                    self.options.pre_snap_tolerance,
+                );
+            }
+
             // Sort by 2D coordinates
             all_segments.sort_unstable_by(|a, b| {
                 a.start

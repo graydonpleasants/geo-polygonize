@@ -162,10 +162,10 @@ describe('WASM Polygonizer', () => {
         const defaultResultJson = polygonize(JSON.stringify(input));
         const defaultResult = JSON.parse(defaultResultJson);
 
-        // Explicit parity behavior (node_input = true, snap_grid_size = 0.5):
+        // Explicit parity behavior (node_input = true, snap_grid_size = 0.1):
         // The crossing lines are correctly noded at the intersection,
         // yielding 4 separate triangle polygons.
-        const parityResultJson = polygonize(JSON.stringify(input), true, 0.5, false);
+        const parityResultJson = polygonize(JSON.stringify(input), true, 0.1, false);
         const parityResult = JSON.parse(parityResultJson);
 
         // With node_input=true, we expect to find the 4 quadrants formed by the crossed square

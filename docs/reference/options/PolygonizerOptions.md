@@ -30,6 +30,18 @@ indicates exact floating-point evaluation without grid snapping.
 
 Default: `1e-10`
 
+### `pre_snap_tolerance`
+
+**Type:** `f64`
+
+Snap input segments to nearby vertices from exact-noded input linework before grid noding.
+
+A value of `0.0` disables pre-snap. This mirrors the CFB/Shapely
+`snap(line, unary_union(all_lines), tolerance)` step closely enough to
+close small CAD gaps before polygonization.
+
+Default: `0.0`
+
 ### `extract_only_polygonal`
 
 **Type:** `bool`

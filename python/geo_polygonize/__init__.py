@@ -142,7 +142,8 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 def cfb_robust_options():
     return {
         "node_input": True,
-        "snap_grid_size": 0.5,
+        "snap_grid_size": 0.1,
+        "pre_snap_tolerance": 0.5,
         "extract_only_polygonal": False,
         "snap_strategy": "GeosCompat",
         "noding": {
