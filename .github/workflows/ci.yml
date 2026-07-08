@@ -14,59 +14,209 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  changes:
     runs-on: ubuntu-latest
-
+    outputs:
+      wasm: ${{ steps.filter.outputs.wasm }}
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-        targets: wasm32-unknown-unknown
+      - id: filter
+        name: Detect changed paths
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
 
-    - name: Cache Rust
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          . -> target
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            changed="$(git ls-files)"
+          else
+            changed="$(git diff --name-only "$base" "${{ github.sha }}")"
+          fi
 
-    - name: Check formatting
-      run: cargo fmt -- --check
+          if echo "$changed" | grep -Eq '^(crates/|pkg-wrapper/|scripts/build_wasm\.sh|package(-lock)?\.json|rollup\.config\.mjs|tsconfig\.json|\.github/workflows/ci\.yml)$'; then
+            echo "wasm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wasm=false" >> "$GITHUB_OUTPUT"
+          fi
 
-    - name: Lint with Clippy
-      run: cargo clippy -- -D warnings
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-    - name: Install cargo-deny
-      uses: taiki-e/install-action@cargo-deny
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-debug
+          workspaces: |
+            . -> target
 
-    - name: Run cargo deny
-      run: cargo deny check
+      - name: Check formatting
+        run: cargo fmt -- --check
 
-    - name: Install cargo-audit
-      uses: taiki-e/install-action@cargo-audit
+      - name: Lint with Clippy
+        run: cargo clippy -- -D warnings
 
-    - name: Run cargo audit
-      run: cargo audit --ignore RUSTSEC-2025-0020 --ignore RUSTSEC-2026-0173
+      - name: Run tests
+        run: cargo test --verbose
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
-        cache: 'npm'
+  supply-chain:
+    name: Supply Chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Install NPM dependencies
-      run: npm install
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Install cargo-binstall
-      uses: cargo-bins/cargo-binstall@main
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-supply
+          workspaces: |
+            . -> target
 
-    - name: Build WASM
-      run: npm run build
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
 
-    - name: Run JS Tests
-      run: npm test
+      - name: Run cargo deny
+        run: cargo deny check
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit --ignore RUSTSEC-2025-0020 --ignore RUSTSEC-2026-0173
+
+  wasm-build:
+    name: WASM (${{ matrix.variant }})
+    needs: changes
+    if: needs.changes.outputs.wasm == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [scalar, simd, threads]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up stable Rust
+        if: matrix.variant != 'threads'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Set up nightly Rust
+        if: matrix.variant == 'threads'
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wasm-${{ matrix.variant }}
+          workspaces: |
+            . -> target
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install NPM dependencies
+        run: npm ci
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Build WASM package
+        run: ./scripts/build_wasm.sh --variant "${{ matrix.variant }}" --no-bundle
+
+      - name: Upload WASM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg-${{ matrix.variant }}
+          path: pkg-${{ matrix.variant }}/
+          if-no-files-found: error
+          retention-days: 3
+
+  js:
+    name: JS
+    needs: [changes, wasm-build]
+    if: needs.changes.outputs.wasm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-debug
+          workspaces: |
+            . -> target
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install NPM dependencies
+        run: npm ci
+
+      - name: Download scalar package
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg-scalar
+          path: pkg-scalar
+
+      - name: Download SIMD package
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg-simd
+          path: pkg-simd
+
+      - name: Download threads package
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg-threads
+          path: pkg-threads
+
+      - name: Bundle package
+        run: ./scripts/build_wasm.sh --bundle-only
+
+      - name: Run JS Tests
+        run: npm test
+
+  test:
+    name: test
+    needs: [changes, rust, supply-chain, wasm-build, js]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs
+        shell: bash
+        run: |
+          [ "${{ needs.changes.result }}" = "success" ]
+          [ "${{ needs.rust.result }}" = "success" ]
+          [ "${{ needs.supply-chain.result }}" = "success" ]
+          [[ "${{ needs.wasm-build.result }}" =~ ^(success|skipped)$ ]]
+          [[ "${{ needs.js.result }}" =~ ^(success|skipped)$ ]]

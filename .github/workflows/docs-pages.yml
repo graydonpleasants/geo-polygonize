@@ -44,6 +44,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
+          shared-key: docs
           workspaces: |
             . -> target
 
@@ -75,7 +76,7 @@ jobs:
       - name: Build Playground
         run: |
           cd playground
-          npm install
+          npm ci
           npm run build
 
       - name: Build Docs Site

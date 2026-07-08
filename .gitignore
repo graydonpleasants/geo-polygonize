@@ -19,3 +19,9 @@ fuzz/artifacts
 fuzz/coverage
 dhat-heap.json
 venv_test/
+bench_output.txt
+rust_bench_output.txt
+python_bench_output.txt
+wasm_bench_output.txt
+benchmark_report.md
+crates/geo-polygonize-core/benches/wasm_bench/pkg/
