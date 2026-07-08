@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.1...geo-polygonize-v0.36.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* **core:** snap nearby endpoints during pre-snap ([#770](https://github.com/graydonpleasants/geo-polygonize/issues/770)) ([d4586b1](https://github.com/graydonpleasants/geo-polygonize/commit/d4586b10e7c4f4b5dae3cd83347a317e7f63ef58))
+
 ## [0.36.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.0...geo-polygonize-v0.36.1) (2026-07-08)
 
 
