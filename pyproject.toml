@@ -21,3 +21,7 @@ python-source = "python"
 manifest-path = "crates/geo-polygonize-core/Cargo.toml"
 module-name = "geo_polygonize.geo_polygonize_core"
 features = ["python"]
+include = [
+    { path = "LICENSE-APACHE", format = "sdist" },
+    { path = "LICENSE-MIT", format = "sdist" },
+]
