@@ -242,6 +242,7 @@ impl Polygonizer {
         self.build_graph()?;
         if let Some(ref mut d) = diag {
             d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
+            d.noded_segment_count = self.graph.edges.len();
         }
 
         let t_graph_build_start = get_time();

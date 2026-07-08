@@ -642,10 +642,14 @@ mod tests {
         );
 
         let first = poly.polygonize().expect("First polygonization failed");
-        assert_eq!(first.diagnostics.unwrap().input_segment_count, 4);
+        let first_diagnostics = first.diagnostics.unwrap();
+        assert_eq!(first_diagnostics.input_segment_count, 4);
+        assert_eq!(first_diagnostics.noded_segment_count, 4);
 
         let second = poly.polygonize().expect("Second polygonization failed");
-        assert_eq!(second.diagnostics.unwrap().input_segment_count, 4);
+        let second_diagnostics = second.diagnostics.unwrap();
+        assert_eq!(second_diagnostics.input_segment_count, 4);
+        assert_eq!(second_diagnostics.noded_segment_count, 4);
     }
 
     #[test]
