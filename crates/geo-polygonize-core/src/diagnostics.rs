@@ -39,6 +39,8 @@ pub struct PolygonizerDiagnostics {
     pub ring_count: usize,
     pub shell_count: usize,
     pub hole_count: usize,
+    pub unassigned_hole_count: usize,
+    pub unassigned_hole_area: f64,
     pub invalid_ring_count: usize,
     pub flat_line_count: usize,
     pub phase_times: PolygonizerPhaseTimes,

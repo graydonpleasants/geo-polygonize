@@ -277,7 +277,7 @@ impl Polygonizer {
 
         let t_containment_start = get_time();
         // 5. Establish Topology
-        let (shells, shell_holes, shell_holes_ids) =
+        let (shells, shell_holes, shell_holes_ids, unassigned_hole_count, unassigned_hole_area) =
             establish_topology(shells, holes, &self.options);
 
         // 6. Construct Final Polygons
@@ -302,6 +302,8 @@ impl Polygonizer {
 
         if let Some(ref mut d) = diag {
             d.phase_times.containment = get_elapsed(t_containment_start);
+            d.unassigned_hole_count = unassigned_hole_count;
+            d.unassigned_hole_area = unassigned_hole_area;
             // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
         }
         Ok(PolygonizerResult {
@@ -399,7 +401,13 @@ fn establish_topology(
     mut shells: Vec<Polygon3D>,
     holes: Vec<Polygon3D>,
     options: &PolygonizerOptions,
-) -> (Vec<Polygon3D>, Vec<Vec<Vec<Coord3D>>>, Vec<Vec<Vec<u32>>>) {
+) -> (
+    Vec<Polygon3D>,
+    Vec<Vec<Vec<Coord3D>>>,
+    Vec<Vec<Vec<u32>>>,
+    usize,
+    f64,
+) {
     let mut forest = ContainmentForest::new(&shells);
 
     if options.extract_only_polygonal {
@@ -419,37 +427,44 @@ fn establish_topology(
         }
     }
 
-    let process_hole_assignment = |hole_3d: Polygon3D| -> Option<(usize, Vec<Coord3D>, Vec<u32>)> {
+    let process_hole_assignment = |hole_3d: Polygon3D| -> (Option<usize>, Polygon3D) {
         let best_shell_idx =
             forest.assign_hole(&hole_3d, &shells, &options.containment.touch_policy);
-        best_shell_idx.map(|idx| (idx, hole_3d.exterior, hole_3d.exterior_ids))
+        (best_shell_idx, hole_3d)
     };
 
     let assignments: Vec<_>;
     #[cfg(feature = "parallel")]
     {
-        assignments = holes
-            .into_par_iter()
-            .filter_map(process_hole_assignment)
-            .collect();
+        assignments = holes.into_par_iter().map(process_hole_assignment).collect();
     }
     #[cfg(not(feature = "parallel"))]
     {
-        assignments = holes
-            .into_iter()
-            .filter_map(process_hole_assignment)
-            .collect();
+        assignments = holes.into_iter().map(process_hole_assignment).collect();
     }
 
     let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
     let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
+    let mut unassigned_hole_count = 0;
+    let mut unassigned_hole_area = 0.0;
 
-    for (idx, hole_coords, hole_ids) in assignments {
-        shell_holes[idx].push(hole_coords);
-        shell_holes_ids[idx].push(hole_ids);
+    for (idx, hole) in assignments {
+        if let Some(idx) = idx {
+            shell_holes[idx].push(hole.exterior);
+            shell_holes_ids[idx].push(hole.exterior_ids);
+        } else {
+            unassigned_hole_count += 1;
+            unassigned_hole_area += hole.exterior_unsigned_area_2d();
+        }
     }
 
-    (shells, shell_holes, shell_holes_ids)
+    (
+        shells,
+        shell_holes,
+        shell_holes_ids,
+        unassigned_hole_count,
+        unassigned_hole_area,
+    )
 }
 
 pub(crate) fn construct_final_polygons(
@@ -561,6 +576,33 @@ pub(crate) fn construct_final_polygons(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod topology_tests {
+    use super::*;
+
+    #[test]
+    fn establish_topology_reports_unassigned_holes() {
+        let hole = Polygon3D::new(
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(0.0, 10.0, 0.0),
+                Coord3D::new(10.0, 10.0, 0.0),
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(0.0, 0.0, 0.0),
+            ],
+            vec![],
+            vec![1, 2, 3, 4],
+            vec![],
+        );
+
+        let (_, _, _, unassigned_count, unassigned_area) =
+            establish_topology(vec![], vec![hole], &PolygonizerOptions::default());
+
+        assert_eq!(unassigned_count, 1);
+        assert!((unassigned_area - 100.0).abs() < 1e-9);
+    }
 }
 
 pub(crate) fn apply_determinism(
