@@ -7,12 +7,40 @@ on:
       - "geo-polygonize-v*"
 
 jobs:
-  build-wheels:
+  build-linux-wheels:
+    name: Build Linux wheels for ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: --release --out dist
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist/*.whl
+
+  build-native-wheels:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -52,9 +80,27 @@ jobs:
           name: wheels-${{ matrix.os }}
           path: dist/*.whl
 
+  build-sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist/*.tar.gz
+
   publish-python:
     name: Publish Python Package
-    needs: build-wheels
+    needs: [build-linux-wheels, build-native-wheels, build-sdist]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -68,7 +114,7 @@ jobs:
           pattern: wheels-*
           merge-multiple: true
 
-      - name: Publish Wheels
+      - name: Publish distributions
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
