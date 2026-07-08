@@ -31,3 +31,42 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
           release-as: ${{ inputs.version }}
+
+      - name: Detect release PR branch
+        id: release-pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          branch="$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --head release-please--branches--main--components--geo-polygonize \
+            --json headRefName \
+            --jq '.[0].headRefName // empty')"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release PR branch
+        if: steps.release-pr.outputs.branch != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-pr.outputs.branch }}
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Rust
+        if: steps.release-pr.outputs.branch != ''
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Update Cargo.lock
+        if: steps.release-pr.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          cargo check
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore(main): update Cargo.lock for release"
+          git push
