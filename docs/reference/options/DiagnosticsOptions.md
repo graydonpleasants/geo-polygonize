@@ -9,3 +9,4 @@
 ### `report_mode`
 
 **Type:** `bool`
+

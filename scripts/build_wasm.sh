@@ -6,6 +6,7 @@ export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 # Configuration
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
+SITE_BUILD="${SITE_BUILD:-${BUILD_WASM_SITE:-0}}"
 
 # Ensure target is installed
 echo "Checking for $TARGET..."
@@ -26,7 +27,7 @@ fi
 WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
 # Install binaryen (wasm-opt) if needed
-if ! command -v wasm-opt &> /dev/null; then
+if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
     echo "wasm-opt not found. Attempting to install via npm..."
     npm install -g wasm-opt
     if ! command -v wasm-opt &> /dev/null; then
@@ -34,7 +35,7 @@ if ! command -v wasm-opt &> /dev/null; then
     else
         echo "Successfully installed wasm-opt: $(wasm-opt --version)"
     fi
-else
+elif [ "$SITE_BUILD" != "1" ]; then
     echo "Found wasm-opt: $(wasm-opt --version)"
 fi
 
@@ -72,7 +73,7 @@ build_variant() {
     "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
 
     # 3. Optimization
-    if command -v wasm-opt &> /dev/null; then
+    if [ "$SITE_BUILD" != "1" ] && command -v wasm-opt &> /dev/null; then
         echo "Optimizing $VARIANT..."
         # The file name comes from --out-name "geo_polygonize" -> "geo_polygonize_bg.wasm"
         wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
@@ -86,7 +87,12 @@ build_variant() {
 build_variant "scalar" ""
 
 # Build SIMD
-build_variant "simd" "-C target-feature=+simd128"
+if [ "$SKIP_SIMD" = "1" ]; then
+    echo "Skipping SIMD build as requested. Copying scalar to simd to satisfy dependencies..."
+    cp -r pkg-scalar pkg-simd
+else
+    build_variant "simd" "-C target-feature=+simd128"
+fi
 
 # Build Threads
 build_variant_threads() {
@@ -138,14 +144,28 @@ build_variant_threads() {
     rm -f $OUT_DIR/.gitignore
 }
 
-build_variant_threads
+if [ "$SITE_BUILD" = "1" ]; then
+    mkdir -p pkg-threads
+    cat > pkg-threads/geo_polygonize.js <<'EOF'
+export const polygonizeWithOptions = () => {};
+export const initThreadPool = () => {};
+export default async function init() {}
+EOF
+    cat > pkg-threads/geo_polygonize.d.ts <<'EOF'
+export declare const polygonizeWithOptions: () => void;
+export declare const initThreadPool: () => void;
+export default function init(): Promise<void>;
+EOF
+else
+    build_variant_threads
 
-echo "Patching wasm-bindgen-rayon workerHelpers.js..."
-for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
-    TEMP_FILE=$(mktemp)
-    sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$WORKER_HELPERS" > "$TEMP_FILE"
-    mv "$TEMP_FILE" "$WORKER_HELPERS"
-done
+    echo "Patching wasm-bindgen-rayon workerHelpers.js..."
+    for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
+        TEMP_FILE=$(mktemp)
+        sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$WORKER_HELPERS" > "$TEMP_FILE"
+        mv "$TEMP_FILE" "$WORKER_HELPERS"
+    done
+fi
 
 echo "Patching wasm-bindgen fallback URLs for Vite..."
 for BINDGEN_JS in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js pkg-threads/geo_polygonize.js; do

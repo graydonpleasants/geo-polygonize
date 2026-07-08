@@ -14,7 +14,7 @@
 
 import path from "node:path";
 import { getGitRepoInfo } from "./github/git.js";
-import { CachedOctokit } from "./github/issues.js";
+import { Octokit } from "octokit";
 import { jules } from "@google/jules-sdk";
 import { FLEET_DIR } from "./config.js";
 import { IssueAnalysisSchema, type IssueAnalysis, type Task } from "./schema.js";
@@ -36,7 +36,7 @@ if (!GITHUB_TOKEN) {
   process.exit(1);
 }
 
-const octokit = new CachedOctokit({
+const octokit = new Octokit({
   auth: GITHUB_TOKEN,
 });
 

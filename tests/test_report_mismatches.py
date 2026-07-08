@@ -42,29 +42,21 @@ class TestReportMismatches(unittest.TestCase):
         ], dtype=np.float64)
         offsets = np.array([0, 5], dtype=np.uint32)
 
-        options_a = {
-            "target": "Native",
-            "node_input": True,
+        options_a = {            "node_input": True,
             "snap_grid_size": 1e-10,
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
-            "noding": {"backend": "Snap", "snap_mode": "FloatEpsilonDedup"},
-            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare", "index_backend": "RStar"},
-            "z": {"policy": "Ignore"},
-            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
+            "noding": {"backend": "Snap"},
+            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare"},            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
             "diagnostics": {"enabled": True, "report_mode": True},
             "provenance": {"enabled": False, "include_boundary_line_ids": False}
         }
-        options_b = {
-            "target": "Native",
-            "node_input": False,
+        options_b = {            "node_input": False,
             "snap_grid_size": 1e-6,
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
-            "noding": {"backend": "Snap", "snap_mode": "FloatEpsilonDedup"},
-            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare", "index_backend": "RStar"},
-            "z": {"policy": "Ignore"},
-            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
+            "noding": {"backend": "Snap"},
+            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare"},            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
             "diagnostics": {"enabled": True, "report_mode": True},
             "provenance": {"enabled": False, "include_boundary_line_ids": False}
         }
@@ -97,16 +89,12 @@ class TestReportMismatches(unittest.TestCase):
         ], dtype=np.float64)
         offsets_b = np.array([0], dtype=np.uint32)
 
-        options = {
-            "target": "Native",
-            "node_input": True,
+        options = {            "node_input": True,
             "snap_grid_size": 1e-10,
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
-            "noding": {"backend": "Snap", "snap_mode": "FloatEpsilonDedup"},
-            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare", "index_backend": "RStar"},
-            "z": {"policy": "Ignore"},
-            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
+            "noding": {"backend": "Snap"},
+            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare"},            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
             "diagnostics": {"enabled": True, "report_mode": True},
             "provenance": {"enabled": False, "include_boundary_line_ids": False}
         }
@@ -133,16 +121,12 @@ class TestReportMismatches(unittest.TestCase):
         line_ids_a = np.array([1, 2, 3, 4], dtype=np.uint32)
         line_ids_b = np.array([5, 6, 7, 8], dtype=np.uint32)
 
-        options = {
-            "target": "Native",
-            "node_input": False,
+        options = {            "node_input": False,
             "snap_grid_size": 1e-10,
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
-            "noding": {"backend": "Snap", "snap_mode": "FloatEpsilonDedup"},
-            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare", "index_backend": "RStar"},
-            "z": {"policy": "Ignore"},
-            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
+            "noding": {"backend": "Snap"},
+            "containment": {"touch_policy": "AllowPointTouchDisallowEdgeShare"},            "determinism": {"canonical_sort": True, "canonical_ring_rotation": True, "stable_tie_breaks": True},
             "diagnostics": {"enabled": True, "report_mode": True},
             "provenance": {"enabled": True, "include_boundary_line_ids": True}
         }

@@ -6,14 +6,10 @@ fn main() {
 
     // We export each root type with export_all so it writes out that type and its dependencies.
     let _ = PolygonizerOptions::export_all(&config);
-    let _ = TargetProfile::export_all(&config);
     let _ = SnapStrategy::export_all(&config);
-    let _ = SnapMode::export_all(&config);
-    let _ = ZPolicy::export_all(&config);
     let _ = TouchPolicy::export_all(&config);
     let _ = TileOwnershipPolicy::export_all(&config);
     let _ = NodingBackend::export_all(&config);
-    let _ = IndexBackend::export_all(&config);
     let _ = NodingOptions::export_all(&config);
     let _ = ContainmentOptions::export_all(&config);
     let _ = DeterminismOptions::export_all(&config);
@@ -21,5 +17,4 @@ fn main() {
     let _ = ProvenanceOptions::export_all(&config);
     let _ = DedupPolicy::export_all(&config);
     let _ = TilingOptions::export_all(&config);
-    let _ = ZOptions::export_all(&config);
 }

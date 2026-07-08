@@ -1,7 +1,0 @@
-# IndexBackend
-
-## Variants
-
-### `RStar`
-
-### `PackedNative`

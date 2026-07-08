@@ -14,6 +14,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 /**
  * Validates the FLEET_ID to prevent path traversal and other injection attacks.
@@ -35,16 +36,15 @@ const rawFleetId = process.env.FLEET_ID || new Intl.DateTimeFormat("en-CA", {
 // Use FLEET_ID environment variable if provided, otherwise generate default date-based ID
 export const FLEET_ID = validateFleetId(rawFleetId);
 
-// Lazy-load find-up to avoid top-level import issues in environments where it's not available (like tests)
 let ROOT_DIR_VAL: string;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 try {
-  const { findUpSync } = await import("find-up");
-  const gitDir = findUpSync(".git");
-  ROOT_DIR_VAL = gitDir ? path.dirname(gitDir) : path.resolve(__dirname, "../..");
-} catch (e) {
-  // If find-up is missing or fails, fallback to standard path resolution
+  ROOT_DIR_VAL = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: __dirname,
+    encoding: "utf8",
+  }).trim();
+} catch {
   ROOT_DIR_VAL = path.resolve(__dirname, "../..");
 }
 

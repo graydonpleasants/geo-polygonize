@@ -6,6 +6,3 @@
 
 **Type:** `TouchPolicy`
 
-### `index_backend`
-
-**Type:** `IndexBackend`

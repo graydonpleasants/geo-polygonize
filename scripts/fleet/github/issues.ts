@@ -13,11 +13,7 @@
 // limitations under the License.
 
 import { Octokit } from "octokit";
-import { cachePlugin } from "./cache-plugin.js";
 import { getGitRepoInfo } from "./git.js";
-
-/** Octokit with built-in ETag caching */
-export const CachedOctokit = Octokit.plugin(cachePlugin) as typeof Octokit;
 
 export interface LinkedPR {
   number: number;
@@ -56,7 +52,7 @@ export async function getIssues(
   options?: { perPage?: number; state?: "open" | "closed" | "all" }
 ) {
   const repoInfo = await getGitRepoInfo();
-  const octokit = new CachedOctokit({
+  const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
 
@@ -114,5 +110,3 @@ export async function getIssues(
 
   return enhancedIssues;
 }
-
-export { cachePlugin } from "./cache-plugin.js";

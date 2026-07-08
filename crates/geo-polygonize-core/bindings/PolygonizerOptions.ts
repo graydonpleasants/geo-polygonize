@@ -5,9 +5,6 @@ import type { DiagnosticsOptions } from "./DiagnosticsOptions";
 import type { NodingOptions } from "./NodingOptions";
 import type { ProvenanceOptions } from "./ProvenanceOptions";
 import type { SnapStrategy } from "./SnapStrategy";
-import type { TargetProfile } from "./TargetProfile";
-import type { TilingOptions } from "./TilingOptions";
-import type { ZOptions } from "./ZOptions";
 
 /**
  * The canonical configuration object for the `geo-polygonize` engine.
@@ -15,13 +12,7 @@ import type { ZOptions } from "./ZOptions";
  * This struct controls every aspect of the polygonization pipeline, including
  * topological robustness, feature output, containment policies, noding, and determinism.
  */
-export type PolygonizerOptions = {
-/**
- * Determines the execution environment profile (e.g., Native, WasmSingleThread, WasmThreads).
- *
- * Default: `TargetProfile::Native`
- */
-target: TargetProfile,
+export type PolygonizerOptions = { 
 /**
  * Whether to robustly node the input before polygonization.
  *
@@ -31,7 +22,7 @@ target: TargetProfile,
  *
  * Default: `false`
  */
-node_input: boolean,
+node_input: boolean, 
 /**
  * The snapping grid size used for vertex deduplication and noding operations.
  *
@@ -40,7 +31,7 @@ node_input: boolean,
  *
  * Default: `1e-10`
  */
-snap_grid_size: number,
+snap_grid_size: number, 
 /**
  * If `true`, only pure, outermost polygonal shells are returned.
  *
@@ -48,7 +39,7 @@ snap_grid_size: number,
  *
  * Default: `false`
  */
-extract_only_polygonal: boolean,
+extract_only_polygonal: boolean, 
 /**
  * The underlying strategy to apply when snapping coordinate geometries.
  *
@@ -57,36 +48,28 @@ extract_only_polygonal: boolean,
  *
  * Default: `SnapStrategy::Grid`
  */
-snap_strategy: SnapStrategy,
+snap_strategy: SnapStrategy, 
 /**
  * Configures the noding engine backend and behavior.
  */
-noding: NodingOptions,
+noding: NodingOptions, 
 /**
  * Configures how topological relationships (containment) are calculated
  * during face formation.
  */
-containment: ContainmentOptions,
-/**
- * Optional configuration for tiled, distributed execution across huge datasets.
- */
-tiling?: TilingOptions,
-/**
- * Configures Z-axis coordinate handling.
- */
-z: ZOptions,
+containment: ContainmentOptions, 
 /**
  * Configuration for enforcing exact topological determinism.
  */
-determinism: DeterminismOptions,
+determinism: DeterminismOptions, 
 /**
  * Options for capturing diagnostic topology failures.
  */
-diagnostics: DiagnosticsOptions,
+diagnostics: DiagnosticsOptions, 
 /**
  * Options for mapping final faces back to original input geometry IDs.
  */
-provenance: ProvenanceOptions,
+provenance: ProvenanceOptions, 
 /**
  * An optional identifier for the input dataset.
  */
