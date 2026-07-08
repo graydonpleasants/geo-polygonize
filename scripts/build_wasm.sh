@@ -3,148 +3,134 @@ set -e
 
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 
-# Configuration
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
 SITE_BUILD="${SITE_BUILD:-${BUILD_WASM_SITE:-0}}"
+VARIANT=""
+NO_BUNDLE=0
+BUNDLE_ONLY=0
 
-# Ensure target is installed
-echo "Checking for $TARGET..."
-rustup target add $TARGET
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --variant)
+            VARIANT="$2"
+            shift 2
+            ;;
+        --no-bundle)
+            NO_BUNDLE=1
+            shift
+            ;;
+        --bundle-only)
+            BUNDLE_ONLY=1
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
-# Install wasm-bindgen-cli if needed
-if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
-    echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-    if command -v cargo-binstall &> /dev/null; then
-        cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-    else
-        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+setup_wasm_tools() {
+    echo "Checking for $TARGET..."
+    rustup target add $TARGET
+
+    if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
+        echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
+        if command -v cargo-binstall &> /dev/null; then
+            cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+        else
+            cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+        fi
     fi
-fi
-if ! command -v wasm-bindgen &> /dev/null; then
-    cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-fi
-WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
-
-# Install binaryen (wasm-opt) if needed
-if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
-    echo "wasm-opt not found. Attempting to install via npm..."
-    npm install -g wasm-opt
-    if ! command -v wasm-opt &> /dev/null; then
-        echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
-    else
-        echo "Successfully installed wasm-opt: $(wasm-opt --version)"
+    if ! command -v wasm-bindgen &> /dev/null; then
+        cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
     fi
-elif [ "$SITE_BUILD" != "1" ]; then
-    echo "Found wasm-opt: $(wasm-opt --version)"
-fi
+    WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
+
+    if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
+        echo "wasm-opt not found. Attempting to install via npm..."
+        npm install -g wasm-opt
+        if ! command -v wasm-opt &> /dev/null; then
+            echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
+        else
+            echo "Successfully installed wasm-opt: $(wasm-opt --version)"
+        fi
+    elif [ "$SITE_BUILD" != "1" ]; then
+        echo "Found wasm-opt: $(wasm-opt --version)"
+    fi
+}
 
 build_variant() {
-    local VARIANT=$1
-    local OUT_DIR="pkg-$VARIANT"
-    local FLAGS=$2
+    local variant=$1
+    local out_dir="pkg-$variant"
+    local flags=$2
 
-    echo "Building $VARIANT version..."
+    echo "Building $variant version..."
+    RUSTFLAGS="$flags" cargo build -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
 
-    # 1. Cargo Build
-    # We explicitly specify the wasm crate
-    RUSTFLAGS="$FLAGS" cargo build -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
-
-    # 2. Wasm Bindgen
-    echo "Running wasm-bindgen for $VARIANT..."
-    # With the new crate name, the output is geo_polygonize_wasm.wasm
-    CRATE_NAME="geo_polygonize_wasm"
-    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
-
-    if [ ! -f "$WASM_PATH" ]; then
-        echo "Error: $WASM_PATH not found!"
+    echo "Running wasm-bindgen for $variant..."
+    local wasm_path="target/$TARGET/release/geo_polygonize_wasm.wasm"
+    if [ ! -f "$wasm_path" ]; then
+        echo "Error: $wasm_path not found!"
         exit 1
     fi
 
-    rm -rf $OUT_DIR
-    # We want the output JS/WASM file to still be named nicely for consumption,
-    # or match what rollup expects.
-    # The original script output name was "geo_polygonize".
-    # pkg-wrapper/index.ts imports from pkg-scalar/geo_polygonize.js usually, or whatever wasm-bindgen outputs.
-    # Let's check rollup config or pkg-wrapper import.
-    # The previous script used --out-name "geo_polygonize". We should stick to that if possible
-    # to avoid breaking downstream consumers.
+    rm -rf "$out_dir"
+    "$WASM_BINDGEN_BIN" --target web --out-dir "$out_dir" --out-name "geo_polygonize" "$wasm_path"
 
-    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
-
-    # 3. Optimization
     if [ "$SITE_BUILD" != "1" ] && command -v wasm-opt &> /dev/null; then
-        echo "Optimizing $VARIANT..."
-        # The file name comes from --out-name "geo_polygonize" -> "geo_polygonize_bg.wasm"
-        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+        echo "Optimizing $variant..."
+        wasm-opt -O3 -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
     fi
 
-    # Remove .gitignore if generated
-    rm -f $OUT_DIR/.gitignore
+    rm -f "$out_dir/.gitignore"
 }
 
-# Build Scalar
-build_variant "scalar" ""
+patch_threads_worker() {
+    echo "Patching wasm-bindgen-rayon workerHelpers.js..."
+    for worker_helpers in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
+        temp_file=$(mktemp)
+        sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$worker_helpers" > "$temp_file"
+        mv "$temp_file" "$worker_helpers"
+    done
+}
 
-# Build SIMD
-if [ "$SKIP_SIMD" = "1" ]; then
-    echo "Skipping SIMD build as requested. Copying scalar to simd to satisfy dependencies..."
-    cp -r pkg-scalar pkg-simd
-else
-    build_variant "simd" "-C target-feature=+simd128"
-fi
-
-# Build Threads
 build_variant_threads() {
-    local OUT_DIR="pkg-threads"
-    # Enable atomics and shared memory
-    local FLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+    local out_dir="pkg-threads"
+    local flags="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 
     echo "Building Threads version..."
-
-    # Check for nightly
-    if ! rustup toolchain list | grep -q "nightly"; then
-        echo "Installing nightly toolchain..."
-        rustup toolchain install nightly
-    fi
-
-    # Ensure rust-src component is installed (required for build-std)
     echo "Installing rust-src for nightly..."
     rustup component add rust-src --toolchain nightly
 
-    # 1. Cargo Build with Nightly and build-std
-    RUSTFLAGS="$FLAGS" cargo +nightly build -p geo-polygonize-wasm \
+    RUSTFLAGS="$flags" cargo +nightly build -p geo-polygonize-wasm \
         --target $TARGET \
         --release \
         --features "console_error_panic_hook threads" \
         --lib \
         -Z build-std=std,panic_abort
 
-    # 2. Wasm Bindgen
     echo "Running wasm-bindgen for threads..."
-    CRATE_NAME="geo_polygonize_wasm"
-    WASM_PATH="target/$TARGET/release/$CRATE_NAME.wasm"
-
-    if [ ! -f "$WASM_PATH" ]; then
-        echo "Error: $WASM_PATH not found!"
+    local wasm_path="target/$TARGET/release/geo_polygonize_wasm.wasm"
+    if [ ! -f "$wasm_path" ]; then
+        echo "Error: $wasm_path not found!"
         exit 1
     fi
 
-    rm -rf $OUT_DIR
-    # Use --target web to ensure correct loading behavior for threads
-    "$WASM_BINDGEN_BIN" --target web --out-dir $OUT_DIR --out-name "geo_polygonize" "$WASM_PATH"
+    rm -rf "$out_dir"
+    "$WASM_BINDGEN_BIN" --target web --out-dir "$out_dir" --out-name "geo_polygonize" "$wasm_path"
 
-    # 3. Optimization
     if command -v wasm-opt &> /dev/null; then
         echo "Optimizing Threads..."
-        # wasm-opt generally supports atomics if present in the binary
-        wasm-opt -O3 -o "$OUT_DIR/geo_polygonize_bg.wasm" "$OUT_DIR/geo_polygonize_bg.wasm"
+        wasm-opt -O3 -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
     fi
 
-    rm -f $OUT_DIR/.gitignore
+    rm -f "$out_dir/.gitignore"
+    patch_threads_worker
 }
 
-if [ "$SITE_BUILD" = "1" ]; then
+mock_threads_package() {
     mkdir -p pkg-threads
     cat > pkg-threads/geo_polygonize.js <<'EOF'
 export const polygonizeWithOptions = () => {};
@@ -156,54 +142,78 @@ export declare const polygonizeWithOptions: () => void;
 export declare const initThreadPool: () => void;
 export default function init(): Promise<void>;
 EOF
-else
-    build_variant_threads
+}
 
-    echo "Patching wasm-bindgen-rayon workerHelpers.js..."
-    for WORKER_HELPERS in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
-        TEMP_FILE=$(mktemp)
-        sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$WORKER_HELPERS" > "$TEMP_FILE"
-        mv "$TEMP_FILE" "$WORKER_HELPERS"
+build_requested_wasm() {
+    setup_wasm_tools
+
+    case "$VARIANT" in
+        scalar)
+            build_variant "scalar" ""
+            ;;
+        simd)
+            build_variant "simd" "-C target-feature=+simd128"
+            ;;
+        threads)
+            build_variant_threads
+            ;;
+        "")
+            build_variant "scalar" ""
+            if [ "$SKIP_SIMD" = "1" ]; then
+                echo "Skipping SIMD build as requested. Copying scalar to simd to satisfy dependencies..."
+                rm -rf pkg-simd
+                cp -r pkg-scalar pkg-simd
+            else
+                build_variant "simd" "-C target-feature=+simd128"
+            fi
+
+            if [ "$SITE_BUILD" = "1" ]; then
+                mock_threads_package
+            else
+                build_variant_threads
+            fi
+            ;;
+        *)
+            echo "Unknown WASM variant: $VARIANT"
+            exit 1
+            ;;
+    esac
+}
+
+patch_vite_urls() {
+    echo "Patching wasm-bindgen fallback URLs for Vite..."
+    for bindgen_js in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js pkg-threads/geo_polygonize.js; do
+        if [ -f "$bindgen_js" ]; then
+            temp_file=$(mktemp)
+            sed -e "s/new URL('geo_polygonize_bg.wasm', import.meta.url)/new URL(\/\\* @vite-ignore \\*\/ 'geo_polygonize_bg.wasm', import.meta.url)/g" "$bindgen_js" > "$temp_file"
+            mv "$temp_file" "$bindgen_js"
+        fi
     done
-fi
+}
 
-echo "Patching wasm-bindgen fallback URLs for Vite..."
-for BINDGEN_JS in pkg-scalar/geo_polygonize.js pkg-simd/geo_polygonize.js pkg-threads/geo_polygonize.js; do
-    if [ -f "$BINDGEN_JS" ]; then
-        TEMP_FILE=$(mktemp)
-        sed -e "s/new URL('geo_polygonize_bg.wasm', import.meta.url)/new URL(\/\\* @vite-ignore \\*\/ 'geo_polygonize_bg.wasm', import.meta.url)/g" "$BINDGEN_JS" > "$TEMP_FILE"
-        mv "$TEMP_FILE" "$BINDGEN_JS"
-    fi
-done
+export_bindings() {
+    echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
+    export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
+    cargo run -p geo-polygonize-core --bin export_bindings
+    mkdir -p pkg-wrapper/bindings
+    cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 
-# Export the ts-rs bindings so that TS type-checks succeed when imported via pkg-wrapper
-echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
-export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
-cargo run -p geo-polygonize-core --bin export_bindings --release
-mkdir -p pkg-wrapper/bindings
-cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
-
-for DIR in pkg-scalar pkg-simd pkg-threads; do
-  D_TS_FILE="${DIR}/geo_polygonize.d.ts"
-
-  if [ -f "$D_TS_FILE" ]; then
-    TEMP_FILE=$(mktemp)
-    # 1. Write the imports
-    echo "import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';" > "$TEMP_FILE"
-
-    # 2. Process the original file and replace `any` with `Partial<PolygonizerOptions>` for the options_val argument
-    sed -e 's/options_val: any/options_val: Partial<PolygonizerOptions>/g' "$D_TS_FILE" >> "$TEMP_FILE"
-
-    # 3. Replace original file
-    mv "$TEMP_FILE" "$D_TS_FILE"
-  fi
-done
+    for dir in pkg-scalar pkg-simd pkg-threads; do
+        d_ts_file="${dir}/geo_polygonize.d.ts"
+        if [ -f "$d_ts_file" ]; then
+            temp_file=$(mktemp)
+            echo "import { PolygonizerOptions } from '../pkg-wrapper/bindings/PolygonizerOptions';" > "$temp_file"
+            sed -e 's/options_val: any/options_val: Partial<PolygonizerOptions>/g' "$d_ts_file" >> "$temp_file"
+            mv "$temp_file" "$d_ts_file"
+        fi
+    done
+}
 
 copy_wasm_bindgen_types() {
-    for ENV in standard slim threads; do
-        if [ -d "dist/$ENV/es/bindings" ]; then
-            mkdir -p "dist/$ENV/pkg-wrapper"
-            cp -r "dist/$ENV/es/bindings" "dist/$ENV/pkg-wrapper/"
+    for env in standard slim threads; do
+        if [ -d "dist/$env/es/bindings" ]; then
+            mkdir -p "dist/$env/pkg-wrapper"
+            cp -r "dist/$env/es/bindings" "dist/$env/pkg-wrapper/"
         fi
     done
 
@@ -213,26 +223,35 @@ copy_wasm_bindgen_types() {
     cp pkg-threads/*.d.ts dist/threads/pkg-threads/
 }
 
-# Ensure wrapper exists
-if [ ! -d "pkg-wrapper" ]; then
-    echo "pkg-wrapper directory missing!"
-    exit 1
+bundle_package() {
+    if [ ! -d "pkg-wrapper" ]; then
+        echo "pkg-wrapper directory missing!"
+        exit 1
+    fi
+
+    if [ ! -d "node_modules" ]; then
+        npm install
+    fi
+
+    patch_vite_urls
+    export_bindings
+
+    echo "Running rollup..."
+    npx rollup -c
+    copy_wasm_bindgen_types
+
+    echo "Preparing dist..."
+    cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
+    cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
+}
+
+if [ "$BUNDLE_ONLY" != "1" ]; then
+    build_requested_wasm
 fi
 
-# Install npm deps
-if [ ! -d "node_modules" ]; then
-    npm install
+if [ "$NO_BUNDLE" = "1" ]; then
+    exit 0
 fi
 
-# Bundle with Rollup
-echo "Running rollup..."
-npx rollup -c
-copy_wasm_bindgen_types
-
-# Prepare distribution files
-echo "Preparing dist..."
-# Copy the WASM files to dist for external consumption (Slim build)
-cp pkg-scalar/geo_polygonize_bg.wasm dist/geo_polygonize.wasm
-cp pkg-simd/geo_polygonize_bg.wasm dist/geo_polygonize_simd.wasm
-
+bundle_package
 echo "Build complete! Artifacts are in dist/"

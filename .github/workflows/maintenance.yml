@@ -1,14 +1,27 @@
 name: Maintenance
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
       - develop
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/**'
+      - '.github/workflows/maintenance.yml'
   pull_request:
     branches:
       - main
       - develop
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/**'
+      - '.github/workflows/maintenance.yml'
 
 permissions:
   contents: write
@@ -20,7 +33,8 @@ concurrency:
 
 jobs:
   maintenance:
-    if: "!startsWith(github.event.head_commit.message, 'chore(github): Update benchmarks and llms.txt')"
+    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(github): update benchmarks') }}"
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -31,6 +45,8 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: maintenance
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,8 +65,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Wasm tools
-        run: |
-          npm install -g wasm-pack
+        run: npm install -g wasm-pack
 
       - name: Run Benchmarks
         run: |
@@ -62,35 +77,26 @@ jobs:
 
       - name: Update BENCHMARKS.md
         if: github.event_name == 'push'
-        run: |
-          python3 crates/geo-polygonize-core/benches/compare_results.py --update
-
-      - name: Generate llms.txt
-        if: github.event_name == 'push'
-        run: python3 scripts/generate_llms_txt.py
+        run: python3 crates/geo-polygonize-core/benches/compare_results.py --update
 
       - name: Create Pull Request
         if: github.event_name == 'push'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GH_PAT }}
-          commit-message: "chore(github): Update benchmarks and llms.txt"
-          title: "chore(github): Update benchmarks and llms.txt"
-          body: "Automated updates to benchmarks and llms.txt."
-          branch: update-benchmarks-llms
+          commit-message: "chore(github): update benchmarks"
+          title: "chore(github): update benchmarks"
+          body: "Automated benchmark updates."
+          branch: update-benchmarks
           base: ${{ github.ref_name }}
-          add-paths: |
-            BENCHMARKS.md
-            llms.txt
+          add-paths: BENCHMARKS.md
 
       - name: Generate Benchmark Report
         if: github.event_name == 'pull_request'
-        run: |
-          python3 crates/geo-polygonize-core/benches/compare_results.py > benchmark_report.md
+        run: python3 crates/geo-polygonize-core/benches/compare_results.py > benchmark_report.md
 
       - name: Comment on PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && hashFiles('benchmark_report.md') != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body-file benchmark_report.md
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file benchmark_report.md
