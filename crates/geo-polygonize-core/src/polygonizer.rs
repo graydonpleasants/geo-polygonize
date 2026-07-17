@@ -938,15 +938,34 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
         return None;
     }
 
-    let hole_simd = SimdRing::new_3d(coords);
-    let diag = bounding_rect_3d(coords)
-        .map(|b| {
-            let dx = b.max().x - b.min().x;
-            let dy = b.max().y - b.min().y;
+    let locator = SimdRing::new_3d(coords);
+    let bbox = bounding_rect_3d(coords);
+    let diagonal = bbox
+        .map(|bbox| {
+            let dx = bbox.max().x - bbox.min().x;
+            let dy = bbox.max().y - bbox.min().y;
             (dx * dx + dy * dy).sqrt()
         })
         .unwrap_or(1.0);
-    let eps = (diag * 1e-9).max(1e-10);
+    guaranteed_interior_probe_prepared(coords, area, diagonal, &locator)
+}
+
+pub(crate) fn guaranteed_interior_probe_prepared(
+    coords: &[Coord3D],
+    signed_area: f64,
+    diagonal: f64,
+    locator: &SimdRing,
+) -> Option<geo_types::Point<f64>> {
+    if coords.len() < 4 || !signed_area.is_finite() || signed_area.abs() < 1e-12 {
+        return None;
+    }
+
+    let unique_n = coords.len().saturating_sub(1);
+    if unique_n < 3 {
+        return None;
+    }
+
+    let eps = (diagonal * 1e-9).max(1e-10);
 
     for i in 0..unique_n {
         let prev = coords[(i + unique_n - 1) % unique_n];
@@ -969,7 +988,7 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
         }
 
         let turn = in_edge.x * out_edge.y - in_edge.y * out_edge.x;
-        let convex = if area > 0.0 {
+        let convex = if signed_area > 0.0 {
             turn > 1e-12
         } else {
             turn < -1e-12
@@ -1006,7 +1025,7 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
                 x: curr.x + sign * bisector_unit.x * eps,
                 y: curr.y + sign * bisector_unit.y * eps,
             };
-            if hole_simd.contains(candidate) {
+            if locator.contains(candidate) {
                 return Some(geo_types::Point(candidate));
             }
         }

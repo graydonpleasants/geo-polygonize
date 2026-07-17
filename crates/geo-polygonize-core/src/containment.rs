@@ -2,59 +2,97 @@ use crate::diagnostics::ContainmentStats;
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::TouchPolicy;
 use crate::polygonizer::{
-    bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
+    bounding_rect_3d, guaranteed_interior_probe_prepared, rings_share_edge, rings_touch_at_vertex,
 };
 use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rstar::AABB;
+use std::sync::OnceLock;
+
+struct PreparedRing {
+    signed_area: f64,
+    aabb: Option<AABB<[f64; 2]>>,
+    diagonal: f64,
+    probe: OnceLock<Option<geo_types::Point<f64>>>,
+}
+
+impl PreparedRing {
+    fn new(polygon: &Polygon3D) -> Self {
+        let signed_area = Polygon3D::ring_signed_area_2d(&polygon.exterior);
+        let bbox = bounding_rect_3d(&polygon.exterior);
+        let diagonal = bbox
+            .as_ref()
+            .map(|bbox| {
+                let dx = bbox.max().x - bbox.min().x;
+                let dy = bbox.max().y - bbox.min().y;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .unwrap_or(1.0);
+        let aabb = bbox.map(|bbox| {
+            AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y])
+        });
+
+        Self {
+            signed_area,
+            aabb,
+            diagonal,
+            probe: OnceLock::new(),
+        }
+    }
+
+    fn probe(&self, polygon: &Polygon3D, locator: &SimdRing) -> Option<geo_types::Point<f64>> {
+        *self.probe.get_or_init(|| {
+            guaranteed_interior_probe_prepared(
+                &polygon.exterior,
+                self.signed_area,
+                self.diagonal,
+                locator,
+            )
+        })
+    }
+}
 
 pub struct ContainmentForest {
     pub tree: RStarBackend,
     pub simd_shells: Vec<Option<SimdRing>>,
     // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
     pub shell_areas: Vec<Option<f64>>,
+    prepared_shells: Vec<PreparedRing>,
 }
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D]) -> Self {
-        let mut simd_shells: Vec<Option<SimdRing>> = Vec::with_capacity(shells.len());
-        let mut shell_areas: Vec<Option<f64>> = Vec::with_capacity(shells.len());
         #[cfg(feature = "parallel")]
-        {
-            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
-                .par_iter()
-                .map(|s| {
-                    (
-                        Some(SimdRing::new_3d(&s.exterior)),
-                        Some(s.exterior_unsigned_area_2d()),
-                    )
-                })
-                .unzip();
-            simd_shells.extend(shells_p);
-            shell_areas.extend(areas_p);
-        }
+        let prepared_and_locators: Vec<_> = shells
+            .par_iter()
+            .map(|shell| {
+                let locator = SimdRing::new_3d(&shell.exterior);
+                (PreparedRing::new(shell), locator)
+            })
+            .collect();
         #[cfg(not(feature = "parallel"))]
-        {
-            let (shells_p, areas_p): (Vec<_>, Vec<_>) = shells
-                .iter()
-                .map(|s| {
-                    (
-                        Some(SimdRing::new_3d(&s.exterior)),
-                        Some(s.exterior_unsigned_area_2d()),
-                    )
-                })
-                .unzip();
-            simd_shells.extend(shells_p);
-            shell_areas.extend(areas_p);
+        let prepared_and_locators: Vec<_> = shells
+            .iter()
+            .map(|shell| {
+                let locator = SimdRing::new_3d(&shell.exterior);
+                (PreparedRing::new(shell), locator)
+            })
+            .collect();
+
+        let mut prepared_shells = Vec::with_capacity(shells.len());
+        let mut simd_shells = Vec::with_capacity(shells.len());
+        let mut shell_areas = Vec::with_capacity(shells.len());
+        for (prepared, locator) in prepared_and_locators {
+            shell_areas.push(Some(prepared.signed_area.abs()));
+            prepared_shells.push(prepared);
+            simd_shells.push(Some(locator));
         }
 
         let mut indexed_shells = Vec::with_capacity(shells.len());
-        for (i, shell) in shells.iter().enumerate() {
-            if let Some(bbox) = bounding_rect_3d(&shell.exterior) {
-                let aabb: AABB<[f64; 2]> =
-                    AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+        for (i, prepared) in prepared_shells.iter().enumerate() {
+            if let Some(aabb) = prepared.aabb {
                 indexed_shells.push(IndexedEnvelope { aabb, index: i });
             }
         }
@@ -64,6 +102,7 @@ impl ContainmentForest {
             tree,
             simd_shells,
             shell_areas,
+            prepared_shells,
         }
     }
 
@@ -90,28 +129,19 @@ impl ContainmentForest {
         let mut keep_mask = vec![true; shells.len()];
         let mut container_counts = vec![0; shells.len()];
 
-        let probe_points: Vec<Option<geo_types::Point<f64>>> = shells
-            .iter()
-            .map(|s| guaranteed_interior_probe(&s.exterior))
-            .collect();
-
         for (i, shell) in shells.iter().enumerate() {
-            let bbox: geo::Rect<f64> = match bounding_rect_3d(&shell.exterior) {
-                Some(b) => b,
+            let prepared = &self.prepared_shells[i];
+            let aabb = match prepared.aabb.as_ref() {
+                Some(aabb) => aabb,
                 None => {
                     keep_mask[i] = false;
                     continue;
                 }
             };
-            let aabb: AABB<[f64; 2]> =
-                AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-            let candidates = self.tree.locate_containing_envelope(&aabb);
-            let probe = probe_points[i];
-            let Some(area_i) = self.shell_areas[i] else {
-                keep_mask[i] = false;
-                continue;
-            };
+            let candidates = self.tree.locate_containing_envelope(aabb);
+            let probe = prepared.probe(shell, self.simd_shells[i].as_ref().unwrap());
+            let area_i = prepared.signed_area.abs();
 
             if let Some(probe_pt) = probe {
                 for j in candidates {
@@ -122,9 +152,7 @@ impl ContainmentForest {
                         continue;
                     }
 
-                    let Some(area_j) = self.shell_areas[j] else {
-                        continue;
-                    };
+                    let area_j = self.prepared_shells[j].signed_area.abs();
                     if !(area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i)) {
                         if let Some(stats) = stats.as_deref_mut() {
                             stats.area_rejections += 1;
@@ -211,25 +239,23 @@ impl ContainmentForest {
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
     ) -> Option<usize> {
-        let bbox = bounding_rect_3d(&hole_3d.exterior)?;
-        let hole_aabb: AABB<[f64; 2]> =
-            AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
+        let hole_locator = SimdRing::new_3d(&hole_3d.exterior);
+        let prepared_hole = PreparedRing::new(hole_3d);
+        let hole_aabb = prepared_hole.aabb.as_ref()?;
 
-        let candidates = self.tree.locate_containing_envelope(&hole_aabb);
+        let candidates = self.tree.locate_containing_envelope(hole_aabb);
 
         let mut best_shell_idx = None;
         let mut min_area = f64::MAX;
 
-        let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
-        let hole_area = hole_3d.exterior_unsigned_area_2d();
+        let probe_point = prepared_hole.probe(hole_3d, &hole_locator)?;
+        let hole_area = prepared_hole.signed_area.abs();
 
         for idx in candidates {
             if let Some(stats) = stats.as_deref_mut() {
                 stats.envelope_candidates += 1;
             }
-            let Some(area) = self.shell_areas[idx] else {
-                continue;
-            };
+            let area = self.prepared_shells[idx].signed_area.abs();
             if area <= hole_area + 1e-6 || area >= min_area {
                 if let Some(stats) = stats.as_deref_mut() {
                     stats.area_rejections += 1;
@@ -277,5 +303,33 @@ impl ContainmentForest {
         }
 
         best_shell_idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Coord3D;
+
+    #[test]
+    fn prepared_ring_retains_containment_metadata() {
+        let polygon = Polygon3D::new(
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(10.0, 10.0, 0.0),
+                Coord3D::new(0.0, 10.0, 0.0),
+                Coord3D::new(0.0, 0.0, 0.0),
+            ],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let locator = SimdRing::new_3d(&polygon.exterior);
+        let prepared = PreparedRing::new(&polygon);
+
+        assert_eq!(prepared.signed_area, 100.0);
+        assert_eq!(prepared.aabb.unwrap().lower(), [0.0, 0.0]);
+        assert!(locator.contains(prepared.probe(&polygon, &locator).unwrap().0));
     }
 }
