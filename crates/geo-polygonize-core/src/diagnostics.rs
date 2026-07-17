@@ -36,6 +36,8 @@ pub struct ContainmentStats {
     pub envelope_candidates: usize,
     pub area_rejections: usize,
     pub point_in_ring_calls: usize,
+    pub max_point_in_ring_calls_per_shell: usize,
+    pub shells_with_64_plus_point_in_ring_calls: usize,
     pub shared_edge_checks: usize,
     pub shared_vertex_checks: usize,
 }
@@ -46,6 +48,11 @@ impl ContainmentStats {
         self.envelope_candidates += other.envelope_candidates;
         self.area_rejections += other.area_rejections;
         self.point_in_ring_calls += other.point_in_ring_calls;
+        self.max_point_in_ring_calls_per_shell = self
+            .max_point_in_ring_calls_per_shell
+            .max(other.max_point_in_ring_calls_per_shell);
+        self.shells_with_64_plus_point_in_ring_calls +=
+            other.shells_with_64_plus_point_in_ring_calls;
         self.shared_edge_checks += other.shared_edge_checks;
         self.shared_vertex_checks += other.shared_vertex_checks;
     }

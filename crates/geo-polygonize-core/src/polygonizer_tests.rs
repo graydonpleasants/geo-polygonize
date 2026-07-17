@@ -709,6 +709,8 @@ mod tests {
         assert!(stats.envelope_candidates > 0);
         assert!(stats.point_in_ring_calls > 0);
         assert!(stats.point_in_ring_calls <= stats.envelope_candidates);
+        assert_eq!(stats.max_point_in_ring_calls_per_shell, 1);
+        assert_eq!(stats.shells_with_64_plus_point_in_ring_calls, 0);
     }
 
     #[test]

@@ -256,6 +256,19 @@ fn bench_end_to_end(c: &mut Criterion) {
         .collect();
     let options = PolygonizerOptions::default();
 
+    let mut diagnostic_options = options.clone();
+    diagnostic_options.diagnostics.enabled = true;
+    let mut diagnostic_polygonizer = Polygonizer::with_options(diagnostic_options);
+    diagnostic_polygonizer.add_lines(lines.clone());
+    let stats = diagnostic_polygonizer
+        .polygonize()
+        .unwrap()
+        .diagnostics
+        .unwrap()
+        .containment_stats;
+    assert_eq!(stats.max_point_in_ring_calls_per_shell, 1_000);
+    assert_eq!(stats.shells_with_64_plus_point_in_ring_calls, 1);
+
     c.bench_function("containment/end_to_end/1000_holes", |b| {
         b.iter(|| {
             let mut polygonizer = Polygonizer::with_options(options.clone());
