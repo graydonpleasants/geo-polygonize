@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.0...geo-polygonize-v0.37.1) (2026-07-17)
+
+
+### Performance Improvements
+
+* **core:** cache prepared ring metadata ([#782](https://github.com/graydonpleasants/geo-polygonize/issues/782)) ([f3ee972](https://github.com/graydonpleasants/geo-polygonize/commit/f3ee972ef87d20a69117c989e3cd0efad8087ed1))
+
 ## [0.37.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.2...geo-polygonize-v0.37.0) (2026-07-17)
 
 
