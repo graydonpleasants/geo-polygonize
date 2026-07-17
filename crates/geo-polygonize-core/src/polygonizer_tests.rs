@@ -653,6 +653,65 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_report_noding_iterations() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.diagnostics_options.enabled = true;
+        poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
+        poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
+
+        let diagnostics = poly.polygonize().unwrap().diagnostics.unwrap();
+
+        assert_eq!(diagnostics.noding_iterations.len(), 1);
+        assert_eq!(diagnostics.noding_iterations[0].intersections_found, 2);
+        assert_eq!(diagnostics.noding_iterations[0].nodes_added, 2);
+        assert_eq!(diagnostics.intersection_stats.interpolated_intersections, 2);
+        assert_eq!(diagnostics.intersection_stats.exact_intersections, 1);
+        assert_eq!(diagnostics.noding_work_stats.candidate_pairs, 1);
+        assert_eq!(diagnostics.noding_work_stats.aabb_rejections, 0);
+        assert_eq!(diagnostics.noding_work_stats.exact_intersection_calls, 1);
+        assert_eq!(diagnostics.noding_work_stats.split_events, 2);
+    }
+
+    #[test]
+    fn diagnostics_report_containment_work() {
+        let mut poly = Polygonizer::new();
+        poly.diagnostics_options.enabled = true;
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+        poly.add_geometry(
+            LineString::from(vec![
+                (2.0, 2.0),
+                (2.0, 8.0),
+                (8.0, 8.0),
+                (8.0, 2.0),
+                (2.0, 2.0),
+            ])
+            .into(),
+        );
+
+        let stats = poly
+            .polygonize()
+            .unwrap()
+            .diagnostics
+            .unwrap()
+            .containment_stats;
+
+        assert!(stats.prepared_shells > 0);
+        assert!(stats.envelope_candidates > 0);
+        assert!(stats.point_in_ring_calls > 0);
+        assert!(stats.point_in_ring_calls <= stats.envelope_candidates);
+    }
+
+    #[test]
     fn test_invalid_rings_deduplication_and_nesting() {
         let mut poly = Polygonizer::new();
 

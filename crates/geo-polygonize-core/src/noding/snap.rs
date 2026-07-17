@@ -1,3 +1,4 @@
+use crate::diagnostics::{NodingIterationStats, NodingWorkStats};
 use crate::noding::grid::UniformGrid;
 use crate::options::SnapStrategy;
 use crate::types::{Coord3D, Line3D};
@@ -67,7 +68,26 @@ impl SnapNoder {
         self
     }
 
-    pub fn node(&self, mut lines: Vec<Line3D>) -> Vec<Line3D> {
+    pub fn node(&self, lines: Vec<Line3D>) -> Vec<Line3D> {
+        self.node_impl(lines, None, None)
+    }
+
+    pub(crate) fn node_with_stats(
+        &self,
+        lines: Vec<Line3D>,
+    ) -> (Vec<Line3D>, Vec<NodingIterationStats>, NodingWorkStats) {
+        let mut stats = Vec::new();
+        let mut work_stats = NodingWorkStats::default();
+        let lines = self.node_impl(lines, Some(&mut stats), Some(&mut work_stats));
+        (lines, stats, work_stats)
+    }
+
+    fn node_impl(
+        &self,
+        mut lines: Vec<Line3D>,
+        mut stats: Option<&mut Vec<NodingIterationStats>>,
+        mut work_stats: Option<&mut NodingWorkStats>,
+    ) -> Vec<Line3D> {
         // 1. Initial Snap of endpoints
         for line in &mut lines {
             line.start = self.snap(line.start);
@@ -90,7 +110,8 @@ impl SnapNoder {
 
         // 2. Iterative Noding
         let mut new_lines = Vec::new();
-        for _iter in 0..self.max_iter {
+        for iteration_index in 0..self.max_iter {
+            let input_segment_count = lines.len();
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => lines.len() >= 256,
                 NodingStrategy::Grid => true,
@@ -100,14 +121,27 @@ impl SnapNoder {
 
             let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
+                if let Some(work_stats) = work_stats.as_deref_mut() {
+                    work_stats.merge(Self::measure_simd_work(&lines));
+                }
                 self.find_splits_simd(&lines)
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
+                if let Some(work_stats) = work_stats.as_deref_mut() {
+                    work_stats.merge(grid.measure_work(&lines));
+                }
                 grid.find_splits(&lines, self)
             };
 
             if events.is_empty() {
+                if let Some(stats) = stats.as_deref_mut() {
+                    stats.push(NodingIterationStats {
+                        iteration_index,
+                        intersections_found: 0,
+                        nodes_added: 0,
+                    });
+                }
                 break;
             }
 
@@ -122,6 +156,10 @@ impl SnapNoder {
                 // Note: We don't check Z for dedup because for a given line index and X,Y,
                 // Z should be consistent (interpolated from the same line).
             });
+            let split_event_count = events.len();
+            if let Some(work_stats) = work_stats.as_deref_mut() {
+                work_stats.split_events += split_event_count;
+            }
 
             // Early bailout heuristic to avoid epsilon-thrashing on tiny residual updates.
             // Apply this iteration first, then exit before running another pass.
@@ -198,12 +236,39 @@ impl SnapNoder {
             self.normalize_and_dedup(&mut new_lines);
             std::mem::swap(&mut lines, &mut new_lines);
 
+            if let Some(stats) = stats.as_deref_mut() {
+                stats.push(NodingIterationStats {
+                    iteration_index,
+                    intersections_found: split_event_count,
+                    nodes_added: lines.len().saturating_sub(input_segment_count),
+                });
+            }
+
             if should_bail_early {
                 break;
             }
         }
 
         lines
+    }
+
+    fn measure_simd_work(lines: &[Line3D]) -> NodingWorkStats {
+        let mut stats = NodingWorkStats::default();
+        for (i, left) in lines.iter().enumerate() {
+            for right in &lines[i + 1..] {
+                stats.candidate_pairs += 1;
+                let overlaps = left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
+                    && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
+                    && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
+                    && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y);
+                if overlaps {
+                    stats.exact_intersection_calls += 1;
+                } else {
+                    stats.aabb_rejections += 1;
+                }
+            }
+        }
+        stats
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
@@ -683,6 +748,27 @@ mod tests {
             .count();
 
         assert_eq!(center_hits, 4, "All 4 lines should touch the center point");
+    }
+
+    #[test]
+    fn test_grid_work_stats() {
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 10.0),
+            make_line(0.0, 10.0, 10.0, 0.0),
+            make_line(20.0, 20.0, 30.0, 20.0),
+        ];
+        let noder = SnapNoder::new(0.0).with_strategy(NodingStrategy::Grid);
+
+        let (_, _, stats) = noder.node_with_stats(lines);
+
+        assert!(stats.grid_cells > 0);
+        assert!(stats.grid_cell_entries > 0);
+        assert_eq!(
+            stats.candidate_pairs,
+            stats.aabb_rejections + stats.exact_intersection_calls
+        );
+        assert!(stats.exact_intersection_calls >= 1);
+        assert_eq!(stats.split_events, 2);
     }
 
     #[test]

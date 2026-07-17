@@ -1,12 +1,143 @@
+use crate::diagnostics::NodingWorkStats;
 use crate::noding::snap::SnapNoder;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
+use smallvec::SmallVec;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+fn segment_cells(
+    line: &Line3D,
+    min_x: f64,
+    min_y: f64,
+    cell_size: f64,
+    cols: usize,
+    rows: usize,
+) -> SmallVec<[usize; 64]> {
+    let mut cells = SmallVec::new();
+    if cols == 0 || rows == 0 {
+        return cells;
+    }
+
+    let cell = |x: f64, y: f64| {
+        (
+            (((x - min_x) / cell_size).floor() as isize).clamp(0, cols as isize - 1),
+            (((y - min_y) / cell_size).floor() as isize).clamp(0, rows as isize - 1),
+        )
+    };
+    let push = |cells: &mut SmallVec<[usize; 64]>, col: isize, row: isize| {
+        if col >= 0 && col < cols as isize && row >= 0 && row < rows as isize {
+            let index = row as usize * cols + col as usize;
+            if cells.last() != Some(&index) {
+                cells.push(index);
+            }
+        }
+    };
+
+    let (mut col, mut row) = cell(line.start.x, line.start.y);
+    let (end_col, end_row) = cell(line.end.x, line.end.y);
+    push(&mut cells, col, row);
+
+    let dx = line.end.x - line.start.x;
+    let dy = line.end.y - line.start.y;
+    let step_x = if dx > 0.0 {
+        1
+    } else if dx < 0.0 {
+        -1
+    } else {
+        0
+    };
+    let step_y = if dy > 0.0 {
+        1
+    } else if dy < 0.0 {
+        -1
+    } else {
+        0
+    };
+    let t_delta_x = if dx == 0.0 {
+        f64::INFINITY
+    } else {
+        cell_size / dx.abs()
+    };
+    let t_delta_y = if dy == 0.0 {
+        f64::INFINITY
+    } else {
+        cell_size / dy.abs()
+    };
+    let next_x = min_x + (col + usize::from(step_x > 0) as isize) as f64 * cell_size;
+    let next_y = min_y + (row + usize::from(step_y > 0) as isize) as f64 * cell_size;
+    let mut t_max_x = if dx == 0.0 {
+        f64::INFINITY
+    } else {
+        ((next_x - line.start.x) / dx).max(0.0)
+    };
+    let mut t_max_y = if dy == 0.0 {
+        f64::INFINITY
+    } else {
+        ((next_y - line.start.y) / dy).max(0.0)
+    };
+
+    while col != end_col || row != end_row {
+        let tolerance = f64::EPSILON * t_max_x.abs().max(t_max_y.abs()).max(1.0) * 8.0;
+        if t_max_x.is_finite() && t_max_y.is_finite() && (t_max_x - t_max_y).abs() <= tolerance {
+            push(&mut cells, col + step_x, row);
+            push(&mut cells, col, row + step_y);
+            col += step_x;
+            row += step_y;
+            t_max_x += t_delta_x;
+            t_max_y += t_delta_y;
+        } else if t_max_x < t_max_y {
+            col += step_x;
+            t_max_x += t_delta_x;
+        } else {
+            row += step_y;
+            t_max_y += t_delta_y;
+        }
+        push(&mut cells, col, row);
+    }
+
+    let on_boundary = |value: f64| (value - value.round()).abs() <= 1e-12;
+    let vertical_boundary = dx == 0.0 && on_boundary((line.start.x - min_x) / cell_size);
+    let horizontal_boundary = dy == 0.0 && on_boundary((line.start.y - min_y) / cell_size);
+    let traversed = cells.clone();
+    for index in traversed {
+        let cell_col = (index % cols) as isize;
+        let cell_row = (index / cols) as isize;
+        if vertical_boundary {
+            push(&mut cells, cell_col - 1, cell_row);
+        }
+        if horizontal_boundary {
+            push(&mut cells, cell_col, cell_row - 1);
+        }
+        if vertical_boundary && horizontal_boundary {
+            push(&mut cells, cell_col - 1, cell_row - 1);
+        }
+    }
+
+    for point in [line.start, line.end] {
+        let grid_x = (point.x - min_x) / cell_size;
+        let grid_y = (point.y - min_y) / cell_size;
+        let (point_col, point_row) = cell(point.x, point.y);
+        if on_boundary(grid_x) {
+            push(&mut cells, point_col - 1, point_row);
+        }
+        if on_boundary(grid_y) {
+            push(&mut cells, point_col, point_row - 1);
+        }
+        if on_boundary(grid_x) && on_boundary(grid_y) {
+            push(&mut cells, point_col - 1, point_row - 1);
+        }
+    }
+
+    cells.sort_unstable();
+    cells.dedup();
+
+    cells
+}
 
 pub struct UniformGrid {
     /// Compressed Sparse Row (CSR) storage
@@ -88,7 +219,8 @@ impl UniformGrid {
         let mut counts = Vec::new();
         let mut global_lines = Vec::new();
 
-        const MAX_CELLS_PER_LINE: usize = 50;
+        // ponytail: cap pathological axis-length traversals; raise only if global fallback profiles worse.
+        const MAX_CELLS_PER_LINE: usize = 2048;
         const SKEW_THRESHOLD: usize = 500;
         const MAX_ADAPTIVE_RETRIES: usize = 2;
 
@@ -113,32 +245,13 @@ impl UniformGrid {
 
                         for (local_i, line) in chunk.iter().enumerate() {
                             let i = start_i + local_i;
-                            let l_min_x = line.start.x.min(line.end.x);
-                            let l_max_x = line.start.x.max(line.end.x);
-                            let l_min_y = line.start.y.min(line.end.y);
-                            let l_max_y = line.start.y.max(line.end.y);
-
-                            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-                            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-                            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-                            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
-
-                            let col_max = col_max.min(cols.saturating_sub(1));
-                            let row_max = row_max.min(rows.saturating_sub(1));
-                            let col_min = col_min.min(col_max);
-                            let row_min = row_min.min(row_max);
-
-                            let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
-
-                            if num_cells > MAX_CELLS_PER_LINE {
+                            let cells = segment_cells(line, min_x, min_y, cell_size, cols, rows);
+                            if cells.len() > MAX_CELLS_PER_LINE {
                                 local_global.push(i);
                                 continue;
                             }
-
-                            for r in row_min..=row_max {
-                                for c in col_min..=col_max {
-                                    local_counts[r * cols + c] += 1;
-                                }
+                            for cell in cells {
+                                local_counts[cell] += 1;
                             }
                         }
                         (local_counts, local_global)
@@ -162,32 +275,13 @@ impl UniformGrid {
                 let mut local_global = Vec::new();
 
                 for (i, line) in lines.iter().enumerate() {
-                    let l_min_x = line.start.x.min(line.end.x);
-                    let l_max_x = line.start.x.max(line.end.x);
-                    let l_min_y = line.start.y.min(line.end.y);
-                    let l_max_y = line.start.y.max(line.end.y);
-
-                    let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-                    let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-                    let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-                    let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
-
-                    let col_max = col_max.min(cols.saturating_sub(1));
-                    let row_max = row_max.min(rows.saturating_sub(1));
-                    let col_min = col_min.min(col_max);
-                    let row_min = row_min.min(row_max);
-
-                    let num_cells = (row_max - row_min + 1) * (col_max - col_min + 1);
-
-                    if num_cells > MAX_CELLS_PER_LINE {
+                    let cells = segment_cells(line, min_x, min_y, cell_size, cols, rows);
+                    if cells.len() > MAX_CELLS_PER_LINE {
                         local_global.push(i);
                         continue;
                     }
-
-                    for r in row_min..=row_max {
-                        for c in col_min..=col_max {
-                            local_counts[r * cols + c] += 1;
-                        }
+                    for cell in cells {
+                        local_counts[cell] += 1;
                     }
                 }
                 (local_counts, local_global)
@@ -239,28 +333,10 @@ impl UniformGrid {
                 }
             }
 
-            let l_min_x = line.start.x.min(line.end.x);
-            let l_max_x = line.start.x.max(line.end.x);
-            let l_min_y = line.start.y.min(line.end.y);
-            let l_max_y = line.start.y.max(line.end.y);
-
-            let col_min = ((l_min_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let col_max = ((l_max_x - min_x) / cell_size).floor().max(0.0) as usize;
-            let row_min = ((l_min_y - min_y) / cell_size).floor().max(0.0) as usize;
-            let row_max = ((l_max_y - min_y) / cell_size).floor().max(0.0) as usize;
-
-            let col_max = col_max.min(cols.saturating_sub(1));
-            let row_max = row_max.min(rows.saturating_sub(1));
-            let col_min = col_min.min(col_max);
-            let row_min = row_min.min(row_max);
-
-            for r in row_min..=row_max {
-                for c in col_min..=col_max {
-                    let cell_idx = r * cols + c;
-                    let write_pos = current_offsets[cell_idx];
-                    cell_items[write_pos] = i as u32;
-                    current_offsets[cell_idx] += 1;
-                }
+            for cell in segment_cells(line, min_x, min_y, cell_size, cols, rows) {
+                let write_pos = current_offsets[cell];
+                cell_items[write_pos] = i as u32;
+                current_offsets[cell] += 1;
             }
         }
 
@@ -338,6 +414,53 @@ impl UniformGrid {
         }
 
         splits
+    }
+
+    pub(crate) fn measure_work(&self, lines: &[Line3D]) -> NodingWorkStats {
+        let mut stats = NodingWorkStats {
+            grid_cells: self.rows * self.cols,
+            grid_cell_entries: self.cell_items.len(),
+            global_lines: self.global_lines.len(),
+            ..Default::default()
+        };
+        let overlaps = |left: &Line3D, right: &Line3D| {
+            left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
+                && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
+                && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
+                && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y)
+        };
+
+        for cell in self.cell_offsets.windows(2) {
+            let indices = &self.cell_items[cell[0]..cell[1]];
+            for (i, &left_idx) in indices.iter().enumerate() {
+                for &right_idx in &indices[i + 1..] {
+                    stats.candidate_pairs += 1;
+                    if overlaps(&lines[left_idx as usize], &lines[right_idx as usize]) {
+                        stats.exact_intersection_calls += 1;
+                    } else {
+                        stats.aabb_rejections += 1;
+                    }
+                }
+            }
+        }
+
+        for &left_idx in &self.global_lines {
+            for (right_idx, right) in lines.iter().enumerate() {
+                if right_idx == left_idx
+                    || (right_idx < left_idx && self.global_lines.binary_search(&right_idx).is_ok())
+                {
+                    continue;
+                }
+                stats.candidate_pairs += 1;
+                if overlaps(&lines[left_idx], right) {
+                    stats.exact_intersection_calls += 1;
+                } else {
+                    stats.aabb_rejections += 1;
+                }
+            }
+        }
+
+        stats
     }
 
     fn process_global_lines(
@@ -706,8 +829,7 @@ mod tests {
 
     #[test]
     fn test_boundary_handling() {
-        // Line crossing multiple cells horizontally
-        // This should trigger the "Global Line" heuristic and be excluded from grid cells.
+        // Line crossing multiple cells horizontally should stay indexed by its traversed cells.
         let lines = vec![make_line(0.0, 0.0, 100.0, 0.0)];
 
         let grid = UniformGrid::new(&lines);
@@ -728,15 +850,8 @@ mod tests {
             }
         }
 
-        // With supercell optimization, this line should NOT be in any cell
-        assert_eq!(
-            cells_with_line, 0,
-            "Global line should not be in any grid cell"
-        );
-        assert!(
-            grid.global_lines.contains(&0),
-            "Long line should be in global_lines"
-        );
+        assert!(cells_with_line > 1);
+        assert!(grid.global_lines.is_empty());
     }
 
     #[test]
@@ -753,10 +868,7 @@ mod tests {
         let lines = vec![l0, l1, l2];
         let grid = UniformGrid::new(&lines);
 
-        // Verify l0 and l2 are global
-        assert!(grid.global_lines.contains(&0), "l0 should be global");
-        assert!(grid.global_lines.contains(&2), "l2 should be global");
-        assert!(!grid.global_lines.contains(&1), "l1 should be local");
+        assert!(grid.global_lines.is_empty());
 
         let noder = SnapNoder::new(0.0);
         let splits = grid.find_splits(&lines, &noder);
@@ -789,6 +901,28 @@ mod tests {
             assert_relative_eq!(pt.x, 1000.0, epsilon = 1e-5);
             assert_relative_eq!(pt.y, 0.0, epsilon = 1e-5);
         }
+    }
+
+    #[test]
+    fn test_segment_cells_supercover_diagonal() {
+        let line = make_line(0.1, 0.1, 9.9, 9.9);
+        let cells = segment_cells(&line, 0.0, 0.0, 1.0, 10, 10);
+        let reversed = make_line(9.9, 9.9, 0.1, 0.1);
+
+        assert_eq!(cells.len(), 28);
+        assert!(cells.contains(&1));
+        assert!(cells.contains(&10));
+        assert!(cells.contains(&11));
+        assert_eq!(cells, segment_cells(&reversed, 0.0, 0.0, 1.0, 10, 10));
+    }
+
+    #[test]
+    fn test_segment_cells_includes_both_sides_of_grid_boundary() {
+        let line = make_line(5.0, 0.1, 5.0, 9.9);
+        let cells = segment_cells(&line, 0.0, 0.0, 1.0, 10, 10);
+
+        assert_eq!(cells.len(), 20);
+        assert!(cells.iter().all(|index| index % 10 == 4 || index % 10 == 5));
     }
 
     #[test]

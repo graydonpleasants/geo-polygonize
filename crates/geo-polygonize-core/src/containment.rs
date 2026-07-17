@@ -1,4 +1,5 @@
-use crate::index::{IndexedEnvelope, RStarBackend, SpatialIndex2D};
+use crate::diagnostics::ContainmentStats;
+use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::TouchPolicy;
 use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe, rings_share_edge, rings_touch_at_vertex,
@@ -67,6 +68,25 @@ impl ContainmentForest {
     }
 
     pub fn filter_polygonal(&self, shells: &[Polygon3D], touch_policy: &TouchPolicy) -> Vec<bool> {
+        self.filter_polygonal_impl(shells, touch_policy, None)
+    }
+
+    pub(crate) fn filter_polygonal_with_stats(
+        &self,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+    ) -> (Vec<bool>, ContainmentStats) {
+        let mut stats = ContainmentStats::default();
+        let keep_mask = self.filter_polygonal_impl(shells, touch_policy, Some(&mut stats));
+        (keep_mask, stats)
+    }
+
+    fn filter_polygonal_impl(
+        &self,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+        mut stats: Option<&mut ContainmentStats>,
+    ) -> Vec<bool> {
         let mut keep_mask = vec![true; shells.len()];
         let mut container_counts = vec![0; shells.len()];
 
@@ -86,41 +106,57 @@ impl ContainmentForest {
             let aabb: AABB<[f64; 2]> =
                 AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-            let candidates = self.tree.locate_in_envelope_intersecting(&aabb);
+            let candidates = self.tree.locate_containing_envelope(&aabb);
             let probe = probe_points[i];
+            let Some(area_i) = self.shell_areas[i] else {
+                keep_mask[i] = false;
+                continue;
+            };
 
             if let Some(probe_pt) = probe {
-                for cand_idx in candidates {
-                    let j = cand_idx;
+                for j in candidates {
+                    if let Some(stats) = stats.as_deref_mut() {
+                        stats.envelope_candidates += 1;
+                    }
                     if i == j {
                         continue;
                     }
 
-                    // Check if shell[i] is inside shell[j]
-                    let simd_shell = match &self.simd_shells[j] {
-                        Some(s) => s,
-                        None => continue,
+                    let Some(area_j) = self.shell_areas[j] else {
+                        continue;
                     };
+                    if !(area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i)) {
+                        if let Some(stats) = stats.as_deref_mut() {
+                            stats.area_rejections += 1;
+                        }
+                        continue;
+                    }
 
-                    if simd_shell.contains(probe_pt.0) {
-                        // Using cached areas instead of `shell.exterior_unsigned_area_2d()`
-                        let area_i = match self.shell_areas[i] {
-                            Some(a) => a,
-                            None => continue,
-                        };
-                        let area_j = match self.shell_areas[j] {
-                            Some(a) => a,
-                            None => continue,
-                        };
-
-                        // If i is strictly contained inside j, increment container count
-                        if area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i) {
+                    if let Some(simd_shell) = &self.simd_shells[j] {
+                        if let Some(stats) = stats.as_deref_mut() {
+                            stats.point_in_ring_calls += 1;
+                        }
+                        if simd_shell.contains(probe_pt.0) {
                             let touch_ok = match touch_policy {
                                 TouchPolicy::AllowPointTouchDisallowEdgeShare => {
+                                    if let Some(stats) = stats.as_deref_mut() {
+                                        stats.shared_edge_checks += 1;
+                                    }
                                     !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
                                 }
                                 TouchPolicy::TreatAnyTouchAsDisjoint => {
-                                    !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
+                                    if let Some(stats) = stats.as_deref_mut() {
+                                        stats.shared_edge_checks += 1;
+                                    }
+                                    let shares_edge = rings_share_edge(
+                                        &shells[j].exterior,
+                                        &shell.exterior,
+                                        1e-10,
+                                    );
+                                    if let Some(stats) = stats.as_deref_mut() {
+                                        stats.shared_vertex_checks += usize::from(!shares_edge);
+                                    }
+                                    !shares_edge
                                         && !rings_touch_at_vertex(
                                             &shells[j].exterior,
                                             &shell.exterior,
@@ -130,9 +166,7 @@ impl ContainmentForest {
                                 TouchPolicy::AllowEdgeShare => true,
                             };
 
-                            if touch_ok {
-                                container_counts[i] += 1;
-                            }
+                            container_counts[i] += usize::from(touch_ok);
                         }
                     }
                 }
@@ -156,11 +190,32 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
     ) -> Option<usize> {
+        self.assign_hole_impl(hole_3d, shells, touch_policy, None)
+    }
+
+    pub(crate) fn assign_hole_with_stats(
+        &self,
+        hole_3d: &Polygon3D,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+    ) -> (Option<usize>, ContainmentStats) {
+        let mut stats = ContainmentStats::default();
+        let best_shell_idx = self.assign_hole_impl(hole_3d, shells, touch_policy, Some(&mut stats));
+        (best_shell_idx, stats)
+    }
+
+    fn assign_hole_impl(
+        &self,
+        hole_3d: &Polygon3D,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+        mut stats: Option<&mut ContainmentStats>,
+    ) -> Option<usize> {
         let bbox = bounding_rect_3d(&hole_3d.exterior)?;
         let hole_aabb: AABB<[f64; 2]> =
             AABB::from_corners([bbox.min().x, bbox.min().y], [bbox.max().x, bbox.max().y]);
 
-        let candidates = self.tree.locate_in_envelope_intersecting(&hole_aabb);
+        let candidates = self.tree.locate_containing_envelope(&hole_aabb);
 
         let mut best_shell_idx = None;
         let mut min_area = f64::MAX;
@@ -168,27 +223,42 @@ impl ContainmentForest {
         let probe_point = guaranteed_interior_probe(&hole_3d.exterior)?;
         let hole_area = hole_3d.exterior_unsigned_area_2d();
 
-        for cand_idx in candidates {
-            let idx = cand_idx;
-            let simd_shell = match &self.simd_shells[idx] {
-                Some(s) => s,
-                None => continue,
+        for idx in candidates {
+            if let Some(stats) = stats.as_deref_mut() {
+                stats.envelope_candidates += 1;
+            }
+            let Some(area) = self.shell_areas[idx] else {
+                continue;
             };
+            if area <= hole_area + 1e-6 || area >= min_area {
+                if let Some(stats) = stats.as_deref_mut() {
+                    stats.area_rejections += 1;
+                }
+                continue;
+            }
 
-            if simd_shell.contains(probe_point.0) {
-                // Using cached areas instead of `shells[idx].exterior_unsigned_area_2d()`
-                let area = match self.shell_areas[idx] {
-                    Some(a) => a,
-                    None => continue,
-                };
-
-                if area > hole_area + 1e-6 && area < min_area {
+            if let Some(simd_shell) = &self.simd_shells[idx] {
+                if let Some(stats) = stats.as_deref_mut() {
+                    stats.point_in_ring_calls += 1;
+                }
+                if simd_shell.contains(probe_point.0) {
                     let touch_ok = match touch_policy {
                         TouchPolicy::AllowPointTouchDisallowEdgeShare => {
+                            if let Some(stats) = stats.as_deref_mut() {
+                                stats.shared_edge_checks += 1;
+                            }
                             !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
                         }
                         TouchPolicy::TreatAnyTouchAsDisjoint => {
-                            !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
+                            if let Some(stats) = stats.as_deref_mut() {
+                                stats.shared_edge_checks += 1;
+                            }
+                            let shares_edge =
+                                rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10);
+                            if let Some(stats) = stats.as_deref_mut() {
+                                stats.shared_vertex_checks += usize::from(!shares_edge);
+                            }
+                            !shares_edge
                                 && !rings_touch_at_vertex(
                                     &shells[idx].exterior,
                                     &hole_3d.exterior,

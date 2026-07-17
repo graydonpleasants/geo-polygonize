@@ -1,5 +1,5 @@
 use crate::containment::ContainmentForest;
-use crate::diagnostics::PolygonizerDiagnostics;
+use crate::diagnostics::{ContainmentStats, PolygonizerDiagnostics};
 use crate::error::Result;
 use crate::graph::PlanarGraph;
 use crate::noding::advanced::AdvancedNoder;
@@ -142,7 +142,7 @@ impl Polygonizer {
         self.dirty = true;
     }
 
-    fn build_graph(&mut self) -> Result<()> {
+    fn build_graph(&mut self, diagnostics: Option<&mut PolygonizerDiagnostics>) -> Result<()> {
         if !self.dirty {
             return Ok(());
         }
@@ -198,11 +198,38 @@ impl Polygonizer {
                 crate::options::NodingBackend::Snap => {
                     let noder = SnapNoder::new(self.options.snap_grid_size)
                         .with_snap_strategy(self.options.snap_strategy.clone());
-                    segments = noder.node(all_segments);
+                    if let Some(diagnostics) = diagnostics {
+                        let (noded, stats, work_stats) = noder.node_with_stats(all_segments);
+                        diagnostics.intersection_stats.interpolated_intersections = stats
+                            .iter()
+                            .map(|iteration| iteration.intersections_found)
+                            .sum();
+                        diagnostics.noding_iterations = stats;
+                        diagnostics.intersection_stats.exact_intersections =
+                            work_stats.exact_intersection_calls;
+                        diagnostics.noding_work_stats = work_stats;
+                        segments = noded;
+                    } else {
+                        segments = noder.node(all_segments);
+                    }
                 }
                 crate::options::NodingBackend::Advanced => {
                     let noder = AdvancedNoder::new();
-                    segments = noder.node(all_segments);
+                    if let Some(diagnostics) = diagnostics {
+                        let (noded, stats, work_stats) =
+                            SnapNoder::new(0.0).node_with_stats(all_segments);
+                        diagnostics.intersection_stats.interpolated_intersections = stats
+                            .iter()
+                            .map(|iteration| iteration.intersections_found)
+                            .sum();
+                        diagnostics.noding_iterations = stats;
+                        diagnostics.intersection_stats.exact_intersections =
+                            work_stats.exact_intersection_calls;
+                        diagnostics.noding_work_stats = work_stats;
+                        segments = noded;
+                    } else {
+                        segments = noder.node(all_segments);
+                    }
                 }
             }
         } else {
@@ -239,7 +266,7 @@ impl Polygonizer {
         };
 
         let t_ingest_start = get_time();
-        self.build_graph()?;
+        self.build_graph(diag.as_mut())?;
         if let Some(ref mut d) = diag {
             d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
             d.noded_segment_count = self.graph.edges.len();
@@ -278,8 +305,14 @@ impl Polygonizer {
 
         let t_containment_start = get_time();
         // 5. Establish Topology
-        let (shells, shell_holes, shell_holes_ids, unassigned_hole_count, unassigned_hole_area) =
-            establish_topology(shells, holes, &self.options);
+        let (
+            shells,
+            shell_holes,
+            shell_holes_ids,
+            unassigned_hole_count,
+            unassigned_hole_area,
+            containment_stats,
+        ) = establish_topology(shells, holes, &self.options);
 
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
@@ -305,6 +338,7 @@ impl Polygonizer {
             d.phase_times.containment = get_elapsed(t_containment_start);
             d.unassigned_hole_count = unassigned_hole_count;
             d.unassigned_hole_area = unassigned_hole_area;
+            d.containment_stats = containment_stats;
             // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
         }
         Ok(PolygonizerResult {
@@ -408,11 +442,24 @@ fn establish_topology(
     Vec<Vec<Vec<u32>>>,
     usize,
     f64,
+    ContainmentStats,
 ) {
+    let collect_stats = options.diagnostics.enabled;
+    let mut containment_stats = ContainmentStats::default();
+    if collect_stats {
+        containment_stats.prepared_shells = shells.len();
+    }
     let mut forest = ContainmentForest::new(&shells);
 
     if options.extract_only_polygonal {
-        let keep_mask = forest.filter_polygonal(&shells, &options.containment.touch_policy);
+        let keep_mask = if collect_stats {
+            let (keep_mask, stats) =
+                forest.filter_polygonal_with_stats(&shells, &options.containment.touch_policy);
+            containment_stats.merge(stats);
+            keep_mask
+        } else {
+            forest.filter_polygonal(&shells, &options.containment.touch_policy)
+        };
         let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
 
         if removed_count > 0 {
@@ -424,15 +471,25 @@ fn establish_topology(
                 }
             }
             shells = new_shells;
+            if collect_stats {
+                containment_stats.prepared_shells += shells.len();
+            }
             forest = ContainmentForest::new(&shells);
         }
     }
 
-    let process_hole_assignment = |hole_3d: Polygon3D| -> (Option<usize>, Polygon3D) {
-        let best_shell_idx =
-            forest.assign_hole(&hole_3d, &shells, &options.containment.touch_policy);
-        (best_shell_idx, hole_3d)
-    };
+    let process_hole_assignment =
+        |hole_3d: Polygon3D| -> (Option<usize>, Polygon3D, ContainmentStats) {
+            let (best_shell_idx, stats) = if collect_stats {
+                forest.assign_hole_with_stats(&hole_3d, &shells, &options.containment.touch_policy)
+            } else {
+                (
+                    forest.assign_hole(&hole_3d, &shells, &options.containment.touch_policy),
+                    ContainmentStats::default(),
+                )
+            };
+            (best_shell_idx, hole_3d, stats)
+        };
 
     let assignments: Vec<_>;
     #[cfg(feature = "parallel")]
@@ -449,7 +506,8 @@ fn establish_topology(
     let mut unassigned_hole_count = 0;
     let mut unassigned_hole_area = 0.0;
 
-    for (idx, hole) in assignments {
+    for (idx, hole, stats) in assignments {
+        containment_stats.merge(stats);
         if let Some(idx) = idx {
             shell_holes[idx].push(hole.exterior);
             shell_holes_ids[idx].push(hole.exterior_ids);
@@ -465,6 +523,7 @@ fn establish_topology(
         shell_holes_ids,
         unassigned_hole_count,
         unassigned_hole_area,
+        containment_stats,
     )
 }
 
@@ -598,7 +657,7 @@ mod topology_tests {
             vec![],
         );
 
-        let (_, _, _, unassigned_count, unassigned_area) =
+        let (_, _, _, unassigned_count, unassigned_area, _) =
             establish_topology(vec![], vec![hole], &PolygonizerOptions::default());
 
         assert_eq!(unassigned_count, 1);

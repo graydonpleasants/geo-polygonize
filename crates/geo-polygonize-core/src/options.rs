@@ -170,7 +170,12 @@ pub enum TileOwnershipPolicy {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum NodingBackend {
+    /// Snap-rounding noder using the configured precision grid.
     Snap,
+    /// Deprecated compatibility alias for exact (`grid_size = 0`) snap noding.
+    ///
+    /// The experimental sweep-line implementation was retired because it did not
+    /// maintain the invariants required for complete intersection enumeration.
     Advanced,
 }
 
