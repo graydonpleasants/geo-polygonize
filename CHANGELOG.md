@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.2...geo-polygonize-v0.37.0) (2026-07-17)
+
+
+### Features
+
+* **core:** add noding audit profile and backend diagnostics ([#776](https://github.com/graydonpleasants/geo-polygonize/issues/776)) ([16457b0](https://github.com/graydonpleasants/geo-polygonize/commit/16457b082aafe627c6c730f17e2eb445ca811a75))
+
 ## [0.36.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.36.1...geo-polygonize-v0.36.2) (2026-07-08)
 
 
