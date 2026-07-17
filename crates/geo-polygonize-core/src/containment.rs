@@ -6,16 +6,24 @@ use crate::polygonizer::{
 };
 use crate::types::Polygon3D;
 use crate::utils::simd::SimdRing;
+use geo::algorithm::indexed::IntervalTreeMultiPolygon;
+use geo::{Contains, MultiPolygon};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rstar::AABB;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+
+const LOCATOR_INDEX_QUERY_THRESHOLD: usize = 64;
+const LOCATOR_INDEX_MIN_COORDS: usize = 65;
 
 struct PreparedRing {
     signed_area: f64,
     aabb: Option<AABB<[f64; 2]>>,
     diagonal: f64,
     probe: OnceLock<Option<geo_types::Point<f64>>>,
+    locator_queries: AtomicUsize,
+    interval_locator: OnceLock<IntervalTreeMultiPolygon<f64>>,
 }
 
 impl PreparedRing {
@@ -39,6 +47,8 @@ impl PreparedRing {
             aabb,
             diagonal,
             probe: OnceLock::new(),
+            locator_queries: AtomicUsize::new(0),
+            interval_locator: OnceLock::new(),
         }
     }
 
@@ -51,6 +61,26 @@ impl PreparedRing {
                 locator,
             )
         })
+    }
+
+    fn contains(
+        &self,
+        polygon: &Polygon3D,
+        locator: &SimdRing,
+        point: geo_types::Coord<f64>,
+    ) -> bool {
+        let queries = self.locator_queries.fetch_add(1, Ordering::Relaxed) + 1;
+        if queries >= LOCATOR_INDEX_QUERY_THRESHOLD
+            && polygon.exterior.len() >= LOCATOR_INDEX_MIN_COORDS
+        {
+            let interval = self.interval_locator.get_or_init(|| {
+                IntervalTreeMultiPolygon::new(&MultiPolygon(vec![polygon.to_polygon_2d()]))
+            });
+            if interval.contains(&point) {
+                return true;
+            }
+        }
+        locator.contains(point)
     }
 }
 
@@ -120,6 +150,19 @@ impl ContainmentForest {
         (keep_mask, stats)
     }
 
+    pub(crate) fn record_locator_reuse(&self, stats: &mut ContainmentStats) {
+        let mut max_queries = 0;
+        let mut shells_at_threshold = 0;
+        for prepared in &self.prepared_shells {
+            let count = prepared.locator_queries.load(Ordering::Relaxed);
+            max_queries = max_queries.max(count);
+            shells_at_threshold += usize::from(count >= LOCATOR_INDEX_QUERY_THRESHOLD);
+        }
+        stats.max_point_in_ring_calls_per_shell =
+            stats.max_point_in_ring_calls_per_shell.max(max_queries);
+        stats.shells_with_64_plus_point_in_ring_calls += shells_at_threshold;
+    }
+
     fn filter_polygonal_impl(
         &self,
         shells: &[Polygon3D],
@@ -164,7 +207,7 @@ impl ContainmentForest {
                         if let Some(stats) = stats.as_deref_mut() {
                             stats.point_in_ring_calls += 1;
                         }
-                        if simd_shell.contains(probe_pt.0) {
+                        if self.prepared_shells[j].contains(&shells[j], simd_shell, probe_pt.0) {
                             let touch_ok = match touch_policy {
                                 TouchPolicy::AllowPointTouchDisallowEdgeShare => {
                                     if let Some(stats) = stats.as_deref_mut() {
@@ -267,7 +310,7 @@ impl ContainmentForest {
                 if let Some(stats) = stats.as_deref_mut() {
                     stats.point_in_ring_calls += 1;
                 }
-                if simd_shell.contains(probe_point.0) {
+                if self.prepared_shells[idx].contains(&shells[idx], simd_shell, probe_point.0) {
                     let touch_ok = match touch_policy {
                         TouchPolicy::AllowPointTouchDisallowEdgeShare => {
                             if let Some(stats) = stats.as_deref_mut() {
@@ -310,6 +353,8 @@ impl ContainmentForest {
 mod tests {
     use super::*;
     use crate::types::Coord3D;
+    use geo::algorithm::indexed::IntervalTreeMultiPolygon;
+    use geo::{Contains, Coord, MultiPolygon};
 
     #[test]
     fn prepared_ring_retains_containment_metadata() {
@@ -331,5 +376,62 @@ mod tests {
         assert_eq!(prepared.signed_area, 100.0);
         assert_eq!(prepared.aabb.unwrap().lower(), [0.0, 0.0]);
         assert!(locator.contains(prepared.probe(&polygon, &locator).unwrap().0));
+    }
+
+    #[test]
+    fn interval_tree_boundary_semantics_do_not_match_simd() {
+        let polygon = Polygon3D::new(
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(10.0, 10.0, 0.0),
+                Coord3D::new(0.0, 10.0, 0.0),
+                Coord3D::new(0.0, 0.0, 0.0),
+            ],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let point = Coord { x: 5.0, y: 0.0 };
+        let simd = SimdRing::new_3d(&polygon.exterior);
+        let interval = IntervalTreeMultiPolygon::new(&MultiPolygon(vec![polygon.to_polygon_2d()]));
+
+        assert!(simd.contains(point));
+        assert!(!interval.contains(&point));
+    }
+
+    #[test]
+    fn adaptive_locator_preserves_simd_boundary_semantics() {
+        let mut exterior = Vec::with_capacity(65);
+        for i in 0..16 {
+            let offset = 20.0 * i as f64 / 16.0;
+            exterior.push(Coord3D::new(-10.0 + offset, -10.0, 0.0));
+        }
+        for i in 0..16 {
+            let offset = 20.0 * i as f64 / 16.0;
+            exterior.push(Coord3D::new(10.0, -10.0 + offset, 0.0));
+        }
+        for i in 0..16 {
+            let offset = 20.0 * i as f64 / 16.0;
+            exterior.push(Coord3D::new(10.0 - offset, 10.0, 0.0));
+        }
+        for i in 0..16 {
+            let offset = 20.0 * i as f64 / 16.0;
+            exterior.push(Coord3D::new(-10.0, 10.0 - offset, 0.0));
+        }
+        exterior.push(exterior[0]);
+        let polygon = Polygon3D::new(exterior, vec![], vec![], vec![]);
+        let simd = SimdRing::new_3d(&polygon.exterior);
+        let prepared = PreparedRing::new(&polygon);
+        let boundary = Coord { x: 0.0, y: -10.0 };
+
+        assert!(simd.contains(boundary));
+        for _ in 0..LOCATOR_INDEX_QUERY_THRESHOLD {
+            assert_eq!(
+                prepared.contains(&polygon, &simd, boundary),
+                simd.contains(boundary)
+            );
+        }
+        assert!(prepared.interval_locator.get().is_some());
     }
 }

@@ -463,6 +463,9 @@ fn establish_topology(
         let removed_count = keep_mask.iter().filter(|&&keep| !keep).count();
 
         if removed_count > 0 {
+            if collect_stats {
+                forest.record_locator_reuse(&mut containment_stats);
+            }
             let mut new_shells = Vec::new();
 
             for (keep, s) in keep_mask.into_iter().zip(shells) {
@@ -515,6 +518,9 @@ fn establish_topology(
             unassigned_hole_count += 1;
             unassigned_hole_area += hole.exterior_unsigned_area_2d();
         }
+    }
+    if collect_stats {
+        forest.record_locator_reuse(&mut containment_stats);
     }
 
     (
