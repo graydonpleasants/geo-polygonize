@@ -21,6 +21,24 @@ cargo bench --bench polygonize_bench
 
 This will compile and run the benchmarks defined in `benches/polygonize_bench.rs`. The output will show the average time per iteration for various input sizes.
 
+### Containment Benchmarks
+
+Run the isolated prepared-ring, shell-filtering, hole-assignment, and end-to-end containment matrix with:
+
+```bash
+cargo bench -p geo-polygonize-core --bench hole_sort_bench
+```
+
+To compare a change against a saved Criterion baseline:
+
+```bash
+cargo bench -p geo-polygonize-core --bench hole_sort_bench -- --save-baseline before
+# edit the implementation
+cargo bench -p geo-polygonize-core --bench hole_sort_bench -- --baseline before
+```
+
+Use `--quick` while iterating; omit it for decision-quality results.
+
 ### Comparing with Shapely (Python)
 
 To run a comparison between the Rust implementation and Python's `shapely.ops.polygonize`:
