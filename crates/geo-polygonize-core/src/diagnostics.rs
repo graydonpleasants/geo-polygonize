@@ -39,7 +39,11 @@ pub struct ContainmentStats {
     pub max_point_in_ring_calls_per_shell: usize,
     pub shells_with_64_plus_point_in_ring_calls: usize,
     pub shared_edge_checks: usize,
+    pub shared_edge_pair_checks: usize,
+    pub graph_edge_key_checks: usize,
     pub shared_vertex_checks: usize,
+    pub shared_vertex_pair_checks: usize,
+    pub graph_vertex_id_checks: usize,
 }
 
 impl ContainmentStats {
@@ -54,7 +58,11 @@ impl ContainmentStats {
         self.shells_with_64_plus_point_in_ring_calls +=
             other.shells_with_64_plus_point_in_ring_calls;
         self.shared_edge_checks += other.shared_edge_checks;
+        self.shared_edge_pair_checks += other.shared_edge_pair_checks;
+        self.graph_edge_key_checks += other.graph_edge_key_checks;
         self.shared_vertex_checks += other.shared_vertex_checks;
+        self.shared_vertex_pair_checks += other.shared_vertex_pair_checks;
+        self.graph_vertex_id_checks += other.graph_vertex_id_checks;
     }
 }
 

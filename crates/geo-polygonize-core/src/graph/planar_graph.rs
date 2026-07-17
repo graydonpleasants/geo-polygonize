@@ -21,6 +21,13 @@ pub type EdgeId = usize;
 /// Index of a directed half-edge in the graph.
 pub type DirEdgeId = usize;
 
+pub(crate) struct ExtractedRing {
+    pub coords: Vec<Coord3D>,
+    pub line_ids: Vec<u32>,
+    pub edge_keys: Vec<(NodeId, NodeId)>,
+    pub node_ids: Vec<NodeId>,
+}
+
 /// An undirected edge in the planar graph.
 #[derive(Clone, Debug)]
 pub struct Edge {
@@ -651,6 +658,16 @@ impl PlanarGraph {
 
     /// Extracts rings from the graph following the GEOS flow.
     pub fn get_edge_rings(&mut self) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
+        self.get_edge_rings_with_graph_ids(false)
+            .into_iter()
+            .map(|ring| (ring.coords, ring.line_ids))
+            .collect()
+    }
+
+    pub(crate) fn get_edge_rings_with_graph_ids(
+        &mut self,
+        include_graph_ids: bool,
+    ) -> Vec<ExtractedRing> {
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
             next_pointers.clear();
@@ -673,7 +690,7 @@ impl PlanarGraph {
             );
 
             // Extract the minimal rings from the graph.
-            self.extract_valid_rings(&next_pointers)
+            self.extract_valid_rings(&next_pointers, include_graph_ids)
         })
     }
 
@@ -818,7 +835,11 @@ impl PlanarGraph {
     }
 
     /// Extracts valid rings by following `next_pointers`.
-    fn extract_valid_rings(&mut self, next_pointers: &[usize]) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
+    fn extract_valid_rings(
+        &mut self,
+        next_pointers: &[usize],
+        include_graph_ids: bool,
+    ) -> Vec<ExtractedRing> {
         for de in &mut self.directed_edges {
             de.is_visited = false;
         }
@@ -869,6 +890,16 @@ impl PlanarGraph {
             if is_valid_ring && !ring_edges.is_empty() {
                 let mut coords = Vec::with_capacity(ring_edges.len() + 1);
                 let mut ids = Vec::with_capacity(ring_edges.len());
+                let mut edge_keys = if include_graph_ids {
+                    Vec::with_capacity(ring_edges.len())
+                } else {
+                    Vec::new()
+                };
+                let mut node_ids = if include_graph_ids {
+                    Vec::with_capacity(ring_edges.len())
+                } else {
+                    Vec::new()
+                };
                 let start_node_idx = self.directed_edges[ring_edges[0]].src;
                 coords.push(Coord3D {
                     x: self.nodes_x[start_node_idx],
@@ -880,6 +911,14 @@ impl PlanarGraph {
                     let de = &self.directed_edges[de_idx];
                     let edge_idx = de.edge_idx;
                     ids.push(self.edges[edge_idx].line.line_id);
+                    if include_graph_ids {
+                        edge_keys.push(if de.src < de.dst {
+                            (de.src, de.dst)
+                        } else {
+                            (de.dst, de.src)
+                        });
+                        node_ids.push(de.src);
+                    }
 
                     let dst_idx = de.dst;
                     coords.push(Coord3D {
@@ -889,7 +928,12 @@ impl PlanarGraph {
                     });
                 }
 
-                rings.push((coords, ids));
+                rings.push(ExtractedRing {
+                    coords,
+                    line_ids: ids,
+                    edge_keys,
+                    node_ids,
+                });
             }
         }
         rings

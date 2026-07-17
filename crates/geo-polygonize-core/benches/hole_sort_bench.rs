@@ -241,14 +241,29 @@ fn bench_hole_assignment(c: &mut Criterion) {
             )
         });
     });
+
+    let shells = vec![circle_polygon(0.0, 0.0, 100.0, 1_024)];
+    let forest = ContainmentForest::new(&shells);
+    let hole = circle_polygon(0.0, 0.0, 0.75, 64);
+    let mut group = c.benchmark_group("containment/touch_policy/1024x64");
+    for policy in [
+        TouchPolicy::AllowEdgeShare,
+        TouchPolicy::AllowPointTouchDisallowEdgeShare,
+        TouchPolicy::TreatAnyTouchAsDisjoint,
+    ] {
+        group.bench_with_input(format!("{policy:?}"), &policy, |b, policy| {
+            b.iter(|| forest.assign_hole(black_box(&hole), black_box(&shells), black_box(policy)));
+        });
+    }
+    group.finish();
 }
 
 fn bench_end_to_end(c: &mut Criterion) {
     let shell = circle_polygon(0.0, 0.0, 100.0, 1_024);
-    let holes = holes(1_000, 64);
+    let holes_1000 = holes(1_000, 64);
     let lines: Vec<_> = polygon_lines(&shell, 0)
         .chain(
-            holes
+            holes_1000
                 .iter()
                 .enumerate()
                 .flat_map(|(i, hole)| polygon_lines(hole, (i + 1) as u32)),
@@ -268,6 +283,9 @@ fn bench_end_to_end(c: &mut Criterion) {
         .containment_stats;
     assert_eq!(stats.max_point_in_ring_calls_per_shell, 1_000);
     assert_eq!(stats.shells_with_64_plus_point_in_ring_calls, 1);
+    assert_eq!(stats.shared_edge_checks, 1_000);
+    assert_eq!(stats.shared_edge_pair_checks, 65_536_000);
+    assert_eq!(stats.graph_edge_key_checks, 0);
 
     c.bench_function("containment/end_to_end/1000_holes", |b| {
         b.iter(|| {
@@ -276,6 +294,43 @@ fn bench_end_to_end(c: &mut Criterion) {
             polygonizer.polygonize().unwrap()
         });
     });
+
+    let holes = holes(100, 64);
+    let lines: Vec<_> = polygon_lines(&shell, 0)
+        .chain(
+            holes
+                .iter()
+                .enumerate()
+                .flat_map(|(i, hole)| polygon_lines(hole, (i + 1) as u32)),
+        )
+        .collect();
+    let prepare = |node_input| {
+        let options = PolygonizerOptions {
+            node_input,
+            ..Default::default()
+        };
+        let mut polygonizer = Polygonizer::with_options(options);
+        polygonizer.add_lines(lines.clone());
+        let result = polygonizer.polygonize().unwrap();
+        let area: f64 = result
+            .polygons
+            .iter()
+            .map(Polygon3D::unsigned_area_2d)
+            .sum();
+        (polygonizer, result.polygons.len(), area)
+    };
+    let (geometry, geometry_count, geometry_area) = prepare(false);
+    let (graph, graph_count, graph_area) = prepare(true);
+    assert_eq!(geometry_count, graph_count);
+    assert!((geometry_area - graph_area).abs() < 1e-6);
+
+    let mut group = c.benchmark_group("containment/reused_graph/100_holes");
+    for (name, mut polygonizer) in [("geometry_fallback", geometry), ("graph_identity", graph)] {
+        group.bench_function(name, |b| {
+            b.iter(|| black_box(polygonizer.polygonize().unwrap()));
+        });
+    }
+    group.finish();
 }
 
 criterion_group!(

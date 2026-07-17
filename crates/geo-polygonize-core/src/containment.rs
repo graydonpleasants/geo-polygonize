@@ -2,9 +2,10 @@ use crate::diagnostics::ContainmentStats;
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::TouchPolicy;
 use crate::polygonizer::{
-    bounding_rect_3d, guaranteed_interior_probe_prepared, rings_share_edge, rings_touch_at_vertex,
+    bounding_rect_3d, guaranteed_interior_probe_prepared, rings_share_edge_with_count,
+    rings_touch_at_vertex_with_count,
 };
-use crate::types::Polygon3D;
+use crate::types::{Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use geo::algorithm::indexed::IntervalTreeMultiPolygon;
 use geo::{Contains, MultiPolygon};
@@ -17,6 +18,83 @@ use std::sync::OnceLock;
 const LOCATOR_INDEX_QUERY_THRESHOLD: usize = 64;
 const LOCATOR_INDEX_MIN_COORDS: usize = 65;
 
+fn touch_allowed(
+    shell: &Polygon3D,
+    shell_identity: Option<&RingGraphIdentity>,
+    ring: &Polygon3D,
+    ring_identity: Option<&RingGraphIdentity>,
+    touch_policy: &TouchPolicy,
+    mut stats: Option<&mut ContainmentStats>,
+) -> bool {
+    match touch_policy {
+        TouchPolicy::AllowPointTouchDisallowEdgeShare | TouchPolicy::TreatAnyTouchAsDisjoint => {
+            let (shares_edge, pair_checks, used_graph_ids) = if let (
+                Some(shell_identity),
+                Some(ring_identity),
+            ) = (shell_identity, ring_identity)
+            {
+                let (shares_edge, pair_checks) =
+                    sorted_intersects(&shell_identity.edge_keys, &ring_identity.edge_keys);
+                (shares_edge, pair_checks, true)
+            } else {
+                let (shares_edge, pair_checks) =
+                    rings_share_edge_with_count(&shell.exterior, &ring.exterior, 1e-10);
+                (shares_edge, pair_checks, false)
+            };
+            if let Some(stats) = stats.as_deref_mut() {
+                stats.shared_edge_checks += 1;
+                if used_graph_ids {
+                    stats.graph_edge_key_checks += pair_checks;
+                } else {
+                    stats.shared_edge_pair_checks += pair_checks;
+                }
+            }
+            if shares_edge || matches!(touch_policy, TouchPolicy::AllowPointTouchDisallowEdgeShare)
+            {
+                return !shares_edge;
+            }
+
+            let (touches_vertex, pair_checks, used_graph_ids) = if let (
+                Some(shell_identity),
+                Some(ring_identity),
+            ) =
+                (shell_identity, ring_identity)
+            {
+                let (touches_vertex, pair_checks) =
+                    sorted_intersects(&shell_identity.node_ids, &ring_identity.node_ids);
+                (touches_vertex, pair_checks, true)
+            } else {
+                let (touches_vertex, pair_checks) =
+                    rings_touch_at_vertex_with_count(&shell.exterior, &ring.exterior, 1e-10);
+                (touches_vertex, pair_checks, false)
+            };
+            if let Some(stats) = stats {
+                stats.shared_vertex_checks += 1;
+                if used_graph_ids {
+                    stats.graph_vertex_id_checks += pair_checks;
+                } else {
+                    stats.shared_vertex_pair_checks += pair_checks;
+                }
+            }
+            !touches_vertex
+        }
+        TouchPolicy::AllowEdgeShare => true,
+    }
+}
+
+fn sorted_intersects<T: Ord>(left: &[T], right: &[T]) -> (bool, usize) {
+    let (mut i, mut j, mut checks) = (0, 0, 0);
+    while i < left.len() && j < right.len() {
+        checks += 1;
+        match left[i].cmp(&right[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => return (true, checks),
+        }
+    }
+    (false, checks)
+}
+
 struct PreparedRing {
     signed_area: f64,
     aabb: Option<AABB<[f64; 2]>>,
@@ -24,10 +102,11 @@ struct PreparedRing {
     probe: OnceLock<Option<geo_types::Point<f64>>>,
     locator_queries: AtomicUsize,
     interval_locator: OnceLock<IntervalTreeMultiPolygon<f64>>,
+    graph_identity: Option<RingGraphIdentity>,
 }
 
 impl PreparedRing {
-    fn new(polygon: &Polygon3D) -> Self {
+    fn new(polygon: &Polygon3D, graph_identity: Option<RingGraphIdentity>) -> Self {
         let signed_area = Polygon3D::ring_signed_area_2d(&polygon.exterior);
         let bbox = bounding_rect_3d(&polygon.exterior);
         let diagonal = bbox
@@ -49,6 +128,7 @@ impl PreparedRing {
             probe: OnceLock::new(),
             locator_queries: AtomicUsize::new(0),
             interval_locator: OnceLock::new(),
+            graph_identity,
         }
     }
 
@@ -94,20 +174,40 @@ pub struct ContainmentForest {
 
 impl ContainmentForest {
     pub fn new(shells: &[Polygon3D]) -> Self {
+        Self::new_impl(shells, None)
+    }
+
+    pub(crate) fn new_with_graph_ids(
+        shells: &[Polygon3D],
+        graph_ids: &[Option<RingGraphIdentity>],
+    ) -> Self {
+        Self::new_impl(shells, Some(graph_ids))
+    }
+
+    fn new_impl(shells: &[Polygon3D], graph_ids: Option<&[Option<RingGraphIdentity>]>) -> Self {
+        debug_assert!(graph_ids.is_none_or(|ids| ids.len() == shells.len()));
         #[cfg(feature = "parallel")]
         let prepared_and_locators: Vec<_> = shells
             .par_iter()
-            .map(|shell| {
+            .enumerate()
+            .map(|(i, shell)| {
                 let locator = SimdRing::new_3d(&shell.exterior);
-                (PreparedRing::new(shell), locator)
+                (
+                    PreparedRing::new(shell, graph_ids.and_then(|ids| ids[i].clone())),
+                    locator,
+                )
             })
             .collect();
         #[cfg(not(feature = "parallel"))]
         let prepared_and_locators: Vec<_> = shells
             .iter()
-            .map(|shell| {
+            .enumerate()
+            .map(|(i, shell)| {
                 let locator = SimdRing::new_3d(&shell.exterior);
-                (PreparedRing::new(shell), locator)
+                (
+                    PreparedRing::new(shell, graph_ids.and_then(|ids| ids[i].clone())),
+                    locator,
+                )
             })
             .collect();
 
@@ -208,34 +308,14 @@ impl ContainmentForest {
                             stats.point_in_ring_calls += 1;
                         }
                         if self.prepared_shells[j].contains(&shells[j], simd_shell, probe_pt.0) {
-                            let touch_ok = match touch_policy {
-                                TouchPolicy::AllowPointTouchDisallowEdgeShare => {
-                                    if let Some(stats) = stats.as_deref_mut() {
-                                        stats.shared_edge_checks += 1;
-                                    }
-                                    !rings_share_edge(&shells[j].exterior, &shell.exterior, 1e-10)
-                                }
-                                TouchPolicy::TreatAnyTouchAsDisjoint => {
-                                    if let Some(stats) = stats.as_deref_mut() {
-                                        stats.shared_edge_checks += 1;
-                                    }
-                                    let shares_edge = rings_share_edge(
-                                        &shells[j].exterior,
-                                        &shell.exterior,
-                                        1e-10,
-                                    );
-                                    if let Some(stats) = stats.as_deref_mut() {
-                                        stats.shared_vertex_checks += usize::from(!shares_edge);
-                                    }
-                                    !shares_edge
-                                        && !rings_touch_at_vertex(
-                                            &shells[j].exterior,
-                                            &shell.exterior,
-                                            1e-10,
-                                        )
-                                }
-                                TouchPolicy::AllowEdgeShare => true,
-                            };
+                            let touch_ok = touch_allowed(
+                                &shells[j],
+                                self.prepared_shells[j].graph_identity.as_ref(),
+                                shell,
+                                prepared.graph_identity.as_ref(),
+                                touch_policy,
+                                stats.as_deref_mut(),
+                            );
 
                             container_counts[i] += usize::from(touch_ok);
                         }
@@ -261,29 +341,47 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
     ) -> Option<usize> {
-        self.assign_hole_impl(hole_3d, shells, touch_policy, None)
+        self.assign_hole_impl(hole_3d, None, shells, touch_policy, None)
     }
 
-    pub(crate) fn assign_hole_with_stats(
+    pub(crate) fn assign_hole_with_graph_ids(
         &self,
         hole_3d: &Polygon3D,
+        hole_graph_ids: Option<&RingGraphIdentity>,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+    ) -> Option<usize> {
+        self.assign_hole_impl(hole_3d, hole_graph_ids, shells, touch_policy, None)
+    }
+
+    pub(crate) fn assign_hole_with_graph_ids_and_stats(
+        &self,
+        hole_3d: &Polygon3D,
+        hole_graph_ids: Option<&RingGraphIdentity>,
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
     ) -> (Option<usize>, ContainmentStats) {
         let mut stats = ContainmentStats::default();
-        let best_shell_idx = self.assign_hole_impl(hole_3d, shells, touch_policy, Some(&mut stats));
+        let best_shell_idx = self.assign_hole_impl(
+            hole_3d,
+            hole_graph_ids,
+            shells,
+            touch_policy,
+            Some(&mut stats),
+        );
         (best_shell_idx, stats)
     }
 
     fn assign_hole_impl(
         &self,
         hole_3d: &Polygon3D,
+        hole_graph_ids: Option<&RingGraphIdentity>,
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
     ) -> Option<usize> {
         let hole_locator = SimdRing::new_3d(&hole_3d.exterior);
-        let prepared_hole = PreparedRing::new(hole_3d);
+        let prepared_hole = PreparedRing::new(hole_3d, hole_graph_ids.cloned());
         let hole_aabb = prepared_hole.aabb.as_ref()?;
 
         let candidates = self.tree.locate_containing_envelope(hole_aabb);
@@ -311,31 +409,14 @@ impl ContainmentForest {
                     stats.point_in_ring_calls += 1;
                 }
                 if self.prepared_shells[idx].contains(&shells[idx], simd_shell, probe_point.0) {
-                    let touch_ok = match touch_policy {
-                        TouchPolicy::AllowPointTouchDisallowEdgeShare => {
-                            if let Some(stats) = stats.as_deref_mut() {
-                                stats.shared_edge_checks += 1;
-                            }
-                            !rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10)
-                        }
-                        TouchPolicy::TreatAnyTouchAsDisjoint => {
-                            if let Some(stats) = stats.as_deref_mut() {
-                                stats.shared_edge_checks += 1;
-                            }
-                            let shares_edge =
-                                rings_share_edge(&shells[idx].exterior, &hole_3d.exterior, 1e-10);
-                            if let Some(stats) = stats.as_deref_mut() {
-                                stats.shared_vertex_checks += usize::from(!shares_edge);
-                            }
-                            !shares_edge
-                                && !rings_touch_at_vertex(
-                                    &shells[idx].exterior,
-                                    &hole_3d.exterior,
-                                    1e-10,
-                                )
-                        }
-                        TouchPolicy::AllowEdgeShare => true,
-                    };
+                    let touch_ok = touch_allowed(
+                        &shells[idx],
+                        self.prepared_shells[idx].graph_identity.as_ref(),
+                        hole_3d,
+                        prepared_hole.graph_identity.as_ref(),
+                        touch_policy,
+                        stats.as_deref_mut(),
+                    );
 
                     if touch_ok {
                         min_area = area;
@@ -371,11 +452,40 @@ mod tests {
             vec![],
         );
         let locator = SimdRing::new_3d(&polygon.exterior);
-        let prepared = PreparedRing::new(&polygon);
+        let prepared = PreparedRing::new(&polygon, None);
 
         assert_eq!(prepared.signed_area, 100.0);
         assert_eq!(prepared.aabb.unwrap().lower(), [0.0, 0.0]);
         assert!(locator.contains(prepared.probe(&polygon, &locator).unwrap().0));
+    }
+
+    #[test]
+    fn graph_identity_distinguishes_point_and_edge_touch() {
+        let polygon = Polygon3D::new(vec![], vec![], vec![], vec![]);
+        let shell_ids = RingGraphIdentity::new(vec![(0, 1)], vec![0, 1]);
+        let ring_ids = RingGraphIdentity::new(vec![(1, 2)], vec![1, 2]);
+        let mut stats = ContainmentStats::default();
+
+        assert!(touch_allowed(
+            &polygon,
+            Some(&shell_ids),
+            &polygon,
+            Some(&ring_ids),
+            &TouchPolicy::AllowPointTouchDisallowEdgeShare,
+            Some(&mut stats),
+        ));
+        assert!(!touch_allowed(
+            &polygon,
+            Some(&shell_ids),
+            &polygon,
+            Some(&ring_ids),
+            &TouchPolicy::TreatAnyTouchAsDisjoint,
+            Some(&mut stats),
+        ));
+        assert_eq!(stats.shared_edge_pair_checks, 0);
+        assert_eq!(stats.shared_vertex_pair_checks, 0);
+        assert!(stats.graph_edge_key_checks > 0);
+        assert!(stats.graph_vertex_id_checks > 0);
     }
 
     #[test]
@@ -422,7 +532,7 @@ mod tests {
         exterior.push(exterior[0]);
         let polygon = Polygon3D::new(exterior, vec![], vec![], vec![]);
         let simd = SimdRing::new_3d(&polygon.exterior);
-        let prepared = PreparedRing::new(&polygon);
+        let prepared = PreparedRing::new(&polygon, None);
         let boundary = Coord { x: 0.0, y: -10.0 };
 
         assert!(simd.contains(boundary));
