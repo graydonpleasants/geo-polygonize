@@ -159,11 +159,14 @@ impl Polygonizer {
         let segments;
 
         if self.options.node_input {
+            let mut pre_snap_vertex_candidates = 0;
             if self.options.pre_snap_tolerance > 0.0 {
-                all_segments = SnapNoder::pre_snap_to_reference_vertices(
+                let (snapped, candidates) = SnapNoder::pre_snap_to_reference_vertices_with_stats(
                     &all_segments,
                     self.options.pre_snap_tolerance,
                 );
+                all_segments = snapped;
+                pre_snap_vertex_candidates = candidates;
             }
 
             // Sort by 2D coordinates
@@ -199,7 +202,8 @@ impl Polygonizer {
                     let noder = SnapNoder::new(self.options.snap_grid_size)
                         .with_snap_strategy(self.options.snap_strategy.clone());
                     if let Some(diagnostics) = diagnostics {
-                        let (noded, stats, work_stats) = noder.node_with_stats(all_segments);
+                        let (noded, stats, mut work_stats) = noder.node_with_stats(all_segments);
+                        work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                         diagnostics.intersection_stats.interpolated_intersections = stats
                             .iter()
                             .map(|iteration| iteration.intersections_found)
@@ -216,8 +220,9 @@ impl Polygonizer {
                 crate::options::NodingBackend::Advanced => {
                     let noder = AdvancedNoder::new();
                     if let Some(diagnostics) = diagnostics {
-                        let (noded, stats, work_stats) =
+                        let (noded, stats, mut work_stats) =
                             SnapNoder::new(0.0).node_with_stats(all_segments);
+                        work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                         diagnostics.intersection_stats.interpolated_intersections = stats
                             .iter()
                             .map(|iteration| iteration.intersections_found)

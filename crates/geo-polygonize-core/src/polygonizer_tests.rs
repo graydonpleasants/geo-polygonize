@@ -674,6 +674,20 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_report_pre_snap_candidates() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.options.pre_snap_tolerance = 0.5;
+        poly.diagnostics_options.enabled = true;
+        poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]).into());
+        poly.add_geometry(LineString::from(vec![(5.0, 0.4), (5.0, 1.0)]).into());
+
+        let diagnostics = poly.polygonize().unwrap().diagnostics.unwrap();
+
+        assert!(diagnostics.noding_work_stats.pre_snap_vertex_candidates > 0);
+    }
+
+    #[test]
     fn diagnostics_report_containment_work() {
         let mut poly = Polygonizer::new();
         poly.diagnostics_options.enabled = true;

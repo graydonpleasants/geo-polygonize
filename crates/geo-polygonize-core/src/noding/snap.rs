@@ -1,10 +1,12 @@
 use crate::diagnostics::{NodingIterationStats, NodingWorkStats};
+use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::UniformGrid;
 use crate::options::SnapStrategy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo::Coord;
+use rstar::AABB;
 use wide::f64x4;
 
 #[cfg(feature = "parallel")]
@@ -12,12 +14,11 @@ use rayon::prelude::*;
 
 fn nearest_reference_vertex(
     coord: Coord3D,
-    reference_vertices: &[Coord3D],
+    reference_vertices: impl Iterator<Item = Coord3D>,
     tolerance_sq: f64,
 ) -> Coord3D {
     reference_vertices
-        .iter()
-        .filter_map(|&vertex| {
+        .filter_map(|vertex| {
             let dx = vertex.x - coord.x;
             let dy = vertex.y - coord.y;
             let dist_sq = dx * dx + dy * dy;
@@ -31,6 +32,40 @@ fn nearest_reference_vertex(
         })
         .map(|(_, vertex)| vertex)
         .unwrap_or(coord)
+}
+
+fn nearest_reference_vertex_indexed(
+    coord: Coord3D,
+    reference_vertices: &[Coord3D],
+    index: &RStarBackend,
+    tolerance: f64,
+) -> (Coord3D, usize) {
+    if !coord.x.is_finite() || !coord.y.is_finite() || !tolerance.is_finite() {
+        return (
+            nearest_reference_vertex(
+                coord,
+                reference_vertices.iter().copied(),
+                tolerance * tolerance,
+            ),
+            reference_vertices.len(),
+        );
+    }
+
+    let query = AABB::from_corners(
+        [coord.x - tolerance, coord.y - tolerance],
+        [coord.x + tolerance, coord.y + tolerance],
+    );
+    let tolerance_sq = tolerance * tolerance;
+    let mut candidates = 0;
+    let nearest = nearest_reference_vertex(
+        coord,
+        index.locate_in_envelope_intersecting(&query).map(|idx| {
+            candidates += 1;
+            reference_vertices[idx]
+        }),
+        tolerance_sq,
+    );
+    (nearest, candidates)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -272,8 +307,19 @@ impl SnapNoder {
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
+        Self::pre_snap_impl(lines, tolerance, true).0
+    }
+
+    pub(crate) fn pre_snap_to_reference_vertices_with_stats(
+        lines: &[Line3D],
+        tolerance: f64,
+    ) -> (Vec<Line3D>, usize) {
+        Self::pre_snap_impl(lines, tolerance, true)
+    }
+
+    fn pre_snap_impl(lines: &[Line3D], tolerance: f64, use_index: bool) -> (Vec<Line3D>, usize) {
         if lines.is_empty() || tolerance <= 0.0 {
-            return lines.to_vec();
+            return (lines.to_vec(), 0);
         }
 
         let mut reference_vertices: Vec<Coord3D> = SnapNoder::new(0.0)
@@ -289,14 +335,50 @@ impl SnapNoder {
         });
         reference_vertices.dedup_by(|a, b| a.x == b.x && a.y == b.y);
 
+        let vertex_index = use_index.then(|| {
+            RStarBackend::new(
+                reference_vertices
+                    .iter()
+                    .enumerate()
+                    .map(|(index, vertex)| IndexedEnvelope {
+                        aabb: AABB::from_corners([vertex.x, vertex.y], [vertex.x, vertex.y]),
+                        index,
+                    })
+                    .collect(),
+            )
+        });
+
         let tolerance_sq = tolerance * tolerance;
         let mut snapped = Vec::with_capacity(lines.len());
         let mut points = Vec::new();
+        let mut vertex_candidates = 0;
 
-        // ponytail: O(segments * vertices); add a spatial index if CFB-scale pre-snap profiles hot.
         for &line in lines {
-            let start = nearest_reference_vertex(line.start, &reference_vertices, tolerance_sq);
-            let end = nearest_reference_vertex(line.end, &reference_vertices, tolerance_sq);
+            let (start, start_candidates) = if let Some(index) = vertex_index.as_ref() {
+                nearest_reference_vertex_indexed(line.start, &reference_vertices, index, tolerance)
+            } else {
+                (
+                    nearest_reference_vertex(
+                        line.start,
+                        reference_vertices.iter().copied(),
+                        tolerance_sq,
+                    ),
+                    reference_vertices.len(),
+                )
+            };
+            let (end, end_candidates) = if let Some(index) = vertex_index.as_ref() {
+                nearest_reference_vertex_indexed(line.end, &reference_vertices, index, tolerance)
+            } else {
+                (
+                    nearest_reference_vertex(
+                        line.end,
+                        reference_vertices.iter().copied(),
+                        tolerance_sq,
+                    ),
+                    reference_vertices.len(),
+                )
+            };
+            vertex_candidates += start_candidates + end_candidates;
             let dx = end.x - start.x;
             let dy = end.y - start.y;
             let len_sq = dx * dx + dy * dy;
@@ -308,20 +390,49 @@ impl SnapNoder {
             points.push((0.0, start));
             points.push((1.0, end));
 
-            for &vertex in &reference_vertices {
-                let vx = vertex.x - start.x;
-                let vy = vertex.y - start.y;
-                let t = (vx * dx + vy * dy) / len_sq;
-                if !(0.0..=1.0).contains(&t) {
-                    continue;
-                }
+            {
+                let mut consider_vertex = |vertex: Coord3D| {
+                    vertex_candidates += 1;
+                    let vx = vertex.x - start.x;
+                    let vy = vertex.y - start.y;
+                    let t = (vx * dx + vy * dy) / len_sq;
+                    if !(0.0..=1.0).contains(&t) {
+                        return;
+                    }
 
-                let nearest_x = start.x + t * dx;
-                let nearest_y = start.y + t * dy;
-                let dist_x = vertex.x - nearest_x;
-                let dist_y = vertex.y - nearest_y;
-                if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
-                    points.push((t, vertex));
+                    let nearest_x = start.x + t * dx;
+                    let nearest_y = start.y + t * dy;
+                    let dist_x = vertex.x - nearest_x;
+                    let dist_y = vertex.y - nearest_y;
+                    if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
+                        points.push((t, vertex));
+                    }
+                };
+
+                if let Some(index) = vertex_index.as_ref().filter(|_| {
+                    start.x.is_finite()
+                        && start.y.is_finite()
+                        && end.x.is_finite()
+                        && end.y.is_finite()
+                        && tolerance.is_finite()
+                }) {
+                    let query = AABB::from_corners(
+                        [
+                            start.x.min(end.x) - tolerance,
+                            start.y.min(end.y) - tolerance,
+                        ],
+                        [
+                            start.x.max(end.x) + tolerance,
+                            start.y.max(end.y) + tolerance,
+                        ],
+                    );
+                    for idx in index.locate_in_envelope_intersecting(&query) {
+                        consider_vertex(reference_vertices[idx]);
+                    }
+                } else {
+                    for &vertex in &reference_vertices {
+                        consider_vertex(vertex);
+                    }
                 }
             }
 
@@ -345,7 +456,7 @@ impl SnapNoder {
             }
         }
 
-        snapped
+        (snapped, vertex_candidates)
     }
 
     fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
@@ -814,6 +925,31 @@ mod tests {
                 && line.end == Coord3D::new(10.3, 0.02, 0.0))
                 || (line.start == Coord3D::new(10.3, 0.02, 0.0)
                     && line.end == Coord3D::new(10.0, 0.0, 0.0))));
+    }
+
+    #[test]
+    fn indexed_pre_snap_matches_linear_candidate_scan() {
+        let lines: Vec<_> = (0..100)
+            .flat_map(|i| {
+                let y = i as f64 * 2.0;
+                [
+                    make_line(0.0, y, 100.0, y),
+                    make_line(50.0, y + 0.25, 50.5, y + 0.75),
+                ]
+            })
+            .collect();
+
+        let (linear, linear_candidates) = SnapNoder::pre_snap_impl(&lines, 0.5, false);
+        let (indexed, indexed_candidates) = SnapNoder::pre_snap_impl(&lines, 0.5, true);
+
+        assert_eq!(indexed.len(), linear.len());
+        for (actual, expected) in indexed.iter().zip(linear) {
+            assert_eq!(actual.start, expected.start);
+            assert_eq!(actual.end, expected.end);
+            assert_eq!(actual.line_id, expected.line_id);
+        }
+        assert_eq!(linear_candidates, 240_000);
+        assert_eq!(indexed_candidates, 1_100);
     }
 
     #[test]

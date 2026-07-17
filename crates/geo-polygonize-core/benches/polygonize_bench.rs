@@ -1,5 +1,7 @@
 use criterion::measurement::Measurement;
-use criterion::{criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion};
+use criterion::{
+    criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
+};
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
 use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
 use geo_types::{Coord, LineString, Rect};
@@ -297,6 +299,37 @@ fn make_random_lines(count: usize) -> Vec<Line3D> {
         .collect()
 }
 
+fn make_pre_snap_lines(bands: usize) -> Vec<Line3D> {
+    (0..bands)
+        .flat_map(|i| {
+            let y = i as f64 * 2.0;
+            [
+                Line3D::new(
+                    Coord3D::new(0.0, y, 0.0),
+                    Coord3D::new(100.0, y, 0.0),
+                    (i * 2) as u32,
+                ),
+                Line3D::new(
+                    Coord3D::new(50.0, y + 0.25, 0.0),
+                    Coord3D::new(50.5, y + 0.75, 0.0),
+                    (i * 2 + 1) as u32,
+                ),
+            ]
+        })
+        .collect()
+}
+
+fn bench_pre_snap(c: &mut Criterion) {
+    let lines = make_pre_snap_lines(1_000);
+    let mut group = c.benchmark_group("pre_snap/cfb_style");
+    group.sample_size(10);
+    group.throughput(Throughput::Elements(lines.len() as u64));
+    group.bench_function("2000_segments", |b| {
+        b.iter(|| SnapNoder::pre_snap_to_reference_vertices(criterion::black_box(&lines), 0.5));
+    });
+    group.finish();
+}
+
 fn bench_kernel_grid_build(c: &mut Criterion) {
     let lines = make_random_lines(10_000);
     c.bench_function("kernel_grid_build_10k", |b| {
@@ -327,6 +360,7 @@ criterion_group!(
     kernel_benches,
     bench_kernel_grid_build,
     bench_kernel_find_splits,
-    bench_kernel_node
+    bench_kernel_node,
+    bench_pre_snap
 );
 criterion_main!(benches, kernel_benches);
