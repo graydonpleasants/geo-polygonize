@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-core"
-version = "0.37.4"
+version = "0.37.5"
 edition = "2021"
 description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reconstruct valid polygons from a set of lines."
 license = "MIT OR Apache-2.0"

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.5](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.4...geo-polygonize-v0.37.5) (2026-07-17)
+
+
+### Performance Improvements
+
+* **core:** index pre-snap reference vertices ([#792](https://github.com/graydonpleasants/geo-polygonize/issues/792)) ([27dbd99](https://github.com/graydonpleasants/geo-polygonize/commit/27dbd99eb84f42dd9e75538c2b5b871469e7d48b))
+
 ## [0.37.4](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.3...geo-polygonize-v0.37.4) (2026-07-17)
 
 
