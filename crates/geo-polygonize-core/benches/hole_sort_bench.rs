@@ -1,6 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use geo::algorithm::indexed::IntervalTreeMultiPolygon;
+use geo::{Contains, Coord, MultiPolygon};
 use geo_polygonize_core::containment::ContainmentForest;
 use geo_polygonize_core::options::{PolygonizerOptions, TouchPolicy};
+use geo_polygonize_core::utils::simd::SimdRing;
 use geo_polygonize_core::{Coord3D, Line3D, Polygon3D, Polygonizer};
 use std::f64::consts::PI;
 
@@ -65,6 +68,98 @@ fn polygon_lines(polygon: &Polygon3D, line_id: u32) -> impl Iterator<Item = Line
         .exterior
         .windows(2)
         .map(move |pair| Line3D::new(pair[0], pair[1], line_id))
+}
+
+fn locator_query_points(count: usize) -> Vec<Coord<f64>> {
+    (0..count)
+        .map(|i| {
+            let angle = 2.0 * PI * i as f64 / count as f64;
+            let radius = if i % 2 == 0 { 50.0 } else { 150.0 };
+            Coord {
+                x: radius * angle.cos(),
+                y: radius * angle.sin(),
+            }
+        })
+        .collect()
+}
+
+fn bench_point_locators(c: &mut Criterion) {
+    for edges in [16, 64, 256, 1_024, 16_384] {
+        let ring = circle_polygon(0.0, 0.0, 100.0, edges);
+        let polygon = ring.to_polygon_2d();
+        let multipolygon = MultiPolygon(vec![polygon.clone()]);
+        let simd = SimdRing::new_3d(&ring.exterior);
+        let interval = IntervalTreeMultiPolygon::new(&multipolygon);
+        let points = locator_query_points(1_024);
+
+        let scalar_count = points
+            .iter()
+            .filter(|point| polygon.contains(*point))
+            .count();
+        assert_eq!(
+            scalar_count,
+            points.iter().filter(|point| simd.contains(**point)).count()
+        );
+        assert_eq!(
+            scalar_count,
+            points
+                .iter()
+                .filter(|point| interval.contains(*point))
+                .count()
+        );
+
+        let mut group = c.benchmark_group("point_locator/prepare");
+        group.throughput(Throughput::Elements(edges as u64));
+        group.bench_function(BenchmarkId::new("simd", edges), |b| {
+            b.iter(|| SimdRing::new_3d(black_box(&ring.exterior)));
+        });
+        group.bench_function(BenchmarkId::new("scalar", edges), |b| {
+            b.iter(|| black_box(&ring).to_polygon_2d());
+        });
+        group.bench_function(BenchmarkId::new("interval", edges), |b| {
+            b.iter(|| {
+                let polygon = black_box(&ring).to_polygon_2d();
+                IntervalTreeMultiPolygon::new(&MultiPolygon(vec![polygon]))
+            });
+        });
+        group.finish();
+
+        for query_count in [1, 16, 64, 1_024] {
+            let points = &points[..query_count];
+            let mut group =
+                c.benchmark_group(format!("point_locator/amortized_{query_count}_queries"));
+            group.throughput(Throughput::Elements(query_count as u64));
+            group.bench_function(BenchmarkId::new("simd", edges), |b| {
+                b.iter(|| {
+                    let locator = SimdRing::new_3d(&ring.exterior);
+                    black_box(points)
+                        .iter()
+                        .filter(|point| locator.contains(**point))
+                        .count()
+                });
+            });
+            group.bench_function(BenchmarkId::new("scalar", edges), |b| {
+                b.iter(|| {
+                    let locator = ring.to_polygon_2d();
+                    black_box(points)
+                        .iter()
+                        .filter(|point| locator.contains(*point))
+                        .count()
+                });
+            });
+            group.bench_function(BenchmarkId::new("interval", edges), |b| {
+                b.iter(|| {
+                    let polygon = ring.to_polygon_2d();
+                    let locator = IntervalTreeMultiPolygon::new(&MultiPolygon(vec![polygon]));
+                    black_box(points)
+                        .iter()
+                        .filter(|point| locator.contains(*point))
+                        .count()
+                });
+            });
+            group.finish();
+        }
+    }
 }
 
 fn bench_preparation(c: &mut Criterion) {
@@ -172,6 +267,7 @@ fn bench_end_to_end(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_point_locators,
     bench_preparation,
     bench_filtering,
     bench_hole_assignment,
