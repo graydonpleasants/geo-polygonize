@@ -75,6 +75,7 @@ pub struct NodingWorkStats {
     pub aabb_rejections: usize,
     pub exact_intersection_calls: usize,
     pub split_events: usize,
+    pub pre_snap_vertex_candidates: usize,
 }
 
 impl NodingWorkStats {
@@ -86,6 +87,7 @@ impl NodingWorkStats {
         self.aabb_rejections += other.aabb_rejections;
         self.exact_intersection_calls += other.exact_intersection_calls;
         self.split_events += other.split_events;
+        self.pre_snap_vertex_candidates += other.pre_snap_vertex_candidates;
     }
 }
 
