@@ -1,6 +1,10 @@
 use geo_polygonize_core::{
-    noding::{advanced::AdvancedNoder, snap::SnapNoder},
-    options::{NodingBackend, PolygonizerOptions},
+    diagnostics::PolygonizerDiagnostics,
+    noding::{
+        advanced::AdvancedNoder,
+        snap::{NodingStrategy, SnapNoder},
+    },
+    options::{DiagnosticsOptions, NodingBackend, NodingOptions, PolygonizerOptions},
     types::{Coord3D, Line3D},
     Polygonizer,
 };
@@ -28,6 +32,24 @@ fn assert_same_lines(actual: &[Line3D], expected: &[Line3D]) {
         assert_eq!(actual.end, expected.end);
         assert_eq!(actual.line_id, expected.line_id);
     }
+}
+
+fn advanced_diagnostics(lines: Vec<Line3D>) -> PolygonizerDiagnostics {
+    let options = PolygonizerOptions {
+        node_input: true,
+        noding: NodingOptions {
+            backend: NodingBackend::Advanced,
+        },
+        diagnostics: DiagnosticsOptions {
+            enabled: true,
+            ..DiagnosticsOptions::default()
+        },
+        ..PolygonizerOptions::default()
+    };
+
+    let mut polygonizer = Polygonizer::with_options(options);
+    polygonizer.add_lines(lines);
+    polygonizer.polygonize().unwrap().diagnostics.unwrap()
 }
 
 #[test]
@@ -145,4 +167,98 @@ fn advanced_backend_is_permutation_invariant() {
     let actual = AdvancedNoder::new().node(reversed);
 
     assert_same_lines(&actual, &expected);
+}
+
+#[test]
+fn advanced_backend_matches_brute_force_on_adversarial_corpus() {
+    let cases = [
+        vec![
+            line_with_id(coord(0.0, 0.0), coord(10.0, 10.0), 1),
+            line_with_id(coord(0.0, 8.0), coord(10.0, 2.0), 2),
+            line_with_id(coord(2.0, -1.0), coord(8.0, 11.0), 3),
+        ],
+        vec![
+            line_with_id(coord(-5.0, 0.0), coord(5.0, 0.0), 1),
+            line_with_id(coord(0.0, -5.0), coord(0.0, 5.0), 2),
+            line_with_id(coord(-5.0, -5.0), coord(5.0, 5.0), 3),
+            line_with_id(coord(-5.0, 5.0), coord(5.0, -5.0), 4),
+        ],
+        vec![
+            line_with_id(coord(0.0, 0.0), coord(0.0, 10.0), 1),
+            line_with_id(coord(-5.0, 2.0), coord(0.0, 2.0), 2),
+            line_with_id(coord(0.0, 8.0), coord(5.0, 8.0), 3),
+        ],
+        vec![
+            line_with_id(coord(0.0, 0.0), coord(10.0, 0.0), 1),
+            line_with_id(coord(10.0 - 1e-10, -1.0), coord(10.0 - 1e-10, 1.0), 2),
+        ],
+        vec![
+            line_with_id(coord(0.0, 0.0), coord(10.0, 0.0), 1),
+            line_with_id(coord(5.0, 0.0), coord(15.0, 0.0), 2),
+            line_with_id(coord(10.0, 0.0), coord(0.0, 0.0), 1),
+        ],
+        vec![
+            line_with_id(coord(0.0, 0.0), coord(0.0, 0.0), 1),
+            line_with_id(Coord3D::new(f64::NAN, 0.0, 0.0), coord(1.0, 1.0), 2),
+            line_with_id(coord(0.0, 0.0), Coord3D::new(f64::INFINITY, 1.0, 0.0), 3),
+        ],
+    ];
+
+    for mut lines in cases {
+        let expected = SnapNoder::new(0.0)
+            .with_strategy(NodingStrategy::Simd)
+            .node(lines.clone());
+        lines.reverse();
+
+        let actual = AdvancedNoder::new().node(lines);
+
+        assert_same_lines(&actual, &expected);
+    }
+}
+
+#[test]
+fn advanced_backend_diagnostics_characterize_workloads() {
+    let sparse = advanced_diagnostics(
+        (0..16)
+            .map(|i| {
+                let x = i as f64 * 10.0;
+                line_with_id(coord(x, 0.0), coord(x + 1.0, 1.0), i)
+            })
+            .collect(),
+    );
+    let x_overlapping = advanced_diagnostics(
+        (0..16)
+            .map(|i| {
+                let y = i as f64 * 2.0;
+                line_with_id(coord(0.0, y), coord(100.0, y), i)
+            })
+            .collect(),
+    );
+    let dense = advanced_diagnostics(
+        (-3..=3)
+            .map(|slope| {
+                line_with_id(
+                    coord(-4.0, -4.0 * slope as f64),
+                    coord(4.0, 4.0 * slope as f64),
+                    (slope + 3) as u32,
+                )
+            })
+            .chain(std::iter::once(line_with_id(
+                coord(0.0, -4.0),
+                coord(0.0, 4.0),
+                7,
+            )))
+            .collect(),
+    );
+
+    assert_eq!(sparse.noding_work_stats.candidate_pairs, 120);
+    assert_eq!(sparse.noding_work_stats.aabb_rejections, 120);
+    assert_eq!(sparse.noding_work_stats.exact_intersection_calls, 0);
+    assert_eq!(x_overlapping.noding_work_stats.candidate_pairs, 120);
+    assert_eq!(x_overlapping.noding_work_stats.aabb_rejections, 120);
+    assert_eq!(x_overlapping.noding_work_stats.exact_intersection_calls, 0);
+    assert!(dense.noding_work_stats.candidate_pairs > 28);
+    assert!(dense.noding_work_stats.exact_intersection_calls >= 28);
+    assert_eq!(dense.noding_iterations[0].nodes_added, 8);
+    assert_eq!(dense.noding_work_stats.split_events, 8);
 }
