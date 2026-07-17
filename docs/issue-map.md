@@ -319,13 +319,13 @@ Suggested labels:
 ## P3-009 Optional advanced noder backend
 - **Phase**: 3
 - **Area**: noding
-- **Summary**: Prototype monotone-chain or sweep-line style noder backend.
+- **Summary**: Retired prototype; the compatibility option now uses exact `SnapNoder` semantics.
 - **Blocks**: P3-007, P1-002
 - **Parallel with**: P3-008
 - **Suggested owner**: computational geometry
-- **Status**: Complete
+- **Status**: Retired after correctness audit
 - **Acceptance**:
-  - backend matches default on golden corpus
+  - compatibility option matches exact `SnapNoder` on the golden and adversarial corpus
 
 ## P3-010 Harden `geos_compat`
 - **Phase**: 3

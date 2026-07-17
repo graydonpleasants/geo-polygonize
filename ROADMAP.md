@@ -380,8 +380,8 @@ pub struct IPoint {
 **Goal**: Push the library beyond standard in-memory operations by integrating advanced geometric algorithms, zero-copy data standards, and massive parallelization technologies across all targets.
 
 ## 1. Algorithmic State-of-the-Art (Agent Track F)
-- [x] Implement a full sweep-line or monotone-chain noder to replace the prototype `Advanced` noder, achieving $O((N+K) \log N)$ complexity for massive datasets.
-- [x] Introduce robust snap-rounding and exact arbitrary-precision arithmetic fallbacks for geometrically ambiguous configurations.
+- [ ] Implement a proven sweep-line or monotone-chain noder if exact `SnapNoder` profiling demonstrates a need.
+- [x] Retire the incomplete `Advanced` sweep prototype in favor of exact `SnapNoder` semantics.
 
 ## 2. Zero-Copy & Ecosystem Integration (Agent Track F)
 - [ ] Add native zero-copy GeoArrow integration across Rust, Wasm, and Python for zero-serialization data transfer.
@@ -400,7 +400,7 @@ pub struct IPoint {
 - [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
 - [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
 - [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
-- [ ] Robust geometry buffering (offset curves) utilizing the advanced sweep-line noder to cleanly resolve complex self-intersections.
+- [ ] Robust geometry buffering (offset curves) with a noder proven correct for complex self-intersections.
 
 ## 6. Incremental & Real-Time Topology (Agent Track H)
 - [ ] Stateful, incremental `Polygonizer` that allows adding or removing lines dynamically without rebuilding the entire containment forest or graph.
@@ -585,7 +585,7 @@ The roadmap is complete when:
 - [x] hardened `geos_compat` mode with scale guidance
 
 ## Milestone M6: Ecosystem Integrations & Extreme Scale
-- [x] full sweep-line noder for $O((N+K) \log N)$ intersection scaling + arbitrary-precision fallback
+- [ ] proven advanced noder with measured scaling beyond exact `SnapNoder`
 - [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
 - [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
 - [x] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
