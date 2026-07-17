@@ -11,7 +11,6 @@ export * from "./bindings/NodingOptions";
 export * from "./bindings/ProvenanceOptions";
 export * from "./bindings/SnapStrategy";
 export * from "./bindings/TileOwnershipPolicy";
-export * from "./bindings/TilingOptions";
 export * from "./bindings/TouchPolicy";
 export * from "./cfb";
 
