@@ -1,12 +1,12 @@
 use crate::containment::ContainmentForest;
 use crate::diagnostics::{ContainmentStats, PolygonizerDiagnostics};
 use crate::error::Result;
-use crate::graph::PlanarGraph;
+use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
 use crate::options::DiagnosticsOptions;
 use crate::options::{DeterminismOptions, PolygonizerOptions};
-use crate::types::{Coord3D, Line3D, Polygon3D};
+use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use geo::Contains;
@@ -280,7 +280,9 @@ impl Polygonizer {
         let mut dangles = self.graph.prune_dangles();
 
         // 3. Find rings (3D)
-        let rings_with_ids = self.graph.get_edge_rings();
+        let rings_with_ids = self
+            .graph
+            .get_edge_rings_with_graph_ids(self.options.node_input);
 
         // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
@@ -294,7 +296,8 @@ impl Polygonizer {
 
         // 4. Classify Rings (Shell vs Hole)
         let t_ring_extraction_start = get_time();
-        let (shells, holes, invalid_rings_candidates) = extract_and_classify_rings(rings_with_ids);
+        let (shells, holes, invalid_rings_candidates) =
+            extract_and_classify_rings(rings_with_ids, self.options.node_input);
 
         if let Some(ref mut d) = diag {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
@@ -405,15 +408,18 @@ pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
     }
 }
 
+type ClassifiedRing = (Polygon3D, Option<RingGraphIdentity>);
+
 pub(crate) fn extract_and_classify_rings(
-    rings_with_ids: Vec<(Vec<Coord3D>, Vec<u32>)>,
-) -> (Vec<Polygon3D>, Vec<Polygon3D>, Vec<Polygon3D>) {
+    rings_with_ids: Vec<ExtractedRing>,
+    include_graph_ids: bool,
+) -> (Vec<ClassifiedRing>, Vec<ClassifiedRing>, Vec<Polygon3D>) {
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
     let mut holes = Vec::with_capacity(rings_with_ids.len() / 2);
     let mut invalid_rings_candidates = Vec::new();
 
-    for (ring_coords, ring_ids) in rings_with_ids {
-        let poly3d = Polygon3D::new(ring_coords, vec![], ring_ids, vec![]);
+    for ring in rings_with_ids {
+        let poly3d = Polygon3D::new(ring.coords, vec![], ring.line_ids, vec![]);
         let area = poly3d.signed_area_2d();
 
         if !area.is_finite() || area.abs() < 1e-9 {
@@ -421,10 +427,14 @@ pub(crate) fn extract_and_classify_rings(
             continue;
         }
 
+        let ring = (
+            poly3d,
+            include_graph_ids.then(|| RingGraphIdentity::new(ring.edge_keys, ring.node_ids)),
+        );
         if area > 0.0 {
-            shells.push(poly3d);
+            shells.push(ring);
         } else {
-            holes.push(poly3d);
+            holes.push(ring);
         }
     }
 
@@ -433,8 +443,8 @@ pub(crate) fn extract_and_classify_rings(
 
 #[allow(clippy::type_complexity)]
 fn establish_topology(
-    mut shells: Vec<Polygon3D>,
-    holes: Vec<Polygon3D>,
+    shells: Vec<ClassifiedRing>,
+    holes: Vec<ClassifiedRing>,
     options: &PolygonizerOptions,
 ) -> (
     Vec<Polygon3D>,
@@ -444,12 +454,13 @@ fn establish_topology(
     f64,
     ContainmentStats,
 ) {
+    let (mut shells, mut shell_graph_ids): (Vec<_>, Vec<_>) = shells.into_iter().unzip();
     let collect_stats = options.diagnostics.enabled;
     let mut containment_stats = ContainmentStats::default();
     if collect_stats {
         containment_stats.prepared_shells = shells.len();
     }
-    let mut forest = ContainmentForest::new(&shells);
+    let mut forest = ContainmentForest::new_with_graph_ids(&shells, &shell_graph_ids);
 
     if options.extract_only_polygonal {
         let keep_mask = if collect_stats {
@@ -467,27 +478,44 @@ fn establish_topology(
                 forest.record_locator_reuse(&mut containment_stats);
             }
             let mut new_shells = Vec::new();
+            let mut new_shell_graph_ids = Vec::new();
 
-            for (keep, s) in keep_mask.into_iter().zip(shells) {
+            for ((keep, shell), graph_ids) in keep_mask.into_iter().zip(shells).zip(shell_graph_ids)
+            {
                 if keep {
-                    new_shells.push(s);
+                    new_shells.push(shell);
+                    new_shell_graph_ids.push(graph_ids);
                 }
             }
             shells = new_shells;
+            shell_graph_ids = new_shell_graph_ids;
             if collect_stats {
                 containment_stats.prepared_shells += shells.len();
             }
-            forest = ContainmentForest::new(&shells);
+            forest = ContainmentForest::new_with_graph_ids(&shells, &shell_graph_ids);
         }
     }
 
-    let process_hole_assignment =
-        |hole_3d: Polygon3D| -> (Option<usize>, Polygon3D, ContainmentStats) {
+    let process_hole_assignment = |(hole_3d, graph_ids): (
+        Polygon3D,
+        Option<RingGraphIdentity>,
+    )|
+     -> (Option<usize>, Polygon3D, ContainmentStats) {
             let (best_shell_idx, stats) = if collect_stats {
-                forest.assign_hole_with_stats(&hole_3d, &shells, &options.containment.touch_policy)
+                forest.assign_hole_with_graph_ids_and_stats(
+                    &hole_3d,
+                    graph_ids.as_ref(),
+                    &shells,
+                    &options.containment.touch_policy,
+                )
             } else {
                 (
-                    forest.assign_hole(&hole_3d, &shells, &options.containment.touch_policy),
+                    forest.assign_hole_with_graph_ids(
+                        &hole_3d,
+                        graph_ids.as_ref(),
+                        &shells,
+                        &options.containment.touch_policy,
+                    ),
                     ContainmentStats::default(),
                 )
             };
@@ -664,7 +692,7 @@ mod topology_tests {
         );
 
         let (_, _, _, unassigned_count, unassigned_area, _) =
-            establish_topology(vec![], vec![hole], &PolygonizerOptions::default());
+            establish_topology(vec![], vec![(hole, None)], &PolygonizerOptions::default());
 
         assert_eq!(unassigned_count, 1);
         assert!((unassigned_area - 100.0).abs() < 1e-9);
@@ -1041,39 +1069,59 @@ pub(crate) fn guaranteed_interior_probe_prepared(
 }
 
 pub fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+    rings_share_edge_with_count(shell, hole, eps).0
+}
+
+pub(crate) fn rings_share_edge_with_count(
+    shell: &[Coord3D],
+    hole: &[Coord3D],
+    eps: f64,
+) -> (bool, usize) {
     if shell.len() < 2 || hole.len() < 2 {
-        return false;
+        return (false, 0);
     }
 
+    let mut pair_checks = 0;
     // Bolt optimization: using .windows(2) is faster than loop indexing
     // because it eliminates O(N*M) array bounds checks in this hot inner loop.
     for shell_edge in shell.windows(2) {
         let a1 = shell_edge[0].to_coord_2d();
         let a2 = shell_edge[1].to_coord_2d();
         for hole_edge in hole.windows(2) {
+            pair_checks += 1;
             let b1 = hole_edge[0].to_coord_2d();
             let b2 = hole_edge[1].to_coord_2d();
             if segments_overlap_with_length(a1, a2, b1, b2, eps) {
-                return true;
+                return (true, pair_checks);
             }
         }
     }
 
-    false
+    (false, pair_checks)
 }
 
 pub fn rings_touch_at_vertex(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+    rings_touch_at_vertex_with_count(shell, hole, eps).0
+}
+
+pub(crate) fn rings_touch_at_vertex_with_count(
+    shell: &[Coord3D],
+    hole: &[Coord3D],
+    eps: f64,
+) -> (bool, usize) {
     let eps_sq = eps * eps;
+    let mut pair_checks = 0;
     for s_pt in shell {
         for h_pt in hole {
+            pair_checks += 1;
             let dx = s_pt.x - h_pt.x;
             let dy = s_pt.y - h_pt.y;
             if dx * dx + dy * dy <= eps_sq {
-                return true;
+                return (true, pair_checks);
             }
         }
     }
-    false
+    (false, pair_checks)
 }
 
 fn segments_overlap_with_length(

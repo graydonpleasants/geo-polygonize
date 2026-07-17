@@ -87,6 +87,25 @@ pub struct PolygonProvenance {
     pub input_profile_id: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct RingGraphIdentity {
+    pub edge_keys: std::sync::Arc<[(usize, usize)]>,
+    pub node_ids: std::sync::Arc<[usize]>,
+}
+
+impl RingGraphIdentity {
+    pub(crate) fn new(mut edge_keys: Vec<(usize, usize)>, mut node_ids: Vec<usize>) -> Self {
+        edge_keys.sort_unstable();
+        edge_keys.dedup();
+        node_ids.sort_unstable();
+        node_ids.dedup();
+        Self {
+            edge_keys: edge_keys.into(),
+            node_ids: node_ids.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Polygon3D {
     pub exterior: Vec<Coord3D>,
