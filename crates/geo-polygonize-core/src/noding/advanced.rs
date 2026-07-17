@@ -6,6 +6,7 @@ use crate::types::Line3D;
 /// The former implementation did not maintain sweep status across crossings and
 /// could miss intersections. Exact `SnapNoder` noding is the single correctness
 /// path until a distinct advanced backend demonstrates a measurable advantage.
+/// This alias uses `grid_size = 0.0`, so no distance tolerance is applied.
 pub struct AdvancedNoder;
 
 impl Default for AdvancedNoder {
