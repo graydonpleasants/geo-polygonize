@@ -16,5 +16,4 @@ fn main() {
     let _ = geo_polygonize_core::diagnostics::DiagnosticsOptions::export_all(&config);
     let _ = ProvenanceOptions::export_all(&config);
     let _ = DedupPolicy::export_all(&config);
-    let _ = TilingOptions::export_all(&config);
 }

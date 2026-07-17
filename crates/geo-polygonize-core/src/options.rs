@@ -246,11 +246,3 @@ pub enum DedupPolicy {
     KeepAll,
     CanonicalRingHash,
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct TilingOptions {
-    pub ownership_policy: TileOwnershipPolicy,
-    #[serde(default)]
-    pub dedup_policy: DedupPolicy,
-}

@@ -175,39 +175,16 @@ Suggested labels:
 - **Area**: compat, api
 - **Summary**: Add `SnapStrategy::{Grid, GeosCompat}` and documentation hooks.
 - **Blocks**: P2-001
-- **Parallel with**: P2-008, P2-009
 - **Suggested owner**: API / compat
 - **Acceptance**:
   - strategy visible in all bindings
   - fixtures can record active strategy
-
-## P2-008 Z policy
-- **Phase**: 2
-- **Area**: api, core geometry
-- **Summary**: Add explicit `ZPolicy` options.
-- **Blocks**: P2-001
-- **Parallel with**: P2-007, P2-009
-- **Suggested owner**: core geometry
-- **Acceptance**:
-  - current behavior reproducible by explicit option
-
-## P2-009 Snap mode + integer-grid prototype
-- **Phase**: 2
-- **Area**: noding, perf
-- **Summary**: Add `SnapMode` and prototype integerized snapped coordinates.
-- **Blocks**: P1-001, P1-003
-- **Parallel with**: P2-007, P2-008
-- **Suggested owner**: noding / perf
-- **Acceptance**:
-  - integer-grid feature passes goldens
-  - determinism improves on dirty fixtures
 
 ## P2-010 Parametric split accumulation
 - **Phase**: 2
 - **Area**: noding, perf
 - **Summary**: Replace squared-distance split ordering with parametric `t` accumulation.
 - **Blocks**: P1-003
-- **Parallel with**: P2-009
 - **Suggested owner**: noding
 - **Acceptance**:
   - no correctness regressions
@@ -260,7 +237,6 @@ Suggested labels:
 - **Phase**: 3
 - **Area**: tiling
 - **Summary**: Replace centroid-only ownership with named policies.
-- **Blocks**: P2-009
 - **Parallel with**: P3-004
 - **Suggested owner**: tiling / topology
 - **Acceptance**:
@@ -270,7 +246,7 @@ Suggested labels:
 - **Phase**: 3
 - **Area**: tiling, provenance
 - **Summary**: Add canonical ring or edge-set dedup for cross-tile outputs.
-- **Blocks**: P3-003, P2-009
+- **Blocks**: P3-003
 - **Parallel with**: P3-005
 - **Suggested owner**: tiling / hashing
 - **Acceptance**:
@@ -291,30 +267,9 @@ Suggested labels:
 - **Area**: containment, compat
 - **Summary**: Add explicit touch-policy enums and fixture coverage.
 - **Blocks**: P3-005, P2-001
-- **Parallel with**: P3-007
 - **Suggested owner**: topology / compat
 - **Acceptance**:
   - touching-point and touching-edge semantics are fixture-covered
-
-## P3-007 Spatial index abstraction
-- **Phase**: 3
-- **Area**: index
-- **Summary**: Add `SpatialIndex2D` trait and wrap current `rstar` usage.
-- **Blocks**: P3-005
-- **Parallel with**: P3-008
-- **Suggested owner**: index / architecture
-- **Acceptance**:
-  - backend swap behind options is possible
-
-## P3-008 Native packed index backend
-- **Phase**: 3
-- **Area**: index, perf
-- **Summary**: Add native packed static index backend for containment-heavy workloads.
-- **Blocks**: P3-007
-- **Parallel with**: P3-009
-- **Suggested owner**: index / perf
-- **Acceptance**:
-  - measurable win in containment-heavy benches
 
 ## P3-009 Optional advanced noder backend
 - **Phase**: 3
@@ -376,8 +331,6 @@ Suggested labels:
 - P1-002
 - P1-003
 - P1-006
-- P2-008
-- P2-009
 - P2-010
 
 ### Epic C: Scale and hardening
@@ -387,8 +340,6 @@ Suggested labels:
 - P3-003
 - P3-004
 - P3-005
-- P3-007
-- P3-008
 - P3-009
 
 ### Epic D: Compatibility and explainability

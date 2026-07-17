@@ -1,14 +1,4 @@
-use rstar::{Envelope, SelectionFunction, AABB};
-
-pub trait SpatialIndex2D {
-    /// Returns the indices of the elements whose bounding boxes intersect the given `aabb`.
-    fn locate_in_envelope_intersecting<'a>(
-        &'a self,
-        aabb: &AABB<[f64; 2]>,
-    ) -> Box<dyn Iterator<Item = usize> + 'a>;
-}
-
-use rstar::{RTree, RTreeObject};
+use rstar::{Envelope, RTree, RTreeObject, SelectionFunction, AABB};
 
 // Wrapper for Polygon indexable by rstar (2D)
 #[derive(Clone, Debug)]
@@ -55,6 +45,16 @@ impl RStarBackend {
             .locate_with_selection_function(SelectContainingEnvelope { aabb: *aabb })
             .map(|candidate| candidate.index)
     }
+
+    /// Returns the indices of the elements whose bounding boxes intersect the given `aabb`.
+    pub fn locate_in_envelope_intersecting<'a>(
+        &'a self,
+        aabb: &AABB<[f64; 2]>,
+    ) -> impl Iterator<Item = usize> + 'a {
+        self.tree
+            .locate_in_envelope_intersecting(aabb)
+            .map(|cand| cand.index)
+    }
 }
 
 struct SelectContainingEnvelope {
@@ -68,19 +68,6 @@ impl SelectionFunction<IndexedEnvelope> for SelectContainingEnvelope {
 
     fn should_unpack_leaf(&self, leaf: &IndexedEnvelope) -> bool {
         leaf.aabb.contains_envelope(&self.aabb)
-    }
-}
-
-impl SpatialIndex2D for RStarBackend {
-    fn locate_in_envelope_intersecting<'a>(
-        &'a self,
-        aabb: &AABB<[f64; 2]>,
-    ) -> Box<dyn Iterator<Item = usize> + 'a> {
-        Box::new(
-            self.tree
-                .locate_in_envelope_intersecting(aabb)
-                .map(|cand| cand.index),
-        )
     }
 }
 

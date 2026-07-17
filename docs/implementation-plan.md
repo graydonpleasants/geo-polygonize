@@ -56,15 +56,12 @@ The same conceptual options must be available across Rust core, Python bindings,
 ```rust
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolygonizerOptions {
-	pub target: TargetProfile,
 	pub node_input: bool,
 	pub snap_grid_size: f64,
 	pub extract_only_polygonal: bool,
 	pub snap_strategy: SnapStrategy,
 	pub noding: NodingOptions,
 	pub containment: ContainmentOptions,
-	pub tiling: Option<TilingOptions>,
-	pub z: ZOptions,
 	pub determinism: DeterminismOptions,
 	pub diagnostics: DiagnosticsOptions,
 	pub provenance: ProvenanceOptions,
@@ -74,28 +71,9 @@ pub struct PolygonizerOptions {
 
 ### 3.2 Required enums
 ```rust
-pub enum TargetProfile {
-	Native,
-	WasmSingleThread,
-	WasmThreads,
-}
-
 pub enum SnapStrategy {
 	Grid,
 	GeosCompat,
-}
-
-pub enum SnapMode {
-	FloatExact,
-	FloatEpsilonDedup,
-	IntegerGrid,
-}
-
-pub enum ZPolicy {
-	Ignore,
-	InterpolateAlongEdge,
-	PreferNearestEndpoint,
-	ErrorOnConflict { max_delta: f64 },
 }
 
 pub enum TouchPolicy {
@@ -116,12 +94,10 @@ pub enum TileOwnershipPolicy {
 ```rust
 pub struct NodingOptions {
 	pub backend: NodingBackend,
-	pub snap_mode: SnapMode,
 }
 
 pub struct ContainmentOptions {
 	pub touch_policy: TouchPolicy,
-	pub index_backend: IndexBackend,
 }
 
 pub struct DeterminismOptions {
@@ -210,7 +186,6 @@ pub struct PolygonizerReport {
 	pub snapped_stats: SnapStats,
 	pub intersection_stats: IntersectionStats,
 	pub stage_timings: StageTimings,
-	pub target_profile: TargetProfile,
 	pub snap_strategy: SnapStrategy,
 	pub input_profile_id: Option<String>,
 }
@@ -416,8 +391,7 @@ pub struct PolygonOutput {
 - report mode explains profile/provenance mismatches
 
 ### M5
-- spatial index abstraction
-- packed native index
+- `rstar` containment index
 - adaptive regrid
 - optional advanced noder
 - hardened `geos_compat`
@@ -425,7 +399,6 @@ pub struct PolygonOutput {
 ## 14. Non-Goals for This Document
 
 This document does not fully specify:
-- the final packed index implementation
 - the final advanced noder algorithm
 - every internal memory-layout optimization
 - every future release policy detail

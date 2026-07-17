@@ -2,7 +2,7 @@
 
 This document outlines the strategic improvements planned for `geo-polygonize` to make it a best-in-class geospatial kernel across Rust, Python, and WebAssembly.
 
-The roadmap is divided into four sequential phases. Each phase contains specific modules, or “agent tracks,” to allow for parallel development and minimize conflicts. The main architectural direction is to turn today’s implicit behavior into explicit, testable policy: target-aware backends, deterministic output, precision policy, Z policy, touch policy, tile ownership policy, provenance, and phase-level diagnostics.
+The roadmap is divided into four sequential phases. Each phase contains specific modules, or “agent tracks,” to allow for parallel development and minimize conflicts. The main architectural direction is to turn meaningful behavior into explicit, testable policy without exposing unused configuration.
 
 This roadmap is intentionally implementation-oriented. Each track includes concrete deliverables, dependencies, acceptance criteria, likely code touch points, and notes for safe migration.
 
@@ -15,8 +15,8 @@ By the end of this roadmap, the library should have:
 - deterministic, reproducible polygonization across Rust, Python, and Wasm
 - a canonical `PolygonizerOptions` schema shared across bindings
 - a stable `polygonize_with_options(options)` API across Rust, Python, and Wasm
-- explicit 2D/3D and precision semantics
-- pluggable spatial-index and noding backends selected by `TargetProfile`
+- documented 2D/3D and precision semantics
+- focused spatial-index and noding implementations
 - a containment forest abstraction that centralizes shell/hole logic
 - deterministic tiled polygonization with robust ownership and dedup
 - provenance-aware output, including optional per-polygon boundary line attribution
@@ -34,21 +34,15 @@ By the end of this roadmap, the library should have:
 Anything that changes output or robustness must become a named option, not an implementation accident.
 
 This includes:
-- precision / snap mode
 - snap strategy
 - noding backend
-- index backend
-- Z policy
 - touch policy
 - tile ownership policy
 - determinism / canonical sort policy
 - provenance / report mode behavior
 
-### 2. Separate native and Wasm defaults
-Native and Wasm should share the same semantics where possible, but not the same default internals.
-
-- Native should optimize for throughput and packed static structures.
-- Wasm should optimize for code size, alignment safety, simpler backends, and browser/runtime constraints.
+### 2. Keep native and Wasm semantics aligned
+Platform-specific optimizations should not require public configuration when compile-time selection is sufficient.
 
 ### 3. Prefer deterministic and benchmarkable over clever
 A slower change with stable ordering, explicit diagnostics, and golden coverage is better than a faster opaque change.
@@ -216,7 +210,7 @@ pub struct PolygonizerDiagnostics {
 
 # Phase 2: Core Speed & API Normalization
 
-**Goal**: Normalize public configuration, formalize precision and dimensionality semantics, and deliver the highest-value internal improvements with low conceptual risk.
+**Goal**: Normalize public configuration and deliver the highest-value internal improvements with low conceptual risk.
 
 ## 1. API & Configuration (Agent Track A)
 
@@ -225,7 +219,6 @@ pub struct PolygonizerDiagnostics {
 ### Deliverables
 - canonical `PolygonizerOptions`
 - stable `polygonize_with_options(options)` entrypoint in all bindings
-- `TargetProfile`
 - migration path from legacy positional and field-based APIs
 - explicit policy enums
 - diagnostics and provenance toggles
@@ -239,15 +232,12 @@ pub struct PolygonizerDiagnostics {
 ```rust
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PolygonizerOptions {
-	pub target: TargetProfile,
 	pub node_input: bool,
 	pub snap_grid_size: f64,
 	pub extract_only_polygonal: bool,
 	pub snap_strategy: SnapStrategy,
 	pub noding: NodingOptions,
 	pub containment: ContainmentOptions,
-	pub tiling: Option<TilingOptions>,
-	pub z: ZOptions,
 	pub determinism: DeterminismOptions,
 	pub diagnostics: DiagnosticsOptions,
 	pub provenance: ProvenanceOptions,
@@ -257,10 +247,7 @@ pub struct PolygonizerOptions {
 
 ### 1.3 Policy Enums
 - `NodingBackend`
-- `SnapMode`
 - `SnapStrategy`
-- `IndexBackend`
-- `ZPolicy`
 - `TouchPolicy`
 - `TileOwnershipPolicy`
 - `DedupPolicy`
@@ -304,14 +291,9 @@ pub struct PolygonProvenance {
 ### 2.4 Report Mode for Hybrid Scoring / Debug
 - [x] Same fixture run with report mode can explain mismatches by profile and boundary lines.
 
-## 3. Precision, Z Semantics, and Core Noding Cleanup (Agent Track C)
+## 3. Precision and Core Noding Cleanup (Agent Track C)
 
-### 3.1 Snap Mode
-- `FloatExact`
-- `FloatEpsilonDedup`
-- `IntegerGrid`
-
-### 3.2 Integerized Snap-Grid
+### 3.1 Integerized Snap-Grid
 ```rust
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct IPoint {
@@ -320,16 +302,10 @@ pub struct IPoint {
 }
 ```
 
-### 3.3 Parametric Split Accumulation
+### 3.2 Parametric Split Accumulation
 - [x] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
 
-### 3.4 Z Policy
-- `Ignore`
-- `InterpolateAlongEdge`
-- `PreferNearestEndpoint`
-- `ErrorOnConflict { max_delta }`
-
-### 3.5 Remove Avoidable Clones
+### 3.3 Remove Avoidable Clones
 - [x] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
 
 ## 4. Observability & SIMD / Runtime Dispatch (Agent Track D)
@@ -360,9 +336,8 @@ pub struct IPoint {
 - [x] Build a containment forest once and reuse it for shell/hole classification.
 - [x] Implement named touch policies.
 
-## 3. Spatial Index Backends & Advanced Noders (Agent Track C)
-- [x] Add `SpatialIndex2D` trait and wrap current `rstar` usage.
-- [x] Add native packed static index backend.
+## 3. Spatial Index & Advanced Noders (Agent Track C)
+- [x] Use `rstar` for containment indexing.
 - [x] Prototype optional advanced noder backend.
 
 ## 4. Supply Chain, Release, and OSS Quality (Agent Track D)
@@ -430,33 +405,29 @@ pub struct IPoint {
 ## Second wave
 8. stable `polygonize_with_options(options)` across bindings
 9. optional `line_ids` + provenance payload
-10. `ZPolicy`
-11. `SnapMode` with integer-grid feature
-12. `SnapStrategy` with `grid` and `geos_compat`
-13. parametric split accumulation
-14. tile ownership policies
-15. [x] parallel `UniformGrid::new`
+10. `SnapStrategy` with `grid` and `geos_compat`
+11. parametric split accumulation
+12. tile ownership policies
+13. [x] parallel `UniformGrid::new`
 
 ## Third wave
-16. `ContainmentForest`
-17. `SpatialIndex2D` trait + `rstar` adapter
-18. native packed index backend
-19. adaptive regrid
-20. [x] optional advanced noder
-21. hardened mismatch explainability by profile and provenance
+14. `ContainmentForest`
+15. adaptive regrid
+16. [x] optional advanced noder
+17. hardened mismatch explainability by profile and provenance
 
 ## Fourth wave
-22. sweep-line or monotone-chain noder + arbitrary-precision fallback
-23. native zero-copy GeoArrow + GeoParquet/FlatGeobuf streaming IO
-24. out-of-core / streaming processing with disk-backed spatial indexing
-25. WebAssembly Multithreading + Native WGPU acceleration
-26. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
-27. Robust geometry buffering via offset curves
+18. sweep-line or monotone-chain noder + arbitrary-precision fallback
+19. native zero-copy GeoArrow + GeoParquet/FlatGeobuf streaming IO
+20. out-of-core / streaming processing with disk-backed spatial indexing
+21. WebAssembly Multithreading + Native WGPU acceleration
+22. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
+23. Robust geometry buffering via offset curves
 
 ## Fifth wave
-28. Incremental and real-time topology (stateful Polygonizer)
-29. Geodesic / Non-Planar coordinates (ellipsoidal noding and intersection)
-30. Database extensions (DuckDB extension, PostGIS UDFs)
+24. Incremental and real-time topology (stateful Polygonizer)
+25. Geodesic / Non-Planar coordinates (ellipsoidal noding and intersection)
+26. Database extensions (DuckDB extension, PostGIS UDFs)
 
 ---
 
@@ -472,8 +443,7 @@ pub struct IPoint {
 ## Agent Track B
 - panic-safe boundaries
 - Arrow/Wasm validation
-- Z policy
-- snap mode / integer grid
+- integer grid internals
 - clone reduction
 
 ## Agent Track C
@@ -491,8 +461,7 @@ pub struct IPoint {
 ## Agent Track E
 - containment forest
 - tile ownership + dedup
-- index abstraction
-- packed index experiments
+- containment indexing
 - adaptive grid
 - compatibility explainability
 
@@ -578,8 +547,7 @@ The roadmap is complete when:
 - [x] report mode explains mismatches by profile and provenance
 
 ## Milestone M5: Native Scale Features + Compatibility Hardening
-- [x] `SpatialIndex2D` abstraction
-- [x] packed native index
+- [x] `rstar` containment index
 - [x] adaptive regrid
 - [x] optional advanced noder prototype
 - [x] hardened `geos_compat` mode with scale guidance
