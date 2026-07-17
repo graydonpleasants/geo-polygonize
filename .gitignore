@@ -25,3 +25,10 @@ python_bench_output.txt
 wasm_bench_output.txt
 benchmark_report.md
 crates/geo-polygonize-core/benches/wasm_bench/pkg/
+
+# Generated documentation (created by `npm run docs:gen`).
+docs/examples/
+docs/reference/generated/
+docs/reference/options/
+docs/reference/options.md
+docs/reference/wasm-api.md

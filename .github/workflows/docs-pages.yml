@@ -63,9 +63,6 @@ jobs:
       - name: Generate Docs Metadata
         run: npm run docs:gen
 
-      - name: Verify Clean Generated Output
-        run: git diff --exit-code docs/reference/generated/
-
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
