@@ -118,6 +118,12 @@ pub fn run_cfb_fixture(fixture: &CfbFixture) {
             "{} invalid-ring count",
             fixture.case_id
         );
+        assert_eq!(
+            result.diagnostics.as_ref().unwrap().invalid_ring_count,
+            fixture.expected.invalid_ring_count,
+            "{} diagnostic invalid-ring count",
+            fixture.case_id
+        );
 
         if !fixture.expected.boundary_line_ids.is_empty() {
             let mut actual: Vec<u64> = result
