@@ -1,8 +1,9 @@
 use crate::arrow_api::polygonize_arrow;
+use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::error::ArrowError;
-use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
-use geoarrow::array::GeoArrowArray;
+use arrow::ffi::{from_ffi_and_data_type, FFI_ArrowArray, FFI_ArrowSchema};
+use geoarrow::array::IntoArrow;
 use std::convert::TryFrom;
 
 #[repr(C)]
@@ -163,7 +164,7 @@ unsafe fn polygonize_ffi_internal(
     };
 
     let array_val = std::ptr::replace(input_array, FFI_ArrowArray::empty());
-    let arrow_data = match from_ffi(array_val, &*input_schema) {
+    let arrow_data = match from_ffi_and_data_type(array_val, field.data_type().clone()) {
         Ok(data) => data,
         Err(_) => return 2,
     };
@@ -171,9 +172,11 @@ unsafe fn polygonize_ffi_internal(
 
     match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
         Ok(polygon_array) => {
-            let field = polygon_array.data_type().to_field("geometry", true);
-            let array_ref = polygon_array.into_array_ref();
-            let data = array_ref.to_data();
+            let extension_type = polygon_array.extension_type().clone();
+            let arrow_array = polygon_array.into_arrow();
+            let field = Field::new("geometry", arrow_array.data_type().clone(), true)
+                .with_extension_type(extension_type);
+            let data = arrow_array.into_data();
 
             let ffi_array = FFI_ArrowArray::new(&data);
             std::ptr::write(output_array, ffi_array);
