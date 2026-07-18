@@ -5,12 +5,13 @@ use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
 use crate::options::DiagnosticsOptions;
-use crate::options::{DeterminismOptions, PolygonizerOptions};
+use crate::options::{DeterminismOptions, PolygonizerOptions, SnapStrategy};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
+use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -156,7 +157,7 @@ impl Polygonizer {
 
         let mut all_segments: Vec<Line3D> = self.input_lines.clone();
 
-        let segments;
+        let mut segments;
 
         if self.options.node_input {
             let mut pre_snap_vertex_candidates = 0;
@@ -201,6 +202,11 @@ impl Polygonizer {
                 crate::options::NodingBackend::Snap => {
                     let noder = SnapNoder::new(self.options.snap_grid_size)
                         .with_snap_strategy(self.options.snap_strategy.clone());
+                    // ponytail: one source coordinate per snapped node preserves connectivity;
+                    // use per-line restoration only if #798 can avoid reopening gaps.
+                    let restore_coordinates =
+                        matches!(self.options.snap_strategy, SnapStrategy::GeosCompat)
+                            .then(|| restored_coordinates(&noder, &all_segments));
                     if let Some(diagnostics) = diagnostics {
                         let (noded, stats, mut work_stats) = noder.node_with_stats(all_segments);
                         work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
@@ -215,6 +221,9 @@ impl Polygonizer {
                         segments = noded;
                     } else {
                         segments = noder.node(all_segments);
+                    }
+                    if let Some(coordinates) = restore_coordinates {
+                        restore_noded_coordinates(&mut segments, &coordinates);
                     }
                 }
                 crate::options::NodingBackend::Advanced => {
@@ -356,6 +365,48 @@ impl Polygonizer {
             invalid_rings,
             diagnostics: diag,
         })
+    }
+}
+
+fn restored_coordinates(noder: &SnapNoder, lines: &[Line3D]) -> HashMap<(u64, u64), Coord3D> {
+    let mut coordinates = HashMap::with_capacity(lines.len() * 2);
+    for coord in lines.iter().flat_map(|line| [line.start, line.end]) {
+        let snapped = noder.snap(coord);
+        let key = coordinate_key(snapped);
+        coordinates
+            .entry(key)
+            .and_modify(|current: &mut Coord3D| {
+                let distance = (coord.x - snapped.x).powi(2) + (coord.y - snapped.y).powi(2);
+                let current_distance =
+                    (current.x - snapped.x).powi(2) + (current.y - snapped.y).powi(2);
+                if distance.total_cmp(&current_distance).is_lt()
+                    || (distance == current_distance
+                        && (coord.x, coord.y, coord.z) < (current.x, current.y, current.z))
+                {
+                    *current = coord;
+                }
+            })
+            .or_insert(coord);
+    }
+    coordinates
+}
+
+fn coordinate_key(coord: Coord3D) -> (u64, u64) {
+    let x = if coord.x == 0.0 { 0.0 } else { coord.x };
+    let y = if coord.y == 0.0 { 0.0 } else { coord.y };
+    (x.to_bits(), y.to_bits())
+}
+
+fn restore_noded_coordinates(lines: &mut [Line3D], coordinates: &HashMap<(u64, u64), Coord3D>) {
+    for line in lines {
+        line.start = coordinates
+            .get(&coordinate_key(line.start))
+            .copied()
+            .unwrap_or(line.start);
+        line.end = coordinates
+            .get(&coordinate_key(line.end))
+            .copied()
+            .unwrap_or(line.end);
     }
 }
 
@@ -1226,6 +1277,31 @@ mod tests {
     fn test_with_snap_grid() {
         let polygonizer = Polygonizer::new().with_snap_grid(0.123);
         assert_eq!(polygonizer.snap_grid_size, 0.123);
+    }
+
+    #[test]
+    fn geos_compat_preserves_source_coordinates() {
+        let points = [
+            Coord3D::new(0.04, 0.04, 0.0),
+            Coord3D::new(10.04, 0.04, 0.0),
+            Coord3D::new(10.04, 10.04, 0.0),
+            Coord3D::new(0.04, 10.04, 0.0),
+        ];
+        let lines = (0..4)
+            .map(|i| Line3D::new(points[i], points[(i + 1) % 4], i as u32))
+            .collect::<Vec<_>>();
+        let mut options = PolygonizerOptions::default();
+        options.node_input = true;
+        options.snap_grid_size = 0.1;
+        options.snap_strategy = SnapStrategy::GeosCompat;
+
+        let result = polygonize_with_options(&lines, &options).unwrap();
+
+        assert_eq!(result.polygons.len(), 1);
+        assert!(points.iter().all(|point| result.polygons[0]
+            .exterior
+            .iter()
+            .any(|actual| actual == point)));
     }
 
     #[test]
