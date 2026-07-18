@@ -259,12 +259,13 @@ pub enum SnapStrategy {
 
 ### 7.2 Intended meaning
 `Grid`
-- native deterministic snap behavior
-- optimized for stable, explicit library semantics
+- uses the precision grid for topology and output coordinates
+- provides stable, explicit native snap-rounding semantics
 
 `GeosCompat`
-- compatibility-oriented strategy targeting GEOS/Shapely parity where feasible
-- may trade some determinism or implementation elegance for expected external behavior
+- uses the grid for topology, then restores one deterministic nearest source coordinate per node
+- targets Shapely `snap` followed by full-precision noding and polygonization, not `set_precision`
+- preserves source-coordinate fidelity where many-to-one snaps do not make that ambiguous
 
 ### 7.3 Documentation requirements
 The docs must clearly explain:

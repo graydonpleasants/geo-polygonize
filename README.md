@@ -145,6 +145,12 @@ The default return shape is a stable dictionary with `polygons` as
 `SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
 `Polygon` objects.
 
+`SnapStrategy::Grid` keeps topology and output coordinates on the configured
+precision grid. The CFB profile uses `GeosCompat`: the grid establishes robust
+topology, then output nodes regain deterministic source coordinates to better
+match Shapely `snap` plus full-precision noding. It is not `set_precision`
+emulation, and exact parity is not guaranteed for many-to-one snaps.
+
 For Shapely parity checks, compare report-mode outputs with the built-in
 mismatch helper:
 
