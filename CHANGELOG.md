@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.0...geo-polygonize-v0.39.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **github:** restore JavaScript CI and npm publishing ([#816](https://github.com/graydonpleasants/geo-polygonize/issues/816)) ([315d56b](https://github.com/graydonpleasants/geo-polygonize/commit/315d56b8c77941ad33d4a57711bf0c2df3b4765d))
+
 ## [0.39.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.38.1...geo-polygonize-v0.39.0) (2026-07-18)
 
 
