@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.38.0...geo-polygonize-v0.38.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **core:** decode GeoParquet before polygonizing ([#810](https://github.com/graydonpleasants/geo-polygonize/issues/810)) ([556e416](https://github.com/graydonpleasants/geo-polygonize/commit/556e4162531aea0fcf219ebbd4a4ef8d2bbea430))
+
 ## [0.38.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.8...geo-polygonize-v0.38.0) (2026-07-18)
 
 
