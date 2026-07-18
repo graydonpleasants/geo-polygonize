@@ -317,7 +317,6 @@ impl Polygonizer {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
             d.shell_count = shells.len();
             d.hole_count = holes.len();
-            d.invalid_ring_count = invalid_rings_candidates.len();
         }
 
         let t_containment_start = get_time();
@@ -356,6 +355,7 @@ impl Polygonizer {
             d.unassigned_hole_count = unassigned_hole_count;
             d.unassigned_hole_area = unassigned_hole_area;
             d.containment_stats = containment_stats;
+            d.invalid_ring_count = invalid_rings.len();
             // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
         }
         Ok(PolygonizerResult {
