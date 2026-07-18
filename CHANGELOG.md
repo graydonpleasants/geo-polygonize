@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.38.1...geo-polygonize-v0.39.0) (2026-07-18)
+
+
+### Features
+
+* **core:** add FlatGeobuf file polygonization ([#813](https://github.com/graydonpleasants/geo-polygonize/issues/813)) ([848dca5](https://github.com/graydonpleasants/geo-polygonize/commit/848dca59936da7675799cb027819d4547e26fc85))
+
 ## [0.38.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.38.0...geo-polygonize-v0.38.1) (2026-07-18)
 
 
