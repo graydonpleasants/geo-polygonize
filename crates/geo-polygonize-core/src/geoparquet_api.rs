@@ -2,11 +2,11 @@ use crate::arrow_api::polygonize_arrow;
 use crate::error::PolygonizeError;
 use crate::options::PolygonizerOptions;
 use arrow::array::Array;
-use arrow::datatypes::{Field, Schema};
+use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
 use geoarrow::array::GeoArrowArray;
 use geoarrow::datatypes::CoordType;
-use geoparquet::reader::GeoParquetReaderBuilder;
+use geoparquet::reader::{GeoParquetReaderBuilder, GeoParquetRecordBatchReader};
 use geoparquet::writer::{GeoParquetRecordBatchEncoder, GeoParquetWriterOptions};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
@@ -35,7 +35,7 @@ pub fn polygonize_geoparquet_file(
         }
     })?;
 
-    let _schema = if let Some(meta) = &geo_meta {
+    let schema = if let Some(meta) = &geo_meta {
         // True = convert geometries to geoarrow from wkb, Interleaved
 
         builder
@@ -52,6 +52,11 @@ pub fn polygonize_geoparquet_file(
         .map_err(|e| PolygonizeError::InvalidGeometry {
             reason: e.to_string(),
         })?;
+    let reader = GeoParquetRecordBatchReader::try_new(reader, schema).map_err(|e| {
+        PolygonizeError::InvalidGeometry {
+            reason: e.to_string(),
+        }
+    })?;
 
     let out_file = File::create(output_path).map_err(|e| PolygonizeError::InvalidGeometry {
         reason: e.to_string(),
@@ -74,12 +79,12 @@ pub fn polygonize_geoparquet_file(
 
             if field.name() == geometry_column_name {
                 let polygon_array = polygonize_arrow(col.as_ref(), field, options.clone())?;
+                let new_field = Arc::new(
+                    polygon_array
+                        .data_type()
+                        .to_field(field.name(), field.is_nullable()),
+                );
                 let arr_ref = polygon_array.into_array_ref();
-                let new_field = Arc::new(Field::new(
-                    field.name(),
-                    arr_ref.data_type().clone(),
-                    field.is_nullable(),
-                ));
                 actual_new_fields.push(new_field);
                 new_columns.push(arr_ref);
             } else {
