@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.2...geo-polygonize-v0.39.3) (2026-07-18)
+
+
+### Performance Improvements
+
+* **core:** reduce FFI allocation overhead ([#824](https://github.com/graydonpleasants/geo-polygonize/issues/824)) ([00a6651](https://github.com/graydonpleasants/geo-polygonize/commit/00a6651b2a4812dda92a7df811216e500a3ef4bc))
+
 ## [0.39.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.1...geo-polygonize-v0.39.2) (2026-07-18)
 
 
