@@ -1,9 +1,11 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use fearless_simd::{dispatch, f64x4, prelude::*, Level};
 use geo::algorithm::indexed::IntervalTreeMultiPolygon;
 use geo::{Contains, Coord, MultiPolygon};
 use geo_polygonize_core::containment::ContainmentForest;
 use geo_polygonize_core::options::{PolygonizerOptions, TouchPolicy};
 use geo_polygonize_core::utils::simd::SimdRing;
+use geo_polygonize_core::utils::soa::SoALines;
 use geo_polygonize_core::{Coord3D, Line3D, Polygon3D, Polygonizer};
 use std::f64::consts::PI;
 
@@ -81,6 +83,290 @@ fn locator_query_points(count: usize) -> Vec<Coord<f64>> {
             }
         })
         .collect()
+}
+
+fn scalar_contains(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let mut crossings = 0;
+    for i in 0..len.saturating_sub(1) {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+    }
+    crossings % 2 != 0
+}
+
+#[inline(always)]
+fn fearless_contains<S, V>(simd: S, x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool
+where
+    S: Simd,
+    V: SimdFloat<S, Element = f64>,
+{
+    let px = V::splat(simd, point.x);
+    let py = V::splat(simd, point.y);
+    let n = len.saturating_sub(1);
+    let mut crossings = 0;
+    let mut i = 0;
+
+    while i + V::N <= n {
+        let xi = V::from_slice(simd, &x[i..i + V::N]);
+        let yi = V::from_slice(simd, &y[i..i + V::N]);
+        let xj = V::from_slice(simd, &x[i + 1..i + V::N + 1]);
+        let yj = V::from_slice(simd, &y[i + 1..i + V::N + 1]);
+        let in_range = yi.simd_gt(py) ^ yj.simd_gt(py);
+        let intersect_x = ((xj - xi) * (py - yi) / (yj - yi)) + xi;
+        crossings += (in_range & intersect_x.simd_gt(px))
+            .to_bitmask()
+            .count_ones();
+        i += V::N;
+    }
+
+    while i < n {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+        i += 1;
+    }
+    crossings % 2 != 0
+}
+
+#[inline(always)]
+fn count_fixed<S: Simd>(simd: S, x: &[f64], y: &[f64], len: usize, points: &[Coord<f64>]) -> usize {
+    points
+        .iter()
+        .filter(|point| fearless_contains::<S, f64x4<S>>(simd, x, y, len, **point))
+        .count()
+}
+
+#[inline(always)]
+fn count_natural<S: Simd>(
+    simd: S,
+    x: &[f64],
+    y: &[f64],
+    len: usize,
+    points: &[Coord<f64>],
+) -> usize {
+    points
+        .iter()
+        .filter(|point| fearless_contains::<S, S::f64s>(simd, x, y, len, **point))
+        .count()
+}
+
+fn aabb_lines(count: usize) -> Vec<Line3D> {
+    (0..count)
+        .map(|i| {
+            let x = (i % 256) as f64;
+            let y = (i / 256) as f64;
+            Line3D::new(
+                Coord3D::new(x, y, 0.0),
+                Coord3D::new(x + 0.75, y + 0.5, 0.0),
+                i as u32,
+            )
+        })
+        .collect()
+}
+
+fn bbox(line: Line3D) -> (f64, f64, f64, f64) {
+    (
+        line.start.x.min(line.end.x),
+        line.start.y.min(line.end.y),
+        line.start.x.max(line.end.x),
+        line.start.y.max(line.end.y),
+    )
+}
+
+fn scalar_aabb_count(lines: &[Line3D], query: Line3D) -> usize {
+    let (q_min_x, q_min_y, q_max_x, q_max_y) = bbox(query);
+    lines
+        .iter()
+        .filter(|line| {
+            let (min_x, min_y, max_x, max_y) = bbox(**line);
+            q_min_x <= max_x && q_max_x >= min_x && q_min_y <= max_y && q_max_y >= min_y
+        })
+        .count()
+}
+
+fn wide_aabb_count(soa: &SoALines, query: Line3D) -> usize {
+    (0..soa.len())
+        .step_by(4)
+        .map(|i| soa.intersects_bbox_batch(query, i).count_ones() as usize)
+        .sum()
+}
+
+#[inline(always)]
+fn fearless_aabb_count<S, V>(simd: S, soa: &SoALines, len: usize, query: Line3D) -> usize
+where
+    S: Simd,
+    V: SimdFloat<S, Element = f64>,
+{
+    let (q_min_x, q_min_y, q_max_x, q_max_y) = bbox(query);
+    let q_min_x_v = V::splat(simd, q_min_x);
+    let q_min_y_v = V::splat(simd, q_min_y);
+    let q_max_x_v = V::splat(simd, q_max_x);
+    let q_max_y_v = V::splat(simd, q_max_y);
+    let mut matches = 0;
+    let mut i = 0;
+
+    while i + V::N <= len {
+        let min_x = V::from_slice(simd, &soa.min_x[i..i + V::N]);
+        let min_y = V::from_slice(simd, &soa.min_y[i..i + V::N]);
+        let max_x = V::from_slice(simd, &soa.max_x[i..i + V::N]);
+        let max_y = V::from_slice(simd, &soa.max_y[i..i + V::N]);
+        let overlap = q_min_x_v.simd_le(max_x)
+            & q_max_x_v.simd_ge(min_x)
+            & q_min_y_v.simd_le(max_y)
+            & q_max_y_v.simd_ge(min_y);
+        matches += overlap.to_bitmask().count_ones() as usize;
+        i += V::N;
+    }
+
+    while i < len {
+        if q_min_x <= soa.max_x[i]
+            && q_max_x >= soa.min_x[i]
+            && q_min_y <= soa.max_y[i]
+            && q_max_y >= soa.min_y[i]
+        {
+            matches += 1;
+        }
+        i += 1;
+    }
+    matches
+}
+
+#[inline(always)]
+fn aabb_count_fixed<S: Simd>(simd: S, soa: &SoALines, len: usize, query: Line3D) -> usize {
+    fearless_aabb_count::<S, f64x4<S>>(simd, soa, len, query)
+}
+
+#[inline(always)]
+fn aabb_count_natural<S: Simd>(simd: S, soa: &SoALines, len: usize, query: Line3D) -> usize {
+    fearless_aabb_count::<S, S::f64s>(simd, soa, len, query)
+}
+
+fn bench_fearless_point_in_ring(c: &mut Criterion) {
+    let level = Level::new();
+    let points = locator_query_points(1_024);
+    let mut group = c.benchmark_group("fearless_simd/point_in_ring");
+
+    for edges in [64, 256, 1_024, 16_384] {
+        let ring = circle_polygon(0.0, 0.0, 100.0, edges);
+        let wide = SimdRing::new_3d(&ring.exterior);
+        let len = ring.exterior.len();
+        let expected = points
+            .iter()
+            .filter(|point| scalar_contains(&wide.x, &wide.y, len, **point))
+            .count();
+        assert_eq!(
+            expected,
+            points.iter().filter(|point| wide.contains(**point)).count()
+        );
+        assert_eq!(
+            expected,
+            dispatch!(level, simd => count_fixed(simd, &wide.x, &wide.y, len, &points))
+        );
+        assert_eq!(
+            expected,
+            dispatch!(level, simd => count_natural(simd, &wide.x, &wide.y, len, &points))
+        );
+
+        group.throughput(Throughput::Elements((edges * points.len()) as u64));
+        group.bench_function(BenchmarkId::new("scalar", edges), |b| {
+            b.iter(|| {
+                black_box(&points)
+                    .iter()
+                    .filter(|point| scalar_contains(&wide.x, &wide.y, len, **point))
+                    .count()
+            });
+        });
+        group.bench_function(BenchmarkId::new("wide_multiversion", edges), |b| {
+            b.iter(|| {
+                black_box(&points)
+                    .iter()
+                    .filter(|point| wide.contains(**point))
+                    .count()
+            });
+        });
+        group.bench_function(BenchmarkId::new("fearless_fixed_f64x4", edges), |b| {
+            b.iter(|| {
+                dispatch!(level, simd => count_fixed(
+                    simd,
+                    &wide.x,
+                    &wide.y,
+                    len,
+                    black_box(&points)
+                ))
+            });
+        });
+        group.bench_function(BenchmarkId::new("fearless_natural", edges), |b| {
+            b.iter(|| {
+                dispatch!(level, simd => count_natural(
+                    simd,
+                    &wide.x,
+                    &wide.y,
+                    len,
+                    black_box(&points)
+                ))
+            });
+        });
+    }
+    group.finish();
+}
+
+fn bench_fearless_aabb_scan(c: &mut Criterion) {
+    let level = Level::new();
+    let query = Line3D::new(
+        Coord3D::new(64.0, 8.0, 0.0),
+        Coord3D::new(192.0, 192.0, 0.0),
+        0,
+    );
+    let mut group = c.benchmark_group("fearless_simd/soa_aabb_scan");
+
+    for count in [256, 4_096, 65_536] {
+        let lines = aabb_lines(count);
+        let soa = SoALines::new(&lines);
+        let expected = scalar_aabb_count(&lines, query);
+        assert_eq!(expected, wide_aabb_count(&soa, query));
+        assert_eq!(
+            expected,
+            dispatch!(level, simd => aabb_count_fixed(simd, &soa, lines.len(), query))
+        );
+        assert_eq!(
+            expected,
+            dispatch!(level, simd => aabb_count_natural(simd, &soa, lines.len(), query))
+        );
+
+        group.throughput(Throughput::Elements(count as u64));
+        group.bench_function(BenchmarkId::new("scalar", count), |b| {
+            b.iter(|| scalar_aabb_count(black_box(&lines), query));
+        });
+        group.bench_function(BenchmarkId::new("wide_multiversion", count), |b| {
+            b.iter(|| wide_aabb_count(black_box(&soa), query));
+        });
+        group.bench_function(BenchmarkId::new("fearless_fixed_f64x4", count), |b| {
+            b.iter(|| {
+                dispatch!(level, simd => aabb_count_fixed(
+                    simd,
+                    black_box(&soa),
+                    lines.len(),
+                    query
+                ))
+            });
+        });
+        group.bench_function(BenchmarkId::new("fearless_natural", count), |b| {
+            b.iter(|| {
+                dispatch!(level, simd => aabb_count_natural(
+                    simd,
+                    black_box(&soa),
+                    lines.len(),
+                    query
+                ))
+            });
+        });
+    }
+    group.finish();
 }
 
 fn bench_point_locators(c: &mut Criterion) {
@@ -335,6 +621,8 @@ fn bench_end_to_end(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_fearless_point_in_ring,
+    bench_fearless_aabb_scan,
     bench_point_locators,
     bench_preparation,
     bench_filtering,
