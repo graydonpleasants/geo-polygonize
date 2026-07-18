@@ -4,6 +4,8 @@ use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGt;
 
+const SCALAR_MIN_COORDS: usize = 257;
+
 pub struct SimdRing {
     pub x: Vec<f64>,
     pub y: Vec<f64>,
@@ -54,8 +56,24 @@ impl SimdRing {
             return false;
         }
 
-        contains_impl(&self.x, &self.y, self.len, point)
+        if self.len >= SCALAR_MIN_COORDS {
+            contains_scalar(&self.x, &self.y, self.len, point)
+        } else {
+            contains_simd(&self.x, &self.y, self.len, point)
+        }
     }
+}
+
+fn contains_scalar(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let mut crossings = 0;
+    for i in 0..len - 1 {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+    }
+    crossings % 2 != 0
 }
 
 #[cfg_attr(
@@ -70,7 +88,7 @@ impl SimdRing {
         "x86+sse2",
     ))
 )]
-fn contains_impl(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+fn contains_simd(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
     let px = f64x4::splat(point.x);
     let py = f64x4::splat(point.y);
 
@@ -358,6 +376,36 @@ mod tests {
                     test_point, p1, p2, p3
                 );
             }
+        }
+    }
+
+    #[test]
+    fn adaptive_scalar_matches_simd() {
+        let mut coords: Vec<_> = (0..256)
+            .map(|i| {
+                let angle = std::f64::consts::TAU * i as f64 / 256.0;
+                Coord {
+                    x: angle.cos() * 10.0,
+                    y: angle.sin() * 10.0,
+                }
+            })
+            .collect();
+        coords.push(coords[0]);
+        let ring = SimdRing::new(&coords);
+
+        for point in [
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 9.0, y: 0.0 },
+            Coord { x: 11.0, y: 0.0 },
+        ] {
+            assert_eq!(
+                contains_scalar(&ring.x, &ring.y, ring.len, point),
+                contains_simd(&ring.x, &ring.y, ring.len, point)
+            );
+            assert_eq!(
+                ring.contains(point),
+                contains_scalar(&ring.x, &ring.y, ring.len, point)
+            );
         }
     }
 
