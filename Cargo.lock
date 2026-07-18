@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-core"
-version = "0.37.7"
+version = "0.37.8"
 dependencies = [
  "approx",
  "arrow",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-wasm"
-version = "0.37.7"
+version = "0.37.8"
 dependencies = [
  "arrow",
  "arrow-ipc",
