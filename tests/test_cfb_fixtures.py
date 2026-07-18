@@ -54,12 +54,16 @@ def _run_fixture(path):
     assert len(result.get("cut_edges", [])) == expected["cutEdgeCount"]
     assert len(result["invalid_rings"]) == expected["invalidRingCount"]
 
+    def ring_area(coords):
+        ring = np.asarray(coords)
+        x = ring[:, 0] - ring[0, 0]
+        y = ring[:, 1] - ring[0, 1]
+        return abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2.0)
+
     area = 0.0
     for polygon in result["polygons"]:
-        shell = np.asarray(polygon.shell)
-        x = shell[:, 0]
-        y = shell[:, 1]
-        area += abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2.0)
+        area += ring_area(polygon.shell)
+        area -= sum(ring_area(hole) for hole in polygon.holes)
 
     assert area == pytest.approx(expected["totalArea"], abs=expected.get("areaTolerance", 1e-6))
 
