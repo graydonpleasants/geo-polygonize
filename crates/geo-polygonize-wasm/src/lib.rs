@@ -704,12 +704,17 @@ fn polygonize_and_flatten(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::datatypes::Schema;
-    use arrow::record_batch::RecordBatch;
-    use arrow_ipc::writer::StreamWriter;
     use geoarrow::array::PolygonArray;
     use std::sync::Arc;
     use wasm_bindgen_test::*;
+
+    #[allow(dead_code)]
+    mod geoarrow_reference {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/geoarrow/reference.rs"
+        ));
+    }
 
     #[wasm_bindgen_test]
     fn test_polygonize_geoarrow_empty() {
@@ -717,41 +722,9 @@ mod tests {
         assert!(result.is_err());
     }
 
-    fn generate_valid_geoarrow_ipc() -> Vec<u8> {
-        let coord0 = geo::Coord { x: 0.0, y: 0.0 };
-        let coord1 = geo::Coord { x: 10.0, y: 0.0 };
-        let coord2 = geo::Coord { x: 10.0, y: 10.0 };
-        let coord3 = geo::Coord { x: 0.0, y: 10.0 };
-
-        let line_string = geo::LineString::new(vec![coord0, coord1, coord2, coord3, coord0]);
-
-        use geoarrow::array::LineStringBuilder;
-        use geoarrow::datatypes::{Dimension, LineStringType};
-
-        let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
-        let mut builder = LineStringBuilder::new(typ);
-        builder.push_line_string(Some(&line_string)).unwrap();
-        let input_array = builder.finish();
-
-        use geoarrow::array::GeoArrowArray;
-        let field = input_array.data_type().to_field("geometry", true);
-        let arrow_array = input_array.into_array_ref();
-
-        let schema = Arc::new(Schema::new(vec![field]));
-        let batch = RecordBatch::try_new(schema.clone(), vec![arrow_array]).unwrap();
-
-        let mut buf = Vec::new();
-        {
-            let mut writer = StreamWriter::try_new(&mut buf, &schema).unwrap();
-            writer.write(&batch).unwrap();
-            writer.finish().unwrap();
-        }
-        buf
-    }
-
     #[wasm_bindgen_test]
     fn test_polygonize_geoarrow_valid() {
-        let ipc_bytes = generate_valid_geoarrow_ipc();
+        let ipc_bytes = geoarrow_reference::square_ipc(Arc::new(Default::default()));
         let result = polygonize_geoarrow(&ipc_bytes, false, 0.0, false);
 
         // Ensure success without unwrapping directly which can panic
@@ -782,6 +755,28 @@ mod tests {
 
         use std::convert::TryFrom;
         let poly_array = PolygonArray::try_from((geom_col.as_ref(), geom_field)).unwrap();
-        assert_eq!(poly_array.len(), 1);
+        geoarrow_reference::assert_square(&poly_array);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_polygonize_official_geoarrow_reference_layouts() {
+        for ipc_bytes in [
+            geoarrow_reference::official_separated_ipc(),
+            geoarrow_reference::official_interleaved_ipc(),
+        ] {
+            let out_bytes = polygonize_geoarrow(&ipc_bytes, false, 0.0, false).unwrap();
+            let mut reader =
+                arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(out_bytes), None)
+                    .unwrap();
+            let schema = reader.schema();
+            let batch = reader.next().unwrap().unwrap();
+            let polygons =
+                PolygonArray::try_from((batch.column(0).as_ref(), schema.field(0))).unwrap();
+            assert_eq!(polygons.len(), 0);
+        }
+
+        for ipc_bytes in geoarrow_reference::official_non_xy_ipc() {
+            assert!(polygonize_geoarrow(&ipc_bytes, false, 0.0, false).is_err());
+        }
     }
 }

@@ -7,6 +7,14 @@ use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{Crs, Dimension, Edges, LineStringType, Metadata};
 use std::sync::Arc;
 
+#[allow(dead_code)]
+mod geoarrow_reference {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/geoarrow/reference.rs"
+    ));
+}
+
 #[test]
 fn test_polygonize_arrow_invalid_type_error_path() {
     let array = Float64Array::from(vec![1.0, 2.0, 3.0]);
@@ -73,33 +81,59 @@ fn test_polygonize_arrow_fallback_large_list() {
 
 #[test]
 fn polygonize_arrow_preserves_crs_metadata() {
-    let metadata = Arc::new(Metadata::new(
+    for crs in [
         Crs::from_authority_code("EPSG:3857".to_string()),
-        None,
-    ));
-    let typ = LineStringType::new(Dimension::XY, metadata.clone());
-    let mut builder = LineStringBuilder::new(typ);
-    builder
-        .push_line_string(Some(&geo::LineString::from(vec![
-            (0., 0.),
-            (10., 0.),
-            (10., 10.),
-            (0., 10.),
-            (0., 0.),
-        ])))
-        .unwrap();
-    let input = builder.finish();
-    let field = input.data_type().to_field("geometry", true);
-    let array = input.into_array_ref();
+        Crs::from_wkt2_2019("PROJCRS[\"test\"]".to_string()),
+        Crs::from_unknown_crs_type("opaque-crs".to_string()),
+    ] {
+        let input = geoarrow_reference::square(Arc::new(Metadata::new(crs, None)));
+        let field = input.data_type().to_field("geometry", true);
+        let array = input.into_array_ref();
 
-    let result = polygonize_arrow(array.as_ref(), &field, PolygonizerOptions::default()).unwrap();
-    let output_field = result.data_type().to_field("geometry", true);
+        let result =
+            polygonize_arrow(array.as_ref(), &field, PolygonizerOptions::default()).unwrap();
+        let output_field = result.data_type().to_field("geometry", true);
 
-    assert_eq!(output_field.extension_type_name(), Some("geoarrow.polygon"));
-    assert_eq!(
-        output_field.extension_type_metadata(),
-        field.extension_type_metadata()
-    );
+        assert_eq!(output_field.extension_type_name(), Some("geoarrow.polygon"));
+        assert_eq!(
+            output_field.extension_type_metadata(),
+            field.extension_type_metadata()
+        );
+    }
+}
+
+#[test]
+fn polygonizes_official_geoarrow_reference_layouts() {
+    for bytes in [
+        geoarrow_reference::official_separated_ipc(),
+        geoarrow_reference::official_interleaved_ipc(),
+    ] {
+        let (array, field) = geoarrow_reference::read_geometry_ipc(&bytes);
+        let result =
+            polygonize_arrow(array.as_ref(), &field, PolygonizerOptions::default()).unwrap();
+
+        assert_eq!(field.extension_type_name(), Some("geoarrow.linestring"));
+        assert_eq!(result.len(), 0);
+        assert_eq!(
+            result
+                .data_type()
+                .to_field("geometry", true)
+                .extension_type_name(),
+            Some("geoarrow.polygon")
+        );
+    }
+}
+
+#[test]
+fn rejects_official_non_xy_geoarrow_reference_cases() {
+    for bytes in geoarrow_reference::official_non_xy_ipc() {
+        let (array, field) = geoarrow_reference::read_geometry_ipc(&bytes);
+        let error = polygonize_arrow(array.as_ref(), &field, PolygonizerOptions::default())
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("supports XY coordinates only"));
+    }
 }
 
 #[test]

@@ -2,32 +2,34 @@ use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
-use geo_traits::LineStringTrait;
-use geo_traits::PolygonTrait;
-use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, PolygonArray};
+use geoarrow::array::{GeoArrowArray, PolygonArray};
+use geoarrow::datatypes::{Crs, Metadata};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
+#[allow(dead_code)]
+mod geoarrow_reference {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/geoarrow/reference.rs"
+    ));
+}
+
 #[test]
 fn test_ffi_arrow_integration_square() {
-    // 1. Create Input Arrow Array (LineStringArray)
-    let coord0 = geo::Coord { x: 0.0, y: 0.0 };
-    let coord1 = geo::Coord { x: 10.0, y: 0.0 };
-    let coord2 = geo::Coord { x: 10.0, y: 10.0 };
-    let coord3 = geo::Coord { x: 0.0, y: 10.0 };
-
-    let line_string = geo::LineString::new(vec![coord0, coord1, coord2, coord3, coord0]);
-
-    use geoarrow::datatypes::{Dimension, LineStringType};
-    let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
-    let mut builder = geoarrow::array::LineStringBuilder::new(typ);
-    builder.push_line_string(Some(&line_string)).unwrap();
-    let input_array = builder.finish();
+    let metadata = Arc::new(Metadata::new(
+        Crs::from_authority_code("EPSG:3857".to_string()),
+        None,
+    ));
+    let input_array = geoarrow_reference::square(metadata);
+    let input_field = input_array.data_type().to_field("geometry", true);
 
     // 2. Export Input to FFI
     let arrow_array = input_array.into_array_ref();
-    let (input_array_ffi, input_schema_ffi) =
+    let (input_array_ffi, _) =
         arrow::ffi::to_ffi(&arrow_array.to_data()).expect("Failed to export input array to FFI");
+    let input_schema_ffi =
+        FFI_ArrowSchema::try_from(&input_field).expect("Failed to export GeoArrow input field");
 
     let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array_ffi);
     let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema_ffi);
@@ -68,14 +70,11 @@ fn test_ffi_arrow_integration_square() {
     let polygon_array = PolygonArray::try_from((output_arrow_array.as_ref(), &field))
         .expect("Failed to convert to PolygonArray");
 
-    assert_eq!(polygon_array.len(), 1);
-
-    if let Ok(Some(poly)) = polygon_array.get(0) {
-        let exterior = poly.exterior().expect("Missing exterior");
-        assert_eq!(exterior.num_coords(), 5);
-    } else {
-        panic!("Missing polygon");
-    }
+    geoarrow_reference::assert_square(&polygon_array);
+    assert_eq!(
+        field.extension_type_metadata(),
+        input_field.extension_type_metadata()
+    );
 }
 
 #[test]
