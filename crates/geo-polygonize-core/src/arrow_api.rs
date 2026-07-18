@@ -5,7 +5,7 @@ use arrow::array::{Array, AsArray, GenericListArray};
 use arrow::datatypes::{DataType, Field, Float64Type};
 use geo_traits::to_geo::ToGeoLineString;
 use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonBuilder};
-use geoarrow::datatypes::{Dimension, PolygonType};
+use geoarrow::datatypes::{Dimension, GeoArrowType, Metadata, PolygonType};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -17,62 +17,60 @@ pub fn polygonize_arrow(
     options: PolygonizerOptions,
 ) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
     let mut polygonizer = Polygonizer::with_options(options);
+    let metadata = match GeoArrowType::from_extension_field(field)
+        .map_err(|e| PolygonizeError::ArrowError(e.to_string()))?
+    {
+        Some(GeoArrowType::LineString(typ)) => {
+            if typ.dimension() != Dimension::XY {
+                return Err(PolygonizeError::UnsupportedOptionCombination {
+                    reason: format!(
+                        "GeoArrow polygonization currently supports XY coordinates only, got {:?}",
+                        typ.dimension()
+                    ),
+                });
+            }
+            typ.metadata().clone()
+        }
+        Some(other) => {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: field.name().to_string(),
+                expected: "geoarrow.linestring".to_string(),
+                actual: format!("{other:?}"),
+            });
+        }
+        None => Arc::new(
+            Metadata::try_from(field).map_err(|e| PolygonizeError::ArrowError(e.to_string()))?,
+        ),
+    };
+
+    if let Some(edges) = metadata.edges() {
+        return Err(PolygonizeError::UnsupportedOptionCombination {
+            reason: format!("GeoArrow polygonization supports planar edges only, got {edges:?}"),
+        });
+    }
 
     let mut lines = Vec::new();
 
-    // Attempt 1: Standard try_from
-    if let Ok(arr) = LineStringArray::try_from((array, field)) {
-        process_linestring_array(&arr, &mut lines)?;
-    } else {
-        // Fallback 2: Patch metadata
-        let mut new_metadata = field.metadata().clone();
-        new_metadata.insert(
-            "ARROW:extension:name".to_string(),
-            "ogc.geoarrow.linestring".to_string(),
-        );
-        let new_field = field.clone().with_metadata(new_metadata);
-
-        if let Ok(arr) = LineStringArray::try_from((array, &new_field)) {
-            process_linestring_array(&arr, &mut lines)?;
-        } else {
-            // Fallback 3: Construct field from array DataType
-            match array.data_type() {
-                DataType::List(_) => {
-                    // as_list returns &GenericListArray<O>, NOT Option.
-                    // And it panics if type mismatch in older versions, but `AsArray::as_list` in recent arrow (52+)
-                    // assumes the caller checked the type or it panics?
-                    // Docs: "Downcast this to a GenericListArray. Panics if the array is not a GenericListArray."
-                    // So we must be careful. We checked DataType::List above.
-                    let list_arr = array.as_list::<i32>();
-                    process_list_array(list_arr, &mut lines)?;
-                }
-                DataType::LargeList(_) => {
-                    let list_arr = array.as_list::<i64>();
-                    process_list_array(list_arr, &mut lines)?;
-                }
-                _ => {
-                    let array_type = array.data_type();
-                    let new_field_exact = Field::new("geometry", array_type.clone(), true)
-                        .with_metadata(
-                            [(
-                                "ARROW:extension:name".to_string(),
-                                "ogc.geoarrow.linestring".to_string(),
-                            )]
-                            .into(),
-                        );
-
-                    if let Ok(arr) = LineStringArray::try_from((array, &new_field_exact)) {
-                        process_linestring_array(&arr, &mut lines)?;
-                    } else {
-                        return Err(PolygonizeError::ArrowError(format!(
-                             "Failed to convert input array to LineStringArray and fallback failed. DataType: {:?}, Field: {:?}.",
-                             array.data_type(),
-                             field
-                         )));
-                    }
-                }
-            }
+    match LineStringArray::try_from((array, field)) {
+        Ok(arr) => process_linestring_array(&arr, &mut lines)?,
+        Err(error)
+            if field
+                .extension_type_name()
+                .is_some_and(|name| name != "ogc.geoarrow.linestring") =>
+        {
+            return Err(PolygonizeError::ArrowError(error.to_string()));
         }
+        Err(_) => match array.data_type() {
+            DataType::List(_) => process_list_array(array.as_list::<i32>(), &mut lines)?,
+            DataType::LargeList(_) => process_list_array(array.as_list::<i64>(), &mut lines)?,
+            _ => {
+                return Err(PolygonizeError::ArrowError(format!(
+                    "Failed to convert input array to LineStringArray and fallback failed. DataType: {:?}, Field: {:?}.",
+                    array.data_type(),
+                    field
+                )));
+            }
+        },
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -109,10 +107,7 @@ pub fn polygonize_arrow(
         })
         .collect();
 
-    let mut builder = PolygonBuilder::new(PolygonType::new(
-        Dimension::XY,
-        Arc::new(Default::default()),
-    ));
+    let mut builder = PolygonBuilder::new(PolygonType::new(Dimension::XY, metadata));
     for poly in geo_polygons {
         builder
             .push_polygon(Some(&poly))
@@ -159,6 +154,15 @@ fn process_list_array<O: arrow::array::OffsetSizeTrait>(
         .ok_or_else(|| PolygonizeError::InvalidBufferShape {
             reason: "List values must be Struct".to_string(),
         })?;
+
+    if struct_arr.num_columns() != 2 {
+        return Err(PolygonizeError::UnsupportedOptionCombination {
+            reason: format!(
+                "GeoArrow polygonization currently supports XY coordinates only, got {} coordinate columns",
+                struct_arr.num_columns()
+            ),
+        });
+    }
 
     // Get x and y columns
     // We assume field names "x" and "y" or indices 0 and 1

@@ -9,10 +9,10 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
 - **Robust Noding**: Implements **Iterated Snap Rounding (ISR)** to guarantee topological correctness on dirty inputs (self-intersections, overlaps).
 - **Hardware Acceleration**: Uses **SIMD** instructions (via `wide` crate) for critical geometric predicates like Point-in-Polygon checks.
-- **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and Zero-Copy data support (`geoarrow`).
+- **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and binary GeoArrow support.
 - **Performance**: Competitive with GEOS/Shapely (C++), outperforming it on random sparse inputs and scaling well on dense grids.
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
-- **GeoArrow Support**: Zero-copy data transfer via Arrow C Data Interface and Arrow IPC (Wasm).
+- **GeoArrow Support**: Arrow C Data Interface and Arrow IPC integration with GeoArrow metadata.
 
 ## Engineering Roadmap
 
@@ -110,7 +110,7 @@ for p in polygons:
     print(p.area)
 
 # 2. Using High-Performance Flat Arrays
-# Perfect for zero-copy integrations or massive datasets
+# Flat buffers avoid Python object-per-coordinate overhead
 coords = np.array([
     0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0, 0.0, 0.0,
     0.0, 0.0, 10.0, 10.0

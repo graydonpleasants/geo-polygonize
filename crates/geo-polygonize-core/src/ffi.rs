@@ -1,5 +1,4 @@
 use crate::arrow_api::polygonize_arrow;
-use arrow::datatypes::DataType;
 use arrow::datatypes::Field;
 use arrow::error::ArrowError;
 use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
@@ -21,14 +20,14 @@ pub struct PolygonizerOptions {
 pub unsafe extern "C" fn polygonize_result_free() {}
 
 pub trait SchemaExporter {
-    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError>;
+    fn try_export(field: &Field) -> Result<FFI_ArrowSchema, ArrowError>;
 }
 
 pub struct RealSchemaExporter;
 
 impl SchemaExporter for RealSchemaExporter {
-    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError> {
-        FFI_ArrowSchema::try_from(data_type)
+    fn try_export(field: &Field) -> Result<FFI_ArrowSchema, ArrowError> {
+        FFI_ArrowSchema::try_from(field)
     }
 }
 
@@ -47,14 +46,14 @@ pub struct MockSchemaExporter;
 
 #[cfg(test)]
 impl SchemaExporter for MockSchemaExporter {
-    fn try_export(data_type: &DataType) -> Result<FFI_ArrowSchema, ArrowError> {
+    fn try_export(field: &Field) -> Result<FFI_ArrowSchema, ArrowError> {
         let should_error = MOCK_SCHEMA_ERROR.with(|f| *f.borrow());
         if should_error {
             Err(ArrowError::CDataInterface(
                 "Mocked schema export error".to_string(),
             ))
         } else {
-            FFI_ArrowSchema::try_from(data_type)
+            FFI_ArrowSchema::try_from(field)
         }
     }
 }
@@ -172,13 +171,14 @@ unsafe fn polygonize_ffi_internal(
 
     match polygonize_arrow(array.as_ref(), &field, arrow_opts) {
         Ok(polygon_array) => {
+            let field = polygon_array.data_type().to_field("geometry", true);
             let array_ref = polygon_array.into_array_ref();
             let data = array_ref.to_data();
 
             let ffi_array = FFI_ArrowArray::new(&data);
             std::ptr::write(output_array, ffi_array);
 
-            let ffi_schema = match DefaultSchemaExporter::try_export(data.data_type()) {
+            let ffi_schema = match DefaultSchemaExporter::try_export(&field) {
                 Ok(s) => s,
                 Err(_) => return 4,
             };
