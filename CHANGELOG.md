@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.7](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.6...geo-polygonize-v0.37.7) (2026-07-18)
+
+
+### Performance Improvements
+
+* **core:** adapt point location for long rings ([#797](https://github.com/graydonpleasants/geo-polygonize/issues/797)) ([aa53fb0](https://github.com/graydonpleasants/geo-polygonize/commit/aa53fb080b5ead2535e7a9aa3689605def9d83f0))
+
 ## [0.37.6](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.5...geo-polygonize-v0.37.6) (2026-07-18)
 
 
