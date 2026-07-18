@@ -63,27 +63,7 @@ fn test_ffi_arrow_integration_square() {
     let output_arrow_array = arrow::array::make_array(output_data);
 
     // 7. Verify Output (PolygonArray)
-    // "Field extension type name mismatch, expected geoarrow.polygon, found ogc.geoarrow.polygon"
-    // `geoarrow-rs` recently switched to standard names? Or expects specific one?
-    // The previous error message `expected geoarrow.polygon, found ogc.geoarrow.polygon` means `PolygonArray::try_from` expected old name `geoarrow.polygon`
-    // but we supplied `ogc.geoarrow.polygon`.
-    // Wait, `Field::new("geometry", ..., true)` doesn't have metadata unless we add it.
-    // Ah, I set it to "ogc.geoarrow.polygon".
-    // Let's check which one `geoarrow` expects.
-    // The error says: expected `geoarrow.polygon`.
-    // So `geoarrow 0.7` expects `geoarrow.polygon` NOT `ogc.geoarrow.polygon`?
-    // That's surprising as 0.7 should support standard.
-    // Maybe we should check the error message closely: `expected geoarrow.polygon`.
-    // So I should use "geoarrow.polygon".
-
-    let mut metadata = std::collections::HashMap::new();
-    metadata.insert(
-        "ARROW:extension:name".to_string(),
-        "geoarrow.polygon".to_string(),
-    );
-
-    let field = Field::new("geometry", output_arrow_array.data_type().clone(), true)
-        .with_metadata(metadata);
+    let field = Field::try_from(&output_schema).expect("Failed to import output field");
 
     let polygon_array = PolygonArray::try_from((output_arrow_array.as_ref(), &field))
         .expect("Failed to convert to PolygonArray");

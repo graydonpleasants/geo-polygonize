@@ -497,7 +497,7 @@ pub fn polygonize_buffers(
 #[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
 /// Polygonizes an Arrow IPC stream containing a GeoArrow LineString array.
 ///
-/// This zero-copy path avoids JSON serialization overhead and returns a binary
+/// This binary path avoids JSON serialization overhead and returns an
 /// Arrow IPC stream containing a GeoArrow Polygon array. Requires the options
 /// to be passed as a parsed JS object.
 pub fn polygonize_geoarrow_with_options_js(
@@ -554,7 +554,10 @@ fn polygonize_geoarrow_internal(
     let mut geom_col_idx = None;
     for (i, field) in schema.fields().iter().enumerate() {
         if let Some(metadata) = field.metadata().get("ARROW:extension:name") {
-            if metadata.starts_with("ogc.geoarrow.linestring") {
+            if matches!(
+                metadata.as_str(),
+                "geoarrow.linestring" | "ogc.geoarrow.linestring"
+            ) {
                 geom_col_idx = Some(i);
                 break;
             }
@@ -587,9 +590,7 @@ fn polygonize_geoarrow_internal(
     // Serialize result to IPC
     let mut output_buffer = Vec::new();
     {
-        // Use data_type().clone().into() to get arrow DataType
-        let field =
-            arrow::datatypes::Field::new("geometry", result_array.data_type().clone().into(), true);
+        let field = result_array.data_type().to_field("geometry", true);
         let schema = Arc::new(arrow::datatypes::Schema::new(vec![field]));
 
         let mut writer = arrow_ipc::writer::StreamWriter::try_new(&mut output_buffer, &schema)
@@ -703,8 +704,7 @@ fn polygonize_and_flatten(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::Array;
-    use arrow::datatypes::{Field, Schema};
+    use arrow::datatypes::Schema;
     use arrow::record_batch::RecordBatch;
     use arrow_ipc::writer::StreamWriter;
     use geoarrow::array::PolygonArray;
@@ -734,16 +734,8 @@ mod tests {
         let input_array = builder.finish();
 
         use geoarrow::array::GeoArrowArray;
+        let field = input_array.data_type().to_field("geometry", true);
         let arrow_array = input_array.into_array_ref();
-
-        let mut field = Field::new("geometry", arrow_array.data_type().clone(), true);
-        field.set_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "ogc.geoarrow.linestring".to_string(),
-            )]
-            .into(),
-        );
 
         let schema = Arc::new(Schema::new(vec![field]));
         let batch = RecordBatch::try_new(schema.clone(), vec![arrow_array]).unwrap();
@@ -788,19 +780,8 @@ mod tests {
         let batch = &batches[0];
         let geom_col = batch.column(0);
 
-        let mut field = geom_field.clone();
-
-        // Ensure the arrow result can be successfully converted to a geoarrow PolygonArray
-        field.set_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "geoarrow.polygon".to_string(),
-            )]
-            .into(),
-        );
-
         use std::convert::TryFrom;
-        let poly_array = PolygonArray::try_from((geom_col.as_ref(), &field)).unwrap();
+        let poly_array = PolygonArray::try_from((geom_col.as_ref(), geom_field)).unwrap();
         assert_eq!(poly_array.len(), 1);
     }
 }
