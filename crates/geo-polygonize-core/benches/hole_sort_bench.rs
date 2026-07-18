@@ -281,7 +281,7 @@ fn bench_fearless_point_in_ring(c: &mut Criterion) {
                     .count()
             });
         });
-        group.bench_function(BenchmarkId::new("wide_multiversion", edges), |b| {
+        group.bench_function(BenchmarkId::new("production", edges), |b| {
             b.iter(|| {
                 black_box(&points)
                     .iter()
