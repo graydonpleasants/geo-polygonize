@@ -342,7 +342,7 @@ fn bench_fearless_aabb_scan(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("scalar", count), |b| {
             b.iter(|| scalar_aabb_count(black_box(&lines), query));
         });
-        group.bench_function(BenchmarkId::new("wide_multiversion", count), |b| {
+        group.bench_function(BenchmarkId::new("wide", count), |b| {
             b.iter(|| wide_aabb_count(black_box(&soa), query));
         });
         group.bench_function(BenchmarkId::new("fearless_fixed_f64x4", count), |b| {
