@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.6](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.5...geo-polygonize-v0.37.6) (2026-07-18)
+
+
+### Performance Improvements
+
+* **core:** benchmark fearless SIMD kernels ([#795](https://github.com/graydonpleasants/geo-polygonize/issues/795)) ([a8895e1](https://github.com/graydonpleasants/geo-polygonize/commit/a8895e1f52891012c04479faf3b47a5fcab28c18))
+
 ## [0.37.5](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.4...geo-polygonize-v0.37.5) (2026-07-17)
 
 
