@@ -371,6 +371,7 @@ impl UniformGrid {
 
         #[cfg(feature = "parallel")]
         let mut splits = {
+            let chunks = std::sync::Mutex::new(Vec::new());
             (0..self.rows * self.cols)
                 .into_par_iter()
                 .fold(Vec::new, |mut acc, idx| {
@@ -385,10 +386,13 @@ impl UniformGrid {
                     }
                     acc
                 })
-                .reduce(Vec::new, |mut a, mut b| {
-                    a.append(&mut b);
-                    a
-                })
+                .for_each(|chunk| chunks.lock().unwrap().push(chunk));
+            let chunks = chunks.into_inner().unwrap();
+            let mut splits = Vec::with_capacity(chunks.iter().map(Vec::len).sum());
+            for chunk in chunks {
+                splits.extend(chunk);
+            }
+            splits
         };
 
         #[cfg(not(feature = "parallel"))]
