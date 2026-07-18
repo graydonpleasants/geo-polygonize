@@ -1,7 +1,5 @@
 use crate::types::{Coord3D, Line3D};
-use crate::utils::parallel::{
-    par_flat_map, par_into_enumerate_map, par_sort_unstable, par_zip_for_each,
-};
+use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{compare_angular, z_order_index};
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
@@ -336,13 +334,9 @@ impl PlanarGraph {
         let edges_start_len = self.edges.len();
         let directed_edges_start_len = self.directed_edges.len();
 
-        let mapper = |(i, (u, v, line)): (usize, (NodeId, NodeId, Line3D))| {
-            create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len)
-        };
-
-        let new_edges_data: Vec<_> = par_into_enumerate_map(valid_edges, mapper);
-
-        for (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) in new_edges_data {
+        for (i, (u, v, line)) in valid_edges.into_iter().enumerate() {
+            let (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) =
+                create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len);
             self.directed_edges.push(de_u_v);
             self.directed_edges.push(de_v_u);
             self.edges.push(edge);
