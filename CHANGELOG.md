@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.8...geo-polygonize-v0.38.0) (2026-07-18)
+
+
+### Features
+
+* **core:** preserve coordinates through snap noding ([#803](https://github.com/graydonpleasants/geo-polygonize/issues/803)) ([fdeb78f](https://github.com/graydonpleasants/geo-polygonize/commit/fdeb78f6df8f9527325b3fbc80da8544e50565af))
+
 ## [0.37.8](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.7...geo-polygonize-v0.37.8) (2026-07-18)
 
 
