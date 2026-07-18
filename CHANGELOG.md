@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.4](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.3...geo-polygonize-v0.39.4) (2026-07-18)
+
+
+### Performance Improvements
+
+* **core:** reduce parallel split merge allocations ([#827](https://github.com/graydonpleasants/geo-polygonize/issues/827)) ([b4edbd1](https://github.com/graydonpleasants/geo-polygonize/commit/b4edbd1b565744e24429a90716cd1a26f2f61c5c))
+
 ## [0.39.3](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.2...geo-polygonize-v0.39.3) (2026-07-18)
 
 
