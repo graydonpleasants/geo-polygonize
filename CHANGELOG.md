@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.8](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.7...geo-polygonize-v0.37.8) (2026-07-18)
+
+
+### Performance Improvements
+
+* **core:** remove per-batch SoA dispatch ([#801](https://github.com/graydonpleasants/geo-polygonize/issues/801)) ([1764ee3](https://github.com/graydonpleasants/geo-polygonize/commit/1764ee3f70157de4b345a0c382900a0f35523f01))
+
 ## [0.37.7](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.37.6...geo-polygonize-v0.37.7) (2026-07-18)
 
 
