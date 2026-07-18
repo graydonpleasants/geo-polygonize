@@ -3,15 +3,22 @@
 use arrow::record_batch::RecordBatch;
 use geo_polygonize_core::geoparquet_api::polygonize_geoparquet_file;
 use geo_polygonize_core::options::PolygonizerOptions;
-use geo_traits::{LineStringTrait, PolygonTrait};
-use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringBuilder, PolygonArray};
-use geoarrow::datatypes::{Dimension, LineStringType};
+use geoarrow::array::{GeoArrowArray, PolygonArray};
+use geoarrow::datatypes::Metadata;
 use geoparquet::reader::{GeoParquetReaderBuilder, GeoParquetRecordBatchReader};
 use geoparquet::writer::{GeoParquetRecordBatchEncoder, GeoParquetWriterOptions};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use std::fs::{self, File};
 use std::sync::Arc;
+
+#[allow(dead_code)]
+mod geoarrow_reference {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/geoarrow/reference.rs"
+    ));
+}
 
 #[test]
 fn polygonizes_a_geoparquet_file() {
@@ -46,30 +53,14 @@ fn polygonizes_a_geoparquet_file() {
     assert!(reader.next().is_none());
 
     let polygons = PolygonArray::try_from((batch.column(0).as_ref(), schema.field(0))).unwrap();
-    assert_eq!(polygons.len(), 1);
-    let polygon = polygons.get(0).unwrap().unwrap();
-    assert_eq!(polygon.exterior().unwrap().num_coords(), 5);
+    geoarrow_reference::assert_square(&polygons);
 
     fs::remove_file(input_path).unwrap();
     fs::remove_file(output_path).unwrap();
 }
 
 fn write_square(path: &std::path::Path) {
-    let points = [
-        geo::coord! { x: 0.0, y: 0.0 },
-        geo::coord! { x: 10.0, y: 0.0 },
-        geo::coord! { x: 10.0, y: 10.0 },
-        geo::coord! { x: 0.0, y: 10.0 },
-        geo::coord! { x: 0.0, y: 0.0 },
-    ];
-    let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
-    let mut lines = LineStringBuilder::new(typ);
-    for pair in points.windows(2) {
-        lines
-            .push_line_string(Some(&geo::LineString::new(pair.to_vec())))
-            .unwrap();
-    }
-    let lines = lines.finish();
+    let lines = geoarrow_reference::square(Arc::new(Metadata::default()));
     let schema = Arc::new(arrow::datatypes::Schema::new(vec![lines
         .data_type()
         .to_field("geometry", false)]));

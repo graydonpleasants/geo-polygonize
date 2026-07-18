@@ -30,4 +30,5 @@ default = ["console_error_panic_hook"]
 threads = ["wasm-bindgen-rayon", "geo-polygonize-core/parallel"]
 
 [dev-dependencies]
+geoarrow-test = "0.7.0"
 wasm-bindgen-test = "0.3.36"
