@@ -3,7 +3,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use arrow::array::make_array;
 use arrow::datatypes::Field;
-use arrow::ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema};
+use arrow::ffi::{from_ffi_and_data_type, FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::arrow_api::polygonize_arrow;
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions as FfiOptions};
 use geo_polygonize_core::options::PolygonizerOptions;
@@ -65,7 +65,7 @@ fn main() {
     let input_field = input.data_type().to_field("geometry", true);
     let input_array = input.into_array_ref();
     measure("c_data_interface", 10, true, || {
-        let (mut ffi_input_array, _) = arrow::ffi::to_ffi(&input_array.to_data()).unwrap();
+        let mut ffi_input_array = FFI_ArrowArray::new(&input_array.to_data());
         let mut ffi_input_schema = FFI_ArrowSchema::try_from(&input_field).unwrap();
         let mut output_array = FFI_ArrowArray::empty();
         let mut output_schema = FFI_ArrowSchema::empty();
@@ -85,9 +85,10 @@ fn main() {
             )
         };
         assert_eq!(status, 0);
-        let data = unsafe { from_ffi(output_array, &output_schema).unwrap() };
-        let array = make_array(data);
         let field = Field::try_from(&output_schema).unwrap();
+        let data =
+            unsafe { from_ffi_and_data_type(output_array, field.data_type().clone()).unwrap() };
+        let array = make_array(data);
         let polygons = PolygonArray::try_from((array.as_ref(), &field)).unwrap();
         geoarrow_reference::assert_square(&polygons);
         0
