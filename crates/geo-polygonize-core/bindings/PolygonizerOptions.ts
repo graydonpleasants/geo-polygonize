@@ -51,7 +51,7 @@ pre_snap_tolerance: number,
  */
 extract_only_polygonal: boolean, 
 /**
- * The underlying strategy to apply when snapping coordinate geometries.
+ * Controls robust snap noding and output coordinate handling.
  *
  * See `SnapStrategy` for differences between strict `Grid` snapping and
  * Shapely/GEOS `GeosCompat` strategies.

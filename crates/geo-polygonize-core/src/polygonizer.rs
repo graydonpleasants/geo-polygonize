@@ -1305,6 +1305,31 @@ mod tests {
     }
 
     #[test]
+    fn geos_compat_drops_sub_grid_face_from_near_coincident_endpoints() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(139131.39157939597, 332081.47584308265, 0.0),
+                Coord3D::new(139138.25173987588, 332179.7525957378, 0.0),
+                1,
+            ),
+            Line3D::new(
+                Coord3D::new(139128.6709763695, 332081.6202812562, 0.0),
+                Coord3D::new(139131.39157939597, 332081.4758430829, 0.0),
+                2,
+            ),
+            Line3D::new(
+                Coord3D::new(139131.39157939597, 332081.4758430829, 0.0),
+                Coord3D::new(139134.1124077957, 332081.33571445255, 0.0),
+                3,
+            ),
+        ];
+
+        let result = polygonize_with_options(&lines, &PolygonizerOptions::cfb_robust_v1()).unwrap();
+
+        assert!(result.polygons.is_empty());
+    }
+
+    #[test]
     fn test_add_lines() {
         let mut polygonizer = Polygonizer::new();
         assert!(!polygonizer.dirty);
