@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.8](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.7...geo-polygonize-v0.39.8) (2026-07-19)
+
+
+### Performance Improvements
+
+* **wasm:** profile polygonization stages ([#840](https://github.com/graydonpleasants/geo-polygonize/issues/840)) ([f7284e1](https://github.com/graydonpleasants/geo-polygonize/commit/f7284e1cd95901ada4f1cb283062fc30ed184ad0))
+
 ## [0.39.7](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.6...geo-polygonize-v0.39.7) (2026-07-19)
 
 
