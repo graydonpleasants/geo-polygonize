@@ -59,7 +59,7 @@ jobs:
           retention-days: 30
 
   wasm:
-    name: Wasm (${{ matrix.variant }})
+    name: Wasm (${{ matrix.variant }}-${{ matrix.threads }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
