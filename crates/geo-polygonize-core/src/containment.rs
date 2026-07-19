@@ -148,8 +148,13 @@ impl PreparedRing {
         polygon: &Polygon3D,
         locator: &SimdRing,
         point: geo_types::Coord<f64>,
+        track_queries: bool,
     ) -> bool {
-        let queries = self.locator_queries.fetch_add(1, Ordering::Relaxed) + 1;
+        let queries = if track_queries || polygon.exterior.len() >= LOCATOR_INDEX_MIN_COORDS {
+            self.locator_queries.fetch_add(1, Ordering::Relaxed) + 1
+        } else {
+            0
+        };
         if queries >= LOCATOR_INDEX_QUERY_THRESHOLD
             && polygon.exterior.len() >= LOCATOR_INDEX_MIN_COORDS
         {
@@ -269,6 +274,7 @@ impl ContainmentForest {
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
     ) -> Vec<bool> {
+        let track_queries = stats.is_some();
         let mut keep_mask = vec![true; shells.len()];
         let mut container_counts = vec![0; shells.len()];
 
@@ -307,7 +313,12 @@ impl ContainmentForest {
                         if let Some(stats) = stats.as_deref_mut() {
                             stats.point_in_ring_calls += 1;
                         }
-                        if self.prepared_shells[j].contains(&shells[j], simd_shell, probe_pt.0) {
+                        if self.prepared_shells[j].contains(
+                            &shells[j],
+                            simd_shell,
+                            probe_pt.0,
+                            track_queries,
+                        ) {
                             let touch_ok = touch_allowed(
                                 &shells[j],
                                 self.prepared_shells[j].graph_identity.as_ref(),
@@ -380,6 +391,7 @@ impl ContainmentForest {
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
     ) -> Option<usize> {
+        let track_queries = stats.is_some();
         let hole_locator = SimdRing::new_3d(&hole_3d.exterior);
         let prepared_hole = PreparedRing::new(hole_3d, hole_graph_ids.cloned());
         let hole_aabb = prepared_hole.aabb.as_ref()?;
@@ -408,7 +420,12 @@ impl ContainmentForest {
                 if let Some(stats) = stats.as_deref_mut() {
                     stats.point_in_ring_calls += 1;
                 }
-                if self.prepared_shells[idx].contains(&shells[idx], simd_shell, probe_point.0) {
+                if self.prepared_shells[idx].contains(
+                    &shells[idx],
+                    simd_shell,
+                    probe_point.0,
+                    track_queries,
+                ) {
                     let touch_ok = touch_allowed(
                         &shells[idx],
                         self.prepared_shells[idx].graph_identity.as_ref(),
@@ -456,7 +473,9 @@ mod tests {
 
         assert_eq!(prepared.signed_area, 100.0);
         assert_eq!(prepared.aabb.unwrap().lower(), [0.0, 0.0]);
-        assert!(locator.contains(prepared.probe(&polygon, &locator).unwrap().0));
+        let probe = prepared.probe(&polygon, &locator).unwrap().0;
+        assert!(prepared.contains(&polygon, &locator, probe, false));
+        assert_eq!(prepared.locator_queries.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -538,7 +557,7 @@ mod tests {
         assert!(simd.contains(boundary));
         for _ in 0..LOCATOR_INDEX_QUERY_THRESHOLD {
             assert_eq!(
-                prepared.contains(&polygon, &simd, boundary),
+                prepared.contains(&polygon, &simd, boundary, false),
                 simd.contains(boundary)
             );
         }
