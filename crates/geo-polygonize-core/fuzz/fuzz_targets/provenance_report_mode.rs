@@ -48,6 +48,7 @@ fuzz_target!(|input: FuzzInput| {
         diagnostics: DiagnosticsOptions {
             enabled: input.enabled,
             report_mode: input.report_mode,
+            timings: false,
         },
         ..Default::default()
     };

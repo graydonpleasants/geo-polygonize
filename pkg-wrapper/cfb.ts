@@ -20,6 +20,7 @@ export const cfbRobustOptions: PolygonizerOptions = {
     diagnostics: {
         enabled: true,
         report_mode: true,
+        timings: false,
     },
     provenance: {
         enabled: true,
