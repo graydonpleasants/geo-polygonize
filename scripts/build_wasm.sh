@@ -98,7 +98,7 @@ patch_threads_worker() {
 
 build_variant_threads() {
     local out_dir="pkg-threads"
-    local flags="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
+    local flags="-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--shared-memory -C link-arg=--max-memory=1073741824 -C link-arg=--import-memory -C link-arg=--export=__heap_base -C link-arg=--export=__wasm_init_tls -C link-arg=--export=__tls_size -C link-arg=--export=__tls_align -C link-arg=--export=__tls_base"
 
     echo "Building Threads version..."
     echo "Installing rust-src for nightly..."
@@ -123,7 +123,7 @@ build_variant_threads() {
 
     if command -v wasm-opt &> /dev/null; then
         echo "Optimizing Threads..."
-        wasm-opt -O3 -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
+        wasm-opt -O3 --enable-threads --enable-bulk-memory -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
     fi
 
     rm -f "$out_dir/.gitignore"

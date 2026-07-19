@@ -53,6 +53,7 @@
     "@rollup/plugin-typescript": "^11.0.0",
     "@rollup/plugin-url": "^8.0.2",
     "husky": "^9.1.7",
+    "playwright-core": "^1.55.0",
     "rollup": "^4.0.0",
     "tslib": "^2.6.0",
     "typescript": "^5.0.0",
