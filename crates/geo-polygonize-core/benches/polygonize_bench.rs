@@ -299,6 +299,105 @@ fn make_random_lines(count: usize) -> Vec<Line3D> {
         .collect()
 }
 
+fn make_noding_workloads() -> Vec<(&'static str, Vec<Line3D>)> {
+    let sparse = (0..512)
+        .map(|i| {
+            let y = i as f64 * 2.0;
+            Line3D::new(
+                Coord3D::new(0.0, y, 0.0),
+                Coord3D::new(1.0, y + 0.5, 0.0),
+                i,
+            )
+        })
+        .collect();
+    let dense = (0..256)
+        .map(|i| {
+            let angle = std::f64::consts::PI * i as f64 / 256.0;
+            let (sin, cos) = angle.sin_cos();
+            Line3D::new(
+                Coord3D::new(-cos, -sin, 0.0),
+                Coord3D::new(cos, sin, 0.0),
+                i,
+            )
+        })
+        .collect();
+    let skewed = (0..600)
+        .map(|i| {
+            let end = i as f64 * 0.0001;
+            Line3D::new(
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(end, end + 0.00001, 0.0),
+                i,
+            )
+        })
+        .chain(std::iter::once(Line3D::new(
+            Coord3D::new(100.0, 100.0, 0.0),
+            Coord3D::new(101.0, 101.0, 0.0),
+            600,
+        )))
+        .collect();
+    let crossing = (0..4)
+        .flat_map(|x| {
+            (0..4).flat_map(move |y| {
+                let id = (x * 4 + y) * 2;
+                let (x, y) = (x as f64 * 2.0, y as f64 * 2.0);
+                [
+                    Line3D::new(
+                        Coord3D::new(x, y, 0.0),
+                        Coord3D::new(x + 1.0, y + 1.0, 0.0),
+                        id,
+                    ),
+                    Line3D::new(
+                        Coord3D::new(x + 1.0, y, 0.0),
+                        Coord3D::new(x, y + 1.0, 0.0),
+                        id + 1,
+                    ),
+                ]
+            })
+        })
+        .collect();
+
+    vec![
+        ("sparse", sparse),
+        ("dense", dense),
+        ("skewed", skewed),
+        ("crossing", crossing),
+    ]
+}
+
+fn bench_noding_workloads(c: &mut Criterion) {
+    let mut group = c.benchmark_group("noding_workloads");
+    group.sample_size(10);
+    if fast_ci() {
+        group.warm_up_time(Duration::from_secs(1));
+        group.measurement_time(Duration::from_secs(2));
+    }
+
+    for (workload, lines) in make_noding_workloads() {
+        group.throughput(Throughput::Elements(lines.len() as u64));
+        for (strategy_name, strategy) in [
+            ("auto", NodingStrategy::Auto),
+            ("grid", NodingStrategy::Grid),
+            ("simd", NodingStrategy::Simd),
+        ] {
+            // ponytail: forced Grid repeatedly re-nodes crossing splits; benchmark it after that
+            // pathology has a bounded one-shot reproducer instead of hanging every CI run.
+            if workload == "crossing" && strategy == NodingStrategy::Grid {
+                continue;
+            }
+            group.bench_with_input(
+                BenchmarkId::new(workload, strategy_name),
+                &lines,
+                |b, lines| {
+                    let noder = SnapNoder::new(1e-10).with_strategy(strategy);
+                    b.iter(|| noder.node(criterion::black_box(lines.clone())));
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
 fn make_pre_snap_lines(bands: usize) -> Vec<Line3D> {
     (0..bands)
         .flat_map(|i| {
@@ -358,6 +457,7 @@ fn bench_kernel_node(c: &mut Criterion) {
 
 criterion_group!(
     kernel_benches,
+    bench_noding_workloads,
     bench_kernel_grid_build,
     bench_kernel_find_splits,
     bench_kernel_node,

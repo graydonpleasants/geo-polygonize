@@ -90,6 +90,23 @@ try {
       };
     };
     const durationMs = ({ secs, nanos }) => Number(secs) * 1_000 + nanos / 1_000_000;
+    const nodingOptions = {
+      node_input: true,
+      snap_grid_size: 1e-10,
+      pre_snap_tolerance: 0,
+      extract_only_polygonal: false,
+      snap_strategy: "Grid",
+      noding: { backend: "Snap" },
+      containment: { touch_policy: "AllowPointTouchDisallowEdgeShare" },
+      determinism: {
+        canonical_sort: false,
+        canonical_ring_rotation: false,
+        stable_tie_breaks: false,
+      },
+      diagnostics: { enabled: false, report_mode: false, timings: true },
+      provenance: { enabled: false, include_boundary_line_ids: false },
+      input_profile_id: null,
+    };
     const profileSize = Math.max(...sizes);
     const results = sizes.map((size) => {
       let state = 42;
@@ -150,26 +167,9 @@ try {
           coords.set(features[index].geometry.coordinates.flat(), index * 4);
         }
         const offsets = Uint32Array.from({ length: size }, (_, index) => index * 2);
-        const options = {
-          node_input: true,
-          snap_grid_size: 1e-10,
-          pre_snap_tolerance: 0,
-          extract_only_polygonal: false,
-          snap_strategy: "Grid",
-          noding: { backend: "Snap" },
-          containment: { touch_policy: "AllowPointTouchDisallowEdgeShare" },
-          determinism: {
-            canonical_sort: false,
-            canonical_ring_rotation: false,
-            stable_tie_breaks: false,
-          },
-          diagnostics: { enabled: false, report_mode: false, timings: true },
-          provenance: { enabled: false, include_boundary_line_ids: false },
-          input_profile_id: null,
-        };
         const runBuffer = () => {
           const started = performance.now();
-          const output = wasm.polygonizeWithOptionsBuffer(coords, offsets, 2, options);
+          const output = wasm.polygonizeWithOptionsBuffer(coords, offsets, 2, nodingOptions);
           const totalMs = performance.now() - started;
           const diagnostics = output.diagnostics;
           const count = output.polygon_offsets_len();
@@ -209,10 +209,53 @@ try {
       }
       return result;
     });
+
+    const sparse = Array.from({ length: 512 }, (_, i) => [[0, i * 2], [1, i * 2 + 0.5]]);
+    const dense = Array.from({ length: 256 }, (_, i) => {
+      const angle = Math.PI * i / 256;
+      return [[-Math.cos(angle), -Math.sin(angle)], [Math.cos(angle), Math.sin(angle)]];
+    });
+    const skewed = Array.from({ length: 600 }, (_, i) => {
+      const end = i * 0.0001;
+      return [[0, 0], [end, end + 0.00001]];
+    });
+    skewed.push([[100, 100], [101, 101]]);
+    // ponytail: stay below Auto's Grid threshold until crossing re-noding has a bounded reproducer.
+    const crossing = Array.from({ length: 4 * 4 * 2 }, (_, index) => {
+      const cell = Math.floor(index / 2);
+      const x = Math.floor(cell / 4) * 2;
+      const y = (cell % 4) * 2;
+      return index % 2 === 0
+        ? [[x, y], [x + 1, y + 1]]
+        : [[x + 1, y], [x, y + 1]];
+    });
+    const nodingWorkloads = Object.entries({ sparse, dense, skewed, crossing }).map(
+      ([name, lines]) => {
+        const coords = new Float64Array(lines.flat(2));
+        const offsets = Uint32Array.from({ length: lines.length }, (_, index) => index * 2);
+        const run = () => {
+          const started = performance.now();
+          const output = wasm.polygonizeWithOptionsBuffer(coords, offsets, 2, nodingOptions);
+          const totalMs = performance.now() - started;
+          const ingestAndNodeMs = durationMs(output.diagnostics.phase_times.ingest_and_node);
+          output.free();
+          return { totalMs, ingestAndNodeMs };
+        };
+        for (let index = 0; index < 3; index += 1) run();
+        const samples = Array.from({ length: 10 }, run);
+        return {
+          name,
+          segments: lines.length,
+          total: summarize(samples.map(({ totalMs }) => totalMs)),
+          ingestAndNode: summarize(samples.map(({ ingestAndNodeMs }) => ingestAndNodeMs)),
+        };
+      },
+    );
     return {
       variant: selectedVariant,
       threadCount,
       results,
+      nodingWorkloads,
     };
   }, { selectedVariant: variant, requestedThreadCount, sizes });
   console.log(JSON.stringify(result, null, 2));
