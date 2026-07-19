@@ -883,6 +883,30 @@ mod tests {
     }
 
     #[test]
+    fn test_grid_nodes_independent_crossings_once() {
+        let lines = (0..4)
+            .flat_map(|x| {
+                (0..4).flat_map(move |y| {
+                    let (x, y) = (x as f64 * 2.0, y as f64 * 2.0);
+                    [
+                        make_line(x, y, x + 1.0, y + 1.0),
+                        make_line(x + 1.0, y, x, y + 1.0),
+                    ]
+                })
+            })
+            .collect();
+        let noder = SnapNoder::new(1e-10).with_strategy(NodingStrategy::Grid);
+
+        let (noded, iterations, _) = noder.node_with_stats(lines);
+
+        assert_eq!(noded.len(), 64);
+        assert_eq!(iterations.len(), 2);
+        assert_eq!(iterations[0].intersections_found, 32);
+        assert_eq!(iterations[0].nodes_added, 32);
+        assert_eq!(iterations[1].intersections_found, 0);
+    }
+
+    #[test]
     fn test_pre_snap_inserts_nearby_reference_vertices() {
         let lines = vec![
             make_line(0.0, 0.0, 10.0, 0.0),
