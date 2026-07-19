@@ -64,7 +64,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [scalar, threads]
+        include:
+          - variant: scalar
+            threads: 1
+          - variant: threads
+            threads: 2
+          - variant: threads
+            threads: 4
     steps:
       - uses: actions/checkout@v4
 
@@ -100,10 +106,10 @@ jobs:
       - name: Benchmark in cross-origin-isolated Chrome
         run: |
           set -o pipefail
-          node scripts/benchmark_wasm_browser.mjs "${{ matrix.variant }}" | tee wasm-${{ matrix.variant }}.json
+          node scripts/benchmark_wasm_browser.mjs "${{ matrix.variant }}" "${{ matrix.threads }}" | tee wasm-${{ matrix.variant }}-${{ matrix.threads }}.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wasm-${{ matrix.variant }}-benchmarks
-          path: wasm-${{ matrix.variant }}.json
+          name: wasm-${{ matrix.variant }}-${{ matrix.threads }}-benchmarks
+          path: wasm-${{ matrix.variant }}-${{ matrix.threads }}.json
           retention-days: 30

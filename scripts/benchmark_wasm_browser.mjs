@@ -5,7 +5,17 @@ import { chromium } from "playwright-core";
 
 const variant = process.argv[2];
 if (!new Set(["scalar", "threads"]).has(variant)) {
-  throw new Error("usage: node scripts/benchmark_wasm_browser.mjs <scalar|threads>");
+  throw new Error("usage: node scripts/benchmark_wasm_browser.mjs <scalar|threads> [thread-count]");
+}
+const requestedThreadCount = Number(process.argv[3] ?? 4);
+if (!Number.isInteger(requestedThreadCount) || requestedThreadCount < 1) {
+  throw new Error("thread-count must be a positive integer");
+}
+const sizes = (process.env.WASM_BENCH_SIZES ?? "100,200,500,1000")
+  .split(",")
+  .map(Number);
+if (sizes.some((size) => !Number.isInteger(size) || size < 1)) {
+  throw new Error("WASM_BENCH_SIZES must be comma-separated positive integers");
 }
 
 const root = process.cwd();
@@ -55,7 +65,7 @@ try {
   browser = await chromium.launch(launchOptions);
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${port}/`);
-  const result = await page.evaluate(async (selectedVariant) => {
+  const result = await page.evaluate(async ({ selectedVariant, requestedThreadCount, sizes }) => {
     const wasm = await import(`/pkg-${selectedVariant}/geo_polygonize.js`);
     const instance = await wasm.default();
 
@@ -65,55 +75,58 @@ try {
       if (!(instance.memory.buffer instanceof SharedArrayBuffer)) {
         throw new Error("threaded build did not export shared Wasm memory");
       }
-      threadCount = Math.min(4, navigator.hardwareConcurrency || 4);
+      threadCount = Math.min(requestedThreadCount, navigator.hardwareConcurrency || requestedThreadCount);
       await wasm.initThreadPool(threadCount);
     }
 
-    const random = (() => {
+    const results = sizes.map((size) => {
       let state = 42;
-      return () => {
+      const random = () => {
         state += 0x6d2b79f5;
         let value = state;
         value = Math.imul(value ^ (value >>> 15), value | 1);
         value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
         return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
       };
-    })();
-    const features = Array.from({ length: 100 }, () => ({
-      type: "Feature",
-      properties: {},
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [random() * 100, random() * 100],
-          [random() * 100, random() * 100],
-        ],
-      },
-    }));
-    const input = JSON.stringify({ type: "FeatureCollection", features });
-    const run = () => JSON.parse(wasm.polygonize(input, true, 1e-10, false, false)).features.length;
+      const features = Array.from({ length: size }, () => ({
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [random() * 100, random() * 100],
+            [random() * 100, random() * 100],
+          ],
+        },
+      }));
+      const input = JSON.stringify({ type: "FeatureCollection", features });
+      const run = () => JSON.parse(wasm.polygonize(input, true, 1e-10, false, false)).features.length;
 
-    for (let index = 0; index < 3; index += 1) run();
-    const samplesMs = [];
-    let polygonCount = 0;
-    for (let index = 0; index < 10; index += 1) {
-      const start = performance.now();
-      polygonCount = run();
-      samplesMs.push(performance.now() - start);
-    }
-    samplesMs.sort((a, b) => a - b);
-    const meanMs = samplesMs.reduce((sum, sample) => sum + sample, 0) / samplesMs.length;
+      for (let index = 0; index < 3; index += 1) run();
+      const samplesMs = [];
+      let polygonCount = 0;
+      for (let index = 0; index < 10; index += 1) {
+        const start = performance.now();
+        polygonCount = run();
+        samplesMs.push(performance.now() - start);
+      }
+      samplesMs.sort((a, b) => a - b);
+      return {
+        size,
+        polygonCount,
+        samples: samplesMs.length,
+        minMs: samplesMs[0],
+        medianMs: (samplesMs[4] + samplesMs[5]) / 2,
+        meanMs: samplesMs.reduce((sum, sample) => sum + sample, 0) / samplesMs.length,
+        p95Ms: samplesMs[9],
+      };
+    });
     return {
       variant: selectedVariant,
       threadCount,
-      polygonCount,
-      samples: samplesMs.length,
-      minMs: samplesMs[0],
-      medianMs: (samplesMs[4] + samplesMs[5]) / 2,
-      meanMs,
-      p95Ms: samplesMs[9],
+      results,
     };
-  }, variant);
+  }, { selectedVariant: variant, requestedThreadCount, sizes });
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await browser?.close();
