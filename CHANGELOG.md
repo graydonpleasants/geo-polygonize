@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.6](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.5...geo-polygonize-v0.39.6) (2026-07-19)
+
+
+### Bug Fixes
+
+* **wasm:** validate threaded builds across architectures ([#832](https://github.com/graydonpleasants/geo-polygonize/issues/832)) ([dd9e9f3](https://github.com/graydonpleasants/geo-polygonize/commit/dd9e9f3d7dca3586069f419199e7fe31ea5edd89))
+
 ## [0.39.5](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.4...geo-polygonize-v0.39.5) (2026-07-19)
 
 
