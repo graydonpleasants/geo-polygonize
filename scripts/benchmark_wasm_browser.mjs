@@ -57,11 +57,14 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`);
   const result = await page.evaluate(async (selectedVariant) => {
     const wasm = await import(`/pkg-${selectedVariant}/geo_polygonize.js`);
-    await wasm.default();
+    const instance = await wasm.default();
 
     let threadCount = 1;
     if (selectedVariant === "threads") {
       if (!crossOriginIsolated) throw new Error("threaded Wasm requires cross-origin isolation");
+      if (!(instance.memory.buffer instanceof SharedArrayBuffer)) {
+        throw new Error("threaded build did not export shared Wasm memory");
+      }
       threadCount = Math.min(4, navigator.hardwareConcurrency || 4);
       await wasm.initThreadPool(threadCount);
     }

@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/cross-architecture-benchmarks.yml"
       - "scripts/benchmark_wasm_browser.mjs"
+      - "scripts/build_wasm.sh"
       - "package.json"
       - "package-lock.json"
 
@@ -97,7 +98,9 @@ jobs:
         run: ./scripts/build_wasm.sh --variant "${{ matrix.variant }}" --no-bundle
 
       - name: Benchmark in cross-origin-isolated Chrome
-        run: node scripts/benchmark_wasm_browser.mjs "${{ matrix.variant }}" | tee wasm-${{ matrix.variant }}.json
+        run: |
+          set -o pipefail
+          node scripts/benchmark_wasm_browser.mjs "${{ matrix.variant }}" | tee wasm-${{ matrix.variant }}.json
 
       - uses: actions/upload-artifact@v4
         with:
