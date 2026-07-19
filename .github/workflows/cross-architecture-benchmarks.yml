@@ -9,6 +9,7 @@ on:
       - ".github/workflows/cross-architecture-benchmarks.yml"
       - "scripts/benchmark_wasm_browser.mjs"
       - "scripts/build_wasm.sh"
+      - "crates/geo-polygonize-core/benches/polygonize_bench.rs"
       - "crates/geo-polygonize-core/benches/hole_sort_bench.rs"
       - "package.json"
       - "package-lock.json"
@@ -52,6 +53,7 @@ jobs:
         run: |
           set -o pipefail
           cargo bench -p geo-polygonize-core --bench polygonize_bench -- 'polygonize/(grid/100|random/(100|200))' --noplot | tee native-${{ matrix.arch }}.txt
+          cargo bench -p geo-polygonize-core --bench polygonize_bench -- noding_workloads --noplot | tee native-${{ matrix.arch }}-noding.txt
           cargo bench -p geo-polygonize-core --bench hole_sort_bench -- point_in_ring_crossover --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-${{ matrix.arch }}-point-in-ring.txt
 
       - uses: actions/upload-artifact@v4
@@ -59,6 +61,7 @@ jobs:
           name: native-${{ matrix.arch }}-benchmarks
           path: |
             native-${{ matrix.arch }}.txt
+            native-${{ matrix.arch }}-noding.txt
             native-${{ matrix.arch }}-point-in-ring.txt
             target/criterion/
           retention-days: 30
