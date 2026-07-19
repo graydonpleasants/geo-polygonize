@@ -21,7 +21,6 @@ jobs:
             core
             python
             wasm
-            fleet
             deps
             main
             github

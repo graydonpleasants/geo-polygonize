@@ -55,6 +55,13 @@ cargo bench
 3.  Add tests for your changes.
 4.  Submit a Pull Request.
 
+### Maintainer Codex tasks
+
+The `Codex Task` GitHub workflow can implement an open issue as a draft pull
+request. Add `OPENAI_API_KEY` as a repository secret, dispatch the workflow with
+an issue number, then review the generated diff and CI results before marking
+the pull request ready.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the project's MIT/Apache-2.0 license.

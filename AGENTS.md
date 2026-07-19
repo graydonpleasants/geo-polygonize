@@ -14,7 +14,6 @@ The scope is **required** for every Pull Request. You must use one of the follow
 *   `core`: Modifications to the Rust core implementation (`crates/geo-polygonize-core`).
 *   `python`: Modifications to the Python bindings (`python/`, `crates/geo-polygonize-core/src/python.rs`).
 *   `wasm`: Modifications to the WASM bindings (`pkg-threads/`, `pkg-wrapper/`, `crates/geo-polygonize-wasm`).
-*   `fleet`: Modifications to the fleet automation tools (`scripts/fleet/`).
 *   `deps`: Dependency updates or modifications.
 *   `main`: Used for release PRs (e.g. `chore(main): release 0.1.2`).
 *   `github`: Modifications to GitHub Actions workflows and configuration (`.github/`).
