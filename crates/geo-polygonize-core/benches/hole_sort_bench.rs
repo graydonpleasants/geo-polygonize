@@ -5,7 +5,9 @@ use geo_polygonize_core::containment::ContainmentForest;
 use geo_polygonize_core::options::{PolygonizerOptions, TouchPolicy};
 use geo_polygonize_core::utils::simd::SimdRing;
 use geo_polygonize_core::{Coord3D, Line3D, Polygon3D, Polygonizer};
+use multiversion::multiversion;
 use std::f64::consts::PI;
+use wide::{f64x4, CmpGt};
 
 fn circle_points(center_x: f64, center_y: f64, radius: f64, edges: usize) -> Vec<Coord3D> {
     let mut points = Vec::with_capacity(edges + 1);
@@ -81,6 +83,108 @@ fn locator_query_points(count: usize) -> Vec<Coord<f64>> {
             }
         })
         .collect()
+}
+
+fn scalar_contains(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let mut crossings = 0;
+    for i in 0..len - 1 {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+    }
+    crossings % 2 != 0
+}
+
+#[multiversion(targets(
+    "x86_64+avx512f+avx512dq",
+    "x86_64+avx2",
+    "x86+avx2",
+    "x86_64+avx",
+    "x86+avx",
+    "x86_64+sse2",
+    "x86+sse2",
+))]
+fn wide_contains(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let px = f64x4::splat(point.x);
+    let py = f64x4::splat(point.y);
+    let mut crossings = 0;
+    let mut i = 0;
+    let segments = len - 1;
+
+    while i + 4 <= segments {
+        let xi = f64x4::from(&x[i..i + 4]);
+        let yi = f64x4::from(&y[i..i + 4]);
+        let xj = f64x4::from(&x[i + 1..i + 5]);
+        let yj = f64x4::from(&y[i + 1..i + 5]);
+        let crossings_mask =
+            (yi.cmp_gt(py) ^ yj.cmp_gt(py)) & (((xj - xi) * (py - yi) / (yj - yi)) + xi).cmp_gt(px);
+        crossings += crossings_mask.move_mask().count_ones();
+        i += 4;
+    }
+
+    while i < segments {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+        i += 1;
+    }
+    crossings % 2 != 0
+}
+
+fn bench_point_in_ring_crossover(c: &mut Criterion) {
+    let points = locator_query_points(1_024);
+
+    for query_count in [1, points.len()] {
+        let mut group = c.benchmark_group(format!(
+            "point_in_ring_crossover/{}",
+            if query_count == 1 {
+                "one_shot"
+            } else {
+                "repeated"
+            }
+        ));
+
+        for edges in [32, 64, 96, 128, 192, 256, 384, 512, 1_024] {
+            let polygon = circle_polygon(0.0, 0.0, 100.0, edges);
+            let ring = SimdRing::new_3d(&polygon.exterior);
+            let len = polygon.exterior.len();
+            let queries = &points[..query_count];
+            let scalar_count = queries
+                .iter()
+                .filter(|point| scalar_contains(&ring.x, &ring.y, len, **point))
+                .count();
+            assert_eq!(
+                scalar_count,
+                queries
+                    .iter()
+                    .filter(|point| wide_contains(&ring.x, &ring.y, len, **point))
+                    .count()
+            );
+
+            group.throughput(Throughput::Elements((edges * query_count) as u64));
+            group.bench_function(BenchmarkId::new("scalar", edges), |b| {
+                b.iter(|| {
+                    black_box(queries)
+                        .iter()
+                        .filter(|point| scalar_contains(&ring.x, &ring.y, len, **point))
+                        .count()
+                });
+            });
+            group.bench_function(BenchmarkId::new("wide", edges), |b| {
+                b.iter(|| {
+                    black_box(queries)
+                        .iter()
+                        .filter(|point| wide_contains(&ring.x, &ring.y, len, **point))
+                        .count()
+                });
+            });
+        }
+        group.finish();
+    }
 }
 
 fn bench_point_locators(c: &mut Criterion) {
@@ -335,6 +439,7 @@ fn bench_end_to_end(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_point_in_ring_crossover,
     bench_point_locators,
     bench_preparation,
     bench_filtering,

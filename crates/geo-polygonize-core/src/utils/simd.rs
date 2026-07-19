@@ -4,6 +4,9 @@ use multiversion::multiversion;
 use wide::f64x4;
 use wide::CmpGt;
 
+#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+const SCALAR_MIN_COORDS: usize = 1;
+#[cfg(not(all(target_arch = "aarch64", target_os = "linux")))]
 const SCALAR_MIN_COORDS: usize = 257;
 
 pub struct SimdRing {
