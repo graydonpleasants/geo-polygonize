@@ -59,31 +59,25 @@ jobs:
           retention-days: 30
 
   wasm:
-    name: Wasm (${{ matrix.variant }})
+    name: Wasm crossover
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [scalar, threads]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up stable Rust
-        if: matrix.variant == 'scalar'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
       - name: Set up nightly Rust
-        if: matrix.variant == 'threads'
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
           targets: wasm32-unknown-unknown
 
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: benchmark-wasm-${{ matrix.variant }}
+          shared-key: benchmark-wasm-crossover
 
       - uses: actions/setup-node@v4
         with:
@@ -94,16 +88,21 @@ jobs:
 
       - uses: cargo-bins/cargo-binstall@main
 
-      - name: Build release package
-        run: ./scripts/build_wasm.sh --variant "${{ matrix.variant }}" --no-bundle
-
-      - name: Benchmark in cross-origin-isolated Chrome
+      - name: Build and benchmark scalar package
         run: |
           set -o pipefail
-          node scripts/benchmark_wasm_browser.mjs "${{ matrix.variant }}" | tee wasm-${{ matrix.variant }}.json
+          ./scripts/build_wasm.sh --variant scalar --no-bundle
+          node scripts/benchmark_wasm_browser.mjs scalar 1 | tee wasm-scalar-1.json
+
+      - name: Build and benchmark threaded package
+        run: |
+          set -o pipefail
+          ./scripts/build_wasm.sh --variant threads --no-bundle
+          node scripts/benchmark_wasm_browser.mjs threads 2 | tee wasm-threads-2.json
+          node scripts/benchmark_wasm_browser.mjs threads 4 | tee wasm-threads-4.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wasm-${{ matrix.variant }}-benchmarks
-          path: wasm-${{ matrix.variant }}.json
+          name: wasm-crossover-benchmarks
+          path: wasm-*.json
           retention-days: 30
