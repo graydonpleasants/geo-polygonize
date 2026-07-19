@@ -76,6 +76,8 @@ pub enum NodingStrategy {
     Grid,
 }
 
+const AUTO_SIMD_LIMIT: usize = 1024;
+
 pub struct SnapNoder {
     pub grid_size: f64,
     pub max_iter: usize,
@@ -144,11 +146,15 @@ impl SnapNoder {
         self.normalize_and_dedup(&mut lines);
 
         // 2. Iterative Noding
+        let auto_prefers_simd =
+            self.strategy == NodingStrategy::Auto && self.auto_prefers_simd(&lines);
         let mut new_lines = Vec::new();
         for iteration_index in 0..self.max_iter {
             let input_segment_count = lines.len();
             let use_grid = match self.strategy {
-                NodingStrategy::Auto => lines.len() >= 256,
+                NodingStrategy::Auto => {
+                    lines.len() >= 256 && !(auto_prefers_simd && lines.len() <= AUTO_SIMD_LIMIT)
+                }
                 NodingStrategy::Grid => true,
                 NodingStrategy::Simd => false,
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
@@ -285,6 +291,34 @@ impl SnapNoder {
         }
 
         lines
+    }
+
+    fn auto_prefers_simd(&self, lines: &[Line3D]) -> bool {
+        // ponytail: bounded deterministic sample; expand only if cross-arch benchmarks
+        // show that 16 evenly spaced lines misclassify real workloads.
+        const SAMPLE_SIZE: usize = 16;
+        if !(256..=AUTO_SIMD_LIMIT).contains(&lines.len()) {
+            return false;
+        }
+
+        let last = lines.len() - 1;
+        let mut split_pairs = 0;
+        let mut pairs = 0;
+
+        for left_sample in 0..SAMPLE_SIZE {
+            let left = left_sample * last / (SAMPLE_SIZE - 1);
+            for right_sample in left_sample + 1..SAMPLE_SIZE {
+                let right = right_sample * last / (SAMPLE_SIZE - 1);
+                let mut produces_split = false;
+                self.process_intersection(lines[left], lines[right], left, right, |_, _| {
+                    produces_split = true;
+                });
+                split_pairs += usize::from(produces_split);
+                pairs += 1;
+            }
+        }
+
+        split_pairs * 4 >= pairs
     }
 
     fn measure_simd_work(lines: &[Line3D]) -> NodingWorkStats {
@@ -904,6 +938,36 @@ mod tests {
         assert_eq!(iterations[0].intersections_found, 32);
         assert_eq!(iterations[0].nodes_added, 32);
         assert_eq!(iterations[1].intersections_found, 0);
+    }
+
+    #[test]
+    fn test_auto_uses_simd_only_for_dense_split_pairs() {
+        let dense: Vec<_> = (0..256)
+            .map(|i| {
+                let angle = std::f64::consts::PI * i as f64 / 256.0;
+                let (sin, cos) = angle.sin_cos();
+                make_line(-cos, -sin, cos, sin)
+            })
+            .collect();
+        let skewed: Vec<_> = (0..256)
+            .map(|i| {
+                let end = i as f64 * 0.0001;
+                make_line(0.0, 0.0, end, end + 0.00001)
+            })
+            .collect();
+        let noder = SnapNoder::new(1e-10);
+
+        let oversized_dense: Vec<_> = (0..=AUTO_SIMD_LIMIT)
+            .map(|i| {
+                let angle = std::f64::consts::PI * i as f64 / AUTO_SIMD_LIMIT as f64;
+                let (sin, cos) = angle.sin_cos();
+                make_line(-cos, -sin, cos, sin)
+            })
+            .collect();
+
+        assert!(noder.auto_prefers_simd(&dense));
+        assert!(!noder.auto_prefers_simd(&skewed));
+        assert!(!noder.auto_prefers_simd(&oversized_dense));
     }
 
     #[test]
