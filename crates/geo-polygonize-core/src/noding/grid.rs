@@ -38,10 +38,6 @@ fn segment_cells(
         }
     };
 
-    let (mut col, mut row) = cell(line.start.x, line.start.y);
-    let (end_col, end_row) = cell(line.end.x, line.end.y);
-    push(&mut cells, col, row);
-
     let dx = line.end.x - line.start.x;
     let dy = line.end.y - line.start.y;
     let step_x = if dx > 0.0 {
@@ -58,6 +54,11 @@ fn segment_cells(
     } else {
         0
     };
+    let on_boundary = |value: f64| (value - value.round()).abs() <= 1e-12;
+    let (mut col, mut row) = cell(line.start.x, line.start.y);
+    let (end_col, end_row) = cell(line.end.x, line.end.y);
+    push(&mut cells, col, row);
+
     let t_delta_x = if dx == 0.0 {
         f64::INFINITY
     } else {
@@ -83,6 +84,9 @@ fn segment_cells(
 
     while col != end_col || row != end_row {
         let tolerance = f64::EPSILON * t_max_x.abs().max(t_max_y.abs()).max(1.0) * 8.0;
+        if t_max_x.min(t_max_y) > 1.0 + tolerance {
+            break;
+        }
         if t_max_x.is_finite() && t_max_y.is_finite() && (t_max_x - t_max_y).abs() <= tolerance {
             push(&mut cells, col + step_x, row);
             push(&mut cells, col, row + step_y);
@@ -99,8 +103,8 @@ fn segment_cells(
         }
         push(&mut cells, col, row);
     }
+    push(&mut cells, end_col, end_row);
 
-    let on_boundary = |value: f64| (value - value.round()).abs() <= 1e-12;
     let vertical_boundary = dx == 0.0 && on_boundary((line.start.x - min_x) / cell_size);
     let horizontal_boundary = dy == 0.0 && on_boundary((line.start.y - min_y) / cell_size);
     let traversed = cells.clone();

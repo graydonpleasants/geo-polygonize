@@ -220,7 +220,6 @@ try {
       return [[0, 0], [end, end + 0.00001]];
     });
     skewed.push([[100, 100], [101, 101]]);
-    // ponytail: stay below Auto's Grid threshold until crossing re-noding has a bounded reproducer.
     const crossing = Array.from({ length: 4 * 4 * 2 }, (_, index) => {
       const cell = Math.floor(index / 2);
       const x = Math.floor(cell / 4) * 2;

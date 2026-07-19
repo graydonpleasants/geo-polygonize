@@ -380,11 +380,6 @@ fn bench_noding_workloads(c: &mut Criterion) {
             ("grid", NodingStrategy::Grid),
             ("simd", NodingStrategy::Simd),
         ] {
-            // ponytail: forced Grid repeatedly re-nodes crossing splits; benchmark it after that
-            // pathology has a bounded one-shot reproducer instead of hanging every CI run.
-            if workload == "crossing" && strategy == NodingStrategy::Grid {
-                continue;
-            }
             group.bench_with_input(
                 BenchmarkId::new(workload, strategy_name),
                 &lines,
