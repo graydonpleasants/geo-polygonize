@@ -79,6 +79,18 @@ try {
       await wasm.initThreadPool(threadCount);
     }
 
+    const summarize = (samples) => {
+      const sorted = [...samples].sort((a, b) => a - b);
+      const middle = sorted.length / 2;
+      return {
+        minMs: sorted[0],
+        medianMs: (sorted[middle - 1] + sorted[middle]) / 2,
+        meanMs: sorted.reduce((sum, sample) => sum + sample, 0) / sorted.length,
+        p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
+      };
+    };
+    const durationMs = ({ secs, nanos }) => Number(secs) * 1_000 + nanos / 1_000_000;
+    const profileSize = Math.max(...sizes);
     const results = sizes.map((size) => {
       let state = 42;
       const random = () => {
@@ -99,27 +111,103 @@ try {
           ],
         },
       }));
-      const input = JSON.stringify({ type: "FeatureCollection", features });
-      const run = () => JSON.parse(wasm.polygonize(input, true, 1e-10, false, false)).features.length;
+      const collection = { type: "FeatureCollection", features };
+      const input = JSON.stringify(collection);
+      const run = () => {
+        const wasmStarted = performance.now();
+        const output = wasm.polygonize(input, true, 1e-10, false, false);
+        const wasmMs = performance.now() - wasmStarted;
+        const parseStarted = performance.now();
+        const polygonCount = JSON.parse(output).features.length;
+        return { polygonCount, wasmMs, parseMs: performance.now() - parseStarted };
+      };
 
       for (let index = 0; index < 3; index += 1) run();
-      const samplesMs = [];
+      const wasmSamplesMs = [];
+      const parseSamplesMs = [];
+      const totalSamplesMs = [];
       let polygonCount = 0;
       for (let index = 0; index < 10; index += 1) {
-        const start = performance.now();
-        polygonCount = run();
-        samplesMs.push(performance.now() - start);
+        const sample = run();
+        polygonCount = sample.polygonCount;
+        wasmSamplesMs.push(sample.wasmMs);
+        parseSamplesMs.push(sample.parseMs);
+        totalSamplesMs.push(sample.wasmMs + sample.parseMs);
       }
-      samplesMs.sort((a, b) => a - b);
-      return {
+      const wasmSummary = summarize(wasmSamplesMs);
+      const parseSummary = summarize(parseSamplesMs);
+      const totalSummary = summarize(totalSamplesMs);
+      const result = {
         size,
         polygonCount,
-        samples: samplesMs.length,
-        minMs: samplesMs[0],
-        medianMs: (samplesMs[4] + samplesMs[5]) / 2,
-        meanMs: samplesMs.reduce((sum, sample) => sum + sample, 0) / samplesMs.length,
-        p95Ms: samplesMs[9],
+        samples: wasmSamplesMs.length,
+        ...totalSummary,
       };
+
+      if (size === profileSize) {
+        const coords = new Float64Array(size * 4);
+        for (let index = 0; index < size; index += 1) {
+          coords.set(features[index].geometry.coordinates.flat(), index * 4);
+        }
+        const offsets = Uint32Array.from({ length: size }, (_, index) => index * 2);
+        const options = {
+          node_input: true,
+          snap_grid_size: 1e-10,
+          pre_snap_tolerance: 0,
+          extract_only_polygonal: false,
+          snap_strategy: "Grid",
+          noding: { backend: "Snap" },
+          containment: { touch_policy: "AllowPointTouchDisallowEdgeShare" },
+          determinism: {
+            canonical_sort: false,
+            canonical_ring_rotation: false,
+            stable_tie_breaks: false,
+          },
+          diagnostics: { enabled: false, report_mode: false, timings: true },
+          provenance: { enabled: false, include_boundary_line_ids: false },
+          input_profile_id: null,
+        };
+        const runBuffer = () => {
+          const started = performance.now();
+          const output = wasm.polygonizeWithOptionsBuffer(coords, offsets, 2, options);
+          const totalMs = performance.now() - started;
+          const diagnostics = output.diagnostics;
+          const count = output.polygon_offsets_len();
+          output.free();
+          return {
+            count,
+            totalMs,
+            phases: Object.fromEntries(
+              Object.entries(diagnostics.phase_times).map(([name, duration]) => [name, durationMs(duration)]),
+            ),
+          };
+        };
+        for (let index = 0; index < 3; index += 1) runBuffer();
+        const bufferSamples = [];
+        for (let index = 0; index < 10; index += 1) bufferSamples.push(runBuffer());
+        if (bufferSamples.some((sample) => sample.count !== polygonCount)) {
+          throw new Error("GeoJSON and buffer polygon counts differ");
+        }
+        const stringifySamplesMs = [];
+        for (let index = 0; index < 10; index += 1) {
+          const started = performance.now();
+          JSON.stringify(collection);
+          stringifySamplesMs.push(performance.now() - started);
+        }
+        result.stageProfile = {
+          jsonInputStringify: summarize(stringifySamplesMs),
+          geoJsonWasm: wasmSummary,
+          jsonOutputParse: parseSummary,
+          bufferTotal: summarize(bufferSamples.map((sample) => sample.totalMs)),
+          corePhases: Object.fromEntries(
+            Object.keys(bufferSamples[0].phases).map((phase) => [
+              phase,
+              summarize(bufferSamples.map((sample) => sample.phases[phase])),
+            ]),
+          ),
+        };
+      }
+      return result;
     });
     return {
       variant: selectedVariant,

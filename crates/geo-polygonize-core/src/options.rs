@@ -111,6 +111,7 @@ impl PolygonizerOptions {
             diagnostics: DiagnosticsOptions {
                 enabled: true,
                 report_mode: true,
+                timings: false,
             },
             provenance: ProvenanceOptions {
                 enabled: true,
@@ -220,6 +221,9 @@ impl Default for DeterminismOptions {
 pub struct DiagnosticsOptions {
     pub enabled: bool,
     pub report_mode: bool,
+    // Collect phase timings without enabling the more expensive work counters.
+    #[serde(default)]
+    pub timings: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]

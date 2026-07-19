@@ -617,7 +617,7 @@ fn polygonize_and_flatten(
     mut polygonizer: Polygonizer,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
-    let result =
+    let mut result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
             .unwrap_or_else(|_| {
                 Err(geo_polygonize_core::error::PolygonizeError::Panic(
@@ -626,6 +626,7 @@ fn polygonize_and_flatten(
             })
             .map_err(from_polygonizer_error)?;
 
+    let flatten_started = js_sys::Date::now();
     let mut flat_coords = Vec::new();
     let mut ring_offsets = Vec::new();
     let mut polygon_offsets = Vec::new();
@@ -681,6 +682,10 @@ fn polygonize_and_flatten(
         serde_wasm_bindgen::to_value(&provenances).unwrap_or(JsValue::NULL)
     };
 
+    if let Some(diag) = result.diagnostics.as_mut() {
+        diag.phase_times.output_flatten =
+            std::time::Duration::from_secs_f64((js_sys::Date::now() - flatten_started) / 1_000.0);
+    }
     let js_diagnostics = if let Some(ref diag) = result.diagnostics {
         serde_wasm_bindgen::to_value(diag).unwrap_or(JsValue::NULL)
     } else {

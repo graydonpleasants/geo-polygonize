@@ -674,6 +674,21 @@ mod tests {
     }
 
     #[test]
+    fn timing_only_diagnostics_skip_work_counters() {
+        let mut poly = Polygonizer::new();
+        poly.node_input = true;
+        poly.diagnostics_options.timings = true;
+        poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
+        poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
+
+        let diagnostics = poly.polygonize().unwrap().diagnostics.unwrap();
+
+        assert_eq!(diagnostics.input_segment_count, 2);
+        assert!(diagnostics.noding_iterations.is_empty());
+        assert_eq!(diagnostics.noding_work_stats.candidate_pairs, 0);
+    }
+
+    #[test]
     fn diagnostics_report_pre_snap_candidates() {
         let mut poly = Polygonizer::new();
         poly.node_input = true;

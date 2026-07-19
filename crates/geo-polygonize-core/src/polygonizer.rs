@@ -15,25 +15,15 @@ use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_time() -> Option<Instant> {
-    Some(Instant::now())
-}
-
 #[cfg(target_arch = "wasm32")]
-fn get_time() -> Option<()> {
-    None
+use web_time::Instant;
+
+fn get_time() -> Instant {
+    Instant::now()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn get_elapsed(start: Option<Instant>) -> std::time::Duration {
-    start.map(|s| s.elapsed()).unwrap_or_default()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn get_elapsed(_start: Option<()>) -> std::time::Duration {
-    std::time::Duration::default()
+fn get_elapsed(start: Instant) -> std::time::Duration {
+    start.elapsed()
 }
 
 #[cfg(feature = "parallel")]
@@ -269,7 +259,7 @@ impl Polygonizer {
         self.options.determinism = self.determinism.clone();
         self.options.diagnostics = self.diagnostics_options.clone();
 
-        let mut diag = if self.options.diagnostics.enabled {
+        let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {
             let d = PolygonizerDiagnostics {
                 input_segment_count: self.input_lines.len(),
                 ..Default::default()
@@ -280,7 +270,11 @@ impl Polygonizer {
         };
 
         let t_ingest_start = get_time();
-        self.build_graph(diag.as_mut())?;
+        self.build_graph(if self.options.diagnostics.enabled {
+            diag.as_mut()
+        } else {
+            None
+        })?;
         if let Some(ref mut d) = diag {
             d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
             d.noded_segment_count = self.graph.edges.len();
