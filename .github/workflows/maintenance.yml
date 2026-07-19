@@ -28,12 +28,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release') && 'release' || 'code' }}"
   cancel-in-progress: true
 
 jobs:
   maintenance:
-    if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(github): update benchmarks') }}"
+    if: "${{ github.event_name != 'push' || (!startsWith(github.event.head_commit.message, 'chore(github): update benchmarks') && !startsWith(github.event.head_commit.message, 'chore(main): release')) }}"
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
