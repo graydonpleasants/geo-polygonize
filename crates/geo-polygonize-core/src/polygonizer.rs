@@ -753,6 +753,18 @@ mod topology_tests {
         assert_eq!(unassigned_count, 1);
         assert!((unassigned_area - 100.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn reorder_polygons_applies_sorted_old_indices() {
+        let polygon =
+            |label| Polygon3D::new(vec![Coord3D::new(label, 0.0, 0.0)], vec![], vec![], vec![]);
+        let mut polygons = vec![polygon(0.0), polygon(1.0), polygon(2.0)];
+
+        reorder_polygons(&mut polygons, [2, 0, 1].into_iter());
+
+        let labels: Vec<_> = polygons.iter().map(|p| p.exterior[0].x).collect();
+        assert_eq!(labels, [2.0, 0.0, 1.0]);
+    }
 }
 
 pub(crate) fn apply_determinism(
@@ -765,41 +777,46 @@ pub(crate) fn apply_determinism(
     if options.determinism.canonical_sort {
         let use_stable_tie_breaks = options.determinism.stable_tie_breaks;
         if use_stable_tie_breaks {
-            let mut result_with_cache: Vec<_> = result
-                .into_iter()
-                .map(|p| {
+            let mut sort_keys: Vec<_> = result
+                .iter()
+                .enumerate()
+                .map(|(index, p)| {
                     let area = p.exterior_unsigned_area_2d();
                     let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
                         geo::Coord { x: 0.0, y: 0.0 },
                         geo::Coord { x: 0.0, y: 0.0 },
                     ));
-                    (p, area, b)
+                    (index, area, b, p.interiors.len())
                 })
                 .collect();
 
-            result_with_cache.sort_unstable_by(|(p1, area1, b1), (p2, area2, b2)| {
+            sort_keys.sort_unstable_by(|(_, area1, b1, holes1), (_, area2, b2, holes2)| {
                 area2.total_cmp(area1).then_with(|| {
                     b1.min()
                         .x
                         .total_cmp(&b2.min().x)
                         .then(b1.min().y.total_cmp(&b2.min().y))
-                        .then(p1.interiors.len().cmp(&p2.interiors.len()))
+                        .then(holes1.cmp(holes2))
                 })
             });
 
-            result = result_with_cache.into_iter().map(|(p, _, _)| p).collect();
+            reorder_polygons(
+                &mut result,
+                sort_keys.into_iter().map(|(index, _, _, _)| index),
+            );
         } else {
-            let mut result_with_cache: Vec<_> = result
-                .into_iter()
-                .map(|p| {
+            let mut sort_keys: Vec<_> = result
+                .iter()
+                .enumerate()
+                .map(|(index, p)| {
                     let area = p.exterior_unsigned_area_2d();
-                    (p, area)
+                    (index, area)
                 })
                 .collect();
 
-            result_with_cache.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+            sort_keys.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
 
-            result = result_with_cache.into_iter().map(|(p, _)| p).collect();
+            reorder_polygons(&mut result, sort_keys.into_iter().map(|(index, _)| index));
         }
 
         if options.determinism.canonical_ring_rotation {
@@ -879,6 +896,20 @@ pub(crate) fn apply_determinism(
         }
     }
     result
+}
+
+fn reorder_polygons(result: &mut [Polygon3D], old_indices: impl Iterator<Item = usize>) {
+    let mut destinations = vec![0; result.len()];
+    for (new_index, old_index) in old_indices.enumerate() {
+        destinations[old_index] = new_index;
+    }
+    for index in 0..destinations.len() {
+        while destinations[index] != index {
+            let destination = destinations[index];
+            result.swap(index, destination);
+            destinations.swap(index, destination);
+        }
+    }
 }
 
 fn sort_open_lines(lines: &mut [Vec<Coord3D>]) {

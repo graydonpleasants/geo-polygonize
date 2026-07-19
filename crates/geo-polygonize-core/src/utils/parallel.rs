@@ -102,21 +102,3 @@ where
         a.iter_mut().zip(b.iter()).for_each(|(x, y)| f(x, y));
     }
 }
-
-/// Helper for parallel consume, enumerate, map and collect
-#[inline]
-pub fn par_into_enumerate_map<T, F, U>(vec: Vec<T>, f: F) -> Vec<U>
-where
-    T: Send,
-    F: Fn((usize, T)) -> U + Sync + Send,
-    U: Send,
-{
-    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-    {
-        vec.into_par_iter().enumerate().map(f).collect()
-    }
-    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
-    {
-        vec.into_iter().enumerate().map(f).collect()
-    }
-}
