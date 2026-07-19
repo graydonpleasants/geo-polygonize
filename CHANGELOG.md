@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.10](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.9...geo-polygonize-v0.39.10) (2026-07-19)
+
+
+### Performance Improvements
+
+* **core:** prefer scalar point location on Linux ARM ([#849](https://github.com/graydonpleasants/geo-polygonize/issues/849)) ([d4f6040](https://github.com/graydonpleasants/geo-polygonize/commit/d4f6040b664d29a1100f40ac05b1f58d0607db8f))
+
 ## [0.39.9](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.8...geo-polygonize-v0.39.9) (2026-07-19)
 
 
