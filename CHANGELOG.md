@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.7](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.6...geo-polygonize-v0.39.7) (2026-07-19)
+
+
+### Performance Improvements
+
+* **wasm:** measure threaded crossover workloads ([#836](https://github.com/graydonpleasants/geo-polygonize/issues/836)) ([7abcdc8](https://github.com/graydonpleasants/geo-polygonize/commit/7abcdc8d62def351179a434816ffa733d5013934))
+
 ## [0.39.6](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.5...geo-polygonize-v0.39.6) (2026-07-19)
 
 
