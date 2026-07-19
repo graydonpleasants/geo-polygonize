@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.12](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.11...geo-polygonize-v0.39.12) (2026-07-19)
+
+
+### Performance Improvements
+
+* **core:** dispatch dense noding samples to SIMD ([#854](https://github.com/graydonpleasants/geo-polygonize/issues/854)) ([dd711cc](https://github.com/graydonpleasants/geo-polygonize/commit/dd711ccb71d6dcf910b11dea7c2c9d472f72ed19))
+
 ## [0.39.11](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.10...geo-polygonize-v0.39.11) (2026-07-19)
 
 
