@@ -9,7 +9,7 @@ This document describes the WebAssembly (Wasm) API available in the `geo-polygon
 Polygonizes linework provided as a GeoJSON FeatureCollection, Feature, or Geometry string. Returns a GeoJSON FeatureCollection string containing the resulting polygons.
 
 *   `geojson_str` (string): The input GeoJSON as a string.
-*   `node_input` (boolean, optional): Whether to use robust Iterated Snap Rounding to find intersections between line segments before polygonization. Defaults to `false`.
+*   `node_input` (boolean, optional): Whether to use unchecked iterative grid noding to find intersections between line segments before polygonization. Defaults to `false`.
 *   `snap_grid_size` (number, optional): The grid size used for snap rounding if `node_input` is true. Defaults to `1e-10`.
 *   `extract_only_polygonal` (boolean, optional): Whether to strictly extract only fully polygonal regions, discarding non-polygonal linework. Defaults to `false`.
 

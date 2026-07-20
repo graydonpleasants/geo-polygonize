@@ -40,7 +40,7 @@ fn bench_polygonize_grid(lines: Vec<LineString<f64>>) {
     for line in lines {
         poly.add_geometry(line.into());
     }
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
     let _ = poly.polygonize();
 }
 
@@ -52,7 +52,7 @@ fn bench_polygonize_random(lines: Vec<LineString<f64>>) {
     for line in lines {
         poly.add_geometry(line.into());
     }
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
     let _ = poly.polygonize();
 }
 

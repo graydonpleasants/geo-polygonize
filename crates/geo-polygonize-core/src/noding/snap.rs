@@ -479,7 +479,7 @@ impl SnapNoder {
                     }
                 })
             });
-            points.dedup_by(|a, b| (a.1.x - b.1.x).abs() < 1e-12 && (a.1.y - b.1.y).abs() < 1e-12);
+            points.dedup_by(|a, b| a.1.x == b.1.x && a.1.y == b.1.y);
 
             for pair in points.windows(2) {
                 let p0 = pair[0].1;
@@ -504,8 +504,7 @@ impl SnapNoder {
 
         for segment in lines.iter_mut() {
             if segment.start.x > segment.end.x
-                || ((segment.start.x - segment.end.x).abs() < 1e-12
-                    && segment.start.y > segment.end.y)
+                || (segment.start.x == segment.end.x && segment.start.y > segment.end.y)
             {
                 std::mem::swap(&mut segment.start, &mut segment.end);
             }

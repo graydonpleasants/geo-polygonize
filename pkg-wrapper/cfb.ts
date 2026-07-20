@@ -26,5 +26,8 @@ export const cfbRobustOptions: PolygonizerOptions = {
         enabled: true,
         include_boundary_line_ids: true,
     },
+    output_filter: {
+        minimum_face_area: undefined,
+    },
     input_profile_id: "cfb_robust_v1",
 };

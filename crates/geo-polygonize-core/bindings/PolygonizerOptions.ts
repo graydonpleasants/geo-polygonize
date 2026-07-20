@@ -3,6 +3,7 @@ import type { ContainmentOptions } from "./ContainmentOptions";
 import type { DeterminismOptions } from "./DeterminismOptions";
 import type { DiagnosticsOptions } from "./DiagnosticsOptions";
 import type { NodingOptions } from "./NodingOptions";
+import type { OutputFilterOptions } from "./OutputFilterOptions";
 import type { ProvenanceOptions } from "./ProvenanceOptions";
 import type { SnapStrategy } from "./SnapStrategy";
 
@@ -12,7 +13,7 @@ import type { SnapStrategy } from "./SnapStrategy";
  * This struct controls every aspect of the polygonization pipeline, including
  * topological robustness, feature output, containment policies, noding, and determinism.
  */
-export type PolygonizerOptions = { 
+export type PolygonizerOptions = {
 /**
  * Whether to robustly node the input before polygonization.
  *
@@ -22,7 +23,7 @@ export type PolygonizerOptions = {
  *
  * Default: `false`
  */
-node_input: boolean, 
+node_input: boolean,
 /**
  * The snapping grid size used for vertex deduplication and noding operations.
  *
@@ -31,7 +32,7 @@ node_input: boolean,
  *
  * Default: `1e-10`
  */
-snap_grid_size: number, 
+snap_grid_size: number,
 /**
  * Snap input segments to nearby vertices from exact-noded input linework before grid noding.
  *
@@ -41,7 +42,7 @@ snap_grid_size: number,
  *
  * Default: `0.0`
  */
-pre_snap_tolerance: number, 
+pre_snap_tolerance: number,
 /**
  * If `true`, only pure, outermost polygonal shells are returned.
  *
@@ -49,7 +50,7 @@ pre_snap_tolerance: number,
  *
  * Default: `false`
  */
-extract_only_polygonal: boolean, 
+extract_only_polygonal: boolean,
 /**
  * Controls robust snap noding and output coordinate handling.
  *
@@ -58,28 +59,32 @@ extract_only_polygonal: boolean,
  *
  * Default: `SnapStrategy::Grid`
  */
-snap_strategy: SnapStrategy, 
+snap_strategy: SnapStrategy,
 /**
  * Configures the noding engine backend and behavior.
  */
-noding: NodingOptions, 
+noding: NodingOptions,
 /**
  * Configures how topological relationships (containment) are calculated
  * during face formation.
  */
-containment: ContainmentOptions, 
+containment: ContainmentOptions,
 /**
  * Configuration for enforcing exact topological determinism.
  */
-determinism: DeterminismOptions, 
+determinism: DeterminismOptions,
 /**
  * Options for capturing diagnostic topology failures.
  */
-diagnostics: DiagnosticsOptions, 
+diagnostics: DiagnosticsOptions,
 /**
  * Options for mapping final faces back to original input geometry IDs.
  */
-provenance: ProvenanceOptions, 
+provenance: ProvenanceOptions,
+/**
+ * Optional application-level filtering applied after topology is established.
+ */
+output_filter: OutputFilterOptions,
 /**
  * An optional identifier for the input dataset.
  */

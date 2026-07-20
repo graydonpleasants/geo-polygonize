@@ -1,5 +1,5 @@
 use geo_polygonize_core::options::{DeterminismOptions, PolygonizerOptions, ProvenanceOptions};
-use geo_polygonize_core::polygonizer::polygonize_with_options;
+use geo_polygonize_core::polygonizer::polygonize;
 use geo_polygonize_core::types::{Coord3D, Line3D};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -94,7 +94,7 @@ fn run_provenance_test(path: &Path) {
         ..PolygonizerOptions::default()
     };
 
-    let res = polygonize_with_options(&input_lines, &options).unwrap();
+    let res = polygonize(input_lines.iter().copied(), &options).unwrap();
 
     let actual_result = ProvenanceFixtureResult {
         polygons: res

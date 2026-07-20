@@ -57,12 +57,15 @@ struct GoldenPolygon {
     interiors: Vec<Vec<GoldenCoord>>,
     exterior_ids: Vec<u32>,
     interiors_ids: Vec<Vec<u32>>,
+    boundary_line_ids: Vec<u64>,
+    input_profile_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct GoldenResult {
     polygons: Vec<GoldenPolygon>,
     dangles: Vec<Vec<GoldenCoord>>,
+    cut_edges: Vec<Vec<GoldenCoord>>,
     invalid_rings: Vec<Vec<GoldenCoord>>,
 }
 
@@ -70,23 +73,24 @@ struct GoldenResult {
 struct GoldenFixture {
     name: String,
     inputs: Vec<GoldenLine>,
-    expected: Option<GoldenResult>,
+    expected: GoldenResult,
 }
 
 fn run_golden_test(path: &Path) {
     let content = fs::read_to_string(path).expect("Failed to read fixture file");
-    let mut fixture: GoldenFixture =
-        serde_json::from_str(&content).expect("Failed to parse fixture");
+    let fixture: GoldenFixture = serde_json::from_str(&content).expect("Failed to parse fixture");
 
     let input_lines: Vec<Line3D> = fixture.inputs.iter().map(|l| l.into()).collect();
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
-    poly.determinism = DeterminismOptions {
+    poly.options_mut().node_input = true;
+    poly.options_mut().determinism = DeterminismOptions {
         canonical_sort: true,
         canonical_ring_rotation: true,
         stable_tie_breaks: true,
     };
+    poly.options_mut().provenance.enabled = true;
+    poly.options_mut().provenance.include_boundary_line_ids = true;
     poly.add_lines(input_lines);
 
     let res = poly.polygonize().unwrap();
@@ -95,21 +99,31 @@ fn run_golden_test(path: &Path) {
         polygons: res
             .polygons
             .into_iter()
-            .map(|p| GoldenPolygon {
-                exterior: p.exterior.into_iter().map(|c| c.into()).collect(),
-                interiors: p
-                    .interiors
-                    .into_iter()
-                    .map(|h| h.into_iter().map(|c| c.into()).collect())
-                    .collect(),
-                exterior_ids: p.exterior_ids,
-                interiors_ids: p.interiors_ids,
+            .map(|p| {
+                let provenance = p.provenance.unwrap_or_default();
+                GoldenPolygon {
+                    exterior: p.exterior.into_iter().map(|c| c.into()).collect(),
+                    interiors: p
+                        .interiors
+                        .into_iter()
+                        .map(|h| h.into_iter().map(|c| c.into()).collect())
+                        .collect(),
+                    exterior_ids: p.exterior_ids,
+                    interiors_ids: p.interiors_ids,
+                    boundary_line_ids: provenance.boundary_line_ids,
+                    input_profile_id: provenance.input_profile_id,
+                }
             })
             .collect(),
         dangles: res
             .dangles
             .into_iter()
             .map(|d| d.into_iter().map(|c| c.into()).collect())
+            .collect(),
+        cut_edges: res
+            .cut_edges
+            .into_iter()
+            .map(|edge| edge.into_iter().map(|c| c.into()).collect())
             .collect(),
         invalid_rings: res
             .invalid_rings
@@ -118,19 +132,11 @@ fn run_golden_test(path: &Path) {
             .collect(),
     };
 
-    if let Some(ref expected) = fixture.expected {
-        assert_eq!(
-            &actual_result, expected,
-            "Mismatch in fixture {}",
-            fixture.name
-        );
-    } else {
-        // Bootstrap the fixture
-        fixture.expected = Some(actual_result);
-        let output = serde_json::to_string_pretty(&fixture).unwrap();
-        fs::write(path, output).unwrap();
-        println!("Bootstrapped expected output for {}", fixture.name);
-    }
+    assert_eq!(
+        actual_result, fixture.expected,
+        "Mismatch in fixture {}",
+        fixture.name
+    );
 }
 
 #[test]

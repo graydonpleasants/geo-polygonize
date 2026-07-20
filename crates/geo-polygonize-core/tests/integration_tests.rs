@@ -75,7 +75,7 @@ fn test_nested_holes() {
 
 fn test_touching_polygons() {
     let mut poly = Polygonizer::new();
-    poly.node_input = true; // Required to deduplicate the shared edge
+    poly.options_mut().node_input = true; // Required to deduplicate the shared edge
 
     // Square 1: (0,0)-(50,0)-(50,50)-(0,50)
     poly.add_geometry(
@@ -145,7 +145,7 @@ fn test_dangles() {
 #[test]
 fn test_bowtie() {
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     // Bowtie: (0,0)->(10,10)->(0,10)->(10,0)->(0,0)
     // Intersects at (5,5)
@@ -192,7 +192,7 @@ fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
 #[test]
 fn test_overlapping_circles() {
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     // 1. Overlapping Circles
     let c1 = create_circle(30.0, 30.0, 30.0, 100);
@@ -219,7 +219,7 @@ fn test_overlapping_circles() {
 #[test]
 fn test_curved_holes() {
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     // 2. Curved Holes
     let outer = create_circle(50.0, 50.0, 50.0, 200);
@@ -248,7 +248,7 @@ fn test_touching_full_edge() {
     // Shared edge: (10,0)-(10,10)
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     poly.add_geometry(
         LineString::from(vec![
@@ -288,7 +288,7 @@ fn test_touching_partial_edge() {
     // Shared segment: (10,5)-(10,10)
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     poly.add_geometry(
         LineString::from(vec![
@@ -331,7 +331,7 @@ fn test_touching_vertex() {
     // Square 2: (10,10)-(20,10)-(20,20)-(10,20)-(10,10)
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     poly.add_geometry(
         LineString::from(vec![
@@ -367,7 +367,7 @@ fn test_touching_t_junction() {
     // Touches at segment (2,0)-(8,0) which is part of S1's bottom edge (0,0)-(10,0)
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     poly.add_geometry(
         LineString::from(vec![
@@ -414,7 +414,7 @@ fn test_grid_2x2() {
     // Lines provided as 4 separate squares to force deduplication/noding
 
     let mut poly = Polygonizer::new();
-    poly.node_input = true;
+    poly.options_mut().node_input = true;
 
     // Bottom-Left
     poly.add_geometry(

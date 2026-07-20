@@ -174,7 +174,7 @@ impl Polygon3D {
 
         let (ext_area, ext_cx, ext_cy) = Self::ring_area_and_centroid_2d(&self.exterior);
         let ext_abs_area = ext_area.abs();
-        if ext_abs_area < 1e-12 {
+        if ext_abs_area == 0.0 {
             return None;
         }
         total_area += ext_abs_area;
@@ -190,7 +190,7 @@ impl Polygon3D {
             cy -= hole_cy * hole_abs_area;
         }
 
-        if total_area.abs() < 1e-12 {
+        if total_area == 0.0 {
             None
         } else {
             Some(geo_types::Point::new(cx / total_area, cy / total_area))
@@ -202,13 +202,23 @@ impl Polygon3D {
         if coords.len() < 3 {
             return 0.0;
         }
-        let mut twice_area = 0.0;
+        let origin = coords[0];
+        let mut sum = 0.0;
+        let mut correction = 0.0;
         let mut prev = coords[coords.len() - 1];
         for curr in coords {
-            twice_area += (prev.x - curr.x) * (prev.y + curr.y);
+            let term = (prev.x - origin.x) * (curr.y - origin.y)
+                - (prev.y - origin.y) * (curr.x - origin.x);
+            let next = sum + term;
+            correction += if sum.abs() >= term.abs() {
+                (sum - next) + term
+            } else {
+                (term - next) + sum
+            };
+            sum = next;
             prev = *curr;
         }
-        twice_area / 2.0
+        (sum + correction) / 2.0
     }
 
     #[inline]

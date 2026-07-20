@@ -91,10 +91,18 @@
           3,
           4
         ],
-        "interiors_ids": []
+        "interiors_ids": [],
+        "boundary_line_ids": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "input_profile_id": null
       }
     ],
     "dangles": [],
+    "cut_edges": [],
     "invalid_rings": []
   }
 }

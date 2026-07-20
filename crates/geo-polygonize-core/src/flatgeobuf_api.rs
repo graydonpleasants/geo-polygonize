@@ -1,6 +1,6 @@
 use crate::error::PolygonizeError;
 use crate::options::PolygonizerOptions;
-use crate::polygonizer::polygonize_with_options;
+use crate::polygonizer::polygonize;
 use crate::types::{Coord3D, Line3D, Polygon3D};
 use flatgeobuf::{
     FallibleStreamingIterator, FgbCrs, FgbReader, FgbWriter, FgbWriterOptions, GeometryType,
@@ -66,7 +66,7 @@ pub fn polygonize_flatgeobuf_file(
         }
     }
 
-    let result = polygonize_with_options(&lines, &options)?;
+    let result = polygonize(lines.iter().copied(), &options)?;
     let writer_options = FgbWriterOptions {
         crs: FgbCrs {
             org: crs_org.as_deref(),

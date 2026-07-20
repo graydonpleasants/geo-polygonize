@@ -62,6 +62,25 @@ describe('WASM Polygonizer', () => {
         expect(coords.length).toBeGreaterThan(0);
     });
 
+    it('should apply defaults to partial options', async () => {
+        const { default: initModule, polygonizeWithOptions } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const input = {
+            type: "FeatureCollection",
+            features: [{
+                type: "Feature",
+                geometry: {
+                    type: "LineString",
+                    coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]],
+                },
+            }],
+        };
+
+        expect(JSON.parse(polygonizeWithOptions(JSON.stringify(input), {})).features).toHaveLength(1);
+        expect(() => polygonizeWithOptions(JSON.stringify(input), { snap_grid_size: -1 }))
+            .toThrow(/snap_grid_size/);
+    });
+
     it('should handle empty input', async () => {
         await init();
         const input = {

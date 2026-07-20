@@ -10,6 +10,7 @@ export * from "./bindings/DeterminismOptions";
 export * from "./bindings/DiagnosticsOptions";
 export * from "./bindings/NodingBackend";
 export * from "./bindings/NodingOptions";
+export * from "./bindings/OutputFilterOptions";
 export * from "./bindings/ProvenanceOptions";
 export * from "./bindings/SnapStrategy";
 export * from "./bindings/TileOwnershipPolicy";

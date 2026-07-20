@@ -7,45 +7,39 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 ## Features
 
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
-- **Robust Noding**: Implements **Iterated Snap Rounding (ISR)** to guarantee topological correctness on dirty inputs (self-intersections, overlaps).
+- **Iterative Grid Noding (Unchecked)**: Splits and snaps dirty linework, without claiming certified snap-rounding guarantees.
 - **Hardware Acceleration**: Uses **SIMD** instructions (via `wide` crate) for critical geometric predicates like Point-in-Polygon checks.
 - **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and binary GeoArrow support.
-- **Performance**: Competitive with GEOS/Shapely (C++), outperforming it on random sparse inputs and scaling well on dense grids.
+- **Performance**: SIMD, spatial indexing, and optional parallel execution, with checked-in benchmark tooling.
 - **Geo Ecosystem**: Fully integrated with `geo-types` and `geo` crates.
 - **GeoArrow Support**: Arrow C Data Interface and Arrow IPC integration with GeoArrow metadata.
 
 ## Engineering Roadmap
 
-For an ambitious, prioritized plan covering performance, security, API consistency, and maintainability, see [docs/roadmap.md](docs/roadmap.md).
+For an ambitious, prioritized plan covering performance, security, API consistency, and maintainability, see [ROADMAP.md](ROADMAP.md).
 
 ## Usage
 
 ### Library
 
 ```rust
-use geo_polygonize_core::Polygonizer;
-use geo_types::LineString;
+use geo_polygonize_core::{polygonize, Coord3D, Line3D};
+use geo_polygonize_core::options::PolygonizerOptions;
 
 fn main() {
-    let mut poly = Polygonizer::new();
+    let points = [
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(10.0, 0.0, 0.0),
+        Coord3D::new(10.0, 10.0, 0.0),
+        Coord3D::new(0.0, 10.0, 0.0),
+    ];
+    let lines = (0..4).map(|i| Line3D::new(points[i], points[(i + 1) % 4], i as u32));
 
-    // Enable robust noding if lines might intersect
-    poly.node_input = true;
-    // Optional: Configure snap grid (default 1e-10)
-    poly.snap_grid_size = 1e-6;
+    let result = polygonize(lines, &PolygonizerOptions::default())
+        .expect("Polygonization failed");
 
-    // Add lines (e.g., a square with diagonals)
-    poly.add_geometry(LineString::from(vec![
-        (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)
-    ]).into());
-    poly.add_geometry(LineString::from(vec![
-        (0.0, 0.0), (10.0, 10.0)
-    ]).into());
-
-    let polygons = poly.polygonize().expect("Polygonization failed");
-
-    for p in polygons {
-        println!("Found polygon with area: {}", p.unsigned_area());
+    for polygon in result.polygons {
+        println!("Found polygon with area: {}", polygon.unsigned_area_2d());
     }
 }
 ```
@@ -55,7 +49,7 @@ fn main() {
 Polygonization quality is heavily influenced by input noding strategy.
 
 - **`node_input = false`** (default): Fastest path. Use this when your input linework is already noded (all intersections are explicit vertices).
-- **`node_input = true`**: Enables Iterated Snap Rounding (ISR). Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections.
+- **`node_input = true`**: Enables unchecked iterative grid noding. Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections, and validate outputs when correctness must be certified.
 - **`snap_grid_size`** controls how aggressively coordinates are snapped during robust noding:
   - Start with `1e-10` for high-precision projected data.
   - Increase to `1e-8` or `1e-6` when near-duplicate vertices prevent clean topology.
@@ -254,7 +248,7 @@ async function run() {
 ```
 
 **Important:** Multithreaded WebAssembly requires `SharedArrayBuffer`, which is only available in secure contexts. You **must** serve your page with the following headers:
-```
+```text
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
@@ -332,7 +326,7 @@ This implementation moves away from the pointer-based graph structures of JTS/GE
 See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the optimization strategies.
 
 Key optimizations include:
-1.  **Robust Noding**: Iterated Snap Rounding (ISR) using `rstar` for intersection detection and grid snapping.
+1.  **Noding**: Unchecked iterative grid noding with spatially dispatched intersection detection.
 2.  **Vectorization**: SIMD-accelerated Ray Casting for efficient Hole Assignment.
 3.  **Memory Layout**: Structure of Arrays (SoA) for graph nodes and `talc` allocator for Wasm.
 

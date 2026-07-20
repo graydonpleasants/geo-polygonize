@@ -302,7 +302,7 @@ impl ContainmentForest {
                     }
 
                     let area_j = self.prepared_shells[j].signed_area.abs();
-                    if !(area_j > area_i || ((area_j - area_i).abs() < 1e-9 && j < i)) {
+                    if !(area_j > area_i || (area_j == area_i && j < i)) {
                         if let Some(stats) = stats.as_deref_mut() {
                             stats.area_rejections += 1;
                         }
@@ -409,7 +409,7 @@ impl ContainmentForest {
                 stats.envelope_candidates += 1;
             }
             let area = self.prepared_shells[idx].signed_area.abs();
-            if area <= hole_area + 1e-6 || area >= min_area {
+            if area <= hole_area || area >= min_area {
                 if let Some(stats) = stats.as_deref_mut() {
                     stats.area_rejections += 1;
                 }

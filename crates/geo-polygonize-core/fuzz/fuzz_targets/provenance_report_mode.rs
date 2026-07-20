@@ -2,7 +2,7 @@
 
 use arbitrary::Arbitrary;
 use geo_polygonize_core::options::{DiagnosticsOptions, PolygonizerOptions, ProvenanceOptions};
-use geo_polygonize_core::polygonizer::polygonize_with_options;
+use geo_polygonize_core::polygonizer::polygonize;
 use geo_polygonize_core::types::{Coord3D, Line3D};
 use libfuzzer_sys::fuzz_target;
 
@@ -53,5 +53,5 @@ fuzz_target!(|input: FuzzInput| {
         ..Default::default()
     };
 
-    let _ = polygonize_with_options(&lines, &options);
+    let _ = polygonize(lines.iter().copied(), &options);
 });

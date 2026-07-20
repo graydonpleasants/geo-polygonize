@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - '.github/workflows/docs-pages.yml'
+      - 'README.md'
       - 'crates/**'
       - 'python/**'
       - 'docs/**'
@@ -59,6 +60,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Check documentation links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress README.md docs
+          fail: true
 
       - name: Generate Docs Metadata
         run: npm run docs:gen

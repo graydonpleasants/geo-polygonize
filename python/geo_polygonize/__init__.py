@@ -165,6 +165,9 @@ def cfb_robust_options():
             "enabled": True,
             "include_boundary_line_ids": True,
         },
+        "output_filter": {
+            "minimum_face_area": None,
+        },
         "input_profile_id": "cfb_robust_v1",
     }
 
@@ -180,7 +183,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     opts_b = result_b.get("options", {})
 
     # Check top-level options that often cause differences
-    for key in ["node_input", "snap_grid_size", "extract_only_polygonal", "snap_strategy"]:
+    for key in ["node_input", "snap_grid_size", "extract_only_polygonal", "snap_strategy", "output_filter"]:
         if opts_a.get(key) != opts_b.get(key):
             mismatches.append(f"Option mismatch: '{key}' ({opts_a.get(key)} vs {opts_b.get(key)})")
 
@@ -325,6 +328,9 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
         "provenance": {
             "enabled": False,
             "include_boundary_line_ids": False
+        },
+        "output_filter": {
+            "minimum_face_area": None
         },
         "input_profile_id": None
     }
