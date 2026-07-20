@@ -130,8 +130,11 @@ pub fn polygonize(
     if let Some(ni) = node_input {
         options.node_input = ni;
     }
-    if let Some(sgs) = snap_grid_size {
-        options.snap_grid_size = sgs;
+    if options.node_input {
+        options.precision_model = snap_grid_size.map_or(
+            geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-10 },
+            geo_polygonize_core::options::PrecisionModel::from_grid_size,
+        );
     }
     if let Some(eop) = extract_only_polygonal {
         options.extract_only_polygonal = eop;
@@ -391,7 +394,11 @@ pub fn polygonize_buffers(
 
     let options = geo_polygonize_core::options::PolygonizerOptions {
         node_input,
-        snap_grid_size,
+        precision_model: if node_input {
+            geo_polygonize_core::options::PrecisionModel::from_grid_size(snap_grid_size)
+        } else {
+            geo_polygonize_core::options::PrecisionModel::Floating
+        },
         ..Default::default()
     };
     if let Some(ref ids) = line_ids {
@@ -493,7 +500,11 @@ pub fn polygonize_geoarrow(
 ) -> Result<Vec<u8>, JsValue> {
     let options = PolygonizerOptions {
         node_input,
-        snap_grid_size,
+        precision_model: if node_input {
+            geo_polygonize_core::options::PrecisionModel::from_grid_size(snap_grid_size)
+        } else {
+            geo_polygonize_core::options::PrecisionModel::Floating
+        },
         extract_only_polygonal,
         ..Default::default()
     };

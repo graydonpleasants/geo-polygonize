@@ -81,9 +81,14 @@ pub unsafe extern "C" fn polygonize_ffi(
             return 1;
         }
         let opts = &*options;
+        let node_input = opts.node_input != 0;
         let mut arrow_opts = crate::options::PolygonizerOptions {
-            node_input: opts.node_input != 0,
-            snap_grid_size: opts.snap_grid_size,
+            node_input,
+            precision_model: if node_input {
+                crate::options::PrecisionModel::from_grid_size(opts.snap_grid_size)
+            } else {
+                crate::options::PrecisionModel::Floating
+            },
             extract_only_polygonal: opts.extract_only_polygonal != 0,
             ..Default::default()
         };

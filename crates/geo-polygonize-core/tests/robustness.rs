@@ -16,7 +16,8 @@ fn test_bowtie_noding() {
 
     let mut poly = Polygonizer::new();
     poly.options_mut().node_input = true;
-    poly.options_mut().snap_grid_size = 1e-6;
+    poly.options_mut().precision_model =
+        geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-6 };
     poly.add_geometry(Geometry::LineString(ls));
 
     let results = poly.polygonize().expect("Polygonization failed").polygons;
@@ -33,7 +34,8 @@ fn test_bowtie_noding() {
 fn test_duplicate_edge_removal() {
     let mut poly = Polygonizer::new();
     poly.options_mut().node_input = true;
-    poly.options_mut().snap_grid_size = 1e-6;
+    poly.options_mut().precision_model =
+        geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-6 };
 
     // Triangle edge 1
     poly.add_geometry(Geometry::LineString(LineString(vec![

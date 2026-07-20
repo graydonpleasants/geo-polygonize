@@ -10,7 +10,7 @@ Polygonizes linework provided as a GeoJSON FeatureCollection, Feature, or Geomet
 
 *   `geojson_str` (string): The input GeoJSON as a string.
 *   `node_input` (boolean, optional): Whether to use unchecked iterative grid noding to find intersections between line segments before polygonization. Defaults to `false`.
-*   `snap_grid_size` (number, optional): The grid size used for snap rounding if `node_input` is true. Defaults to `1e-10`.
+*   `snap_grid_size` (number, optional): Compatibility shorthand used when noding is enabled. Zero selects floating precision; a positive value selects that fixed grid. Omission retains the legacy `1e-10` grid. It is ignored when noding is disabled.
 *   `extract_only_polygonal` (boolean, optional): Whether to strictly extract only fully polygonal regions, discarding non-polygonal linework. Defaults to `false`.
 
 **Example:**
@@ -65,7 +65,7 @@ Polygonizes raw coordinate arrays. This is an advanced API for high-performance 
 *   `offsets` (Uint32Array): Start indices of each line segment in `coords` (measured in coordinate points, not flat floats).
 *   `stride` (number): Coordinate stride (2 for 2D, 3 for 3D). Must be `2` or `3`.
 *   `node_input` (boolean): Whether to perform node noding on the inputs.
-*   `snap_grid_size` (number): The grid size for snap noding.
+*   `snap_grid_size` (number): Compatibility shorthand used when noding is enabled: zero is floating and a positive value is fixed-grid. It is ignored otherwise.
 
 Returns a `WasmPolygonResult` object (see below).
 
@@ -75,7 +75,7 @@ Polygonizes data provided as an Arrow IPC byte array representing a GeoArrow Lin
 
 *   `ipc_bytes` (Uint8Array): The input Arrow IPC byte buffer.
 *   `node_input` (boolean): Whether to perform node noding on the inputs.
-*   `snap_grid_size` (number): The grid size for snap noding.
+*   `snap_grid_size` (number): Compatibility shorthand used when noding is enabled: zero is floating and a positive value is fixed-grid. It is ignored otherwise.
 *   `extract_only_polygonal` (boolean): Whether to extract only polygonal structures.
 
 ## WasmPolygonResult Object

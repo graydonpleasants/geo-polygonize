@@ -43,7 +43,7 @@ class TestReportMismatches(unittest.TestCase):
         offsets = np.array([0, 5], dtype=np.uint32)
 
         options_a = {            "node_input": True,
-            "snap_grid_size": 1e-10,
+            "precision_model": {"type": "floating"},
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
             "noding": {"backend": "Snap"},
@@ -52,7 +52,7 @@ class TestReportMismatches(unittest.TestCase):
             "provenance": {"enabled": False, "include_boundary_line_ids": False}
         }
         options_b = {            "node_input": False,
-            "snap_grid_size": 1e-6,
+            "precision_model": {"type": "fixed_grid", "grid_size": 1e-6},
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
             "noding": {"backend": "Snap"},
@@ -73,7 +73,7 @@ class TestReportMismatches(unittest.TestCase):
 
         mismatches_str = " ".join(mismatch_info["mismatches"])
         self.assertIn("node_input", mismatches_str)
-        self.assertIn("snap_grid_size", mismatches_str)
+        self.assertIn("precision_model", mismatches_str)
 
     def test_topology_mismatch(self):
         # Result A: Square with diagonal (noded) -> 2 triangles
@@ -90,7 +90,7 @@ class TestReportMismatches(unittest.TestCase):
         offsets_b = np.array([0], dtype=np.uint32)
 
         options = {            "node_input": True,
-            "snap_grid_size": 1e-10,
+            "precision_model": {"type": "floating"},
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
             "noding": {"backend": "Snap"},
@@ -122,7 +122,7 @@ class TestReportMismatches(unittest.TestCase):
         line_ids_b = np.array([5, 6, 7, 8], dtype=np.uint32)
 
         options = {            "node_input": False,
-            "snap_grid_size": 1e-10,
+            "precision_model": {"type": "floating"},
             "extract_only_polygonal": False,
             "snap_strategy": "Grid",
             "noding": {"backend": "Snap"},

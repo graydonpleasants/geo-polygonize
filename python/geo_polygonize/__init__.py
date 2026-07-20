@@ -142,7 +142,7 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
 def cfb_robust_options():
     return {
         "node_input": True,
-        "snap_grid_size": 0.1,
+        "precision_model": {"type": "fixed_grid", "grid_size": 0.1},
         "pre_snap_tolerance": 0.5,
         "extract_only_polygonal": False,
         "snap_strategy": "GeosCompat",
@@ -183,7 +183,7 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
     opts_b = result_b.get("options", {})
 
     # Check top-level options that often cause differences
-    for key in ["node_input", "snap_grid_size", "extract_only_polygonal", "snap_strategy", "output_filter"]:
+    for key in ["node_input", "precision_model", "extract_only_polygonal", "snap_strategy", "output_filter"]:
         if opts_a.get(key) != opts_b.get(key):
             mismatches.append(f"Option mismatch: '{key}' ({opts_a.get(key)} vs {opts_b.get(key)})")
 
@@ -307,7 +307,11 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
     # Use the new options API as a wrapper
     options = {
         "node_input": node,
-        "snap_grid_size": snap,
+        "precision_model": (
+            {"type": "floating"}
+            if not node or snap == 0
+            else {"type": "fixed_grid", "grid_size": snap}
+        ),
         "extract_only_polygonal": extract_only_polygonal,
         "snap_strategy": "Grid",
         "noding": {

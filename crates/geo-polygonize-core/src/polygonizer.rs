@@ -4,7 +4,7 @@ use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
-use crate::options::{PolygonizerOptions, SnapStrategy};
+use crate::options::{PolygonizerOptions, PrecisionModel, SnapStrategy};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -125,13 +125,19 @@ impl Polygonizer {
         &mut self.options
     }
 
-    /// Sets the snap grid size for noding.
+    /// Compatibility shorthand for setting floating or fixed precision.
     ///
     /// # Arguments
     ///
-    /// * `grid_size` - The size of the grid cells. Smaller values mean higher precision but potential for robustness issues if too small.
+    /// * `grid_size` - Zero selects floating precision; a positive value selects a fixed grid.
+    #[deprecated(note = "use with_precision_model")]
     pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
-        self.options.snap_grid_size = grid_size;
+        self.options.precision_model = PrecisionModel::from_grid_size(grid_size);
+        self
+    }
+
+    pub fn with_precision_model(mut self, precision_model: PrecisionModel) -> Self {
+        self.options.precision_model = precision_model;
         self
     }
 
@@ -156,6 +162,7 @@ impl Polygonizer {
         diagnostics: Option<&mut PolygonizerDiagnostics>,
     ) -> Result<()> {
         self.graph.clear();
+        let grid_size = self.options.precision_model.grid_size();
         let mut segments;
 
         if self.options.node_input {
@@ -199,7 +206,7 @@ impl Polygonizer {
 
             match self.options.noding.backend {
                 crate::options::NodingBackend::Snap => {
-                    let noder = SnapNoder::new(self.options.snap_grid_size)
+                    let noder = SnapNoder::new(grid_size)
                         .with_snap_strategy(self.options.snap_strategy.clone());
                     // ponytail: one source coordinate per snapped node preserves connectivity;
                     // use per-line restoration only if #798 can avoid reopening gaps.
@@ -246,6 +253,14 @@ impl Polygonizer {
                 }
             }
         } else {
+            if grid_size > 0.0 {
+                let snapper = SnapNoder::new(grid_size)
+                    .with_snap_strategy(self.options.snap_strategy.clone());
+                for line in &mut all_segments {
+                    line.start = snapper.snap(line.start);
+                    line.end = snapper.snap(line.end);
+                }
+            }
             segments = all_segments;
         }
 
@@ -1452,6 +1467,23 @@ mod tests {
     }
 
     #[test]
+    fn fixed_precision_applies_without_noding() {
+        let lines = square_lines(0.04, 0.04, 1.0, 1);
+        let options = PolygonizerOptions {
+            precision_model: PrecisionModel::FixedGrid { grid_size: 0.1 },
+            ..Default::default()
+        };
+
+        let result = polygonize(lines, &options).unwrap();
+        assert_eq!(result.polygons.len(), 1);
+        assert_eq!(result.polygons[0].unsigned_area_2d(), 1.0);
+        assert!(result.polygons[0]
+            .exterior
+            .iter()
+            .all(|coord| [0.0, 1.0].contains(&coord.x) && [0.0, 1.0].contains(&coord.y)));
+    }
+
+    #[test]
     fn non_finite_coordinates_are_rejected_centrally() {
         let line = Line3D::new(
             Coord3D::new(f64::NAN, 0.0, 0.0),
@@ -1465,9 +1497,13 @@ mod tests {
     }
 
     #[test]
-    fn test_with_snap_grid() {
-        let polygonizer = Polygonizer::new().with_snap_grid(0.123);
-        assert_eq!(polygonizer.options().snap_grid_size, 0.123);
+    fn test_with_precision_model() {
+        let polygonizer =
+            Polygonizer::new().with_precision_model(PrecisionModel::FixedGrid { grid_size: 0.123 });
+        assert_eq!(
+            polygonizer.options().precision_model,
+            PrecisionModel::FixedGrid { grid_size: 0.123 }
+        );
     }
 
     #[test]
@@ -1483,7 +1519,7 @@ mod tests {
             .collect::<Vec<_>>();
         let options = PolygonizerOptions {
             node_input: true,
-            snap_grid_size: 0.1,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 0.1 },
             snap_strategy: SnapStrategy::GeosCompat,
             ..Default::default()
         };

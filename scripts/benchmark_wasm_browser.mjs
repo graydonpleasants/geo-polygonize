@@ -92,7 +92,7 @@ try {
     const durationMs = ({ secs, nanos }) => Number(secs) * 1_000 + nanos / 1_000_000;
     const nodingOptions = {
       node_input: true,
-      snap_grid_size: 1e-10,
+      precision_model: { type: "fixed_grid", grid_size: 1e-10 },
       pre_snap_tolerance: 0,
       extract_only_polygonal: false,
       snap_strategy: "Grid",

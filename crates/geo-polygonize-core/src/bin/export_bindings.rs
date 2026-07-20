@@ -6,6 +6,7 @@ fn main() {
 
     // We export each root type with export_all so it writes out that type and its dependencies.
     let _ = PolygonizerOptions::export_all(&config);
+    let _ = PrecisionModel::export_all(&config);
     let _ = SnapStrategy::export_all(&config);
     let _ = TouchPolicy::export_all(&config);
     let _ = TileOwnershipPolicy::export_all(&config);

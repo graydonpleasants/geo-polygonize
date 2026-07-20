@@ -32,6 +32,10 @@ assert_eq!(result.polygons.len(), 1);
 # Ok::<(), geo_polygonize_core::error::PolygonizeError>(())
 ```
 
+`PolygonizerOptions::default()` uses floating precision. Choose
+`PrecisionModel::FixedGrid { grid_size }` only when the input has an explicit
+grid contract; fixed precision rounds topology coordinates even without noding.
+
 Python users install `geo-polygonize-py` and import `geo_polygonize`:
 
 ```bash

@@ -4,7 +4,7 @@ use ts_rs::TS;
 use crate::error::{PolygonizeError, Result};
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 #[ts(export)]
 /// The canonical configuration object for the `geo-polygonize` engine.
 ///
@@ -20,13 +20,10 @@ pub struct PolygonizerOptions {
     /// Default: `false`
     pub node_input: bool,
 
-    /// The snapping grid size used for vertex deduplication and noding operations.
+    /// Coordinate precision used for topology and noding.
     ///
-    /// Vertices falling within the same grid cell are coalesced. A size of `0.0`
-    /// indicates exact floating-point evaluation without grid snapping.
-    ///
-    /// Default: `1e-10`
-    pub snap_grid_size: f64,
+    /// Default: `PrecisionModel::Floating`
+    pub precision_model: PrecisionModel,
 
     /// Snap input segments to nearby vertices from exact-noded input linework before grid noding.
     ///
@@ -81,7 +78,7 @@ impl Default for PolygonizerOptions {
     fn default() -> Self {
         Self {
             node_input: false,
-            snap_grid_size: 1e-10,
+            precision_model: PrecisionModel::Floating,
             pre_snap_tolerance: 0.0,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::Grid,
@@ -100,7 +97,7 @@ impl PolygonizerOptions {
     pub fn cfb_robust_v1() -> Self {
         Self {
             node_input: true,
-            snap_grid_size: 0.1,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 0.1 },
             pre_snap_tolerance: 0.5,
             extract_only_polygonal: false,
             snap_strategy: SnapStrategy::GeosCompat,
@@ -130,15 +127,28 @@ impl PolygonizerOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
-        for (field, value) in [
-            ("snap_grid_size", self.snap_grid_size),
-            ("pre_snap_tolerance", self.pre_snap_tolerance),
-        ] {
+        for (field, value) in [("pre_snap_tolerance", self.pre_snap_tolerance)] {
             if !value.is_finite() || value < 0.0 {
                 return Err(PolygonizeError::InvalidArgumentType {
                     field: field.to_string(),
                     expected: "a finite non-negative number".to_string(),
                     actual: value.to_string(),
+                });
+            }
+        }
+
+        if let PrecisionModel::FixedGrid { grid_size } = self.precision_model {
+            if !grid_size.is_finite() || grid_size <= 0.0 {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: "precision_model.grid_size".to_string(),
+                    expected: "a finite positive number".to_string(),
+                    actual: grid_size.to_string(),
+                });
+            }
+            if self.node_input && matches!(self.noding.backend, NodingBackend::Advanced) {
+                return Err(PolygonizeError::UnsupportedOptionCombination {
+                    reason: "the Advanced compatibility noder supports floating precision only"
+                        .to_string(),
                 });
             }
         }
@@ -160,6 +170,35 @@ impl PolygonizerOptions {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export)]
+/// Coordinate precision used by the topology pipeline.
+pub enum PrecisionModel {
+    /// Preserve input coordinates and compute intersections in floating point.
+    #[default]
+    Floating,
+    /// Round topology coordinates to a fixed grid of positive cell size.
+    FixedGrid { grid_size: f64 },
+}
+
+impl PrecisionModel {
+    pub fn grid_size(self) -> f64 {
+        match self {
+            Self::Floating => 0.0,
+            Self::FixedGrid { grid_size } => grid_size,
+        }
+    }
+
+    pub fn from_grid_size(grid_size: f64) -> Self {
+        if grid_size == 0.0 {
+            Self::Floating
+        } else {
+            Self::FixedGrid { grid_size }
+        }
     }
 }
 
@@ -309,19 +348,28 @@ mod tests {
 
         assert!(options.diagnostics.enabled);
         assert!(!options.diagnostics.report_mode);
-        assert_eq!(options.snap_grid_size, 1e-10);
+        assert_eq!(options.precision_model, PrecisionModel::Floating);
         assert_eq!(options.output_filter.minimum_face_area, Some(2.0));
+
+        let fixed: PolygonizerOptions =
+            serde_json::from_str(r#"{"precision_model":{"type":"fixed_grid","grid_size":0.25}}"#)
+                .unwrap();
+        assert_eq!(
+            fixed.precision_model,
+            PrecisionModel::FixedGrid { grid_size: 0.25 }
+        );
+    }
+
+    #[test]
+    fn legacy_snap_grid_size_is_rejected_instead_of_ignored() {
+        let error =
+            serde_json::from_str::<PolygonizerOptions>(r#"{"snap_grid_size":0.1}"#).unwrap_err();
+        assert!(error.to_string().contains("unknown field `snap_grid_size`"));
     }
 
     #[test]
     fn validation_rejects_invalid_options() {
         for value in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let options = PolygonizerOptions {
-                snap_grid_size: value,
-                ..Default::default()
-            };
-            assert!(options.validate().is_err());
-
             let options = PolygonizerOptions {
                 node_input: true,
                 pre_snap_tolerance: value,
@@ -338,9 +386,29 @@ mod tests {
             assert!(options.validate().is_err());
         }
 
+        for grid_size in [-1.0, 0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let options = PolygonizerOptions {
+                precision_model: PrecisionModel::FixedGrid { grid_size },
+                ..Default::default()
+            };
+            assert!(options.validate().is_err());
+        }
+
         let options = PolygonizerOptions {
-            snap_grid_size: 0.0,
             pre_snap_tolerance: 1.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            options.validate(),
+            Err(PolygonizeError::UnsupportedOptionCombination { .. })
+        ));
+
+        let options = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            noding: NodingOptions {
+                backend: NodingBackend::Advanced,
+            },
             ..Default::default()
         };
         assert!(matches!(

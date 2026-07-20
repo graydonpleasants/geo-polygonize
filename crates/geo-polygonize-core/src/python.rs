@@ -93,7 +93,11 @@ fn polygonize<'py>(
     options.diagnostics.enabled = report_mode;
     options.diagnostics.report_mode = report_mode;
     options.node_input = node;
-    options.snap_grid_size = snap;
+    options.precision_model = if node {
+        crate::options::PrecisionModel::from_grid_size(snap)
+    } else {
+        crate::options::PrecisionModel::Floating
+    };
     options.extract_only_polygonal = extract_only_polygonal;
 
     polygonize_internal(py, coords, offsets, stride, options, line_ids)
