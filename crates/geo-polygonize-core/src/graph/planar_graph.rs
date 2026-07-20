@@ -203,6 +203,18 @@ impl PlanarGraph {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.nodes_x.clear();
+        self.nodes_y.clear();
+        self.nodes_z.clear();
+        self.nodes_outgoing.clear();
+        self.nodes_degree.clear();
+        self.nodes_marked.clear();
+        self.edges.clear();
+        self.directed_edges.clear();
+        self.node_map.clear();
+    }
+
     /// Adds a node at the given coordinate, returning its NodeId.
     /// Deduplicates nodes using a HashMap lookup (2D only).
     pub fn add_node(&mut self, coord: Coord3D) -> NodeId {
@@ -304,7 +316,7 @@ impl PlanarGraph {
             let p0 = line.start;
             let p1 = line.end;
 
-            if (p0.x - p1.x).abs() < 1e-12 && (p0.y - p1.y).abs() < 1e-12 {
+            if p0.x == p1.x && p0.y == p1.y {
                 continue;
             }
 
@@ -450,7 +462,7 @@ impl PlanarGraph {
             let p0 = w[0];
             let p1 = w[1];
 
-            if (p0.x - p1.x).abs() < 1e-12 && (p0.y - p1.y).abs() < 1e-12 {
+            if p0.x == p1.x && p0.y == p1.y {
                 continue;
             }
 

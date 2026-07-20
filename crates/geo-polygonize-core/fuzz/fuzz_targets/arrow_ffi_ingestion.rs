@@ -32,5 +32,5 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let options = geo_polygonize_core::options::PolygonizerOptions::default();
-    let _ = geo_polygonize_core::polygonizer::polygonize_with_options(&lines, &options);
+    let _ = geo_polygonize_core::polygonizer::polygonize(lines.iter().copied(), &options);
 });

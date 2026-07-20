@@ -1,6 +1,6 @@
 use crate::error::PolygonizeError;
+use crate::polygonize as polygonize_lines;
 use crate::types::{Coord3D, Line3D};
-use crate::Polygonizer;
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -207,10 +207,7 @@ fn polygonize_internal<'py>(
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut polygonizer = Polygonizer::with_options(options);
-        polygonizer.add_lines(lines);
-
-        polygonizer.polygonize()
+        polygonize_lines(lines, &options)
     }))
     .unwrap_or_else(|_| {
         Err(PolygonizeError::Panic(

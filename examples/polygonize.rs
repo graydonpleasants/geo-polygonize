@@ -1,5 +1,6 @@
 use clap::Parser;
-use geo_polygonize_core::Polygonizer;
+use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::{polygonize, Line3D};
 use geo_types::Geometry as GeoGeometry;
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 use std::convert::TryInto;
@@ -38,8 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let reader = BufReader::new(file);
     let geojson: GeoJson = serde_json::from_reader(reader)?;
 
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = args.node;
+    let mut lines = Vec::new();
 
     let mut count = 0;
 
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             for feature in fc.features {
                 if let Some(geom) = feature.geometry {
                     if let Ok(geo_geom) = geom.try_into() {
-                        add_geometry(&mut polygonizer, geo_geom);
+                        add_geometry(&mut lines, geo_geom);
                         count += 1;
                     }
                 }
@@ -56,14 +56,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         GeoJson::Geometry(geom) => {
             if let Ok(geo_geom) = geom.try_into() {
-                add_geometry(&mut polygonizer, geo_geom);
+                add_geometry(&mut lines, geo_geom);
                 count += 1;
             }
         }
         GeoJson::Feature(feature) => {
             if let Some(geom) = feature.geometry {
                 if let Ok(geo_geom) = geom.try_into() {
-                    add_geometry(&mut polygonizer, geo_geom);
+                    add_geometry(&mut lines, geo_geom);
                     count += 1;
                 }
             }
@@ -72,7 +72,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Added {} geometries. Polygonizing...", count);
 
-    let result = polygonizer.polygonize()?;
+    let options = PolygonizerOptions {
+        node_input: args.node,
+        ..Default::default()
+    };
+    let result = polygonize(lines, &options)?;
     println!("Found {} polygons.", result.polygons.len());
     println!("Found {} dangles.", result.dangles.len());
 
@@ -121,26 +125,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn add_geometry(polygonizer: &mut Polygonizer, geom: GeoGeometry<f64>) {
+fn add_geometry(lines: &mut Vec<Line3D>, geom: GeoGeometry<f64>) {
     match geom {
         GeoGeometry::LineString(ls) => {
-            polygonizer.add_geometry(GeoGeometry::LineString(ls));
+            lines.extend(ls.lines().map(Line3D::from));
         }
         GeoGeometry::MultiLineString(mls) => {
             for ls in mls {
-                polygonizer.add_geometry(GeoGeometry::LineString(ls));
+                lines.extend(ls.lines().map(Line3D::from));
+            }
+        }
+        GeoGeometry::Polygon(poly) => {
+            lines.extend(poly.exterior().lines().map(Line3D::from));
+            for ring in poly.interiors() {
+                lines.extend(ring.lines().map(Line3D::from));
+            }
+        }
+        GeoGeometry::MultiPolygon(multi) => {
+            for poly in multi {
+                lines.extend(poly.exterior().lines().map(Line3D::from));
+                for ring in poly.interiors() {
+                    lines.extend(ring.lines().map(Line3D::from));
+                }
             }
         }
         GeoGeometry::GeometryCollection(gc) => {
             for g in gc {
-                add_geometry(polygonizer, g);
+                add_geometry(lines, g);
             }
         }
-        _ => {
-            // Ignore other types or try to add them if Polygonizer supports them?
-            // Polygonizer::add_geometry takes Geometry, so we can just pass it.
-            // But usually we want LineStrings.
-            polygonizer.add_geometry(geom);
-        }
+        _ => {}
     }
 }

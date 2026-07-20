@@ -8,6 +8,9 @@ use geo_types::{Coord, Geometry, Rect};
 use rayon::prelude::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+/// Experimental tiled polygonization.
+///
+/// Errors are currently omitted and equivalence with untiled output is not guaranteed.
 pub struct TiledPolygonizer<'a> {
     bbox: Rect<f64>,
     tile_size: f64,
@@ -51,7 +54,7 @@ impl<'a> TiledPolygonizer<'a> {
 
     fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
         let mut local_poly = Polygonizer::new();
-        local_poly.node_input = true;
+        local_poly.options_mut().node_input = true;
 
         // Define buffered bbox
         let buffered_bbox = Rect::new(
@@ -83,13 +86,6 @@ impl<'a> TiledPolygonizer<'a> {
             // Ownership check:
             let mut valid_polys = Vec::new();
             for poly in result.polygons {
-                let area = poly.unsigned_area_2d();
-
-                // Filter slivers
-                if area < 1e-6 {
-                    continue;
-                }
-
                 let ownership_point = match self.ownership_policy {
                     TileOwnershipPolicy::Centroid
                     | TileOwnershipPolicy::RepresentativePointInsidePolygon => poly.centroid_2d(),

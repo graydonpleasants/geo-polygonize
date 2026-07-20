@@ -179,12 +179,12 @@ unsafe fn polygonize_ffi_internal(
             let data = arrow_array.into_data();
 
             let ffi_array = FFI_ArrowArray::new(&data);
-            std::ptr::write(output_array, ffi_array);
-
             let ffi_schema = match DefaultSchemaExporter::try_export(&field) {
                 Ok(s) => s,
                 Err(_) => return 4,
             };
+
+            std::ptr::write(output_array, ffi_array);
             std::ptr::write(output_schema, ffi_schema);
 
             0
@@ -262,6 +262,8 @@ mod tests {
 
         let mut output_array = FFI_ArrowArray::empty();
         let mut output_schema = FFI_ArrowSchema::empty();
+        let output_array_before = format!("{output_array:?}");
+        let output_schema_before = format!("{output_schema:?}");
         let options = PolygonizerOptions {
             node_input: 0,
             snap_grid_size: 1e-10,
@@ -280,5 +282,7 @@ mod tests {
         };
 
         assert_eq!(status, 4);
+        assert_eq!(format!("{output_array:?}"), output_array_before);
+        assert_eq!(format!("{output_schema:?}"), output_schema_before);
     }
 }

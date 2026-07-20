@@ -1,6 +1,6 @@
 use crate::error::PolygonizeError;
+use crate::polygonize;
 use crate::types::{Coord3D, Line3D};
-use crate::Polygonizer;
 use arrow::array::{Array, AsArray, GenericListArray};
 use arrow::datatypes::{DataType, Field, Float64Type};
 use geo_traits::to_geo::ToGeoLineString;
@@ -16,7 +16,6 @@ pub fn polygonize_arrow(
     field: &Field,
     options: PolygonizerOptions,
 ) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
-    let mut polygonizer = Polygonizer::with_options(options);
     let metadata = match GeoArrowType::from_extension_field(field)
         .map_err(|e| PolygonizeError::ArrowError(e.to_string()))?
     {
@@ -73,18 +72,13 @@ pub fn polygonize_arrow(
         },
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        polygonizer.add_lines(lines);
-        polygonizer.polygonize()
-    }))
-    .unwrap_or_else(|_| {
-        Err(PolygonizeError::Panic(
-            "Panic occurred in Rust core".to_string(),
-        ))
-    })
-    .map_err(|e| PolygonizeError::TopologyFailure {
-        reason: format!("Polygonization error: {:?}", e),
-    })?;
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonize(lines, &options)))
+            .unwrap_or_else(|_| {
+                Err(PolygonizeError::Panic(
+                    "Panic occurred in Rust core".to_string(),
+                ))
+            })?;
 
     let geo_polygons: Vec<geo::Polygon> = result
         .polygons
@@ -124,15 +118,6 @@ fn process_linestring_array(
         if let Ok(Some(geom)) = arr.get(i) {
             let ls = geom.to_line_string();
             for line in ls.lines() {
-                if !line.start.x.is_finite()
-                    || !line.start.y.is_finite()
-                    || !line.end.x.is_finite()
-                    || !line.end.y.is_finite()
-                {
-                    return Err(PolygonizeError::InvalidGeometry {
-                        reason: "NaN or Inf coordinates detected in LineStringArray".to_string(),
-                    });
-                }
                 let p1 = Coord3D::new(line.start.x, line.start.y, 0.0);
                 let p2 = Coord3D::new(line.end.x, line.end.y, 0.0);
                 lines.push(Line3D::new(p1, p2, 0));

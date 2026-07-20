@@ -1,5 +1,5 @@
 use geo_polygonize_core::options::PolygonizerOptions;
-use geo_polygonize_core::polygonizer::polygonize_with_options;
+use geo_polygonize_core::polygonizer::polygonize;
 use geo_polygonize_core::types::{Coord3D, Line3D, Polygon3D};
 use serde::Deserialize;
 use std::fs;
@@ -76,7 +76,7 @@ pub fn run_cfb_fixture(fixture: &CfbFixture) {
     };
     let lines = fixture_lines(fixture);
 
-    let result = polygonize_with_options(&lines, &options)
+    let result = polygonize(lines.iter().copied(), &options)
         .unwrap_or_else(|err| panic!("{} failed: {err}", fixture.case_id));
 
     let check = || {

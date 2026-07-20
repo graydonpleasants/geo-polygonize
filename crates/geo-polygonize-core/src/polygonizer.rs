@@ -1,14 +1,14 @@
 use crate::containment::ContainmentForest;
 use crate::diagnostics::{ContainmentStats, PolygonizerDiagnostics};
-use crate::error::Result;
+use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
-use crate::options::DiagnosticsOptions;
-use crate::options::{DeterminismOptions, PolygonizerOptions, SnapStrategy};
+use crate::options::{PolygonizerOptions, SnapStrategy};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
+use float_next_after::NextAfter;
 use geo::Contains;
 use geo_types::{Coord, Geometry, Polygon};
 use std::collections::HashMap;
@@ -32,20 +32,22 @@ use rayon::prelude::*;
 /// A robust polygonizer that reconstructs polygons from a set of lines (3D supported).
 pub struct Polygonizer {
     graph: PlanarGraph,
-    // Configuration
-    pub check_valid_rings: bool,
-    pub options: PolygonizerOptions,
-
-    // Legacy fields maintained for backward compatibility wrappers during transition
-    pub node_input: bool,
-    pub snap_grid_size: f64,
-    pub extract_only_polygonal: bool,
-    pub determinism: DeterminismOptions,
-    pub diagnostics_options: DiagnosticsOptions,
-
-    // Buffer for explicit line segments (3D)
+    options: PolygonizerOptions,
     input_lines: Vec<Line3D>,
-    dirty: bool,
+}
+
+/// Reusable allocation storage for stateless polygonization calls.
+///
+/// Geometry and result state are cleared after every call; only allocation capacity is retained.
+#[derive(Default)]
+pub struct PolygonizerWorkspace {
+    graph: PlanarGraph,
+}
+
+impl PolygonizerWorkspace {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -63,14 +65,38 @@ impl Default for Polygonizer {
     }
 }
 
-/// A stable, explicit entrypoint across all bindings to polygonize via `PolygonizerOptions`.
+/// Polygonize an owned stream of line segments using canonical options.
+pub fn polygonize(
+    lines: impl IntoIterator<Item = Line3D>,
+    options: &PolygonizerOptions,
+) -> Result<PolygonizerResult> {
+    Polygonizer::with_options(options.clone()).polygonize_owned(lines.into_iter().collect())
+}
+
+/// Polygonize a borrowed slice while reusing graph allocations between calls.
+pub fn polygonize_with_workspace(
+    lines: &[Line3D],
+    options: &PolygonizerOptions,
+    workspace: &mut PolygonizerWorkspace,
+) -> Result<PolygonizerResult> {
+    let mut runner = Polygonizer {
+        graph: std::mem::take(&mut workspace.graph),
+        options: options.clone(),
+        input_lines: Vec::new(),
+    };
+    let result = runner.polygonize_owned(lines.to_vec());
+    runner.graph.clear();
+    workspace.graph = runner.graph;
+    result
+}
+
+/// Compatibility alias for the canonical [`polygonize`] entrypoint.
+#[deprecated(note = "use polygonize or polygonize_with_workspace")]
 pub fn polygonize_with_options(
     lines: &[Line3D],
     options: &PolygonizerOptions,
 ) -> Result<PolygonizerResult> {
-    let mut polygonizer = Polygonizer::with_options(options.clone());
-    polygonizer.add_lines(lines.to_vec());
-    polygonizer.polygonize()
+    polygonize(lines.iter().copied(), options)
 }
 
 impl Polygonizer {
@@ -78,31 +104,25 @@ impl Polygonizer {
     pub fn new() -> Self {
         Self {
             graph: PlanarGraph::new(),
-            check_valid_rings: true,
             options: PolygonizerOptions::default(),
-            node_input: false,
-            snap_grid_size: 1e-10, // Default tolerance
-            extract_only_polygonal: false,
-            determinism: DeterminismOptions::default(),
-            diagnostics_options: DiagnosticsOptions::default(),
             input_lines: Vec::new(),
-            dirty: false,
         }
     }
     /// Creates a new `Polygonizer` with specific options.
     pub fn with_options(options: PolygonizerOptions) -> Self {
         Self {
             graph: PlanarGraph::new(),
-            check_valid_rings: true,
-            node_input: options.node_input,
-            snap_grid_size: options.snap_grid_size,
-            extract_only_polygonal: options.extract_only_polygonal,
-            determinism: options.determinism.clone(),
-            diagnostics_options: options.diagnostics.clone(),
             options,
             input_lines: Vec::new(),
-            dirty: false,
         }
+    }
+
+    pub fn options(&self) -> &PolygonizerOptions {
+        &self.options
+    }
+
+    pub fn options_mut(&mut self) -> &mut PolygonizerOptions {
+        &mut self.options
     }
 
     /// Sets the snap grid size for noding.
@@ -111,42 +131,31 @@ impl Polygonizer {
     ///
     /// * `grid_size` - The size of the grid cells. Smaller values mean higher precision but potential for robustness issues if too small.
     pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
-        self.snap_grid_size = grid_size;
+        self.options.snap_grid_size = grid_size;
         self
     }
 
     /// Adds a 2D geometry to the graph (Z=0).
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
         extract_segments(&geom, &mut self.input_lines);
-        self.dirty = true;
     }
 
     /// Adds a 2D geometry to the graph (Z=0) from a reference.
     pub fn add_borrowed_geometry(&mut self, geom: &Geometry<f64>) {
         extract_segments(geom, &mut self.input_lines);
-        self.dirty = true;
     }
 
     /// Adds explicit 3D lines.
     pub fn add_lines(&mut self, lines: Vec<Line3D>) {
         self.input_lines.extend(lines);
-        self.dirty = true;
     }
 
-    fn build_graph(&mut self, diagnostics: Option<&mut PolygonizerDiagnostics>) -> Result<()> {
-        if !self.dirty {
-            return Ok(());
-        }
-
-        // Sync legacy wrapper fields back into options before executing
-        self.options.node_input = self.node_input;
-        self.options.snap_grid_size = self.snap_grid_size;
-        self.options.extract_only_polygonal = self.extract_only_polygonal;
-        self.options.determinism = self.determinism.clone();
-        self.options.diagnostics = self.diagnostics_options.clone();
-
-        let mut all_segments: Vec<Line3D> = self.input_lines.clone();
-
+    fn build_graph(
+        &mut self,
+        mut all_segments: Vec<Line3D>,
+        diagnostics: Option<&mut PolygonizerDiagnostics>,
+    ) -> Result<()> {
+        self.graph.clear();
         let mut segments;
 
         if self.options.node_input {
@@ -243,7 +252,6 @@ impl Polygonizer {
         // Use bulk load
         self.graph.bulk_load(segments);
 
-        self.dirty = false;
         Ok(())
     }
 
@@ -252,16 +260,16 @@ impl Polygonizer {
     ///
     /// Returns a `PolygonizerResult` containing polygons and dangles.
     pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
-        // Sync legacy wrapper fields back into options before executing (if not called by build_graph)
-        self.options.node_input = self.node_input;
-        self.options.snap_grid_size = self.snap_grid_size;
-        self.options.extract_only_polygonal = self.extract_only_polygonal;
-        self.options.determinism = self.determinism.clone();
-        self.options.diagnostics = self.diagnostics_options.clone();
+        self.polygonize_owned(self.input_lines.clone())
+    }
+
+    fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
+        self.options.validate()?;
+        validate_lines(&input_lines)?;
 
         let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {
             let d = PolygonizerDiagnostics {
-                input_segment_count: self.input_lines.len(),
+                input_segment_count: input_lines.len(),
                 ..Default::default()
             };
             Some(d)
@@ -270,11 +278,14 @@ impl Polygonizer {
         };
 
         let t_ingest_start = get_time();
-        self.build_graph(if self.options.diagnostics.enabled {
-            diag.as_mut()
-        } else {
-            None
-        })?;
+        self.build_graph(
+            input_lines,
+            if self.options.diagnostics.enabled {
+                diag.as_mut()
+            } else {
+                None
+            },
+        )?;
         if let Some(ref mut d) = diag {
             d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
             d.noded_segment_count = self.graph.edges.len();
@@ -360,6 +371,26 @@ impl Polygonizer {
             diagnostics: diag,
         })
     }
+}
+
+fn validate_lines(lines: &[Line3D]) -> Result<()> {
+    if lines.iter().any(|line| {
+        [
+            line.start.x,
+            line.start.y,
+            line.start.z,
+            line.end.x,
+            line.end.y,
+            line.end.z,
+        ]
+        .iter()
+        .any(|value| !value.is_finite())
+    }) {
+        return Err(PolygonizeError::InvalidGeometry {
+            reason: "line coordinates must be finite".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn restored_coordinates(noder: &SnapNoder, lines: &[Line3D]) -> HashMap<(u64, u64), Coord3D> {
@@ -472,7 +503,7 @@ pub(crate) fn extract_and_classify_rings(
         let poly3d = Polygon3D::new(ring.coords, vec![], ring.line_ids, vec![]);
         let area = poly3d.signed_area_2d();
 
-        if !area.is_finite() || area.abs() < 1e-9 {
+        if !has_three_distinct_xy(&poly3d.exterior) || !area.is_finite() || area == 0.0 {
             invalid_rings_candidates.push(poly3d);
             continue;
         }
@@ -715,11 +746,34 @@ pub(crate) fn construct_final_polygons(
             });
         }
 
-        if p.unsigned_area_2d() > 1e-6 {
+        let area = p.unsigned_area_2d();
+        if area.is_finite()
+            && area > 0.0
+            && options
+                .output_filter
+                .minimum_face_area
+                .is_none_or(|minimum| area >= minimum)
+        {
             result.push(p);
         }
     }
     result
+}
+
+fn has_three_distinct_xy(coords: &[Coord3D]) -> bool {
+    let mut distinct = [(0.0, 0.0); 3];
+    let mut count = 0;
+    for coord in coords {
+        let point = (coord.x, coord.y);
+        if !distinct[..count].contains(&point) {
+            distinct[count] = point;
+            count += 1;
+            if count == 3 {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -1049,7 +1103,7 @@ pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<
     }
 
     let area = Polygon3D::ring_signed_area_2d(coords);
-    if !area.is_finite() || area.abs() < 1e-12 {
+    if !area.is_finite() || area == 0.0 {
         return None;
     }
 
@@ -1071,7 +1125,7 @@ pub(crate) fn guaranteed_interior_probe_prepared(
     diagonal: f64,
     locator: &SimdRing,
 ) -> Option<geo_types::Point<f64>> {
-    if coords.len() < 4 || !signed_area.is_finite() || signed_area.abs() < 1e-12 {
+    if coords.len() < 4 || !signed_area.is_finite() || signed_area == 0.0 {
         return None;
     }
 
@@ -1080,7 +1134,7 @@ pub(crate) fn guaranteed_interior_probe_prepared(
         return None;
     }
 
-    let eps = (diagonal * 1e-9).max(1e-10);
+    let eps = diagonal * 1e-9;
 
     for i in 0..unique_n {
         let prev = coords[(i + unique_n - 1) % unique_n];
@@ -1098,15 +1152,15 @@ pub(crate) fn guaranteed_interior_probe_prepared(
 
         let in_len = (in_edge.x * in_edge.x + in_edge.y * in_edge.y).sqrt();
         let out_len = (out_edge.x * out_edge.x + out_edge.y * out_edge.y).sqrt();
-        if in_len < 1e-12 || out_len < 1e-12 {
+        if in_len == 0.0 || out_len == 0.0 {
             continue;
         }
 
         let turn = in_edge.x * out_edge.y - in_edge.y * out_edge.x;
         let convex = if signed_area > 0.0 {
-            turn > 1e-12
+            turn > 0.0
         } else {
-            turn < -1e-12
+            turn < 0.0
         };
         if !convex {
             continue;
@@ -1126,7 +1180,7 @@ pub(crate) fn guaranteed_interior_probe_prepared(
             y: to_prev.y + to_next.y,
         };
         let bisector_len = (bisector.x * bisector.x + bisector.y * bisector.y).sqrt();
-        if bisector_len < 1e-12 {
+        if bisector_len == 0.0 {
             continue;
         }
 
@@ -1136,9 +1190,21 @@ pub(crate) fn guaranteed_interior_probe_prepared(
         };
 
         for sign in [1.0, -1.0] {
+            let offset = |value: f64, direction: f64| {
+                let candidate = value + direction * eps;
+                if candidate == value && direction != 0.0 {
+                    value.next_after(if direction > 0.0 {
+                        f64::INFINITY
+                    } else {
+                        f64::NEG_INFINITY
+                    })
+                } else {
+                    candidate
+                }
+            };
             let candidate = Coord {
-                x: curr.x + sign * bisector_unit.x * eps,
-                y: curr.y + sign * bisector_unit.y * eps,
+                x: offset(curr.x, sign * bisector_unit.x),
+                y: offset(curr.y, sign * bisector_unit.y),
             };
             if locator.contains(candidate) {
                 return Some(geo_types::Point(candidate));
@@ -1298,10 +1364,110 @@ mod tests {
     use super::*;
     use geo::LineString;
 
+    fn square_lines(x: f64, y: f64, size: f64, first_id: u32) -> Vec<Line3D> {
+        let points = [
+            Coord3D::new(x, y, 0.0),
+            Coord3D::new(x + size, y, 0.0),
+            Coord3D::new(x + size, y + size, 0.0),
+            Coord3D::new(x, y + size, 0.0),
+        ];
+        (0..4)
+            .map(|i| Line3D::new(points[i], points[(i + 1) % 4], first_id + i as u32))
+            .collect()
+    }
+
+    #[test]
+    fn workspace_and_builder_rebuild_cleanly() {
+        for node_input in [false, true] {
+            let mut options = PolygonizerOptions {
+                node_input,
+                ..Default::default()
+            };
+            let first = square_lines(0.0, 0.0, 1.0, 1);
+            let second = square_lines(2.0, 0.0, 1.0, 5);
+
+            let mut workspace = PolygonizerWorkspace::new();
+            assert_eq!(
+                polygonize_with_workspace(&first, &options, &mut workspace)
+                    .unwrap()
+                    .polygons
+                    .len(),
+                1
+            );
+            assert!(workspace.graph.edges.is_empty());
+            assert_eq!(
+                polygonize_with_workspace(&second, &options, &mut workspace)
+                    .unwrap()
+                    .polygons
+                    .len(),
+                1
+            );
+            assert!(workspace.graph.edges.is_empty());
+
+            let mut builder = Polygonizer::with_options(std::mem::take(&mut options));
+            builder.add_lines(first);
+            assert_eq!(builder.polygonize().unwrap().polygons.len(), 1);
+            assert_eq!(builder.polygonize().unwrap().polygons.len(), 1);
+            builder.add_lines(second);
+            assert_eq!(builder.polygonize().unwrap().polygons.len(), 2);
+        }
+    }
+
+    #[test]
+    fn small_and_large_offset_faces_are_preserved_and_filter_is_explicit() {
+        let options = PolygonizerOptions::default();
+        for lines in [
+            square_lines(0.0, 0.0, 1e-4, 1),
+            square_lines(-73.0, 40.0, 1e-7, 1),
+            square_lines(1e12, 1e12, 1e-3, 1),
+        ] {
+            assert_eq!(polygonize(lines, &options).unwrap().polygons.len(), 1);
+        }
+
+        for origin in [0.0, 1e12] {
+            let mut nested = square_lines(origin, origin, 1.0, 1);
+            nested.extend(square_lines(origin + 0.25, origin + 0.25, 0.5, 5));
+            assert_eq!(polygonize(nested, &options).unwrap().polygons.len(), 2);
+        }
+
+        let lines = square_lines(0.0, 0.0, 1.0, 1);
+        let mut filtered = PolygonizerOptions::default();
+        filtered.output_filter.minimum_face_area = Some(1.0);
+        assert_eq!(
+            polygonize(lines.iter().copied(), &filtered)
+                .unwrap()
+                .polygons
+                .len(),
+            1
+        );
+        filtered.output_filter.minimum_face_area = Some(1.01);
+        assert!(polygonize(lines, &filtered).unwrap().polygons.is_empty());
+
+        let collinear = [
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 1),
+            Line3D::new(Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 2),
+            Line3D::new(Coord3D::new(2.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 3),
+        ];
+        assert!(polygonize(collinear, &options).unwrap().polygons.is_empty());
+    }
+
+    #[test]
+    fn non_finite_coordinates_are_rejected_centrally() {
+        let line = Line3D::new(
+            Coord3D::new(f64::NAN, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            1,
+        );
+        assert!(matches!(
+            polygonize([line], &PolygonizerOptions::default()),
+            Err(PolygonizeError::InvalidGeometry { .. })
+        ));
+    }
+
     #[test]
     fn test_with_snap_grid() {
         let polygonizer = Polygonizer::new().with_snap_grid(0.123);
-        assert_eq!(polygonizer.snap_grid_size, 0.123);
+        assert_eq!(polygonizer.options().snap_grid_size, 0.123);
     }
 
     #[test]
@@ -1315,12 +1481,14 @@ mod tests {
         let lines = (0..4)
             .map(|i| Line3D::new(points[i], points[(i + 1) % 4], i as u32))
             .collect::<Vec<_>>();
-        let mut options = PolygonizerOptions::default();
-        options.node_input = true;
-        options.snap_grid_size = 0.1;
-        options.snap_strategy = SnapStrategy::GeosCompat;
+        let options = PolygonizerOptions {
+            node_input: true,
+            snap_grid_size: 0.1,
+            snap_strategy: SnapStrategy::GeosCompat,
+            ..Default::default()
+        };
 
-        let result = polygonize_with_options(&lines, &options).unwrap();
+        let result = polygonize(lines.iter().copied(), &options).unwrap();
 
         assert_eq!(result.polygons.len(), 1);
         assert!(points.iter().all(|point| result.polygons[0]
@@ -1331,7 +1499,7 @@ mod tests {
 
     #[test]
     fn geos_compat_drops_sub_grid_face_from_near_coincident_endpoints() {
-        let lines = vec![
+        let lines = [
             Line3D::new(
                 Coord3D::new(139131.39157939597, 332081.47584308265, 0.0),
                 Coord3D::new(139138.25173987588, 332179.7525957378, 0.0),
@@ -1349,7 +1517,8 @@ mod tests {
             ),
         ];
 
-        let result = polygonize_with_options(&lines, &PolygonizerOptions::cfb_robust_v1()).unwrap();
+        let result =
+            polygonize(lines.iter().copied(), &PolygonizerOptions::cfb_robust_v1()).unwrap();
 
         assert!(result.polygons.is_empty());
     }
@@ -1357,7 +1526,6 @@ mod tests {
     #[test]
     fn test_add_lines() {
         let mut polygonizer = Polygonizer::new();
-        assert!(!polygonizer.dirty);
         assert!(polygonizer.input_lines.is_empty());
 
         let l1 = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 0);
@@ -1365,7 +1533,6 @@ mod tests {
 
         polygonizer.add_lines(vec![l1, l2]);
 
-        assert!(polygonizer.dirty);
         assert_eq!(polygonizer.input_lines.len(), 2);
         assert_eq!(polygonizer.input_lines[0].start.x, 0.0);
         assert_eq!(polygonizer.input_lines[1].end.y, 1.0);

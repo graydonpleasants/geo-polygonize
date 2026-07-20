@@ -330,16 +330,16 @@ mod tests {
 
         graph.bulk_load(lines);
 
-        // It should skip the first two zero-length / almost zero-length lines
-        // leaving only the valid segment (p0 -> p3).
+        // Only the exactly zero-length line is skipped. Small nonzero geometry
+        // must not disappear because of an absolute coordinate tolerance.
         // The nodes themselves are still added to `self.nodes_x`, etc.
         // from the `entries` deduplication phase.
         // p0, p1, p2, p3 will be collected. p0 and p1 will be deduplicated.
         // p2 differs by < 1e-12 but dedup checks for exact equality, so p2 will NOT be deduplicated with p0.
         // So nodes are p0, p2, p3 (3 nodes).
         assert_eq!(graph.nodes_x.len(), 3);
-        assert_eq!(graph.edges.len(), 1);
-        assert_eq!(graph.directed_edges.len(), 2);
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(graph.directed_edges.len(), 4);
     }
 
     #[test]

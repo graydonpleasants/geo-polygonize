@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - '.github/workflows/docs-pages.yml'
+      - 'README.md'
       - 'crates/**'
       - 'python/**'
       - 'docs/**'
@@ -62,6 +63,12 @@ jobs:
 
       - name: Generate Docs Metadata
         run: npm run docs:gen
+
+      - name: Check documentation links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress README.md docs
+          fail: true
 
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main

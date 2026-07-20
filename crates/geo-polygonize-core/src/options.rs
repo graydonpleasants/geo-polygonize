@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::error::{PolygonizeError, Result};
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 /// The canonical configuration object for the `geo-polygonize` engine.
 ///
@@ -66,6 +69,9 @@ pub struct PolygonizerOptions {
     /// Options for mapping final faces back to original input geometry IDs.
     pub provenance: ProvenanceOptions,
 
+    /// Optional application-level filtering applied after topology is established.
+    pub output_filter: OutputFilterOptions,
+
     /// An optional identifier for the input dataset.
     #[ts(optional)]
     pub input_profile_id: Option<String>,
@@ -84,6 +90,7 @@ impl Default for PolygonizerOptions {
             determinism: DeterminismOptions::default(),
             diagnostics: DiagnosticsOptions::default(),
             provenance: ProvenanceOptions::default(),
+            output_filter: OutputFilterOptions::default(),
             input_profile_id: None,
         }
     }
@@ -117,8 +124,42 @@ impl PolygonizerOptions {
                 enabled: true,
                 include_boundary_line_ids: true,
             },
+            output_filter: OutputFilterOptions::default(),
             input_profile_id: Some("cfb_robust_v1".to_string()),
         }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        for (field, value) in [
+            ("snap_grid_size", self.snap_grid_size),
+            ("pre_snap_tolerance", self.pre_snap_tolerance),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: field.to_string(),
+                    expected: "a finite non-negative number".to_string(),
+                    actual: value.to_string(),
+                });
+            }
+        }
+
+        if self.pre_snap_tolerance > 0.0 && !self.node_input {
+            return Err(PolygonizeError::UnsupportedOptionCombination {
+                reason: "pre_snap_tolerance requires node_input=true".to_string(),
+            });
+        }
+
+        if let Some(value) = self.output_filter.minimum_face_area {
+            if !value.is_finite() || value < 0.0 {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: "output_filter.minimum_face_area".to_string(),
+                    expected: "a finite non-negative number".to_string(),
+                    actual: value.to_string(),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -171,6 +212,7 @@ pub enum NodingBackend {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct NodingOptions {
     pub backend: NodingBackend,
@@ -185,6 +227,7 @@ impl Default for NodingOptions {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct ContainmentOptions {
     pub touch_policy: TouchPolicy,
@@ -199,6 +242,7 @@ impl Default for ContainmentOptions {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct DeterminismOptions {
     pub canonical_sort: bool,
@@ -217,6 +261,7 @@ impl Default for DeterminismOptions {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct DiagnosticsOptions {
     pub enabled: bool,
@@ -227,10 +272,20 @@ pub struct DiagnosticsOptions {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct ProvenanceOptions {
     pub enabled: bool,
     pub include_boundary_line_ids: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct OutputFilterOptions {
+    /// Keep faces whose area is greater than or equal to this value.
+    #[ts(optional)]
+    pub minimum_face_area: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
@@ -239,4 +294,60 @@ pub enum DedupPolicy {
     #[default]
     KeepAll,
     CanonicalRingHash,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_json_uses_defaults() {
+        let options: PolygonizerOptions = serde_json::from_str(
+            r#"{"diagnostics":{"enabled":true},"output_filter":{"minimum_face_area":2.0}}"#,
+        )
+        .unwrap();
+
+        assert!(options.diagnostics.enabled);
+        assert!(!options.diagnostics.report_mode);
+        assert_eq!(options.snap_grid_size, 1e-10);
+        assert_eq!(options.output_filter.minimum_face_area, Some(2.0));
+    }
+
+    #[test]
+    fn validation_rejects_invalid_options() {
+        for value in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let options = PolygonizerOptions {
+                snap_grid_size: value,
+                ..Default::default()
+            };
+            assert!(options.validate().is_err());
+
+            let options = PolygonizerOptions {
+                node_input: true,
+                pre_snap_tolerance: value,
+                ..Default::default()
+            };
+            assert!(options.validate().is_err());
+
+            let options = PolygonizerOptions {
+                output_filter: OutputFilterOptions {
+                    minimum_face_area: Some(value),
+                },
+                ..Default::default()
+            };
+            assert!(options.validate().is_err());
+        }
+
+        let options = PolygonizerOptions {
+            snap_grid_size: 0.0,
+            pre_snap_tolerance: 1.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            options.validate(),
+            Err(PolygonizeError::UnsupportedOptionCombination { .. })
+        ));
+
+        assert!(PolygonizerOptions::default().validate().is_ok());
+    }
 }

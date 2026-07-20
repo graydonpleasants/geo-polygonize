@@ -46,7 +46,7 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
     for line in lines {
         polygonizer.add_geometry(Geometry::LineString(line));
     }
-    polygonizer.node_input = true;
+    polygonizer.options_mut().node_input = true;
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
@@ -83,7 +83,7 @@ pub fn polygonize_random(lines: JsValue) -> Result<JsValue, JsValue> {
 
     // Core Logic
     let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = true;
+    polygonizer.options_mut().node_input = true;
     for line in lines {
         polygonizer.add_geometry(Geometry::LineString(line));
     }
@@ -98,9 +98,9 @@ pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsVal
     let lines = parse_input(lines)?;
 
     let mut polygonizer = Polygonizer::new();
-    polygonizer.node_input = true;
+    polygonizer.options_mut().node_input = true;
     if let Some(g) = grid_size {
-        polygonizer.snap_grid_size = g;
+        polygonizer.options_mut().snap_grid_size = g;
     }
 
     for line in lines {

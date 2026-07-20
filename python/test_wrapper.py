@@ -241,6 +241,22 @@ def test_polygonize_with_options():
     result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=False)
     assert len(result['polygons']) == 1
 
+    default_result = polygonize_with_options(
+        coords=coords,
+        offsets=offsets,
+        options={},
+        return_polygons=False,
+    )
+    assert len(default_result['polygons']) == 1
+
+    with pytest.raises(Exception, match="snap_grid_size"):
+        polygonize_with_options(
+            coords=coords,
+            offsets=offsets,
+            options={"snap_grid_size": -1},
+            return_polygons=False,
+        )
+
     # Check if provenance exists
     sp = result['polygons'][0]
     assert hasattr(sp, "provenance")

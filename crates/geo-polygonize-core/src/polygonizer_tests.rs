@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::Polygonizer;
-    use geo::bounding_rect::BoundingRect;
     use geo::Area;
     use geo_types::LineString;
 
@@ -71,7 +70,7 @@ mod tests {
     #[test]
     fn test_noding_crossing_lines() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
 
         // Frame
         poly.add_geometry(
@@ -120,7 +119,7 @@ mod tests {
     #[test]
     fn test_noding_collinear_lines() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
 
         // 1. Line (0,0)->(10,0)
         // 2. Line (5,0)->(15,0) (Overlap 5..10)
@@ -158,7 +157,7 @@ mod tests {
         let mut poly = Polygonizer::new();
         // Self-intersecting bowtie that forms exactly two valid cycles.
         // Node_input = true is needed to create the intersection node at (5, 5).
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         poly.add_geometry(
             LineString::from(vec![
                 (0.0, 0.0),
@@ -227,7 +226,7 @@ mod tests {
     #[test]
     fn test_polygonize_empty_input_with_noding() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         let polygons = poly
             .polygonize()
             .expect("Polygonization should not fail on empty input with noding")
@@ -238,7 +237,7 @@ mod tests {
     #[test]
     fn test_polygonize_empty_linestring_with_noding() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         poly.add_geometry(geo_types::Geometry::LineString(geo_types::LineString::new(
             vec![],
         )));
@@ -252,7 +251,7 @@ mod tests {
     #[test]
     fn test_polygonize_point_with_noding() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         poly.add_geometry(geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0)));
         let polygons = poly
             .polygonize()
@@ -379,7 +378,7 @@ mod tests {
     #[test]
     fn test_extract_only_polygonal_nested() {
         let mut poly = Polygonizer::new();
-        poly.extract_only_polygonal = true;
+        poly.options_mut().extract_only_polygonal = true;
 
         // Outer square (0,0)-(10,0)-(10,10)-(0,10)-(0,0) (Area 100)
         poly.add_geometry(
@@ -418,7 +417,7 @@ mod tests {
     #[test]
     fn test_extract_only_polygonal_disjoint() {
         let mut poly = Polygonizer::new();
-        poly.extract_only_polygonal = true;
+        poly.options_mut().extract_only_polygonal = true;
 
         // Poly 1
         poly.add_geometry(
@@ -451,7 +450,7 @@ mod tests {
     #[test]
     fn test_extract_only_polygonal_concentric_squares() {
         let mut poly = Polygonizer::new();
-        poly.extract_only_polygonal = true;
+        poly.options_mut().extract_only_polygonal = true;
 
         // Square 1: Outer, area 100
         poly.add_geometry(
@@ -504,7 +503,7 @@ mod tests {
 
         // Now, let's add a fourth square
         let mut poly2 = Polygonizer::new();
-        poly2.extract_only_polygonal = true;
+        poly2.options_mut().extract_only_polygonal = true;
 
         poly2.add_geometry(
             LineString::from(vec![
@@ -580,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_rings_capture() {
+    fn test_small_rings_are_preserved() {
         let mut poly = Polygonizer::new();
 
         // 1. Valid Square (10x10)
@@ -595,7 +594,7 @@ mod tests {
             .into(),
         );
 
-        // 2. Tiny Ring 1 (Area < 1e-9)
+        // 2. Tiny Ring 1 (formerly discarded by the absolute area cutoff)
         // A triangle with base 1e-5 and height 1e-5 has area 0.5e-10.
         poly.add_geometry(
             LineString::from(vec![
@@ -620,15 +619,15 @@ mod tests {
         );
 
         let result = poly.polygonize().expect("Polygonization failed");
-        assert_eq!(result.polygons.len(), 1, "Expected 1 valid polygon");
-        assert_eq!(result.invalid_rings.len(), 2, "Expected 2 invalid rings");
+        assert_eq!(result.polygons.len(), 3);
+        assert!(result.invalid_rings.is_empty());
     }
 
     #[test]
     fn test_repeated_polygonize_preserves_input_segments_when_node_input_disabled() {
         let mut poly = Polygonizer::new();
-        poly.node_input = false;
-        poly.diagnostics_options.enabled = true;
+        poly.options_mut().node_input = false;
+        poly.options_mut().diagnostics.enabled = true;
 
         poly.add_geometry(
             LineString::from(vec![
@@ -655,8 +654,8 @@ mod tests {
     #[test]
     fn diagnostics_report_noding_iterations() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
-        poly.diagnostics_options.enabled = true;
+        poly.options_mut().node_input = true;
+        poly.options_mut().diagnostics.enabled = true;
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
@@ -676,8 +675,8 @@ mod tests {
     #[test]
     fn timing_only_diagnostics_skip_work_counters() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
-        poly.diagnostics_options.timings = true;
+        poly.options_mut().node_input = true;
+        poly.options_mut().diagnostics.timings = true;
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]).into());
         poly.add_geometry(LineString::from(vec![(0.0, 10.0), (10.0, 0.0)]).into());
 
@@ -691,9 +690,9 @@ mod tests {
     #[test]
     fn diagnostics_report_pre_snap_candidates() {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
-        poly.options.pre_snap_tolerance = 0.5;
-        poly.diagnostics_options.enabled = true;
+        poly.options_mut().node_input = true;
+        poly.options_mut().pre_snap_tolerance = 0.5;
+        poly.options_mut().diagnostics.enabled = true;
         poly.add_geometry(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]).into());
         poly.add_geometry(LineString::from(vec![(5.0, 0.4), (5.0, 1.0)]).into());
 
@@ -705,7 +704,7 @@ mod tests {
     #[test]
     fn diagnostics_report_containment_work() {
         let mut poly = Polygonizer::new();
-        poly.diagnostics_options.enabled = true;
+        poly.options_mut().diagnostics.enabled = true;
         poly.add_geometry(
             LineString::from(vec![
                 (0.0, 0.0),
@@ -743,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_rings_deduplication_and_nesting() {
+    fn test_nested_small_rings_are_preserved() {
         let mut poly = Polygonizer::new();
 
         // Ring A: Tiny but "outer" relative to B.
@@ -769,19 +768,7 @@ mod tests {
         poly.add_geometry(ring_b.into());
 
         let result = poly.polygonize().expect("Polygonization failed");
-        // Both are invalid (area < 1e-9).
-        // process_invalid_rings should filter out Ring A (outer) because it contains Ring B (inner).
-
-        assert_eq!(result.polygons.len(), 0);
-        assert_eq!(result.invalid_rings.len(), 1);
-
-        // Verify it is ring B
-        let captured = &result.invalid_rings[0];
-        // Convert to LineString for bounding box check
-        let ls = LineString(captured.iter().map(|c| c.to_coord_2d()).collect());
-
-        let bbox = ls.bounding_rect().unwrap();
-        // Ring B max x is 0.8e-5.
-        assert!((bbox.max().x - 0.8e-5).abs() < 1e-12);
+        assert_eq!(result.polygons.len(), 2);
+        assert!(result.invalid_rings.is_empty());
     }
 }

@@ -11,9 +11,9 @@ fn test_determinism_canonical_sort_and_rotation() {
 
     let create_polygons_from_lines = |lines: Vec<Line3D>, use_determinism: bool| {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         if use_determinism {
-            poly.determinism = DeterminismOptions {
+            poly.options_mut().determinism = DeterminismOptions {
                 canonical_sort: true,
                 canonical_ring_rotation: true,
                 stable_tie_breaks: true,
@@ -96,9 +96,9 @@ fn test_determinism_byte_identical_serialization() {
     // 1. the same input produces byte-identical serialized output across repeated runs.
     let create_polygons_from_lines = |lines: Vec<Line3D>, use_determinism: bool| {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
+        poly.options_mut().node_input = true;
         if use_determinism {
-            poly.determinism = DeterminismOptions {
+            poly.options_mut().determinism = DeterminismOptions {
                 canonical_sort: true,
                 canonical_ring_rotation: true,
                 stable_tie_breaks: true,
@@ -157,8 +157,8 @@ fn test_determinism_segment_order_permutation() {
 
     let create_polygons_from_lines = |lines: Vec<Line3D>| {
         let mut poly = Polygonizer::new();
-        poly.node_input = true;
-        poly.determinism = DeterminismOptions {
+        poly.options_mut().node_input = true;
+        poly.options_mut().determinism = DeterminismOptions {
             canonical_sort: true,
             canonical_ring_rotation: true,
             stable_tie_breaks: true,

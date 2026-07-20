@@ -3,7 +3,7 @@ mod error;
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
-use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
+use geo_polygonize_core::{polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer};
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
@@ -320,8 +320,6 @@ pub fn polygonize_with_options_buffer_js(
         }
     }
 
-    let mut polygonizer = Polygonizer::with_options(options);
-
     let mut lines = Vec::new();
 
     for i in 0..offsets.len() {
@@ -364,19 +362,6 @@ pub fn polygonize_with_options_buffer_js(
             let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
             let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
 
-            if !coords[idx].is_finite()
-                || !coords[idx + 1].is_finite()
-                || !z1.is_finite()
-                || !coords[jdx].is_finite()
-                || !coords[jdx + 1].is_finite()
-                || !z2.is_finite()
-            {
-                return Err(to_js_error(
-                    "InvalidGeometry",
-                    "NaN or Inf coordinates detected in buffers",
-                ));
-            }
-
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
@@ -385,9 +370,7 @@ pub fn polygonize_with_options_buffer_js(
         }
     }
 
-    polygonizer.add_lines(lines);
-
-    polygonize_and_flatten(polygonizer, stride)
+    polygonize_and_flatten(lines, options, stride)
 }
 
 #[wasm_bindgen]
@@ -424,8 +407,6 @@ pub fn polygonize_buffers(
         }
     }
 
-    let mut polygonizer = Polygonizer::with_options(options);
-
     let mut lines = Vec::new();
 
     for i in 0..offsets.len() {
@@ -468,19 +449,6 @@ pub fn polygonize_buffers(
             let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
             let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
 
-            if !coords[idx].is_finite()
-                || !coords[idx + 1].is_finite()
-                || !z1.is_finite()
-                || !coords[jdx].is_finite()
-                || !coords[jdx + 1].is_finite()
-                || !z2.is_finite()
-            {
-                return Err(to_js_error(
-                    "InvalidGeometry",
-                    "NaN or Inf coordinates detected in buffers",
-                ));
-            }
-
             lines.push(Line3D::new(
                 Coord3D::new(coords[idx], coords[idx + 1], z1),
                 Coord3D::new(coords[jdx], coords[jdx + 1], z2),
@@ -489,9 +457,7 @@ pub fn polygonize_buffers(
         }
     }
 
-    polygonizer.add_lines(lines);
-
-    polygonize_and_flatten(polygonizer, stride)
+    polygonize_and_flatten(lines, options, stride)
 }
 
 #[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
@@ -614,17 +580,19 @@ fn polygonize_geoarrow_internal(
 }
 
 fn polygonize_and_flatten(
-    mut polygonizer: Polygonizer,
+    lines: Vec<Line3D>,
+    options: geo_polygonize_core::options::PolygonizerOptions,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
-    let mut result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
-            .unwrap_or_else(|_| {
-                Err(geo_polygonize_core::error::PolygonizeError::Panic(
-                    "Panic occurred in Rust core".to_string(),
-                ))
-            })
-            .map_err(from_polygonizer_error)?;
+    let mut result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        polygonize_lines(lines, &options)
+    }))
+    .unwrap_or_else(|_| {
+        Err(geo_polygonize_core::error::PolygonizeError::Panic(
+            "Panic occurred in Rust core".to_string(),
+        ))
+    })
+    .map_err(from_polygonizer_error)?;
 
     let flatten_started = js_sys::Date::now();
     let mut flat_coords = Vec::new();

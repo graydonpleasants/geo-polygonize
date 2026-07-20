@@ -77,7 +77,7 @@ fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
                 for line in &lines {
                     poly.add_geometry(line.clone().into());
                 }
-                poly.node_input = true;
+                poly.options_mut().node_input = true;
                 poly.polygonize().unwrap();
             });
         });
@@ -184,7 +184,7 @@ fn bench_random_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
                 for line in &lines {
                     poly.add_geometry(line.clone().into());
                 }
-                poly.node_input = true;
+                poly.options_mut().node_input = true;
                 poly.polygonize().unwrap();
             });
         });
