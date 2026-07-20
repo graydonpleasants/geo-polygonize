@@ -77,8 +77,9 @@ describe('WASM Polygonizer', () => {
         };
 
         expect(JSON.parse(polygonizeWithOptions(JSON.stringify(input), {})).features).toHaveLength(1);
-        expect(() => polygonizeWithOptions(JSON.stringify(input), { snap_grid_size: -1 }))
-            .toThrow(/snap_grid_size/);
+        expect(() => polygonizeWithOptions(JSON.stringify(input), {
+            precision_model: { type: "fixed_grid", grid_size: -1 },
+        })).toThrow(/precision_model.grid_size/);
     });
 
     it('should handle empty input', async () => {
@@ -200,7 +201,7 @@ describe('WASM Polygonizer', () => {
         const offsets = new Uint32Array([0]);
         const stride = 2;
         const line_ids = new Uint32Array([42]);
-        const options = { node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+        const options = { node_input: false, precision_model: { type: 'floating' }, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
 
         const result = polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
 
@@ -223,7 +224,7 @@ describe('WASM Polygonizer', () => {
         const offsets = new Uint32Array([0]); // 1 line
         const stride = 2;
         const line_ids = new Uint32Array([42, 43]); // 2 ids
-        const options = { node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+        const options = { node_input: false, precision_model: { type: 'floating' }, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
 
         try {
             polygonizeWithOptionsBuffer(coords, offsets, stride, options, line_ids);
@@ -256,7 +257,7 @@ describe('WASM Polygonizer', () => {
 
         const coords = new Float64Array([0, 0, 10, 0, 10, 10, 0, 10, 0, 0]);
         const offsets = new Uint32Array([0]);
-        const options = { node_input: false, snap_grid_size: 1e-10, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
+        const options = { node_input: false, precision_model: { type: 'floating' }, extract_only_polygonal: false, snap_strategy: 'Grid', noding: { backend: 'Snap' }, containment: { touch_policy: 'AllowPointTouchDisallowEdgeShare' }, determinism: { canonical_sort: false, canonical_ring_rotation: false, stable_tie_breaks: false }, diagnostics: { enabled: false, report_mode: false }, provenance: { enabled: false, include_boundary_line_ids: false }, input_profile_id: null };
 
         try {
             polygonizeWithOptionsBuffer(coords, offsets, 1, options);

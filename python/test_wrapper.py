@@ -213,7 +213,7 @@ def test_polygonize_with_options():
 
     options = {
         "node_input": True,
-        "snap_grid_size": 1e-5,
+        "precision_model": {"type": "fixed_grid", "grid_size": 1e-5},
         "extract_only_polygonal": False,
         "snap_strategy": "Grid",
         "noding": {
@@ -249,11 +249,11 @@ def test_polygonize_with_options():
     )
     assert len(default_result['polygons']) == 1
 
-    with pytest.raises(Exception, match="snap_grid_size"):
+    with pytest.raises(Exception, match="precision_model.grid_size"):
         polygonize_with_options(
             coords=coords,
             offsets=offsets,
-            options={"snap_grid_size": -1},
+            options={"precision_model": {"type": "fixed_grid", "grid_size": -1}},
             return_polygons=False,
         )
 

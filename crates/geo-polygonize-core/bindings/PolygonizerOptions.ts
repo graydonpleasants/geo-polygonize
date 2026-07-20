@@ -4,6 +4,7 @@ import type { DeterminismOptions } from "./DeterminismOptions";
 import type { DiagnosticsOptions } from "./DiagnosticsOptions";
 import type { NodingOptions } from "./NodingOptions";
 import type { OutputFilterOptions } from "./OutputFilterOptions";
+import type { PrecisionModel } from "./PrecisionModel";
 import type { ProvenanceOptions } from "./ProvenanceOptions";
 import type { SnapStrategy } from "./SnapStrategy";
 
@@ -25,14 +26,11 @@ export type PolygonizerOptions = {
  */
 node_input: boolean,
 /**
- * The snapping grid size used for vertex deduplication and noding operations.
+ * Coordinate precision used for topology and noding.
  *
- * Vertices falling within the same grid cell are coalesced. A size of `0.0`
- * indicates exact floating-point evaluation without grid snapping.
- *
- * Default: `1e-10`
+ * Default: `PrecisionModel::Floating`
  */
-snap_grid_size: number,
+precision_model: PrecisionModel,
 /**
  * Snap input segments to nearby vertices from exact-noded input linework before grid noding.
  *

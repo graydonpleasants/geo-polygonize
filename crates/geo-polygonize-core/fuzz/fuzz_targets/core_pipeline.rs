@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use geo_polygonize_core::options::{PolygonizerOptions, SnapStrategy};
+use geo_polygonize_core::options::{PolygonizerOptions, PrecisionModel, SnapStrategy};
 use geo_polygonize_core::polygonizer::polygonize;
 use geo_polygonize_core::types::{Coord3D, Line3D};
 use libfuzzer_sys::fuzz_target;
@@ -40,7 +40,9 @@ fuzz_target!(|input: FuzzInput| {
 
     let options = PolygonizerOptions {
         node_input: input.node_input,
-        snap_grid_size: input.snap_grid_size.abs().clamp(1e-10, 1.0), // reasonable grid size
+        precision_model: PrecisionModel::FixedGrid {
+            grid_size: input.snap_grid_size.abs().clamp(1e-10, 1.0),
+        },
         snap_strategy: SnapStrategy::Grid,
         ..Default::default()
     };

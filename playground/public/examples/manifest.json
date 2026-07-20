@@ -6,7 +6,7 @@
     "fixture": "data/square.geojson",
     "defaultOptions": {
       "node_input": false,
-      "snap_grid_size": 0.0
+      "precision_model": { "type": "floating" }
     }
   },
   {
@@ -16,7 +16,7 @@
     "fixture": "data/nested_holes.geojson",
     "defaultOptions": {
       "node_input": false,
-      "snap_grid_size": 0.0
+      "precision_model": { "type": "floating" }
     }
   },
   {
@@ -26,7 +26,7 @@
     "fixture": "data/grid_incomplete.geojson",
     "defaultOptions": {
       "node_input": false,
-      "snap_grid_size": 0.0
+      "precision_model": { "type": "floating" }
     }
   },
   {
@@ -36,7 +36,7 @@
     "fixture": "data/touching_polys.geojson",
     "defaultOptions": {
       "node_input": true,
-      "snap_grid_size": 1e-6
+      "precision_model": { "type": "fixed_grid", "grid_size": 1e-6 }
     }
   },
   {
@@ -46,7 +46,7 @@
     "fixture": "data/complex_bowtie.geojson",
     "defaultOptions": {
       "node_input": true,
-      "snap_grid_size": 1e-6
+      "precision_model": { "type": "fixed_grid", "grid_size": 1e-6 }
     }
   },
   {
@@ -56,7 +56,7 @@
     "fixture": "data/overlapping_circles.geojson",
     "defaultOptions": {
       "node_input": true,
-      "snap_grid_size": 1e-6
+      "precision_model": { "type": "fixed_grid", "grid_size": 1e-6 }
     }
   },
   {
@@ -66,7 +66,7 @@
     "fixture": "data/curved_holes.geojson",
     "defaultOptions": {
       "node_input": true,
-      "snap_grid_size": 1e-6
+      "precision_model": { "type": "fixed_grid", "grid_size": 1e-6 }
     }
   }
 ]

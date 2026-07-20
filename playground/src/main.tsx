@@ -25,7 +25,9 @@ interface ManifestEntry {
   fixture: string;
   defaultOptions: {
     node_input: boolean;
-    snap_grid_size: number;
+    precision_model:
+      | { type: 'floating' }
+      | { type: 'fixed_grid'; grid_size: number };
   };
 }
 
@@ -135,7 +137,11 @@ function App() {
     if (!entry) return;
 
     setNodeInput(entry.defaultOptions.node_input);
-    setSnapGridSize(entry.defaultOptions.snap_grid_size);
+    setSnapGridSize(
+      entry.defaultOptions.precision_model.type === 'fixed_grid'
+        ? entry.defaultOptions.precision_model.grid_size
+        : 0.0
+    );
     setInputGeojson(null);
     setOutputGeojson(null);
     setError(null);
@@ -225,7 +231,7 @@ function App() {
             <Typography variant="h6" gutterBottom>Options</Typography>
             <FormControlLabel
               control={<Switch checked={nodeInput} onChange={(e) => setNodeInput(e.target.checked)} />}
-              label="Node Input (Iterated Snap Rounding)"
+              label="Node Input (Unchecked Iterative Noding)"
             />
             <TextField
               fullWidth

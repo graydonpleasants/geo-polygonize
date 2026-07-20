@@ -44,21 +44,23 @@ fn main() {
 }
 ```
 
-### Choosing `node_input` and `snap_grid_size`
+### Choosing noding and precision
 
 Polygonization quality is heavily influenced by input noding strategy.
 
 - **`node_input = false`** (default): Fastest path. Use this when your input linework is already noded (all intersections are explicit vertices).
 - **`node_input = true`**: Enables unchecked iterative grid noding. Use this for real-world datasets that may contain slight misalignments, overlaps, or self-intersections, and validate outputs when correctness must be certified.
-- **`snap_grid_size`** controls how aggressively coordinates are snapped during robust noding:
-  - Start with `1e-10` for high-precision projected data.
-  - Increase to `1e-8` or `1e-6` when near-duplicate vertices prevent clean topology.
-  - Avoid very large values unless your coordinate units are coarse; oversnapping can collapse narrow features.
+- **`PrecisionModel::Floating`** (default) preserves input coordinates and uses floating-point intersections.
+- **`PrecisionModel::FixedGrid { grid_size }`** rounds topology coordinates to an explicit positive grid, even when input noding is disabled. Choose the grid in the units of your data; oversnapping can collapse narrow features.
 
 Practical workflow:
 1. Run with `node_input = false` first on trusted data.
 2. If you observe missing polygons, sliver artifacts, or unresolved intersections, enable `node_input`.
-3. Tune `snap_grid_size` upward incrementally until topology stabilizes.
+3. Use a fixed precision model only when your application has an explicit coordinate grid contract.
+
+Canonical options now use `precision_model` instead of `snap_grid_size`.
+Legacy positional Python, Wasm, and C APIs still translate their grid argument
+when noding is enabled and ignore it on the non-noding fast path.
 
 ### Output semantics
 
@@ -139,8 +141,8 @@ The default return shape is a stable dictionary with `polygons` as
 `SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
 `Polygon` objects.
 
-`SnapStrategy::Grid` keeps topology and output coordinates on the configured
-precision grid. The CFB profile uses `GeosCompat`: the grid establishes robust
+`SnapStrategy::Grid` keeps topology and output coordinates on a configured
+fixed precision grid. The CFB profile uses `GeosCompat`: the grid establishes robust
 topology, then output nodes regain deterministic source coordinates to better
 match Shapely `snap` plus full-precision noding. It is not `set_precision`
 emulation, and exact parity is not guaranteed for many-to-one snaps.

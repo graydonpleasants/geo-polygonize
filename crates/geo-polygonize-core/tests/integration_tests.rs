@@ -193,6 +193,8 @@ fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
 fn test_overlapping_circles() {
     let mut poly = Polygonizer::new();
     poly.options_mut().node_input = true;
+    poly.options_mut().precision_model =
+        geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-10 };
 
     // 1. Overlapping Circles
     let c1 = create_circle(30.0, 30.0, 30.0, 100);
@@ -220,6 +222,8 @@ fn test_overlapping_circles() {
 fn test_curved_holes() {
     let mut poly = Polygonizer::new();
     poly.options_mut().node_input = true;
+    poly.options_mut().precision_model =
+        geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-10 };
 
     // 2. Curved Holes
     let outer = create_circle(50.0, 50.0, 50.0, 200);
