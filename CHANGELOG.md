@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.13...geo-polygonize-v0.40.0) (2026-07-20)
+
+
+### Features
+
+* **core:** harden polygonization API and correctness ([#866](https://github.com/graydonpleasants/geo-polygonize/issues/866)) ([4ae1097](https://github.com/graydonpleasants/geo-polygonize/commit/4ae10973b2cdb2362a19c95bfe5c0a75a70c36ca))
+
 ## [0.39.13](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.39.12...geo-polygonize-v0.39.13) (2026-07-19)
 
 
