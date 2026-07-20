@@ -199,6 +199,7 @@ unsafe fn polygonize_ffi_internal(
             crate::error::PolygonizeError::InvalidArgumentType { .. } => 6,
             crate::error::PolygonizeError::InvalidGeometry { .. } => 7,
             crate::error::PolygonizeError::TopologyFailure { .. } => 8,
+            crate::error::PolygonizeError::NodingValidationFailure { .. } => 8,
             crate::error::PolygonizeError::UnsupportedOptionCombination { .. } => 9,
             crate::error::PolygonizeError::InternalInvariantViolation { .. } => 10,
             crate::error::PolygonizeError::ArrowError(_) => 11,

@@ -103,6 +103,7 @@ impl PolygonizerOptions {
             snap_strategy: SnapStrategy::GeosCompat,
             noding: NodingOptions {
                 backend: NodingBackend::Snap,
+                guarantee: NodingGuarantee::Unchecked,
             },
             containment: ContainmentOptions {
                 touch_policy: TouchPolicy::AllowPointTouchDisallowEdgeShare,
@@ -250,17 +251,29 @@ pub enum NodingBackend {
     Advanced,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum NodingGuarantee {
+    /// Trust the selected noder without checking its output.
+    #[default]
+    Unchecked,
+    /// Verify that the resulting segments are fully noded and normalized.
+    Validate,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
 pub struct NodingOptions {
     pub backend: NodingBackend,
+    pub guarantee: NodingGuarantee,
 }
 
 impl Default for NodingOptions {
     fn default() -> Self {
         Self {
             backend: NodingBackend::Snap,
+            guarantee: NodingGuarantee::Unchecked,
         }
     }
 }
@@ -358,6 +371,10 @@ mod tests {
             fixed.precision_model,
             PrecisionModel::FixedGrid { grid_size: 0.25 }
         );
+
+        let validated: PolygonizerOptions =
+            serde_json::from_str(r#"{"noding":{"guarantee":"Validate"}}"#).unwrap();
+        assert_eq!(validated.noding.guarantee, NodingGuarantee::Validate);
     }
 
     #[test]
@@ -408,6 +425,7 @@ mod tests {
             precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
             noding: NodingOptions {
                 backend: NodingBackend::Advanced,
+                guarantee: NodingGuarantee::Unchecked,
             },
             ..Default::default()
         };

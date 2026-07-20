@@ -4,7 +4,8 @@ use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::snap::SnapNoder;
-use crate::options::{PolygonizerOptions, PrecisionModel, SnapStrategy};
+use crate::noding::validate::ValidatingNoder;
+use crate::options::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -262,6 +263,10 @@ impl Polygonizer {
                 }
             }
             segments = all_segments;
+        }
+
+        if matches!(self.options.noding.guarantee, NodingGuarantee::Validate) {
+            ValidatingNoder::new().validate(&segments)?;
         }
 
         // Use bulk load
@@ -1481,6 +1486,32 @@ mod tests {
             .exterior
             .iter()
             .all(|coord| [0.0, 1.0].contains(&coord.x) && [0.0, 1.0].contains(&coord.y)));
+    }
+
+    #[test]
+    fn validation_policy_checks_the_post_noding_segments() {
+        let crossing = vec![
+            Line3D::new(Coord3D::new(-1.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 1),
+            Line3D::new(Coord3D::new(0.0, -1.0, 0.0), Coord3D::new(0.0, 1.0, 0.0), 2),
+        ];
+        let validated = PolygonizerOptions {
+            node_input: true,
+            noding: crate::options::NodingOptions {
+                guarantee: NodingGuarantee::Validate,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        polygonize(crossing.clone(), &validated).unwrap();
+
+        let validate_only = PolygonizerOptions {
+            node_input: false,
+            ..validated
+        };
+        assert!(matches!(
+            polygonize(crossing, &validate_only),
+            Err(PolygonizeError::NodingValidationFailure { .. })
+        ));
     }
 
     #[test]
