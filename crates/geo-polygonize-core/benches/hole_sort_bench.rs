@@ -387,8 +387,15 @@ fn bench_end_to_end(c: &mut Criterion) {
         .containment_stats;
     assert_eq!(stats.max_point_in_ring_calls_per_shell, 1_000);
     assert_eq!(stats.shells_with_64_plus_point_in_ring_calls, 1);
-    assert_eq!(stats.shared_edge_checks, 1_000);
-    assert_eq!(stats.shared_edge_pair_checks, 65_536_000);
+    // Equal-radius rings can differ by a few ulps after translation, so exact
+    // area ordering (and the number of short-circuited touch checks) is
+    // target-dependent. Keep the benchmark contract focused on its workload.
+    assert!(stats.shared_edge_checks >= 1_000);
+    assert_eq!(stats.shared_edge_checks, stats.point_in_ring_calls);
+    assert_eq!(
+        stats.shared_edge_pair_checks,
+        65_536_000 + stats.shared_edge_checks - 1_000
+    );
     assert_eq!(stats.graph_edge_key_checks, 0);
 
     c.bench_function("containment/end_to_end/1000_holes", |b| {
