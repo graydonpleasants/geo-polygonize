@@ -80,6 +80,17 @@ describe('WASM Polygonizer', () => {
         expect(() => polygonizeWithOptions(JSON.stringify(input), {
             precision_model: { type: "fixed_grid", grid_size: -1 },
         })).toThrow(/precision_model.grid_size/);
+
+        const crossing = {
+            type: "FeatureCollection",
+            features: [
+                { type: "Feature", geometry: { type: "LineString", coordinates: [[-1, 0], [1, 0]] } },
+                { type: "Feature", geometry: { type: "LineString", coordinates: [[0, -1], [0, 1]] } },
+            ],
+        };
+        expect(() => polygonizeWithOptions(JSON.stringify(crossing), {
+            noding: { guarantee: "Validate" },
+        })).toThrow(/Noding validation failed/);
     });
 
     it('should handle empty input', async () => {

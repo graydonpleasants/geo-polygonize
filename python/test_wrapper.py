@@ -257,6 +257,19 @@ def test_polygonize_with_options():
             return_polygons=False,
         )
 
+    crossing_coords = np.array([
+        -1.0, 0.0, 1.0, 0.0,
+        0.0, -1.0, 0.0, 1.0,
+    ], dtype=np.float64)
+    crossing_offsets = np.array([0, 2, 4], dtype=np.uint32)
+    with pytest.raises(Exception, match="Noding validation failed"):
+        polygonize_with_options(
+            coords=crossing_coords,
+            offsets=crossing_offsets,
+            options={"noding": {"guarantee": "Validate"}},
+            return_polygons=False,
+        )
+
     # Check if provenance exists
     sp = result['polygons'][0]
     assert hasattr(sp, "provenance")

@@ -44,6 +44,9 @@ impl std::convert::From<PolygonizeError> for PyErr {
                 PolygonizeOptionsError::new_err(reason)
             }
             PolygonizeError::TopologyFailure { reason } => PolygonizeTopologyError::new_err(reason),
+            err @ PolygonizeError::NodingValidationFailure { .. } => {
+                PolygonizeTopologyError::new_err(err.to_string())
+            }
             PolygonizeError::InternalInvariantViolation { reason } => {
                 PyRuntimeError::new_err(reason)
             }

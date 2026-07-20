@@ -148,6 +148,7 @@ def cfb_robust_options():
         "snap_strategy": "GeosCompat",
         "noding": {
             "backend": "Snap",
+            "guarantee": "Unchecked",
         },
         "containment": {
             "touch_policy": "AllowPointTouchDisallowEdgeShare",

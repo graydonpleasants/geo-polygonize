@@ -62,6 +62,10 @@ Canonical options now use `precision_model` instead of `snap_grid_size`.
 Legacy positional Python, Wasm, and C APIs still translate their grid argument
 when noding is enabled and ignore it on the non-noding fast path.
 
+Set `options.noding.guarantee` to `NodingGuarantee::Validate` to run an
+independent full-noding check before graph construction. Validation reports the
+first pair with an interior intersection or unnormalized collinear overlap.
+
 ### Output semantics
 
 The polygonizer intentionally returns only valid polygonal areas that can be formed from closed cycles:

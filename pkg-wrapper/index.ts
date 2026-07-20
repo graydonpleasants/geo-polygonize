@@ -26,6 +26,7 @@ export * from "./bindings/ContainmentOptions";
 export * from "./bindings/DeterminismOptions";
 export * from "./bindings/DiagnosticsOptions";
 export * from "./bindings/NodingBackend";
+export * from "./bindings/NodingGuarantee";
 export * from "./bindings/NodingOptions";
 export * from "./bindings/OutputFilterOptions";
 export * from "./bindings/PrecisionModel";

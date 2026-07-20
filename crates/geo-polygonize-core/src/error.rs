@@ -21,6 +21,15 @@ pub enum PolygonizeError {
     #[error("Topology failure: {reason}")]
     TopologyFailure { reason: String },
 
+    #[error(
+        "Noding validation failed between output segments {first_segment} and {second_segment}: {reason}"
+    )]
+    NodingValidationFailure {
+        first_segment: usize,
+        second_segment: usize,
+        reason: String,
+    },
+
     #[error("Internal invariant violation: {reason}")]
     InternalInvariantViolation { reason: String },
 

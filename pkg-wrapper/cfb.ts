@@ -8,6 +8,7 @@ export const cfbRobustOptions: PolygonizerOptions = {
     snap_strategy: "GeosCompat",
     noding: {
         backend: "Snap",
+        guarantee: "Unchecked",
     },
     containment: {
         touch_policy: "AllowPointTouchDisallowEdgeShare",

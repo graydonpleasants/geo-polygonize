@@ -39,6 +39,7 @@ fn advanced_diagnostics(lines: Vec<Line3D>) -> PolygonizerDiagnostics {
         node_input: true,
         noding: NodingOptions {
             backend: NodingBackend::Advanced,
+            guarantee: Default::default(),
         },
         diagnostics: DiagnosticsOptions {
             enabled: true,

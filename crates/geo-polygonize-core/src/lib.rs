@@ -24,6 +24,7 @@ pub mod python;
 #[cfg(test)]
 mod polygonizer_tests;
 
+pub use noding::validate::ValidatingNoder;
 pub use polygonizer::{
     polygonize, polygonize_with_workspace, Polygonizer, PolygonizerResult, PolygonizerWorkspace,
 };
