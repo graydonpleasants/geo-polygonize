@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.45.0...geo-polygonize-v0.45.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **github:** publish crates without passing registry token inline ([#882](https://github.com/graydonpleasants/geo-polygonize/issues/882)) ([9e09dd0](https://github.com/graydonpleasants/geo-polygonize/commit/9e09dd08f40c1da004c01159645d865b8ba24a42))
+
 ## [0.45.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.44.0...geo-polygonize-v0.45.0) (2026-07-21)
 
 
