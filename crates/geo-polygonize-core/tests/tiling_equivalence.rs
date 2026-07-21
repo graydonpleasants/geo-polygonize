@@ -139,8 +139,13 @@ fn tiled_output_matches_untiled_when_the_halo_contains_each_owned_face() {
             .polygonize()
             .unwrap_or_else(|error| panic!("{} tiled: {error}", case.name));
 
-        assert_eq!(actual.len(), expected.polygons.len(), "{} count", case.name);
-        for (actual, expected) in actual.iter().zip(&expected.polygons) {
+        assert_eq!(
+            actual.polygons.len(),
+            expected.polygons.len(),
+            "{} count",
+            case.name
+        );
+        for (actual, expected) in actual.polygons.iter().zip(&expected.polygons) {
             assert_eq!(actual.exterior, expected.exterior, "{} exterior", case.name);
             assert_eq!(actual.interiors, expected.interiors, "{} holes", case.name);
         }
