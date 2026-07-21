@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.41.0...geo-polygonize-v0.42.0) (2026-07-21)
+
+
+### Features
+
+* **core:** add certified hot-pixel noding ([#873](https://github.com/graydonpleasants/geo-polygonize/issues/873)) ([bbab5ed](https://github.com/graydonpleasants/geo-polygonize/commit/bbab5ed3c5f92468041687ee38536a2388e14529))
+
 ## [0.41.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.40.1...geo-polygonize-v0.41.0) (2026-07-20)
 
 
