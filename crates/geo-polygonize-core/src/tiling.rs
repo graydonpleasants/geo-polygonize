@@ -30,6 +30,38 @@ fn canonical_polygon_key(poly: &Polygon3D) -> (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>
     (canonical_ring_key(&poly.exterior), interiors)
 }
 
+/// Observed work and topology output for one tile.
+#[derive(Debug)]
+pub struct TileReport {
+    pub tile_bbox: Rect<f64>,
+    /// Geometries whose bounds intersected the buffered tile.
+    pub input_geometry_count: usize,
+    /// Polygons produced before tile ownership filtering.
+    pub polygon_count: usize,
+    pub owned_polygon_count: usize,
+    pub dangle_count: usize,
+    pub cut_edge_count: usize,
+    pub invalid_ring_count: usize,
+}
+
+/// Counts from merging and deduplicating owned tile polygons.
+///
+/// These counts do not certify that the configured buffer was sufficient.
+#[derive(Debug)]
+pub struct StitchingReport {
+    pub merged_polygon_count: usize,
+    pub duplicate_polygon_count: usize,
+    pub output_polygon_count: usize,
+}
+
+/// Experimental tiled output with per-tile and merge diagnostics.
+#[derive(Debug)]
+pub struct TiledPolygonizeResult {
+    pub polygons: Vec<Polygon3D>,
+    pub tile_reports: Vec<TileReport>,
+    pub stitching_report: StitchingReport,
+}
+
 /// Experimental tiled polygonization.
 ///
 /// Equivalence with untiled output is not guaranteed.
@@ -85,7 +117,7 @@ impl<'a> TiledPolygonizer<'a> {
         self.geometries.push((geom, bbox));
     }
 
-    fn process_tile(&self, tile_bbox: Rect<f64>) -> Result<Vec<Polygon3D>> {
+    fn process_tile(&self, tile_bbox: Rect<f64>) -> Result<(Vec<Polygon3D>, TileReport)> {
         let mut local_poly = Polygonizer::with_options(self.options.clone());
 
         // Define buffered bbox
@@ -109,12 +141,25 @@ impl<'a> TiledPolygonizer<'a> {
             }
         }
 
+        let mut report = TileReport {
+            tile_bbox,
+            input_geometry_count: relevant_lines,
+            polygon_count: 0,
+            owned_polygon_count: 0,
+            dangle_count: 0,
+            cut_edge_count: 0,
+            invalid_ring_count: 0,
+        };
         if relevant_lines == 0 {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), report));
         }
 
         // Run polygonization
         let result = local_poly.polygonize()?;
+        report.polygon_count = result.polygons.len();
+        report.dangle_count = result.dangles.len();
+        report.cut_edge_count = result.cut_edges.len();
+        report.invalid_ring_count = result.invalid_rings.len();
         // Ownership check:
         let mut valid_polys = Vec::new();
         for poly in result.polygons {
@@ -143,7 +188,8 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
-        Ok(valid_polys)
+        report.owned_polygon_count = valid_polys.len();
+        Ok((valid_polys, report))
     }
 
     fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
@@ -182,12 +228,12 @@ impl<'a> TiledPolygonizer<'a> {
         tiles
     }
 
-    pub fn polygonize(&self) -> Result<Vec<Polygon3D>> {
+    pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
 
         // Process tiles in parallel or sequential
-        let tile_results: Vec<Result<Vec<Polygon3D>>>;
+        let tile_results: Vec<Result<(Vec<Polygon3D>, TileReport)>>;
         #[cfg(feature = "parallel")]
         {
             tile_results = tiles
@@ -202,8 +248,13 @@ impl<'a> TiledPolygonizer<'a> {
                 .map(|tile| self.process_tile(tile))
                 .collect();
         }
-        let tile_polygons = tile_results.into_iter().collect::<Result<Vec<_>>>()?;
+        let (tile_polygons, tile_reports): (Vec<_>, Vec<_>) = tile_results
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .unzip();
         let result_polygons: Vec<Polygon3D> = tile_polygons.into_iter().flatten().collect();
+        let merged_polygon_count = result_polygons.len();
 
         let polygons = match self.dedup_policy {
             DedupPolicy::KeepAll => result_polygons,
@@ -223,13 +274,23 @@ impl<'a> TiledPolygonizer<'a> {
         let mut dangles = Vec::new();
         let mut cut_edges = Vec::new();
         let mut invalid_rings = Vec::new();
-        Ok(apply_determinism(
+        let polygons = apply_determinism(
             polygons,
             &mut dangles,
             &mut cut_edges,
             &mut invalid_rings,
             &self.options,
-        ))
+        );
+        let output_polygon_count = polygons.len();
+        Ok(TiledPolygonizeResult {
+            polygons,
+            tile_reports,
+            stitching_report: StitchingReport {
+                merged_polygon_count,
+                duplicate_polygon_count: merged_polygon_count - output_polygon_count,
+                output_polygon_count,
+            },
+        })
     }
 
     fn validate(&self) -> Result<()> {

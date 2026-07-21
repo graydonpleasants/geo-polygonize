@@ -54,7 +54,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap();
+        let polys = tiler.polygonize().unwrap().polygons;
 
         // Should find 4 polygons
         assert_eq!(polys.len(), 4);
@@ -109,7 +109,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap();
+        let polys = tiler.polygonize().unwrap().polygons;
 
         assert_eq!(polys.len(), 4);
     }
@@ -141,7 +141,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap();
+        let polys = tiler.polygonize().unwrap().polygons;
         assert_eq!(
             polys.len(),
             1,
@@ -175,7 +175,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap();
+        let polys = tiler.polygonize().unwrap().polygons;
         assert_eq!(
             polys.len(),
             1,
@@ -205,7 +205,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap();
+        let polys = tiler.polygonize().unwrap().polygons;
         assert_eq!(
             polys.len(),
             1,
@@ -289,7 +289,39 @@ mod tests {
         options.output_filter.minimum_face_area = Some(2.0);
         let mut tiler = TiledPolygonizer::new(bbox, 1.0).with_options(options);
         tiler.add_geometry(&square);
-        assert!(tiler.polygonize().unwrap().is_empty());
+        assert!(tiler.polygonize().unwrap().polygons.is_empty());
+    }
+
+    #[test]
+    fn reports_tile_topology_and_merge_counts() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 1.0, y: 0.0 },
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 0.0, y: 1.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]));
+        let dangle = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.5, y: 0.0 },
+            Coord { x: 1.5, y: 1.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 2.0);
+        tiler.add_geometry(&square);
+        tiler.add_geometry(&dangle);
+
+        let result = tiler.polygonize().unwrap();
+        assert_eq!(result.tile_reports.len(), 1);
+        let report = &result.tile_reports[0];
+        assert_eq!(report.input_geometry_count, 2);
+        assert_eq!(report.polygon_count, 1);
+        assert_eq!(report.owned_polygon_count, 1);
+        assert_eq!(report.dangle_count, 1);
+        assert_eq!(report.cut_edge_count, 0);
+        assert_eq!(report.invalid_ring_count, 0);
+        assert_eq!(result.stitching_report.merged_polygon_count, 1);
+        assert_eq!(result.stitching_report.duplicate_polygon_count, 0);
+        assert_eq!(result.stitching_report.output_polygon_count, 1);
     }
 }
 
@@ -322,7 +354,7 @@ fn test_dedup_policy_canonical_ring_hash() {
     .with_dedup_policy(DedupPolicy::KeepAll);
     t_keep.add_geometry(&geom1);
     t_keep.add_geometry(&geom2);
-    let polys_keep = t_keep.polygonize().unwrap();
+    let polys_keep = t_keep.polygonize().unwrap().polygons;
     assert_eq!(polys_keep.len(), 1);
 
     let mut t_dedup = TiledPolygonizer::new(
@@ -332,7 +364,7 @@ fn test_dedup_policy_canonical_ring_hash() {
     .with_dedup_policy(DedupPolicy::CanonicalRingHash);
     t_dedup.add_geometry(&geom1);
     t_dedup.add_geometry(&geom2);
-    let polys_dedup = t_dedup.polygonize().unwrap();
+    let polys_dedup = t_dedup.polygonize().unwrap().polygons;
     assert_eq!(polys_dedup.len(), 1);
 }
 

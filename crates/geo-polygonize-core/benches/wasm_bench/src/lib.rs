@@ -75,7 +75,7 @@ pub fn polygonize_tiled(lines: JsValue, size: f64) -> Result<JsValue, JsValue> {
         .polygonize()
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
-    let count: usize = results.len();
+    let count: usize = results.polygons.len();
     Ok(JsValue::from(count))
 }
 

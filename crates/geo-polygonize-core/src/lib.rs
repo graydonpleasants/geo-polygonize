@@ -55,7 +55,7 @@ pub use polygonizer::{
     PolygonizerResult, PolygonizerWorkspace,
 };
 #[doc(hidden)]
-pub use tiling::TiledPolygonizer;
+pub use tiling::{StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer};
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
 
 #[cfg(feature = "geoparquet")]
