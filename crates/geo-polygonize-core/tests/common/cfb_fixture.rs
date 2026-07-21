@@ -1,6 +1,6 @@
-use geo_polygonize_core::options::PolygonizerOptions;
-use geo_polygonize_core::polygonizer::polygonize;
-use geo_polygonize_core::types::{Coord3D, Line3D, Polygon3D};
+use geo_polygonize_core::polygonize;
+use geo_polygonize_core::PolygonizerOptions;
+use geo_polygonize_core::{Coord3D, Line3D, Polygon3D};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -92,15 +92,6 @@ pub fn polygonize_with_workspace(
     result
 }
 
-/// Compatibility alias for the canonical [`polygonize`] entrypoint.
-#[deprecated(note = "use polygonize or polygonize_with_workspace")]
-pub fn polygonize_with_options(
-    lines: &[Line3D],
-    options: &PolygonizerOptions,
-) -> Result<PolygonizerResult> {
-    polygonize(lines.iter().copied(), options)
-}
-
 impl Polygonizer {
     /// Creates a new `Polygonizer` with default configuration.
     pub fn new() -> Self {
@@ -1142,7 +1133,8 @@ pub fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
     ))
 }
 
-pub fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
+#[cfg(test)]
+fn guaranteed_interior_probe(coords: &[Coord3D]) -> Option<geo_types::Point<f64>> {
     if coords.len() < 4 {
         return None;
     }
@@ -1265,7 +1257,8 @@ pub(crate) fn guaranteed_interior_probe_prepared(
     Some(geo_types::Point(coords[0].to_coord_2d()))
 }
 
-pub fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+#[cfg(test)]
+fn rings_share_edge(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
     rings_share_edge_with_count(shell, hole, eps).0
 }
 
@@ -1297,7 +1290,8 @@ pub(crate) fn rings_share_edge_with_count(
     (false, pair_checks)
 }
 
-pub fn rings_touch_at_vertex(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
+#[cfg(test)]
+fn rings_touch_at_vertex(shell: &[Coord3D], hole: &[Coord3D], eps: f64) -> bool {
     rings_touch_at_vertex_with_count(shell, hole, eps).0
 }
 

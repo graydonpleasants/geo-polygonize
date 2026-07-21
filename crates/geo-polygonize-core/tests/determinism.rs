@@ -1,6 +1,6 @@
-use geo_polygonize_core::options::DeterminismOptions;
-use geo_polygonize_core::types::{Coord3D, Line3D};
+use geo_polygonize_core::DeterminismOptions;
 use geo_polygonize_core::Polygonizer;
+use geo_polygonize_core::{Coord3D, Line3D};
 
 #[test]
 fn test_determinism_canonical_sort_and_rotation() {

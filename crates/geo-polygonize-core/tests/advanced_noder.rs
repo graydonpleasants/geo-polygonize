@@ -1,12 +1,10 @@
 use geo_polygonize_core::{
-    diagnostics::PolygonizerDiagnostics,
     noding::{
         advanced::AdvancedNoder,
         snap::{NodingStrategy, SnapNoder},
     },
-    options::{DiagnosticsOptions, NodingBackend, NodingOptions, PolygonizerOptions},
-    types::{Coord3D, Line3D},
-    Polygonizer,
+    Coord3D, DiagnosticsOptions, Line3D, NodingBackend, NodingOptions, Polygonizer,
+    PolygonizerDiagnostics, PolygonizerOptions,
 };
 
 fn coord(x: f64, y: f64) -> Coord3D {

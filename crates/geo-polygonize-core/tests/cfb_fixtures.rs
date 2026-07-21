@@ -3,8 +3,8 @@ mod common {
 }
 
 use common::cfb_fixture::{cfb_fixture_paths, fixture_lines, read_cfb_fixture, run_cfb_fixture};
-use geo_polygonize_core::options::{NodingGuarantee, PolygonizerOptions, SnapStrategy};
 use geo_polygonize_core::polygonize;
+use geo_polygonize_core::{NodingGuarantee, PolygonizerOptions, SnapStrategy};
 
 #[test]
 fn cfb_fixtures_match_expected_output() {

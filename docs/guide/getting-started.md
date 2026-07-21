@@ -15,8 +15,7 @@ See the respective integration guides for details.
 Rust callers should use the stateless entrypoint and an explicit options object:
 
 ```rust
-use geo_polygonize_core::options::PolygonizerOptions;
-use geo_polygonize_core::{polygonize, Coord3D, Line3D};
+use geo_polygonize_core::{polygonize, Coord3D, Line3D, PolygonizerOptions};
 
 let a = Coord3D::new(0.0, 0.0, 0.0);
 let b = Coord3D::new(1.0, 0.0, 0.0);
@@ -29,7 +28,7 @@ let lines = [
 
 let result = polygonize(lines, &PolygonizerOptions::default())?;
 assert_eq!(result.polygons.len(), 1);
-# Ok::<(), geo_polygonize_core::error::PolygonizeError>(())
+# Ok::<(), geo_polygonize_core::PolygonizeError>(())
 ```
 
 `PolygonizerOptions::default()` uses floating precision. Choose

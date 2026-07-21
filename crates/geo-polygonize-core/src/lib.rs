@@ -1,17 +1,25 @@
 #![doc = include_str!("../../../README.md")]
 
 pub mod arrow_api;
+#[doc(hidden)]
 pub mod containment;
-pub mod diagnostics;
-pub mod error;
+mod diagnostics;
+mod error;
 pub mod ffi;
+// Kept compiler-public for the repository's microbenchmarks; not a supported API.
+#[doc(hidden)]
 pub mod graph;
-pub mod index;
+mod index;
+// Kept compiler-public for the repository's microbenchmarks; not a supported API.
+#[doc(hidden)]
 pub mod noding;
-pub mod options;
-pub mod polygonizer;
+mod options;
+mod polygonizer;
+#[doc(hidden)]
 pub mod tiling;
-pub mod types;
+mod types;
+// Kept compiler-public for the repository's microbenchmarks; not a supported API.
+#[doc(hidden)]
 pub mod utils;
 
 #[cfg(doctest)]
@@ -24,13 +32,26 @@ pub mod python;
 #[cfg(test)]
 mod polygonizer_tests;
 
-pub use noding::hot_pixel::HotPixelNoder;
-pub use noding::validate::ValidatingNoder;
-pub use polygonizer::{
-    polygonize, polygonize_with_workspace, Polygonizer, PolygonizerResult, PolygonizerWorkspace,
+pub use diagnostics::{
+    ContainmentStats, IntersectionStats, NodingIterationStats, NodingWorkStats,
+    PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats,
 };
+pub use error::{PolygonizeError, Result};
+pub use options::{
+    ContainmentOptions, DeterminismOptions, DiagnosticsOptions, NodingBackend, NodingGuarantee,
+    NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel, ProvenanceOptions,
+    SnapStrategy, TouchPolicy,
+};
+#[doc(hidden)]
+pub use options::{DedupPolicy, TileOwnershipPolicy};
+#[doc(hidden)]
+pub use polygonizer::Polygonizer;
+pub use polygonizer::{
+    polygonize, polygonize_with_workspace, PolygonizerResult, PolygonizerWorkspace,
+};
+#[doc(hidden)]
 pub use tiling::TiledPolygonizer;
-pub use types::{Coord3D, EdgeSources, Line3D, Polygon3D};
+pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
 
 #[cfg(feature = "geoparquet")]
 pub mod geoparquet_api;

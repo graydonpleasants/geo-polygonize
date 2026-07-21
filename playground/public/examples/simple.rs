@@ -1,6 +1,6 @@
 //! Simple example of polygonizing a set of lines.
 
-use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::PolygonizerOptions;
 use geo_polygonize_core::{polygonize, Coord3D, Line3D};
 
 fn main() {

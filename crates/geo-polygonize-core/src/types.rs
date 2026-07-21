@@ -24,9 +24,9 @@ impl Coord3D {
 
 /// An integer point used for integerized snap-grid coordinate representations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct IPoint {
-    pub x: i64,
-    pub y: i64,
+pub(crate) struct IPoint {
+    pub(crate) x: i64,
+    pub(crate) y: i64,
 }
 
 impl IPoint {
@@ -54,8 +54,8 @@ pub struct Line3D {
 
 /// Sorted, unique input line identifiers contributing to a graph edge.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct EdgeSources {
-    pub line_ids: SmallVec<[u32; 2]>,
+pub(crate) struct EdgeSources {
+    pub(crate) line_ids: SmallVec<[u32; 2]>,
 }
 
 impl EdgeSources {

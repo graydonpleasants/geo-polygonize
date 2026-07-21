@@ -1,4 +1,4 @@
-use geo_polygonize_core::error::PolygonizeError;
+use geo_polygonize_core::PolygonizeError;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]

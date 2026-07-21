@@ -2,9 +2,9 @@ use rstar::{Envelope, RTree, RTreeObject, SelectionFunction, AABB};
 
 // Wrapper for Polygon indexable by rstar (2D)
 #[derive(Clone, Debug)]
-pub struct IndexedEnvelope {
-    pub aabb: AABB<[f64; 2]>,
-    pub index: usize,
+pub(crate) struct IndexedEnvelope {
+    pub(crate) aabb: AABB<[f64; 2]>,
+    pub(crate) index: usize,
 }
 
 impl PartialEq for IndexedEnvelope {
@@ -25,7 +25,7 @@ impl RTreeObject for IndexedEnvelope {
     }
 }
 
-pub struct RStarBackend {
+pub(crate) struct RStarBackend {
     tree: RTree<IndexedEnvelope>,
 }
 

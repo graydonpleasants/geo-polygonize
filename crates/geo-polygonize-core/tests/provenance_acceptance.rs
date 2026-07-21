@@ -1,6 +1,6 @@
-use geo_polygonize_core::options::{DeterminismOptions, PolygonizerOptions, ProvenanceOptions};
-use geo_polygonize_core::polygonizer::polygonize;
-use geo_polygonize_core::types::{Coord3D, Line3D};
+use geo_polygonize_core::polygonize;
+use geo_polygonize_core::{Coord3D, Line3D};
+use geo_polygonize_core::{DeterminismOptions, PolygonizerOptions, ProvenanceOptions};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;

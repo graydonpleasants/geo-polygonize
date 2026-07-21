@@ -101,7 +101,7 @@ pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsVal
     polygonizer.options_mut().node_input = true;
     if let Some(g) = grid_size {
         polygonizer.options_mut().precision_model =
-            geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: g };
+            geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: g };
     }
 
     for line in lines {

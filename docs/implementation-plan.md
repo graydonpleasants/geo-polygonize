@@ -22,8 +22,8 @@ All bindings must expose an options-object entrypoint.
 
 **Rust**
 ```rust
-pub fn polygonize_with_options(
-	lines: &[LineString3D],
+pub fn polygonize(
+	lines: impl IntoIterator<Item = Line3D>,
 	options: &PolygonizerOptions,
 ) -> Result<PolygonizeResult, PolygonizeError>
 ```

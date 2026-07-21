@@ -30,7 +30,7 @@ pub fn polygonize_with_options_js(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let options: geo_polygonize_core::options::PolygonizerOptions =
+    let options: geo_polygonize_core::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
             to_js_error(
                 "InvalidArgumentType",
@@ -73,7 +73,7 @@ pub fn polygonize_with_options_js(
     let result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
             .unwrap_or_else(|_| {
-                Err(geo_polygonize_core::error::PolygonizeError::Panic(
+                Err(geo_polygonize_core::PolygonizeError::Panic(
                     "Panic occurred in Rust core".to_string(),
                 ))
             })
@@ -126,14 +126,14 @@ pub fn polygonize(
     let geojson = GeoJson::from_str(geojson_str)
         .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {}", e)))?;
 
-    let mut options = geo_polygonize_core::options::PolygonizerOptions::default();
+    let mut options = geo_polygonize_core::PolygonizerOptions::default();
     if let Some(ni) = node_input {
         options.node_input = ni;
     }
     if options.node_input {
         options.precision_model = snap_grid_size.map_or(
-            geo_polygonize_core::options::PrecisionModel::FixedGrid { grid_size: 1e-10 },
-            geo_polygonize_core::options::PrecisionModel::from_grid_size,
+            geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: 1e-10 },
+            geo_polygonize_core::PrecisionModel::from_grid_size,
         );
     }
     if let Some(eop) = extract_only_polygonal {
@@ -175,7 +175,7 @@ pub fn polygonize(
     let result =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
             .unwrap_or_else(|_| {
-                Err(geo_polygonize_core::error::PolygonizeError::Panic(
+                Err(geo_polygonize_core::PolygonizeError::Panic(
                     "Panic occurred in Rust core".to_string(),
                 ))
             })
@@ -298,7 +298,7 @@ pub fn polygonize_with_options_buffer_js(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let options: geo_polygonize_core::options::PolygonizerOptions =
+    let options: geo_polygonize_core::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
             to_js_error(
                 "InvalidArgumentType",
@@ -392,12 +392,12 @@ pub fn polygonize_buffers(
         return Err(to_js_error("InvalidArgumentType", "stride must be 2 or 3"));
     }
 
-    let options = geo_polygonize_core::options::PolygonizerOptions {
+    let options = geo_polygonize_core::PolygonizerOptions {
         node_input,
         precision_model: if node_input {
-            geo_polygonize_core::options::PrecisionModel::from_grid_size(snap_grid_size)
+            geo_polygonize_core::PrecisionModel::from_grid_size(snap_grid_size)
         } else {
-            geo_polygonize_core::options::PrecisionModel::Floating
+            geo_polygonize_core::PrecisionModel::Floating
         },
         ..Default::default()
     };
@@ -480,7 +480,7 @@ pub fn polygonize_geoarrow_with_options_js(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    let options: geo_polygonize_core::options::PolygonizerOptions =
+    let options: geo_polygonize_core::PolygonizerOptions =
         serde_wasm_bindgen::from_value(options_val).map_err(|e| {
             to_js_error(
                 "InvalidArgumentType",
@@ -501,9 +501,9 @@ pub fn polygonize_geoarrow(
     let options = PolygonizerOptions {
         node_input,
         precision_model: if node_input {
-            geo_polygonize_core::options::PrecisionModel::from_grid_size(snap_grid_size)
+            geo_polygonize_core::PrecisionModel::from_grid_size(snap_grid_size)
         } else {
-            geo_polygonize_core::options::PrecisionModel::Floating
+            geo_polygonize_core::PrecisionModel::Floating
         },
         extract_only_polygonal,
         ..Default::default()
@@ -592,14 +592,14 @@ fn polygonize_geoarrow_internal(
 
 fn polygonize_and_flatten(
     lines: Vec<Line3D>,
-    options: geo_polygonize_core::options::PolygonizerOptions,
+    options: geo_polygonize_core::PolygonizerOptions,
     stride: u8,
 ) -> Result<WasmPolygonResult, JsValue> {
     let mut result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         polygonize_lines(lines, &options)
     }))
     .unwrap_or_else(|_| {
-        Err(geo_polygonize_core::error::PolygonizeError::Panic(
+        Err(geo_polygonize_core::PolygonizeError::Panic(
             "Panic occurred in Rust core".to_string(),
         ))
     })
