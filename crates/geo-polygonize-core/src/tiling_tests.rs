@@ -335,3 +335,41 @@ fn test_dedup_policy_canonical_ring_hash() {
     let polys_dedup = t_dedup.polygonize().unwrap();
     assert_eq!(polys_dedup.len(), 1);
 }
+
+#[test]
+fn canonical_dedup_key_compares_exact_geometry() {
+    use super::canonical_polygon_key;
+    use crate::{Coord3D, Polygon3D};
+
+    let polygon = |max_x| {
+        Polygon3D::new(
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(max_x, 0.0, 0.0),
+                Coord3D::new(max_x, 1.0, 0.0),
+                Coord3D::new(0.0, 1.0, 0.0),
+                Coord3D::new(0.0, 0.0, 0.0),
+            ],
+            vec![],
+            vec![],
+            vec![],
+        )
+    };
+
+    let equivalent = Polygon3D::new(
+        vec![
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.0, 1.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+        ],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let key = canonical_polygon_key(&polygon(1.0));
+
+    assert_eq!(key, canonical_polygon_key(&equivalent));
+    assert_ne!(key, canonical_polygon_key(&polygon(2.0)));
+}

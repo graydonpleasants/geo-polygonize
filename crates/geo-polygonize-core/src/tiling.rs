@@ -1,6 +1,6 @@
 use crate::options::{DedupPolicy, TileOwnershipPolicy};
-use crate::polygonizer::apply_determinism;
-use crate::types::Polygon3D;
+use crate::polygonizer::{apply_determinism, canonicalize_ring};
+use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
@@ -8,6 +8,27 @@ use geo::InteriorPoint;
 use geo_types::{Coord, Geometry, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::collections::HashSet;
+
+fn canonical_ring_key(ring: &[Coord3D]) -> Vec<[u64; 3]> {
+    let key = |mut ring: Vec<Coord3D>| {
+        canonicalize_ring(&mut ring, None);
+        ring.into_iter()
+            .map(|coord| [coord.x.to_bits(), coord.y.to_bits(), coord.z.to_bits()])
+            .collect::<Vec<_>>()
+    };
+    key(ring.to_vec()).min(key(ring.iter().rev().copied().collect()))
+}
+
+fn canonical_polygon_key(poly: &Polygon3D) -> (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>) {
+    let mut interiors = poly
+        .interiors
+        .iter()
+        .map(|ring| canonical_ring_key(ring))
+        .collect::<Vec<_>>();
+    interiors.sort_unstable();
+    (canonical_ring_key(&poly.exterior), interiors)
+}
 
 /// Experimental tiled polygonization.
 ///
@@ -187,95 +208,11 @@ impl<'a> TiledPolygonizer<'a> {
         let polygons = match self.dedup_policy {
             DedupPolicy::KeepAll => result_polygons,
             DedupPolicy::CanonicalRingHash => {
-                use std::collections::HashSet;
-                use std::hash::{DefaultHasher, Hash, Hasher};
-
                 let mut unique_polygons = Vec::new();
-                let mut seen_hashes = HashSet::new();
-
-                fn hash_ring(ring: &[crate::types::Coord3D]) -> u64 {
-                    if ring.is_empty() {
-                        return 0;
-                    }
-                    if ring.len() == 1 {
-                        let mut h = DefaultHasher::new();
-                        ring[0].x.to_bits().hash(&mut h);
-                        ring[0].y.to_bits().hash(&mut h);
-                        ring[0].z.to_bits().hash(&mut h);
-                        return h.finish();
-                    }
-
-                    let unique_len = ring.len() - 1;
-
-                    // compute forward minimum
-                    let mut min_idx_fwd = 0;
-                    for i in 1..unique_len {
-                        let a = &ring[i];
-                        let b = &ring[min_idx_fwd];
-                        if a.x
-                            .total_cmp(&b.x)
-                            .then(a.y.total_cmp(&b.y))
-                            .then(a.z.total_cmp(&b.z))
-                            == std::cmp::Ordering::Less
-                        {
-                            min_idx_fwd = i;
-                        }
-                    }
-                    let mut h_fwd = DefaultHasher::new();
-                    for i in 0..=unique_len {
-                        let idx = (min_idx_fwd + i) % unique_len;
-                        let c = &ring[idx];
-                        c.x.to_bits().hash(&mut h_fwd);
-                        c.y.to_bits().hash(&mut h_fwd);
-                        c.z.to_bits().hash(&mut h_fwd);
-                    }
-
-                    // compute backward minimum
-                    let mut min_idx_rev = 0;
-                    let mut rev_ring = ring[0..unique_len].to_vec();
-                    rev_ring.reverse();
-                    for i in 1..unique_len {
-                        let a = &rev_ring[i];
-                        let b = &rev_ring[min_idx_rev];
-                        if a.x
-                            .total_cmp(&b.x)
-                            .then(a.y.total_cmp(&b.y))
-                            .then(a.z.total_cmp(&b.z))
-                            == std::cmp::Ordering::Less
-                        {
-                            min_idx_rev = i;
-                        }
-                    }
-                    let mut h_rev = DefaultHasher::new();
-                    for i in 0..=unique_len {
-                        let idx = (min_idx_rev + i) % unique_len;
-                        let c = &rev_ring[idx];
-                        c.x.to_bits().hash(&mut h_rev);
-                        c.y.to_bits().hash(&mut h_rev);
-                        c.z.to_bits().hash(&mut h_rev);
-                    }
-
-                    std::cmp::min(h_fwd.finish(), h_rev.finish())
-                }
+                let mut seen = HashSet::new();
 
                 for poly in result_polygons {
-                    let mut hasher = DefaultHasher::new();
-
-                    let ext_hash = hash_ring(&poly.exterior);
-                    ext_hash.hash(&mut hasher);
-
-                    let mut interior_hashes = Vec::new();
-                    for interior in &poly.interiors {
-                        interior_hashes.push(hash_ring(interior));
-                    }
-
-                    interior_hashes.sort_unstable();
-                    for h in interior_hashes {
-                        h.hash(&mut hasher);
-                    }
-
-                    let hash_val = hasher.finish();
-                    if seen_hashes.insert(hash_val) {
+                    if seen.insert(canonical_polygon_key(&poly)) {
                         unique_polygons.push(poly);
                     }
                 }
