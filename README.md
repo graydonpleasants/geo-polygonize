@@ -54,6 +54,9 @@ needed.
 Rust consumers should import the supported facade from the crate root. Graph,
 noding, containment, utility, mutable-builder, and tiled APIs are internal or
 experimental and may change without compatibility guarantees before `1.0`.
+`TiledPolygonizer` validates its grid/options and propagates per-tile errors,
+but callers must still choose a sufficient buffer and verify untiled equivalence
+for their workload.
 
 ### Choosing noding and precision
 

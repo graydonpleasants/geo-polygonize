@@ -1,16 +1,16 @@
 use crate::options::{DedupPolicy, TileOwnershipPolicy};
 use crate::types::Polygon3D;
-use crate::Polygonizer;
+use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
-use geo_types::{Coord, Geometry, Rect};
+use geo::InteriorPoint;
+use geo_types::{Coord, Geometry, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// Experimental tiled polygonization.
 ///
-/// Errors are currently omitted and equivalence with untiled output is not guaranteed.
+/// Equivalence with untiled output is not guaranteed.
 pub struct TiledPolygonizer<'a> {
     bbox: Rect<f64>,
     tile_size: f64,
@@ -18,10 +18,15 @@ pub struct TiledPolygonizer<'a> {
     geometries: Vec<(&'a Geometry<f64>, Option<Rect<f64>>)>,
     ownership_policy: TileOwnershipPolicy,
     dedup_policy: DedupPolicy,
+    options: PolygonizerOptions,
 }
 
 impl<'a> TiledPolygonizer<'a> {
     pub fn new(bbox: Rect<f64>, tile_size: f64) -> Self {
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
         Self {
             bbox,
             tile_size,
@@ -29,6 +34,7 @@ impl<'a> TiledPolygonizer<'a> {
             geometries: Vec::new(),
             ownership_policy: TileOwnershipPolicy::Centroid,
             dedup_policy: DedupPolicy::KeepAll,
+            options,
         }
     }
 
@@ -47,14 +53,18 @@ impl<'a> TiledPolygonizer<'a> {
         self
     }
 
+    pub fn with_options(mut self, options: PolygonizerOptions) -> Self {
+        self.options = options;
+        self
+    }
+
     pub fn add_geometry(&mut self, geom: &'a Geometry<f64>) {
         let bbox = geom.bounding_rect();
         self.geometries.push((geom, bbox));
     }
 
-    fn process_tile(&self, tile_bbox: Rect<f64>) -> Vec<Polygon3D> {
-        let mut local_poly = Polygonizer::new();
-        local_poly.options_mut().node_input = true;
+    fn process_tile(&self, tile_bbox: Rect<f64>) -> Result<Vec<Polygon3D>> {
+        let mut local_poly = Polygonizer::with_options(self.options.clone());
 
         // Define buffered bbox
         let buffered_bbox = Rect::new(
@@ -78,98 +88,52 @@ impl<'a> TiledPolygonizer<'a> {
         }
 
         if relevant_lines == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         // Run polygonization
-        if let Ok(result) = local_poly.polygonize() {
-            // Ownership check:
-            let mut valid_polys = Vec::new();
-            for poly in result.polygons {
-                let ownership_point = match self.ownership_policy {
-                    TileOwnershipPolicy::Centroid
-                    | TileOwnershipPolicy::RepresentativePointInsidePolygon => poly.centroid_2d(),
-                    TileOwnershipPolicy::LexicographicMinVertex => {
-                        let mut min_pt = None;
-                        for coord in &poly.exterior {
-                            if let Some(curr) = min_pt {
-                                let curr_coord: geo_types::Point<f64> = curr;
-                                if coord.x < curr_coord.x()
-                                    || (coord.x == curr_coord.x() && coord.y < curr_coord.y())
-                                {
-                                    min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                                }
-                            } else {
-                                min_pt = Some(geo_types::Point::new(coord.x, coord.y));
-                            }
-                        }
-                        min_pt
-                    }
-                    TileOwnershipPolicy::CanonicalBoundaryHash => {
-                        if poly.exterior.is_empty() {
-                            poly.centroid_2d()
-                        } else {
-                            let mut coords = poly.exterior.clone();
-                            coords.sort_unstable_by(|a, b| {
-                                a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
-                            });
-                            let mut hasher = DefaultHasher::new();
-                            for c in &coords {
-                                c.x.to_bits().hash(&mut hasher);
-                                c.y.to_bits().hash(&mut hasher);
-                            }
-                            let hash_val = hasher.finish();
+        let result = local_poly.polygonize()?;
+        // Ownership check:
+        let mut valid_polys = Vec::new();
+        for poly in result.polygons {
+            if let Some(pt) = self.ownership_point(&poly) {
+                let c = pt;
 
-                            let mut min_x = f64::INFINITY;
-                            let mut min_y = f64::INFINITY;
-                            let mut max_x = f64::NEG_INFINITY;
-                            let mut max_y = f64::NEG_INFINITY;
-                            for c in &poly.exterior {
-                                min_x = min_x.min(c.x);
-                                min_y = min_y.min(c.y);
-                                max_x = max_x.max(c.x);
-                                max_y = max_y.max(c.y);
-                            }
+                // Check inclusion [min, max)
+                // For the last tile in a row/col, we include the max boundary to cover the full bbox.
+                let max_x_inclusive = tile_bbox.max().x >= self.bbox.max().x;
+                let max_y_inclusive = tile_bbox.max().y >= self.bbox.max().y;
 
-                            let width = max_x - min_x;
-                            let height = max_y - min_y;
-
-                            let u = (hash_val % 1000) as f64 / 1000.0;
-                            let v = ((hash_val / 1000) % 1000) as f64 / 1000.0;
-
-                            Some(geo_types::Point::new(min_x + u * width, min_y + v * height))
-                        }
-                    }
+                let in_x = if max_x_inclusive {
+                    c.x() >= tile_bbox.min().x && c.x() <= tile_bbox.max().x
+                } else {
+                    c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x
                 };
 
-                if let Some(pt) = ownership_point {
-                    let c = pt;
+                let in_y = if max_y_inclusive {
+                    c.y() >= tile_bbox.min().y && c.y() <= tile_bbox.max().y
+                } else {
+                    c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y
+                };
 
-                    // Check inclusion [min, max)
-                    // For the last tile in a row/col, we include the max boundary to cover the full bbox.
-                    let max_x_inclusive = tile_bbox.max().x >= self.bbox.max().x;
-                    let max_y_inclusive = tile_bbox.max().y >= self.bbox.max().y;
-
-                    let in_x = if max_x_inclusive {
-                        c.x() >= tile_bbox.min().x && c.x() <= tile_bbox.max().x
-                    } else {
-                        c.x() >= tile_bbox.min().x && c.x() < tile_bbox.max().x
-                    };
-
-                    let in_y = if max_y_inclusive {
-                        c.y() >= tile_bbox.min().y && c.y() <= tile_bbox.max().y
-                    } else {
-                        c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y
-                    };
-
-                    if in_x && in_y {
-                        valid_polys.push(poly);
-                    }
+                if in_x && in_y {
+                    valid_polys.push(poly);
                 }
             }
-            valid_polys
-        } else {
-            Vec::new()
+        }
+        Ok(valid_polys)
+    }
+
+    fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
+        match self.ownership_policy {
+            TileOwnershipPolicy::Centroid => poly.centroid_2d(),
+            TileOwnershipPolicy::RepresentativePointInsidePolygon
+            | TileOwnershipPolicy::CanonicalBoundaryHash => poly.to_polygon_2d().interior_point(),
+            TileOwnershipPolicy::LexicographicMinVertex => poly
+                .exterior
+                .iter()
+                .min_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)))
+                .map(|coord| Point::new(coord.x, coord.y)),
         }
     }
 
@@ -196,27 +160,30 @@ impl<'a> TiledPolygonizer<'a> {
         tiles
     }
 
-    pub fn polygonize(&self) -> Vec<Polygon3D> {
+    pub fn polygonize(&self) -> Result<Vec<Polygon3D>> {
+        self.validate()?;
         let tiles = self.generate_tiles();
 
         // Process tiles in parallel or sequential
-        let result_polygons: Vec<Polygon3D>;
+        let tile_results: Vec<Result<Vec<Polygon3D>>>;
         #[cfg(feature = "parallel")]
         {
-            result_polygons = tiles
+            tile_results = tiles
                 .into_par_iter()
-                .flat_map(|tile| self.process_tile(tile))
+                .map(|tile| self.process_tile(tile))
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
-            result_polygons = tiles
+            tile_results = tiles
                 .into_iter()
-                .flat_map(|tile| self.process_tile(tile))
+                .map(|tile| self.process_tile(tile))
                 .collect();
         }
+        let tile_polygons = tile_results.into_iter().collect::<Result<Vec<_>>>()?;
+        let result_polygons = tile_polygons.into_iter().flatten().collect();
 
-        match self.dedup_policy {
+        Ok(match self.dedup_policy {
             DedupPolicy::KeepAll => result_polygons,
             DedupPolicy::CanonicalRingHash => {
                 use std::collections::HashSet;
@@ -314,7 +281,37 @@ impl<'a> TiledPolygonizer<'a> {
 
                 unique_polygons
             }
+        })
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.options.validate()?;
+        if !self.tile_size.is_finite() || self.tile_size <= 0.0 {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: "tile_size".to_string(),
+                expected: "a finite positive number".to_string(),
+                actual: self.tile_size.to_string(),
+            });
         }
+        if !self.buffer.is_finite() || self.buffer < 0.0 {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: "buffer".to_string(),
+                expected: "a finite non-negative number".to_string(),
+                actual: self.buffer.to_string(),
+            });
+        }
+        let min = self.bbox.min();
+        let max = self.bbox.max();
+        if ![min.x, min.y, max.x, max.y].iter().all(|v| v.is_finite())
+            || min.x >= max.x
+            || min.y >= max.y
+        {
+            return Err(PolygonizeError::InvalidGeometry {
+                reason: "tile bounding box must be finite with positive width and height"
+                    .to_string(),
+            });
+        }
+        Ok(())
     }
 }
 

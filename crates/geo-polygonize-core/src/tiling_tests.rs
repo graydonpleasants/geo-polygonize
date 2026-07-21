@@ -1,8 +1,8 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use crate::TiledPolygonizer;
-    use geo::{Coord, Geometry, LineString, Rect};
+    use crate::{Coord3D, PolygonizeError, PolygonizerOptions, TiledPolygonizer};
+    use geo::{Contains, Coord, Geometry, LineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -54,7 +54,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize();
+        let polys = tiler.polygonize().unwrap();
 
         // Should find 4 polygons
         assert_eq!(polys.len(), 4);
@@ -109,7 +109,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize();
+        let polys = tiler.polygonize().unwrap();
 
         assert_eq!(polys.len(), 4);
     }
@@ -141,7 +141,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize();
+        let polys = tiler.polygonize().unwrap();
         assert_eq!(
             polys.len(),
             1,
@@ -175,7 +175,7 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize();
+        let polys = tiler.polygonize().unwrap();
         assert_eq!(
             polys.len(),
             1,
@@ -205,12 +205,91 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize();
+        let polys = tiler.polygonize().unwrap();
         assert_eq!(
             polys.len(),
             1,
             "Should identify polygon based on CanonicalBoundaryHash ownership policy"
         );
+    }
+
+    #[test]
+    fn representative_ownership_uses_an_interior_point() {
+        use crate::options::TileOwnershipPolicy;
+        use crate::Polygon3D;
+
+        let polygon = Polygon3D::new(
+            vec![
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(4.0, 0.0, 0.0),
+                Coord3D::new(4.0, 4.0, 0.0),
+                Coord3D::new(3.0, 4.0, 0.0),
+                Coord3D::new(3.0, 1.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+                Coord3D::new(1.0, 4.0, 0.0),
+                Coord3D::new(0.0, 4.0, 0.0),
+                Coord3D::new(0.0, 0.0, 0.0),
+            ],
+            vec![],
+            vec![],
+            vec![],
+        );
+        let polygon_2d = polygon.to_polygon_2d();
+        assert!(!polygon_2d.contains(&polygon.centroid_2d().unwrap()));
+
+        let tiler = TiledPolygonizer::new(
+            Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 }),
+            2.0,
+        )
+        .with_ownership_policy(TileOwnershipPolicy::RepresentativePointInsidePolygon);
+        assert!(polygon_2d.contains(&tiler.ownership_point(&polygon).unwrap()));
+    }
+
+    #[test]
+    fn rejects_invalid_tiling_configuration_and_options() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 });
+        assert!(matches!(
+            TiledPolygonizer::new(bbox, 0.0).polygonize(),
+            Err(PolygonizeError::InvalidArgumentType { field, .. }) if field == "tile_size"
+        ));
+        assert!(matches!(
+            TiledPolygonizer::new(bbox, 1.0)
+                .with_buffer(f64::NAN)
+                .polygonize(),
+            Err(PolygonizeError::InvalidArgumentType { field, .. }) if field == "buffer"
+        ));
+        assert!(matches!(
+            TiledPolygonizer::new(
+                Rect::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 1.0, y: 1.0 }),
+                1.0,
+            )
+            .polygonize(),
+            Err(PolygonizeError::InvalidGeometry { .. })
+        ));
+
+        let options = PolygonizerOptions {
+            pre_snap_tolerance: 1.0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            TiledPolygonizer::new(bbox, 1.0)
+                .with_options(options)
+                .polygonize(),
+            Err(PolygonizeError::UnsupportedOptionCombination { .. })
+        ));
+
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 1.0, y: 0.0 },
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 0.0, y: 1.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]));
+        let mut options = PolygonizerOptions::default();
+        options.output_filter.minimum_face_area = Some(2.0);
+        let mut tiler = TiledPolygonizer::new(bbox, 1.0).with_options(options);
+        tiler.add_geometry(&square);
+        assert!(tiler.polygonize().unwrap().is_empty());
     }
 }
 
@@ -243,7 +322,7 @@ fn test_dedup_policy_canonical_ring_hash() {
     .with_dedup_policy(DedupPolicy::KeepAll);
     t_keep.add_geometry(&geom1);
     t_keep.add_geometry(&geom2);
-    let polys_keep = t_keep.polygonize();
+    let polys_keep = t_keep.polygonize().unwrap();
     assert_eq!(polys_keep.len(), 1);
 
     let mut t_dedup = TiledPolygonizer::new(
@@ -253,6 +332,6 @@ fn test_dedup_policy_canonical_ring_hash() {
     .with_dedup_policy(DedupPolicy::CanonicalRingHash);
     t_dedup.add_geometry(&geom1);
     t_dedup.add_geometry(&geom2);
-    let polys_dedup = t_dedup.polygonize();
+    let polys_dedup = t_dedup.polygonize().unwrap();
     assert_eq!(polys_dedup.len(), 1);
 }
