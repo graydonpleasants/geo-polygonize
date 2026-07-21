@@ -30,6 +30,13 @@ pub struct IntersectionStats {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ZConflictStats {
+    pub conflict_node_count: usize,
+    /// Sorted input line IDs contributing to conflicting nodes; populated with provenance.
+    pub contributing_line_ids: Vec<u32>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ContainmentStats {
     pub prepared_shells: usize,
     pub envelope_candidates: usize,
@@ -107,6 +114,8 @@ pub struct PolygonizerDiagnostics {
     pub noding_iterations: Vec<NodingIterationStats>,
     pub snap_stats: SnapStats,
     pub intersection_stats: IntersectionStats,
+    #[serde(default)]
+    pub z_conflicts: ZConflictStats,
     pub containment_stats: ContainmentStats,
     pub noding_work_stats: NodingWorkStats,
 }

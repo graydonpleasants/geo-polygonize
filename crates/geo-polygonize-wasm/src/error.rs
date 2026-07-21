@@ -34,6 +34,7 @@ pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
             "UnsupportedOptionCombination".to_string()
         }
         PolygonizeError::TopologyFailure { .. } => "TopologyFailure".to_string(),
+        PolygonizeError::ZConflict { .. } => "ZConflict".to_string(),
         PolygonizeError::NodingValidationFailure { .. } => "NodingValidationFailure".to_string(),
         PolygonizeError::InternalInvariantViolation { .. } => {
             "InternalInvariantViolation".to_string()

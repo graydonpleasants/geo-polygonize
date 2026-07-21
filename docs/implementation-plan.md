@@ -264,7 +264,7 @@ pub enum SnapStrategy {
 - provides stable, explicit native snap-rounding semantics
 
 `GeosCompat`
-- uses the grid for topology, then restores one deterministic nearest source coordinate per node
+- uses the grid for topology, then restores one deterministic nearest source XY coordinate per node
 - targets Shapely `snap` followed by full-precision noding and polygonization, not `set_precision`
 - preserves source-coordinate fidelity where many-to-one snaps do not make that ambiguous
 

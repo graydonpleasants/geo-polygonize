@@ -66,6 +66,9 @@ pub struct PolygonizerOptions {
     /// Options for mapping final faces back to original input geometry IDs.
     pub provenance: ProvenanceOptions,
 
+    /// Controls Z reconstruction and same-XY conflict handling.
+    pub z: ZOptions,
+
     /// Optional application-level filtering applied after topology is established.
     pub output_filter: OutputFilterOptions,
 
@@ -87,6 +90,7 @@ impl Default for PolygonizerOptions {
             determinism: DeterminismOptions::default(),
             diagnostics: DiagnosticsOptions::default(),
             provenance: ProvenanceOptions::default(),
+            z: ZOptions::default(),
             output_filter: OutputFilterOptions::default(),
             input_profile_id: None,
         }
@@ -122,6 +126,7 @@ impl PolygonizerOptions {
                 enabled: true,
                 include_boundary_line_ids: true,
             },
+            z: ZOptions::default(),
             output_filter: OutputFilterOptions::default(),
             input_profile_id: Some("cfb_robust_v1".to_string()),
         }
@@ -183,6 +188,14 @@ impl PolygonizerOptions {
             }
         }
 
+        if !self.z.conflict_tolerance.is_finite() || self.z.conflict_tolerance < 0.0 {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: "z.conflict_tolerance".to_string(),
+                expected: "a finite non-negative number".to_string(),
+                actual: self.z.conflict_tolerance.to_string(),
+            });
+        }
+
         Ok(())
     }
 }
@@ -221,7 +234,7 @@ impl PrecisionModel {
 /// Strategy for robust snap noding and output coordinates.
 ///
 /// `Grid` uses the precision grid for both topology and output coordinates.
-/// `GeosCompat` uses the grid for topology, then restores one deterministic nearest source
+/// `GeosCompat` uses the grid for topology, then restores one deterministic nearest source XY
 /// coordinate per snapped node. This targets Shapely-style `snap` followed by full-precision
 /// noding and polygonization; it does not emulate `set_precision` output.
 ///
@@ -346,6 +359,29 @@ pub struct ProvenanceOptions {
     pub include_boundary_line_ids: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum ZPolicy {
+    /// Ignore input Z and emit `0.0`.
+    Ignore,
+    /// Interpolate split-vertex Z along each source edge before graph reconciliation.
+    #[default]
+    InterpolateAlongEdge,
+    /// Use the nearest source endpoint's Z for each split vertex.
+    PreferNearestEndpoint,
+    /// Interpolate Z, then fail if one XY node receives conflicting values.
+    ErrorOnConflict,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct ZOptions {
+    pub policy: ZPolicy,
+    /// Z values at one XY node conflict when their difference exceeds this value.
+    pub conflict_tolerance: f64,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
@@ -378,6 +414,7 @@ mod tests {
         assert!(!options.diagnostics.report_mode);
         assert_eq!(options.precision_model, PrecisionModel::Floating);
         assert_eq!(options.output_filter.minimum_face_area, Some(2.0));
+        assert_eq!(options.z, ZOptions::default());
 
         let fixed: PolygonizerOptions =
             serde_json::from_str(r#"{"precision_model":{"type":"fixed_grid","grid_size":0.25}}"#)
@@ -390,6 +427,11 @@ mod tests {
         let validated: PolygonizerOptions =
             serde_json::from_str(r#"{"noding":{"guarantee":"Validate"}}"#).unwrap();
         assert_eq!(validated.noding.guarantee, NodingGuarantee::Validate);
+
+        let z: PolygonizerOptions =
+            serde_json::from_str(r#"{"z":{"policy":"ErrorOnConflict"}}"#).unwrap();
+        assert_eq!(z.z.policy, ZPolicy::ErrorOnConflict);
+        assert_eq!(z.z.conflict_tolerance, 0.0);
     }
 
     #[test]
@@ -412,6 +454,15 @@ mod tests {
             let options = PolygonizerOptions {
                 output_filter: OutputFilterOptions {
                     minimum_face_area: Some(value),
+                },
+                ..Default::default()
+            };
+            assert!(options.validate().is_err());
+
+            let options = PolygonizerOptions {
+                z: ZOptions {
+                    conflict_tolerance: value,
+                    ..Default::default()
                 },
                 ..Default::default()
             };

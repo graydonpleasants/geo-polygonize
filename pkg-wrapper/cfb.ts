@@ -27,6 +27,10 @@ export const cfbRobustOptions: PolygonizerOptions = {
         enabled: true,
         include_boundary_line_ids: true,
     },
+    z: {
+        policy: "InterpolateAlongEdge",
+        conflict_tolerance: 0,
+    },
     output_filter: {
         minimum_face_area: undefined,
     },

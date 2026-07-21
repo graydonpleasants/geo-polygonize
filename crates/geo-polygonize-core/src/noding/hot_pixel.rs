@@ -3,6 +3,7 @@ use crate::error::{PolygonizeError, Result};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
+use crate::options::ZPolicy;
 use crate::types::{Coord3D, IPoint, Line3D};
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use rstar::AABB;
@@ -12,6 +13,7 @@ const MAX_EXACT_GRID_INDEX: f64 = (1_u64 << 52) as f64;
 /// Fixed-precision hot-pixel snap-rounding noder.
 pub struct HotPixelNoder {
     grid_size: f64,
+    z_policy: ZPolicy,
 }
 
 impl HotPixelNoder {
@@ -23,7 +25,15 @@ impl HotPixelNoder {
                 actual: grid_size.to_string(),
             });
         }
-        Ok(Self { grid_size })
+        Ok(Self {
+            grid_size,
+            z_policy: ZPolicy::InterpolateAlongEdge,
+        })
+    }
+
+    pub fn with_z_policy(mut self, z_policy: ZPolicy) -> Self {
+        self.z_policy = z_policy;
+        self
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Result<Vec<Line3D>> {
@@ -40,7 +50,7 @@ impl HotPixelNoder {
         }
         lines.retain(|line| line.start.x != line.end.x || line.start.y != line.end.y);
 
-        let snapper = SnapNoder::new(self.grid_size);
+        let snapper = SnapNoder::new(self.grid_size).with_z_policy(self.z_policy);
         snapper.normalize_and_dedup(&mut lines);
 
         let mut hot_pixels = Vec::with_capacity(lines.len() * 2);

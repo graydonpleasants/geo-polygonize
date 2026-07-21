@@ -1,7 +1,7 @@
 use crate::diagnostics::{NodingIterationStats, NodingWorkStats};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::UniformGrid;
-use crate::options::SnapStrategy;
+use crate::options::{SnapStrategy, ZPolicy};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -83,6 +83,7 @@ pub struct SnapNoder {
     pub max_iter: usize,
     pub strategy: NodingStrategy,
     pub snap_strategy: SnapStrategy,
+    pub z_policy: ZPolicy,
 }
 
 impl SnapNoder {
@@ -92,6 +93,7 @@ impl SnapNoder {
             max_iter: 10,
             strategy: NodingStrategy::Auto,
             snap_strategy: SnapStrategy::Grid,
+            z_policy: ZPolicy::InterpolateAlongEdge,
         }
     }
 
@@ -102,6 +104,11 @@ impl SnapNoder {
 
     pub fn with_snap_strategy(mut self, snap_strategy: SnapStrategy) -> Self {
         self.snap_strategy = snap_strategy;
+        self
+    }
+
+    pub fn with_z_policy(mut self, z_policy: ZPolicy) -> Self {
+        self.z_policy = z_policy;
         self
     }
 
@@ -341,17 +348,23 @@ impl SnapNoder {
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
-        Self::pre_snap_impl(lines, tolerance, true).0
+        Self::pre_snap_impl(lines, tolerance, true, ZPolicy::InterpolateAlongEdge).0
     }
 
     pub(crate) fn pre_snap_to_reference_vertices_with_stats(
         lines: &[Line3D],
         tolerance: f64,
+        z_policy: ZPolicy,
     ) -> (Vec<Line3D>, usize) {
-        Self::pre_snap_impl(lines, tolerance, true)
+        Self::pre_snap_impl(lines, tolerance, true, z_policy)
     }
 
-    fn pre_snap_impl(lines: &[Line3D], tolerance: f64, use_index: bool) -> (Vec<Line3D>, usize) {
+    fn pre_snap_impl(
+        lines: &[Line3D],
+        tolerance: f64,
+        use_index: bool,
+        z_policy: ZPolicy,
+    ) -> (Vec<Line3D>, usize) {
         if lines.is_empty() || tolerance <= 0.0 {
             return (lines.to_vec(), 0);
         }
@@ -386,9 +399,10 @@ impl SnapNoder {
         let mut snapped = Vec::with_capacity(lines.len());
         let mut points = Vec::new();
         let mut vertex_candidates = 0;
+        let z_resolver = SnapNoder::new(0.0).with_z_policy(z_policy);
 
         for &line in lines {
-            let (start, start_candidates) = if let Some(index) = vertex_index.as_ref() {
+            let (mut start, start_candidates) = if let Some(index) = vertex_index.as_ref() {
                 nearest_reference_vertex_indexed(line.start, &reference_vertices, index, tolerance)
             } else {
                 (
@@ -400,7 +414,7 @@ impl SnapNoder {
                     reference_vertices.len(),
                 )
             };
-            let (end, end_candidates) = if let Some(index) = vertex_index.as_ref() {
+            let (mut end, end_candidates) = if let Some(index) = vertex_index.as_ref() {
                 nearest_reference_vertex_indexed(line.end, &reference_vertices, index, tolerance)
             } else {
                 (
@@ -412,6 +426,8 @@ impl SnapNoder {
                     reference_vertices.len(),
                 )
             };
+            start.z = z_resolver.interpolate_z(start.to_coord_2d(), line);
+            end.z = z_resolver.interpolate_z(end.to_coord_2d(), line);
             vertex_candidates += start_candidates + end_candidates;
             let dx = end.x - start.x;
             let dy = end.y - start.y;
@@ -439,7 +455,14 @@ impl SnapNoder {
                     let dist_x = vertex.x - nearest_x;
                     let dist_y = vertex.y - nearest_y;
                     if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
-                        points.push((t, vertex));
+                        points.push((
+                            t,
+                            Coord3D::new(
+                                vertex.x,
+                                vertex.y,
+                                z_resolver.interpolate_z(vertex.to_coord_2d(), line),
+                            ),
+                        ));
                     }
                 };
 
@@ -578,6 +601,25 @@ impl SnapNoder {
 
         // Clamp t to [0, 1] for safety, although intersection should be on segment
         let t = t.clamp(0.0, 1.0);
+
+        if matches!(self.z_policy, ZPolicy::PreferNearestEndpoint) {
+            return if t < 0.5 {
+                line.start.z
+            } else if t > 0.5 {
+                line.end.z
+            } else if line
+                .start
+                .x
+                .total_cmp(&line.end.x)
+                .then(line.start.y.total_cmp(&line.end.y))
+                .then(line.start.z.total_cmp(&line.end.z))
+                .is_le()
+            {
+                line.start.z
+            } else {
+                line.end.z
+            };
+        }
 
         line.start.z + t * (line.end.z - line.start.z)
     }
@@ -1033,8 +1075,10 @@ mod tests {
             })
             .collect();
 
-        let (linear, linear_candidates) = SnapNoder::pre_snap_impl(&lines, 0.5, false);
-        let (indexed, indexed_candidates) = SnapNoder::pre_snap_impl(&lines, 0.5, true);
+        let (linear, linear_candidates) =
+            SnapNoder::pre_snap_impl(&lines, 0.5, false, ZPolicy::InterpolateAlongEdge);
+        let (indexed, indexed_candidates) =
+            SnapNoder::pre_snap_impl(&lines, 0.5, true, ZPolicy::InterpolateAlongEdge);
 
         assert_eq!(indexed.len(), linear.len());
         for (actual, expected) in indexed.iter().zip(linear) {

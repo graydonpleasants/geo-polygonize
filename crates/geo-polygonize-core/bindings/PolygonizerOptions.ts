@@ -7,6 +7,7 @@ import type { OutputFilterOptions } from "./OutputFilterOptions";
 import type { PrecisionModel } from "./PrecisionModel";
 import type { ProvenanceOptions } from "./ProvenanceOptions";
 import type { SnapStrategy } from "./SnapStrategy";
+import type { ZOptions } from "./ZOptions";
 
 /**
  * The canonical configuration object for the `geo-polygonize` engine.
@@ -79,6 +80,10 @@ diagnostics: DiagnosticsOptions,
  * Options for mapping final faces back to original input geometry IDs.
  */
 provenance: ProvenanceOptions,
+/**
+ * Controls Z reconstruction and same-XY conflict handling.
+ */
+z: ZOptions,
 /**
  * Optional application-level filtering applied after topology is established.
  */

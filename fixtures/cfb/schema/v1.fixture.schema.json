@@ -47,6 +47,11 @@
         "dangleCount": { "type": "integer", "minimum": 0 },
         "cutEdgeCount": { "type": "integer", "minimum": 0 },
         "invalidRingCount": { "type": "integer", "minimum": 0 },
+        "zConflictNodeCount": { "type": "integer", "minimum": 0 },
+        "zConflictLineIds": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        },
         "boundaryLineIds": {
           "type": "array",
           "items": { "type": "integer", "minimum": 0 }

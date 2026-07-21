@@ -15,6 +15,8 @@ export * from "./bindings/ProvenanceOptions";
 export * from "./bindings/SnapStrategy";
 export * from "./bindings/TileOwnershipPolicy";
 export * from "./bindings/TouchPolicy";
+export * from "./bindings/ZOptions";
+export * from "./bindings/ZPolicy";
 export * from "./cfb";
 
 export default init;

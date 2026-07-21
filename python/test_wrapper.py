@@ -201,7 +201,7 @@ def test_invalid_stride():
 
 def test_polygonize_with_options():
     print("\nTesting polygonize_with_options API...")
-    from geo_polygonize import polygonize_with_options
+    from geo_polygonize import PolygonizeTopologyError, polygonize_with_options
 
     coords = np.array([
         0.0, 0.0, 10.0, 0.0,
@@ -280,6 +280,39 @@ def test_polygonize_with_options():
         return_polygons=False,
     )
     assert certified["polygons"] == []
+
+    z_coords = np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+        [1.0, 0.0, 10.0], [1.0, 1.0, 10.0],
+        [1.0, 1.0, 20.0], [0.0, 1.0, 20.0],
+        [0.0, 1.0, 30.0], [0.0, 0.0, 30.0],
+    ], dtype=np.float64)
+    z_offsets = np.array([0, 2, 4, 6], dtype=np.uint32)
+    z_line_ids = np.array([10, 20, 30, 40], dtype=np.uint32)
+    z_result = polygonize_with_options(
+        coords=z_coords,
+        offsets=z_offsets,
+        stride=3,
+        line_ids=z_line_ids,
+        options={
+            "diagnostics": {"enabled": True},
+            "provenance": {"enabled": True},
+            "z": {"policy": "InterpolateAlongEdge", "conflict_tolerance": 0.0},
+        },
+        return_polygons=False,
+    )
+    assert z_result["diagnostics"]["z_conflicts"]["conflict_node_count"] == 4
+    assert z_result["diagnostics"]["z_conflicts"]["contributing_line_ids"] == [10, 20, 30, 40]
+
+    with pytest.raises(PolygonizeTopologyError, match="Z conflict"):
+        polygonize_with_options(
+            coords=z_coords,
+            offsets=z_offsets,
+            stride=3,
+            line_ids=z_line_ids,
+            options={"z": {"policy": "ErrorOnConflict", "conflict_tolerance": 0.0}},
+            return_polygons=False,
+        )
 
     # Check if provenance exists
     sp = result['polygons'][0]
