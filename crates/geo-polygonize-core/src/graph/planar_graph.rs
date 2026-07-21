@@ -1,4 +1,4 @@
-use crate::types::{Coord3D, Line3D};
+use crate::types::{Coord3D, EdgeSources, Line3D};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{compare_angular, z_order_index};
 use geo_types::{Coord, LineString};
@@ -22,6 +22,7 @@ pub type DirEdgeId = usize;
 pub(crate) struct ExtractedRing {
     pub coords: Vec<Coord3D>,
     pub line_ids: Vec<u32>,
+    pub source_line_ids: Vec<u32>,
     pub edge_keys: Vec<(NodeId, NodeId)>,
     pub node_ids: Vec<NodeId>,
 }
@@ -33,6 +34,8 @@ pub struct Edge {
     /// In JTS this might be a full LineString, but for the graph we mainly care about connectivity.
     /// We store Line to reduce heap allocations compared to LineString.
     pub line: Line3D,
+    /// All input lines that contribute to this geometric edge.
+    pub sources: EdgeSources,
     /// Indices of the two directed edges associated with this undirected edge.
     pub dir_edges: [DirEdgeId; 2],
     /// Flag indicating if the edge is marked (e.g. visited or pruned).
@@ -136,6 +139,7 @@ fn create_edge_components(
     u: NodeId,
     v: NodeId,
     line: Line3D,
+    sources: EdgeSources,
     edges_start_len: usize,
     dir_edges_start_len: usize,
 ) -> (
@@ -173,6 +177,7 @@ fn create_edge_components(
 
     let edge = Edge {
         line,
+        sources,
         dir_edges: [de_u_v_idx, de_v_u_idx],
         is_marked: false,
         deleted: false,
@@ -308,7 +313,7 @@ impl PlanarGraph {
         // This allows us to reserve exact capacity for outgoing_edges.
         // It also avoids repeated binary searches in the second pass.
 
-        // Store valid edges as (u, v, line)
+        // Store valid edges as (u, v, line), then dissolve coincident XY edges.
         let mut valid_edges = Vec::with_capacity(lines.len());
         let mut degrees = vec![0usize; self.nodes_x.len()]; // This might be large?
 
@@ -325,9 +330,32 @@ impl PlanarGraph {
 
             if let (Some(u), Some(v)) = (u_opt, v_opt) {
                 valid_edges.push((u, v, line));
-                degrees[u] += 1;
-                degrees[v] += 1;
             }
+        }
+
+        valid_edges.sort_unstable_by(|(u1, v1, l1), (u2, v2, l2)| {
+            let key1 = ((*u1).min(*v1), (*u1).max(*v1));
+            let key2 = ((*u2).min(*v2), (*u2).max(*v2));
+            key1.cmp(&key2)
+                .then(l1.line_id.cmp(&l2.line_id))
+                .then(u1.cmp(u2))
+                .then(v1.cmp(v2))
+        });
+
+        let mut dissolved: Vec<(NodeId, NodeId, Line3D, EdgeSources)> = Vec::new();
+        for (u, v, line) in valid_edges {
+            let key = (u.min(v), u.max(v));
+            if let Some((last_u, last_v, _, sources)) = dissolved.last_mut() {
+                if ((*last_u).min(*last_v), (*last_u).max(*last_v)) == key {
+                    sources.merge_line_id(line.line_id);
+                    continue;
+                }
+            }
+            dissolved.push((u, v, line, EdgeSources::from_line_id(line.line_id)));
+        }
+        for (u, v, _, _) in &dissolved {
+            degrees[*u] += 1;
+            degrees[*v] += 1;
         }
 
         // Reserve exact capacity
@@ -340,15 +368,22 @@ impl PlanarGraph {
         );
 
         // 5. Build Edges
-        self.edges.reserve(valid_edges.len());
-        self.directed_edges.reserve(valid_edges.len() * 2);
+        self.edges.reserve(dissolved.len());
+        self.directed_edges.reserve(dissolved.len() * 2);
 
         let edges_start_len = self.edges.len();
         let directed_edges_start_len = self.directed_edges.len();
 
-        for (i, (u, v, line)) in valid_edges.into_iter().enumerate() {
-            let (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) =
-                create_edge_components(i, u, v, line, edges_start_len, directed_edges_start_len);
+        for (i, (u, v, line, sources)) in dissolved.into_iter().enumerate() {
+            let (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) = create_edge_components(
+                i,
+                u,
+                v,
+                line,
+                sources,
+                edges_start_len,
+                directed_edges_start_len,
+            );
             self.directed_edges.push(de_u_v);
             self.directed_edges.push(de_v_u);
             self.edges.push(edge);
@@ -367,6 +402,20 @@ impl PlanarGraph {
 
         let u = self.add_node(p0);
         let v = self.add_node(p1);
+
+        if let Some(edge_idx) = self.nodes_outgoing[u]
+            .iter()
+            .find_map(|&directed_edge_idx| {
+                let directed_edge = &self.directed_edges[directed_edge_idx];
+                (directed_edge.dst == v && !self.edges[directed_edge.edge_idx].deleted)
+                    .then_some(directed_edge.edge_idx)
+            })
+        {
+            let edge = &mut self.edges[edge_idx];
+            edge.sources.merge_line_id(line.line_id);
+            edge.line.line_id = edge.sources.line_ids[0];
+            return edge_idx;
+        }
 
         let edge_idx = self.edges.len();
         let de_u_v_idx = self.directed_edges.len();
@@ -397,6 +446,7 @@ impl PlanarGraph {
 
         self.edges.push(Edge {
             line,
+            sources: EdgeSources::from_line_id(line.line_id),
             dir_edges: [de_u_v_idx, de_v_u_idx],
             is_marked: false,
             deleted: false,
@@ -414,8 +464,12 @@ impl PlanarGraph {
     /// Removes an edge by marking it as deleted by matching line ID.
     pub fn remove_line_by_id(&mut self, line_id: u32) -> bool {
         for edge in &mut self.edges {
-            if !edge.deleted && edge.line.line_id == line_id {
-                edge.deleted = true;
+            if !edge.deleted && edge.sources.remove_line_id(line_id) {
+                if edge.sources.line_ids.is_empty() {
+                    edge.deleted = true;
+                } else if edge.line.line_id == line_id {
+                    edge.line.line_id = edge.sources.line_ids[0];
+                }
                 return true;
             }
         }
@@ -466,49 +520,7 @@ impl PlanarGraph {
                 continue;
             }
 
-            let u = self.add_node(p0.into());
-            let v = self.add_node(p1.into());
-
-            let edge_idx = self.edges.len();
-
-            let de_u_v_idx = self.directed_edges.len();
-            let de_v_u_idx = self.directed_edges.len() + 1;
-
-            let de_u_v = DirectedEdge {
-                src: u,
-                dst: v,
-                edge_idx,
-                sym_idx: de_v_u_idx,
-                is_visited: false,
-                is_marked: false,
-                edge_direction: true,
-            };
-
-            let de_v_u = DirectedEdge {
-                src: v,
-                dst: u,
-                edge_idx,
-                sym_idx: de_u_v_idx,
-                is_visited: false,
-                is_marked: false,
-                edge_direction: false,
-            };
-
-            self.directed_edges.push(de_u_v);
-            self.directed_edges.push(de_v_u);
-
-            self.edges.push(Edge {
-                line: Line3D::new(p0.into(), p1.into(), 0),
-                dir_edges: [de_u_v_idx, de_v_u_idx],
-                is_marked: false,
-                deleted: false,
-            });
-
-            self.nodes_outgoing[u].push(de_u_v_idx);
-            self.nodes_degree[u] += 1;
-
-            self.nodes_outgoing[v].push(de_v_u_idx);
-            self.nodes_degree[v] += 1;
+            self.add_line(Line3D::new(p0.into(), p1.into(), 0));
         }
     }
 
@@ -664,7 +676,7 @@ impl PlanarGraph {
 
     /// Extracts rings from the graph following the GEOS flow.
     pub fn get_edge_rings(&mut self) -> Vec<(Vec<Coord3D>, Vec<u32>)> {
-        self.get_edge_rings_with_graph_ids(false)
+        self.get_edge_rings_with_graph_ids(false, false)
             .into_iter()
             .map(|ring| (ring.coords, ring.line_ids))
             .collect()
@@ -673,6 +685,7 @@ impl PlanarGraph {
     pub(crate) fn get_edge_rings_with_graph_ids(
         &mut self,
         include_graph_ids: bool,
+        include_source_ids: bool,
     ) -> Vec<ExtractedRing> {
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
@@ -696,7 +709,7 @@ impl PlanarGraph {
             );
 
             // Extract the minimal rings from the graph.
-            self.extract_valid_rings(&next_pointers, include_graph_ids)
+            self.extract_valid_rings(&next_pointers, include_graph_ids, include_source_ids)
         })
     }
 
@@ -845,6 +858,7 @@ impl PlanarGraph {
         &mut self,
         next_pointers: &[usize],
         include_graph_ids: bool,
+        include_source_ids: bool,
     ) -> Vec<ExtractedRing> {
         for de in &mut self.directed_edges {
             de.is_visited = false;
@@ -896,6 +910,7 @@ impl PlanarGraph {
             if is_valid_ring && !ring_edges.is_empty() {
                 let mut coords = Vec::with_capacity(ring_edges.len() + 1);
                 let mut ids = Vec::with_capacity(ring_edges.len());
+                let mut source_ids = Vec::new();
                 let mut edge_keys = if include_graph_ids {
                     Vec::with_capacity(ring_edges.len())
                 } else {
@@ -917,6 +932,9 @@ impl PlanarGraph {
                     let de = &self.directed_edges[de_idx];
                     let edge_idx = de.edge_idx;
                     ids.push(self.edges[edge_idx].line.line_id);
+                    if include_source_ids {
+                        source_ids.extend_from_slice(&self.edges[edge_idx].sources.line_ids);
+                    }
                     if include_graph_ids {
                         edge_keys.push(if de.src < de.dst {
                             (de.src, de.dst)
@@ -934,9 +952,12 @@ impl PlanarGraph {
                     });
                 }
 
+                source_ids.sort_unstable();
+                source_ids.dedup();
                 rings.push(ExtractedRing {
                     coords,
                     line_ids: ids,
+                    source_line_ids: source_ids,
                     edge_keys,
                     node_ids,
                 });

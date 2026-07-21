@@ -516,8 +516,15 @@ impl SnapNoder {
                 .then(a.start.y.total_cmp(&b.start.y))
                 .then(a.end.x.total_cmp(&b.end.x))
                 .then(a.end.y.total_cmp(&b.end.y))
+                .then(a.line_id.cmp(&b.line_id))
         });
-        lines.dedup();
+        lines.dedup_by(|a, b| {
+            a.start.x == b.start.x
+                && a.start.y == b.start.y
+                && a.end.x == b.end.x
+                && a.end.y == b.end.y
+                && a.line_id == b.line_id
+        });
     }
 
     pub(crate) fn snap(&self, c: Coord3D) -> Coord3D {

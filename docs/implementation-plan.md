@@ -141,6 +141,7 @@ pub struct PolygonProvenance {
 ### 4.3 Provenance semantics
 `boundary_line_ids` should mean:
 - IDs of caller-provided source lines that contributed to the polygon boundary
+- all IDs on coincident or partially overlapping boundary segments; geometric dissolve must not discard source multiplicity
 - deduplicated
 - deterministically ordered in canonical mode
 

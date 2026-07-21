@@ -30,7 +30,7 @@ pub use polygonizer::{
     polygonize, polygonize_with_workspace, Polygonizer, PolygonizerResult, PolygonizerWorkspace,
 };
 pub use tiling::TiledPolygonizer;
-pub use types::{Coord3D, Line3D, Polygon3D};
+pub use types::{Coord3D, EdgeSources, Line3D, Polygon3D};
 
 #[cfg(feature = "geoparquet")]
 pub mod geoparquet_api;
