@@ -493,7 +493,7 @@ impl SnapNoder {
         (snapped, vertex_candidates)
     }
 
-    fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
+    pub(crate) fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
         // Filter out invalid lines (NaN or infinite coordinates)
         lines.retain(|l| {
             l.start.x.is_finite()
@@ -553,7 +553,7 @@ impl SnapNoder {
     }
 
     // Interpolates Z value for a point (px, py) assumed to be on the line segment
-    fn interpolate_z(&self, p: Coord<f64>, line: Line3D) -> f64 {
+    pub(crate) fn interpolate_z(&self, p: Coord<f64>, line: Line3D) -> f64 {
         let l_dx = line.end.x - line.start.x;
         let l_dy = line.end.y - line.start.y;
         let l_len_sq = l_dx * l_dx + l_dy * l_dy;

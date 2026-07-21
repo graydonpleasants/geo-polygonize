@@ -91,6 +91,11 @@ describe('WASM Polygonizer', () => {
         expect(() => polygonizeWithOptions(JSON.stringify(crossing), {
             noding: { guarantee: "Validate" },
         })).toThrow(/Noding validation failed/);
+        expect(JSON.parse(polygonizeWithOptions(JSON.stringify(crossing), {
+            node_input: true,
+            precision_model: { type: "fixed_grid", grid_size: 1 },
+            noding: { guarantee: "CertifiedFixedPrecision" },
+        })).features).toHaveLength(0);
     });
 
     it('should handle empty input', async () => {

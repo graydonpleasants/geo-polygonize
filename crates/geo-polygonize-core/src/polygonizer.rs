@@ -1,8 +1,9 @@
 use crate::containment::ContainmentForest;
-use crate::diagnostics::{ContainmentStats, PolygonizerDiagnostics};
+use crate::diagnostics::{ContainmentStats, NodingIterationStats, PolygonizerDiagnostics};
 use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
+use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
 use crate::options::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy};
@@ -207,6 +208,34 @@ impl Polygonizer {
 
             match self.options.noding.backend {
                 crate::options::NodingBackend::Snap => {
+                    if matches!(
+                        self.options.noding.guarantee,
+                        NodingGuarantee::CertifiedFixedPrecision
+                    ) {
+                        let input_segment_count = all_segments.len();
+                        let noder = HotPixelNoder::new(grid_size)?;
+                        if let Some(diagnostics) = diagnostics {
+                            let (noded, intersections, mut work_stats) =
+                                noder.node_with_stats(all_segments)?;
+                            work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
+                            diagnostics.intersection_stats.interpolated_intersections =
+                                work_stats.split_events;
+                            diagnostics.intersection_stats.exact_intersections =
+                                work_stats.exact_intersection_calls;
+                            diagnostics.noding_iterations = vec![NodingIterationStats {
+                                iteration_index: 0,
+                                intersections_found: intersections,
+                                nodes_added: noded.len().saturating_sub(input_segment_count),
+                            }];
+                            diagnostics.noding_work_stats = work_stats;
+                            segments = noded;
+                        } else {
+                            segments = noder.node(all_segments)?;
+                        }
+                        self.graph.bulk_load(segments);
+                        return Ok(());
+                    }
+
                     let noder = SnapNoder::new(grid_size)
                         .with_snap_strategy(self.options.snap_strategy.clone());
                     // ponytail: one source coordinate per snapped node preserves connectivity;
@@ -265,7 +294,7 @@ impl Polygonizer {
             segments = all_segments;
         }
 
-        if matches!(self.options.noding.guarantee, NodingGuarantee::Validate) {
+        if !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked) {
             ValidatingNoder::new().validate(&segments)?;
         }
 

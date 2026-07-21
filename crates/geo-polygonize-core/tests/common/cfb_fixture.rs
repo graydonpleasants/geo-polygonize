@@ -164,7 +164,7 @@ pub fn run_cfb_fixture(fixture: &CfbFixture) {
     }
 }
 
-fn fixture_lines(fixture: &CfbFixture) -> Vec<Line3D> {
+pub fn fixture_lines(fixture: &CfbFixture) -> Vec<Line3D> {
     fixture
         .lines
         .iter()
