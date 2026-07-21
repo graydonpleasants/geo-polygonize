@@ -1,3 +1,5 @@
+#![cfg(feature = "arrow")]
+
 use arrow::array::{Array, Float64Array, LargeListArray, StructArray};
 use arrow::buffer::OffsetBuffer;
 use arrow::datatypes::{DataType, Field};

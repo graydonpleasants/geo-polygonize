@@ -112,7 +112,8 @@ This behavior matches classical JTS/GEOS polygonization semantics and is useful 
 
 ### GeoArrow Integration
 
-The library supports ingesting data directly from Arrow arrays via the `arrow_api` module and `ffi`.
+The Rust `arrow_api` and `ffi` modules require the opt-in `arrow` Cargo feature;
+the Wasm crate enables it automatically.
 
 ```rust
 use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};

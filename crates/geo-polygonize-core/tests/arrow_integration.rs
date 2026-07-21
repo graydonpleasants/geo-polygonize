@@ -1,3 +1,5 @@
+#![cfg(feature = "arrow")]
+
 use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
