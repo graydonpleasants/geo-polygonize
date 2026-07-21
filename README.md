@@ -56,7 +56,9 @@ noding, containment, utility, mutable-builder, and tiled APIs are internal or
 experimental and may change without compatibility guarantees before `1.0`.
 `TiledPolygonizer` validates its grid/options and propagates per-tile errors,
 but callers must still choose a sufficient buffer and verify untiled equivalence
-for their workload.
+for their workload. Canonical mode applies the same final ordering pass after
+tile merge; the equivalence gate covers one, two, four, and many boundary
+crossings plus concave, hole, dirty-intersection, and dangle cases.
 
 ### Choosing noding and precision
 

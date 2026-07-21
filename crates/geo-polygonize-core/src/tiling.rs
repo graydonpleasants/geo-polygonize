@@ -1,4 +1,5 @@
 use crate::options::{DedupPolicy, TileOwnershipPolicy};
+use crate::polygonizer::apply_determinism;
 use crate::types::Polygon3D;
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
@@ -181,9 +182,9 @@ impl<'a> TiledPolygonizer<'a> {
                 .collect();
         }
         let tile_polygons = tile_results.into_iter().collect::<Result<Vec<_>>>()?;
-        let result_polygons = tile_polygons.into_iter().flatten().collect();
+        let result_polygons: Vec<Polygon3D> = tile_polygons.into_iter().flatten().collect();
 
-        Ok(match self.dedup_policy {
+        let polygons = match self.dedup_policy {
             DedupPolicy::KeepAll => result_polygons,
             DedupPolicy::CanonicalRingHash => {
                 use std::collections::HashSet;
@@ -281,7 +282,17 @@ impl<'a> TiledPolygonizer<'a> {
 
                 unique_polygons
             }
-        })
+        };
+        let mut dangles = Vec::new();
+        let mut cut_edges = Vec::new();
+        let mut invalid_rings = Vec::new();
+        Ok(apply_determinism(
+            polygons,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &self.options,
+        ))
     }
 
     fn validate(&self) -> Result<()> {
