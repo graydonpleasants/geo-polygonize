@@ -12,7 +12,8 @@ use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
 use float_next_after::NextAfter;
 use geo::Contains;
-use geo_types::{Coord, Geometry, Polygon};
+use geo_traits::{CoordTrait, LineStringTrait};
+use geo_types::{Coord, Geometry, MultiPolygon, Polygon};
 use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,6 +62,18 @@ pub struct PolygonizerResult {
     pub diagnostics: Option<PolygonizerDiagnostics>,
 }
 
+impl PolygonizerResult {
+    /// Discard diagnostics and non-polygon outputs, returning GeoRust polygons.
+    pub fn into_multi_polygon(self) -> MultiPolygon<f64> {
+        MultiPolygon(
+            self.polygons
+                .into_iter()
+                .map(Polygon3D::into_polygon_2d)
+                .collect(),
+        )
+    }
+}
+
 impl Default for Polygonizer {
     fn default() -> Self {
         Self::new()
@@ -73,6 +86,45 @@ pub fn polygonize(
     options: &PolygonizerOptions,
 ) -> Result<PolygonizerResult> {
     Polygonizer::with_options(options.clone()).polygonize_owned(lines.into_iter().collect())
+}
+
+/// Polygonize borrowed or owned GeoRust line strings without first building [`Line3D`] values.
+///
+/// Coordinates are read through [`LineStringTrait`] and polygonized in XY. Each line string is
+/// assigned a stable zero-based source ID for provenance; Z coordinates are not imported.
+pub fn polygonize_line_strings<I, L>(
+    line_strings: I,
+    options: &PolygonizerOptions,
+) -> Result<PolygonizerResult>
+where
+    I: IntoIterator<Item = L>,
+    L: LineStringTrait<T = f64>,
+{
+    let mut segments = Vec::new();
+    for (line_id, line_string) in line_strings.into_iter().enumerate() {
+        let line_id = u32::try_from(line_id).map_err(|_| PolygonizeError::InvalidGeometry {
+            reason: "more than u32::MAX input line strings".to_string(),
+        })?;
+        let mut coordinates = line_string.coords();
+        let Some(first) = coordinates.next() else {
+            continue;
+        };
+        let mut previous = Coord3D::new(first.x(), first.y(), 0.0);
+        for coordinate in coordinates {
+            let current = Coord3D::new(coordinate.x(), coordinate.y(), 0.0);
+            segments.push(Line3D::new(previous, current, line_id));
+            previous = current;
+        }
+    }
+    polygonize(segments, options)
+}
+
+/// Polygonize line segments and return only the GeoRust polygon output.
+pub fn polygonize_to_multi_polygon(
+    lines: impl IntoIterator<Item = Line3D>,
+    options: &PolygonizerOptions,
+) -> Result<MultiPolygon<f64>> {
+    polygonize(lines, options).map(PolygonizerResult::into_multi_polygon)
 }
 
 /// Polygonize a borrowed slice while reusing graph allocations between calls.
