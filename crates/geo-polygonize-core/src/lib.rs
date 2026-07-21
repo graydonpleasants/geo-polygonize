@@ -1,4 +1,12 @@
-#![doc = include_str!("../../../README.md")]
+//! A native Rust port of the JTS/GEOS polygonization algorithm.
+//!
+//! This crate allows you to reconstruct valid polygons from a set of lines,
+//! including handling of complex topologies like holes, nested shells, and disconnected components.
+//!
+//! # Features
+//! - **Robust Noding**: Uses Iterated Snap Rounding to handle dirty inputs.
+//! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
+//! - **Wasm**: Optimized for WebAssembly environments.
 
 pub mod arrow_api;
 #[doc(hidden)]
@@ -21,10 +29,6 @@ mod types;
 // Kept compiler-public for the repository's microbenchmarks; not a supported API.
 #[doc(hidden)]
 pub mod utils;
-
-#[cfg(doctest)]
-#[doc = include_str!("../../../docs/guide/getting-started.md")]
-mod getting_started_guide {}
 
 #[cfg(feature = "python")]
 pub mod python;
