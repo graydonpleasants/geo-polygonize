@@ -47,7 +47,8 @@ pub use options::{DedupPolicy, TileOwnershipPolicy};
 #[doc(hidden)]
 pub use polygonizer::Polygonizer;
 pub use polygonizer::{
-    polygonize, polygonize_with_workspace, PolygonizerResult, PolygonizerWorkspace,
+    polygonize, polygonize_line_strings, polygonize_to_multi_polygon, polygonize_with_workspace,
+    PolygonizerResult, PolygonizerWorkspace,
 };
 #[doc(hidden)]
 pub use tiling::TiledPolygonizer;

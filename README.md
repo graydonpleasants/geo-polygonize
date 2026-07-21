@@ -24,25 +24,32 @@ For an ambitious, prioritized plan covering performance, security, API consisten
 ### Library
 
 ```rust
-use geo_polygonize_core::{polygonize, Coord3D, Line3D, PolygonizerOptions};
+use geo_polygonize_core::{polygonize_line_strings, PolygonizerOptions};
+use geo_types::LineString;
 
 fn main() {
-    let points = [
-        Coord3D::new(0.0, 0.0, 0.0),
-        Coord3D::new(10.0, 0.0, 0.0),
-        Coord3D::new(10.0, 10.0, 0.0),
-        Coord3D::new(0.0, 10.0, 0.0),
-    ];
-    let lines = (0..4).map(|i| Line3D::new(points[i], points[(i + 1) % 4], i as u32));
+    let ring = LineString::from(vec![
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+        (0.0, 0.0),
+    ]);
 
-    let result = polygonize(lines, &PolygonizerOptions::default())
+    let result = polygonize_line_strings([&ring], &PolygonizerOptions::default())
         .expect("Polygonization failed");
+    let polygons = result.into_multi_polygon();
 
-    for polygon in result.polygons {
-        println!("Found polygon with area: {}", polygon.unsigned_area_2d());
+    for polygon in polygons {
+        println!("Found polygon: {polygon:?}");
     }
 }
 ```
+
+`polygonize_line_strings` accepts owned or borrowed `geo_traits::LineStringTrait`
+values. Use `polygonize` when source IDs or Z values must be supplied explicitly,
+and keep its full result when dangles, cut edges, invalid rings, or diagnostics are
+needed.
 
 Rust consumers should import the supported facade from the crate root. Graph,
 noding, containment, utility, mutable-builder, and tiled APIs are internal or

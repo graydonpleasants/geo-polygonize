@@ -180,6 +180,21 @@ impl Polygon3D {
         Polygon::new(ext, ints)
     }
 
+    pub fn into_polygon_2d(self) -> Polygon<f64> {
+        let ext = LineString(
+            self.exterior
+                .into_iter()
+                .map(Coord3D::to_coord_2d)
+                .collect(),
+        );
+        let ints = self
+            .interiors
+            .into_iter()
+            .map(|ring| LineString(ring.into_iter().map(Coord3D::to_coord_2d).collect()))
+            .collect();
+        Polygon::new(ext, ints)
+    }
+
     /// Computes the signed 2D area directly without allocating intermediate geometry.
     /// This assumes standard winding order (exterior CCW, interior CW) where interior areas are implicitly negative.
     pub fn signed_area_2d(&self) -> f64 {
