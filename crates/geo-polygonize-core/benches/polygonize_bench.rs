@@ -104,7 +104,7 @@ fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
                     for geom in &geometries {
                         tiler.add_geometry(geom);
                     }
-                    tiler.polygonize();
+                    tiler.polygonize().unwrap();
                 });
             });
         }

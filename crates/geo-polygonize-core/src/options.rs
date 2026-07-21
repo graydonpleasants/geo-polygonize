@@ -259,9 +259,13 @@ pub enum TouchPolicy {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum TileOwnershipPolicy {
+    /// Fast ownership using the polygon centroid, which may lie outside a concave polygon.
     Centroid,
+    /// Ownership using a point guaranteed to intersect the polygon interior when one exists.
     RepresentativePointInsidePolygon,
+    /// Ownership using the smallest boundary vertex in XY order.
     LexicographicMinVertex,
+    /// Legacy deterministic ownership policy; now uses a safe interior point.
     CanonicalBoundaryHash,
 }
 
