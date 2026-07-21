@@ -193,6 +193,7 @@ impl Polygonizer {
                 // Ignore Z for initial dedup of "same projected line" if that's what we want?
                 // Probably better to keep exact duplicates removed.
                 && a.start.z == b.start.z && a.end.z == b.end.z
+                && a.line_id == b.line_id
             });
 
             // OPTIMIZATION: Spatial Sort (Z-Order 2D)
@@ -348,9 +349,10 @@ impl Polygonizer {
         let mut dangles = self.graph.prune_dangles();
 
         // 3. Find rings (3D)
-        let rings_with_ids = self
-            .graph
-            .get_edge_rings_with_graph_ids(self.options.node_input);
+        let rings_with_ids = self.graph.get_edge_rings_with_graph_ids(
+            self.options.node_input,
+            self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids,
+        );
 
         // 3b. Find cut edges
         let mut cut_edges = self.graph.get_cut_edges();
@@ -549,7 +551,8 @@ pub(crate) fn extract_and_classify_rings(
     let mut invalid_rings_candidates = Vec::new();
 
     for ring in rings_with_ids {
-        let poly3d = Polygon3D::new(ring.coords, vec![], ring.line_ids, vec![]);
+        let mut poly3d = Polygon3D::new(ring.coords, vec![], ring.line_ids, vec![]);
+        poly3d.set_boundary_source_line_ids(ring.source_line_ids);
         let area = poly3d.signed_area_2d();
 
         if !has_three_distinct_xy(&poly3d.exterior) || !area.is_finite() || area == 0.0 {
@@ -670,6 +673,9 @@ fn establish_topology(
     for (idx, hole, stats) in assignments {
         containment_stats.merge(stats);
         if let Some(idx) = idx {
+            shells[idx]
+                .boundary_source_line_ids
+                .extend_from_slice(&hole.boundary_source_line_ids);
             shell_holes[idx].push(hole.exterior);
             shell_holes_ids[idx].push(hole.exterior_ids);
         } else {
@@ -701,6 +707,7 @@ pub(crate) fn construct_final_polygons(
     for ((shell, mut holes), mut holes_ids) in
         shells.into_iter().zip(shell_holes).zip(shell_holes_ids)
     {
+        let boundary_source_line_ids = shell.boundary_source_line_ids;
         let mut exterior = shell.exterior;
         let mut exterior_ids = shell.exterior_ids;
 
@@ -769,20 +776,14 @@ pub(crate) fn construct_final_polygons(
         }
 
         let mut p = Polygon3D::new(exterior, holes, exterior_ids, holes_ids);
+        p.set_boundary_source_line_ids(boundary_source_line_ids);
 
         if options.provenance.enabled {
             let mut b_ids = Vec::new();
             if options.provenance.include_boundary_line_ids {
-                for &id in &p.exterior_ids {
+                for &id in &p.boundary_source_line_ids {
                     if id != 0 {
                         b_ids.push(id as u64);
-                    }
-                }
-                for hole_ids in &p.interiors_ids {
-                    for &id in hole_ids {
-                        if id != 0 {
-                            b_ids.push(id as u64);
-                        }
                     }
                 }
                 b_ids.sort_unstable();

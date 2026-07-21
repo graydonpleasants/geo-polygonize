@@ -60,19 +60,37 @@ mod tests {
         // We expect only 2 nodes (p1, p2) to be added.
         assert_eq!(graph.nodes_x.len(), 2);
 
-        // However, the edges will remain because they aren't duplicates
-        // in terms of the list provided, and they don't have zero length.
-        assert_eq!(graph.edges.len(), 2);
-        assert_eq!(graph.directed_edges.len(), 4);
+        // Coincident XY edges are dissolved while all source IDs are retained.
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.directed_edges.len(), 2);
+        assert_eq!(graph.edges[0].sources.line_ids.as_slice(), &[0, 1]);
 
         // Verify that the edges point to the same two nodes.
         // We sort the src, dst to safely verify the topology.
         let mut n1 = [graph.directed_edges[0].src, graph.directed_edges[0].dst];
-        let mut n2 = [graph.directed_edges[2].src, graph.directed_edges[2].dst];
         n1.sort_unstable();
-        n2.sort_unstable();
+        assert_ne!(n1[0], n1[1]);
+    }
 
-        assert_eq!(n1, n2);
+    #[test]
+    fn test_incremental_edges_merge_and_remove_sources() {
+        use crate::types::Coord3D;
+
+        let mut graph = PlanarGraph::new();
+        let start = Coord3D::new(0.0, 0.0, 0.0);
+        let end = Coord3D::new(1.0, 0.0, 0.0);
+        let first = graph.add_line(Line3D::new(start, end, 10));
+        let second = graph.add_line(Line3D::new(end, start, 20));
+
+        assert_eq!(first, second);
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.edges[0].sources.line_ids.as_slice(), &[10, 20]);
+
+        assert!(graph.remove_line_by_id(10));
+        assert!(!graph.edges[0].deleted);
+        assert_eq!(graph.edges[0].line.line_id, 20);
+        assert!(graph.remove_line_by_id(20));
+        assert!(graph.edges[0].deleted);
     }
 
     #[test]

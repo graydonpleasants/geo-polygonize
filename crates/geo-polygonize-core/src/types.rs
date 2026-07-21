@@ -1,4 +1,5 @@
 use geo_types::{Coord, Line, LineString, Polygon};
+use smallvec::SmallVec;
 use std::ops::{Add, Mul, Sub};
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
@@ -49,6 +50,35 @@ pub struct Line3D {
     pub start: Coord3D,
     pub end: Coord3D,
     pub line_id: u32,
+}
+
+/// Sorted, unique input line identifiers contributing to a graph edge.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EdgeSources {
+    pub line_ids: SmallVec<[u32; 2]>,
+}
+
+impl EdgeSources {
+    pub fn from_line_id(line_id: u32) -> Self {
+        Self {
+            line_ids: SmallVec::from_slice(&[line_id]),
+        }
+    }
+
+    pub fn merge_line_id(&mut self, line_id: u32) {
+        match self.line_ids.binary_search(&line_id) {
+            Ok(_) => {}
+            Err(index) => self.line_ids.insert(index, line_id),
+        }
+    }
+
+    pub fn remove_line_id(&mut self, line_id: u32) -> bool {
+        let Ok(index) = self.line_ids.binary_search(&line_id) else {
+            return false;
+        };
+        self.line_ids.remove(index);
+        true
+    }
 }
 
 impl PartialEq for Line3D {
@@ -113,6 +143,8 @@ pub struct Polygon3D {
     pub exterior_ids: Vec<u32>,
     pub interiors_ids: Vec<Vec<u32>>,
     pub provenance: Option<PolygonProvenance>,
+    #[serde(skip)]
+    pub(crate) boundary_source_line_ids: Vec<u32>,
 }
 
 impl Polygon3D {
@@ -128,7 +160,14 @@ impl Polygon3D {
             exterior_ids,
             interiors_ids,
             provenance: None,
+            boundary_source_line_ids: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_boundary_source_line_ids(&mut self, mut line_ids: Vec<u32>) {
+        line_ids.sort_unstable();
+        line_ids.dedup();
+        self.boundary_source_line_ids = line_ids;
     }
 
     pub fn to_polygon_2d(&self) -> Polygon<f64> {

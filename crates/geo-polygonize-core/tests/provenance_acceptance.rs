@@ -74,7 +74,7 @@ struct ProvenanceFixture {
 
 fn run_provenance_test(path: &Path) {
     let content = fs::read_to_string(path).expect("Failed to read fixture file");
-    let mut fixture: ProvenanceFixture =
+    let fixture: ProvenanceFixture =
         serde_json::from_str(&content).expect("Failed to parse fixture");
 
     let input_lines: Vec<Line3D> = fixture.inputs.iter().map(|l| l.into()).collect();
@@ -115,19 +115,46 @@ fn run_provenance_test(path: &Path) {
             .collect(),
     };
 
-    if let Some(ref expected) = fixture.expected {
-        assert_eq!(
-            &actual_result, expected,
-            "Mismatch in fixture {}",
-            fixture.name
-        );
-    } else {
-        // Bootstrap the fixture
-        fixture.expected = Some(actual_result);
-        let output = serde_json::to_string_pretty(&fixture).unwrap();
-        fs::write(path, output).unwrap();
-        println!("Bootstrapped expected output for {}", fixture.name);
-    }
+    let expected = fixture
+        .expected
+        .as_ref()
+        .unwrap_or_else(|| panic!("Missing mandatory expected output for {}", fixture.name));
+    assert_eq!(
+        &actual_result, expected,
+        "Mismatch in fixture {}",
+        fixture.name
+    );
+}
+
+#[test]
+fn collinear_overlap_preserves_every_boundary_source() {
+    let coord = |x, y| Coord3D::new(x, y, 0.0);
+    let lines = vec![
+        Line3D::new(coord(0.0, 0.0), coord(10.0, 0.0), 100),
+        Line3D::new(coord(10.0, 0.0), coord(10.0, 10.0), 101),
+        Line3D::new(coord(10.0, 10.0), coord(0.0, 10.0), 102),
+        Line3D::new(coord(0.0, 10.0), coord(0.0, 0.0), 103),
+        Line3D::new(coord(2.0, 0.0), coord(8.0, 0.0), 200),
+    ];
+    let options = PolygonizerOptions {
+        node_input: true,
+        provenance: ProvenanceOptions {
+            enabled: true,
+            include_boundary_line_ids: true,
+        },
+        ..PolygonizerOptions::default()
+    };
+
+    let result = polygonize(lines, &options).unwrap();
+    assert_eq!(result.polygons.len(), 1);
+    assert_eq!(
+        result.polygons[0]
+            .provenance
+            .as_ref()
+            .unwrap()
+            .boundary_line_ids,
+        vec![100, 101, 102, 103, 200]
+    );
 }
 
 #[test]

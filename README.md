@@ -149,6 +149,10 @@ The default return shape is a stable dictionary with `polygons` as
 `SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
 `Polygon` objects.
 
+When provenance is enabled, coincident and partially overlapping input lines
+are dissolved into one topology edge while every contributing nonzero
+`line_id` remains in the polygon's sorted `boundary_line_ids`.
+
 `SnapStrategy::Grid` keeps topology and output coordinates on a configured
 fixed precision grid. The CFB profile uses `GeosCompat`: the grid establishes robust
 topology, then output nodes regain deterministic source coordinates to better

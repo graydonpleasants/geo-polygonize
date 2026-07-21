@@ -43,6 +43,9 @@ impl ValidatingNoder {
             candidates.sort_unstable();
             for second_index in candidates {
                 let second = &lines[second_index];
+                if same_segment_xy(first, second) {
+                    continue;
+                }
                 match line_intersection(first.to_line_2d(), second.to_line_2d()) {
                     Some(LineIntersection::SinglePoint {
                         intersection,
@@ -80,6 +83,13 @@ impl ValidatingNoder {
 
         Ok(())
     }
+}
+
+fn same_segment_xy(first: &Line3D, second: &Line3D) -> bool {
+    ((first.start.x == second.start.x && first.start.y == second.start.y)
+        && (first.end.x == second.end.x && first.end.y == second.end.y))
+        || ((first.start.x == second.end.x && first.start.y == second.end.y)
+            && (first.end.x == second.start.x && first.end.y == second.start.y))
 }
 
 fn envelope(line: &Line3D) -> AABB<[f64; 2]> {
@@ -145,5 +155,11 @@ mod tests {
     fn rejects_collinear_overlap() {
         let lines = [line((0.0, 0.0), (2.0, 0.0)), line((1.0, 0.0), (3.0, 0.0))];
         assert!(ValidatingNoder::new().validate(&lines).is_err());
+    }
+
+    #[test]
+    fn accepts_coincident_segments_as_source_carriers() {
+        let lines = [line((0.0, 0.0), (2.0, 0.0)), line((2.0, 0.0), (0.0, 0.0))];
+        ValidatingNoder::new().validate(&lines).unwrap();
     }
 }
