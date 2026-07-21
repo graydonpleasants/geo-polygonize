@@ -170,10 +170,8 @@ impl PreparedRing {
 }
 
 pub struct ContainmentForest {
-    pub tree: RStarBackend,
-    pub simd_shells: Vec<Option<SimdRing>>,
-    // Cache exterior areas to avoid O(N) recalculations of `exterior_unsigned_area_2d()` inside the tree intersection loops.
-    pub shell_areas: Vec<Option<f64>>,
+    pub(crate) tree: RStarBackend,
+    pub(crate) simd_shells: Vec<Option<SimdRing>>,
     prepared_shells: Vec<PreparedRing>,
 }
 
@@ -218,9 +216,7 @@ impl ContainmentForest {
 
         let mut prepared_shells = Vec::with_capacity(shells.len());
         let mut simd_shells = Vec::with_capacity(shells.len());
-        let mut shell_areas = Vec::with_capacity(shells.len());
         for (prepared, locator) in prepared_and_locators {
-            shell_areas.push(Some(prepared.signed_area.abs()));
             prepared_shells.push(prepared);
             simd_shells.push(Some(locator));
         }
@@ -236,7 +232,6 @@ impl ContainmentForest {
         Self {
             tree,
             simd_shells,
-            shell_areas,
             prepared_shells,
         }
     }

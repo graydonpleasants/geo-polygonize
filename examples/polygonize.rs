@@ -1,5 +1,5 @@
 use clap::Parser;
-use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::PolygonizerOptions;
 use geo_polygonize_core::{polygonize, Line3D};
 use geo_types::Geometry as GeoGeometry;
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};

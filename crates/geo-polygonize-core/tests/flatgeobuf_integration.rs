@@ -5,7 +5,7 @@ use flatgeobuf::{
 };
 use geo::Area;
 use geo_polygonize_core::flatgeobuf_api::polygonize_flatgeobuf_file;
-use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::PolygonizerOptions;
 use geo_traits::to_geo::ToGeoGeometry;
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};

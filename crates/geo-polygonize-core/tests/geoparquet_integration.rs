@@ -2,7 +2,7 @@
 
 use arrow::record_batch::RecordBatch;
 use geo_polygonize_core::geoparquet_api::polygonize_geoparquet_file;
-use geo_polygonize_core::options::PolygonizerOptions;
+use geo_polygonize_core::PolygonizerOptions;
 use geoarrow::array::{GeoArrowArray, PolygonArray};
 use geoarrow::datatypes::Metadata;
 use geoparquet::reader::{GeoParquetReaderBuilder, GeoParquetRecordBatchReader};

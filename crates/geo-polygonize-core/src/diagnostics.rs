@@ -1,4 +1,3 @@
-pub use crate::options::DiagnosticsOptions;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 

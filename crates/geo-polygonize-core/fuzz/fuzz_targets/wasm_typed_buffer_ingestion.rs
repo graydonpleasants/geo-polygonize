@@ -1,6 +1,6 @@
 #![no_main]
 
-use geo_polygonize_core::types::{Coord3D, Line3D};
+use geo_polygonize_core::{Coord3D, Line3D};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -30,6 +30,6 @@ fuzz_target!(|data: &[u8]| {
         });
     }
 
-    let options = geo_polygonize_core::options::PolygonizerOptions::default();
-    let _ = geo_polygonize_core::polygonizer::polygonize(lines.iter().copied(), &options);
+    let options = geo_polygonize_core::PolygonizerOptions::default();
+    let _ = geo_polygonize_core::polygonize(lines.iter().copied(), &options);
 });

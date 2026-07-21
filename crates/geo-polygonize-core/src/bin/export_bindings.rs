@@ -1,4 +1,4 @@
-use geo_polygonize_core::options::*;
+use geo_polygonize_core::*;
 use ts_rs::TS;
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
     let _ = OutputFilterOptions::export_all(&config);
     let _ = ContainmentOptions::export_all(&config);
     let _ = DeterminismOptions::export_all(&config);
-    let _ = geo_polygonize_core::diagnostics::DiagnosticsOptions::export_all(&config);
+    let _ = geo_polygonize_core::DiagnosticsOptions::export_all(&config);
     let _ = ProvenanceOptions::export_all(&config);
     let _ = DedupPolicy::export_all(&config);
 }

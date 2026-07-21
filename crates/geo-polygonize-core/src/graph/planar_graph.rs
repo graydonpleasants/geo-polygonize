@@ -29,38 +29,36 @@ pub(crate) struct ExtractedRing {
 
 /// An undirected edge in the planar graph.
 #[derive(Clone, Debug)]
-pub struct Edge {
+pub(crate) struct Edge {
     /// The geometry of the edge.
     /// In JTS this might be a full LineString, but for the graph we mainly care about connectivity.
     /// We store Line to reduce heap allocations compared to LineString.
-    pub line: Line3D,
+    pub(crate) line: Line3D,
     /// All input lines that contribute to this geometric edge.
-    pub sources: EdgeSources,
+    pub(crate) sources: EdgeSources,
     /// Indices of the two directed edges associated with this undirected edge.
-    pub dir_edges: [DirEdgeId; 2],
+    pub(crate) dir_edges: [DirEdgeId; 2],
     /// Flag indicating if the edge is marked (e.g. visited or pruned).
-    pub is_marked: bool,
+    pub(crate) is_marked: bool,
     /// Flag indicating if the edge has been dynamically deleted.
-    pub deleted: bool,
+    pub(crate) deleted: bool,
 }
 
 /// A directed half-edge in the planar graph.
 #[derive(Clone, Debug)]
-pub struct DirectedEdge {
+pub(crate) struct DirectedEdge {
     /// Source node index.
-    pub src: NodeId,
+    pub(crate) src: NodeId,
     /// Destination node index.
-    pub dst: NodeId,
+    pub(crate) dst: NodeId,
     /// Reference to the parent geometry (undirected edge).
-    pub edge_idx: EdgeId,
+    pub(crate) edge_idx: EdgeId,
     /// Index of the symmetric (reverse) edge.
-    pub sym_idx: DirEdgeId,
+    pub(crate) sym_idx: DirEdgeId,
     /// Traversal state: has this edge been processed into a ring?
-    pub is_visited: bool,
+    pub(crate) is_visited: bool,
     /// Is this edge explicitly marked (e.g. as part of a dangle).
-    pub is_marked: bool,
-    /// Orientation in the parent LineString (true: same direction, false: opposite).
-    pub edge_direction: bool,
+    pub(crate) is_marked: bool,
 }
 
 /// A Planar Graph implementation using an arena-based index approach.
@@ -72,31 +70,31 @@ pub struct DirectedEdge {
 #[derive(Clone)]
 pub struct PlanarGraph {
     /// Node coordinates (X). Index is `NodeId`.
-    pub nodes_x: Vec<f64>,
+    pub(crate) nodes_x: Vec<f64>,
     /// Node coordinates (Y). Index is `NodeId`.
-    pub nodes_y: Vec<f64>,
+    pub(crate) nodes_y: Vec<f64>,
     /// Node coordinates (Z). Index is `NodeId`.
-    pub nodes_z: Vec<f64>,
+    pub(crate) nodes_z: Vec<f64>,
     /// Node adjacency lists. Index is `NodeId`.
     /// Stores the list of outgoing `DirEdgeId`s for each node.
-    pub nodes_outgoing: Vec<Vec<DirEdgeId>>,
+    pub(crate) nodes_outgoing: Vec<Vec<DirEdgeId>>,
     /// Node connectivity degrees. Index is `NodeId`.
-    pub nodes_degree: Vec<usize>,
+    pub(crate) nodes_degree: Vec<usize>,
     /// Node marked flags. Index is `NodeId`.
-    pub nodes_marked: Vec<bool>,
+    pub(crate) nodes_marked: Vec<bool>,
 
     /// All undirected edges (geometry owners). Index is `EdgeId`.
-    pub edges: Vec<Edge>,
+    pub(crate) edges: Vec<Edge>,
     /// All directed half-edges. Index is `DirEdgeId`.
-    pub directed_edges: Vec<DirectedEdge>,
+    pub(crate) directed_edges: Vec<DirectedEdge>,
     /// Lookup map to dedup nodes during construction.
     /// OPTIMIZATION: Used only for incremental additions. Bulk load bypasses this.
-    pub node_map: HashMap<NodeKey, NodeId>,
+    pub(crate) node_map: HashMap<NodeKey, NodeId>,
 }
 
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct NodeKey(i64, i64);
+pub(crate) struct NodeKey(i64, i64);
 
 impl From<Coord<f64>> for NodeKey {
     fn from(c: Coord<f64>) -> Self {
@@ -162,7 +160,6 @@ fn create_edge_components(
         sym_idx: de_v_u_idx,
         is_visited: false,
         is_marked: false,
-        edge_direction: true,
     };
 
     let de_v_u = DirectedEdge {
@@ -172,7 +169,6 @@ fn create_edge_components(
         sym_idx: de_u_v_idx,
         is_visited: false,
         is_marked: false,
-        edge_direction: false,
     };
 
     let edge = Edge {
@@ -428,7 +424,6 @@ impl PlanarGraph {
             sym_idx: de_v_u_idx,
             is_visited: false,
             is_marked: false,
-            edge_direction: true,
         };
 
         let de_v_u = DirectedEdge {
@@ -438,7 +433,6 @@ impl PlanarGraph {
             sym_idx: de_u_v_idx,
             is_visited: false,
             is_marked: false,
-            edge_direction: false,
         };
 
         self.directed_edges.push(de_u_v);

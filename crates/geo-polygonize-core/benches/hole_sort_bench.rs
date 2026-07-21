@@ -2,9 +2,9 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use geo::algorithm::indexed::IntervalTreeMultiPolygon;
 use geo::{Contains, Coord, MultiPolygon};
 use geo_polygonize_core::containment::ContainmentForest;
-use geo_polygonize_core::options::{PolygonizerOptions, TouchPolicy};
 use geo_polygonize_core::utils::simd::SimdRing;
 use geo_polygonize_core::{Coord3D, Line3D, Polygon3D, Polygonizer};
+use geo_polygonize_core::{PolygonizerOptions, TouchPolicy};
 use multiversion::multiversion;
 use std::f64::consts::PI;
 use wide::{f64x4, CmpGt};

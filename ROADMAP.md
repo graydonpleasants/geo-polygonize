@@ -14,7 +14,7 @@ By the end of this roadmap, the library should have:
 
 - deterministic, reproducible polygonization across Rust, Python, and Wasm
 - a canonical `PolygonizerOptions` schema shared across bindings
-- a stable `polygonize_with_options(options)` API across Rust, Python, and Wasm
+- stable options-object entrypoints: `polygonize` in Rust and `polygonize_with_options` in Python/Wasm
 - documented 2D/3D and precision semantics
 - focused spatial-index and noding implementations
 - a containment forest abstraction that centralizes shell/hole logic
@@ -218,14 +218,14 @@ pub struct PolygonizerDiagnostics {
 
 ### Deliverables
 - canonical `PolygonizerOptions`
-- stable `polygonize_with_options(options)` entrypoint in all bindings
+- stable options-object entrypoints in all bindings
 - migration path from legacy positional and field-based APIs
 - explicit policy enums
 - diagnostics and provenance toggles
 - compatibility-oriented snap strategies
 
 ### 1.1 Stable Options-Object API
-- [x] Introduce `polygonize_with_options(options)` in Rust, Python, and Wasm.
+- [x] Introduce `polygonize` in Rust and `polygonize_with_options(options)` in Python/Wasm.
 - [x] Keep positional APIs as wrappers.
 
 ### 1.2 Canonical Options Schema
@@ -403,7 +403,7 @@ pub struct IPoint {
 7. remove obvious clone/allocation waste
 
 ## Second wave
-8. stable `polygonize_with_options(options)` across bindings
+8. stable options-object entrypoints across bindings
 9. optional `line_ids` + provenance payload
 10. `SnapStrategy` with `grid` and `geos_compat`
 11. parametric split accumulation
@@ -498,7 +498,7 @@ pub struct IPoint {
 The roadmap is complete when:
 
 - every public binding can express the same core behavior through `PolygonizerOptions`
-- every public binding exposes `polygonize_with_options(options)`
+- every public binding exposes its documented options-object entrypoint
 - legacy positional APIs are preserved as wrappers
 - deterministic mode is stable and covered by goldens
 - precision and Z semantics are explicit and documented
@@ -526,7 +526,7 @@ The roadmap is complete when:
 
 ## Milestone M2: Stable Options API + Provenance Surface
 - [x] canonical `PolygonizerOptions`
-- [x] `polygonize_with_options(options)` in Rust/Python/Wasm
+- [x] `polygonize` in Rust and `polygonize_with_options(options)` in Python/Wasm
 - [x] legacy API wrappers
 - [x] optional `line_ids`
 - [x] `input_profile_id` passthrough
