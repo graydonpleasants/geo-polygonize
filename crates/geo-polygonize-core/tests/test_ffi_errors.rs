@@ -1,3 +1,5 @@
+#![cfg(feature = "arrow")]
+
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
 

@@ -8,11 +8,13 @@
 //! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
 //! - **Wasm**: Optimized for WebAssembly environments.
 
+#[cfg(feature = "arrow")]
 pub mod arrow_api;
 #[doc(hidden)]
 pub mod containment;
 mod diagnostics;
 mod error;
+#[cfg(feature = "arrow")]
 pub mod ffi;
 // Kept compiler-public for the repository's microbenchmarks; not a supported API.
 #[doc(hidden)]
