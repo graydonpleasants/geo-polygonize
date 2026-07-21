@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.42.0...geo-polygonize-v0.43.0) (2026-07-21)
+
+
+### Features
+
+* **core:** preserve provenance through edge dissolve ([#875](https://github.com/graydonpleasants/geo-polygonize/issues/875)) ([3338276](https://github.com/graydonpleasants/geo-polygonize/commit/33382763b6115e90ebcae542da7f911cec6ae0fc))
+
 ## [0.42.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.41.0...geo-polygonize-v0.42.0) (2026-07-21)
 
 
