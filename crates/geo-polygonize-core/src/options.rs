@@ -160,6 +160,19 @@ impl PolygonizerOptions {
             });
         }
 
+        if matches!(
+            self.noding.guarantee,
+            NodingGuarantee::CertifiedFixedPrecision
+        ) && (!self.node_input
+            || !matches!(self.precision_model, PrecisionModel::FixedGrid { .. })
+            || !matches!(self.noding.backend, NodingBackend::Snap)
+            || !matches!(self.snap_strategy, SnapStrategy::Grid))
+        {
+            return Err(PolygonizeError::UnsupportedOptionCombination {
+                reason: "CertifiedFixedPrecision requires node_input=true, FixedGrid precision, the Snap backend, and the Grid snap strategy".to_string(),
+            });
+        }
+
         if let Some(value) = self.output_filter.minimum_face_area {
             if !value.is_finite() || value < 0.0 {
                 return Err(PolygonizeError::InvalidArgumentType {
@@ -259,6 +272,8 @@ pub enum NodingGuarantee {
     Unchecked,
     /// Verify that the resulting segments are fully noded and normalized.
     Validate,
+    /// Use hot-pixel snap rounding and verify the fixed-grid result.
+    CertifiedFixedPrecision,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -433,6 +448,29 @@ mod tests {
             options.validate(),
             Err(PolygonizeError::UnsupportedOptionCombination { .. })
         ));
+
+        let certified = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            noding: NodingOptions {
+                guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(certified.validate().is_ok());
+        assert!(PolygonizerOptions {
+            node_input: false,
+            ..certified.clone()
+        }
+        .validate()
+        .is_err());
+        assert!(PolygonizerOptions {
+            precision_model: PrecisionModel::Floating,
+            ..certified
+        }
+        .validate()
+        .is_err());
 
         assert!(PolygonizerOptions::default().validate().is_ok());
     }

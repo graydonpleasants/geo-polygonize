@@ -35,6 +35,8 @@ assert_eq!(result.polygons.len(), 1);
 `PolygonizerOptions::default()` uses floating precision. Choose
 `PrecisionModel::FixedGrid { grid_size }` only when the input has an explicit
 grid contract; fixed precision rounds topology coordinates even without noding.
+Set `noding.guarantee` to `CertifiedFixedPrecision` for hot-pixel snap rounding;
+it requires `node_input`, fixed-grid precision, the Snap backend, and Grid output.
 
 Python users install `geo-polygonize-py` and import `geo_polygonize`:
 

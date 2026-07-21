@@ -8,6 +8,7 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 
 - **Robust Polygonization**: Extracts polygons from unstructured linework.
 - **Iterative Grid Noding (Unchecked)**: Splits and snaps dirty linework, without claiming certified snap-rounding guarantees.
+- **Certified Fixed-Precision Noding**: Optional hot-pixel snap rounding with an independent full-noding postcondition check.
 - **Hardware Acceleration**: Uses **SIMD** instructions (via `wide` crate) for critical geometric predicates like Point-in-Polygon checks.
 - **Wasm Optimized**: Tailored for WebAssembly with `talc` allocator and binary GeoArrow support.
 - **Performance**: SIMD, spatial indexing, and optional parallel execution, with checked-in benchmark tooling.
@@ -65,6 +66,9 @@ when noding is enabled and ignore it on the non-noding fast path.
 Set `options.noding.guarantee` to `NodingGuarantee::Validate` to run an
 independent full-noding check before graph construction. Validation reports the
 first pair with an interior intersection or unnormalized collinear overlap.
+Use `NodingGuarantee::CertifiedFixedPrecision` with `node_input`, `FixedGrid`,
+the `Snap` backend, and `SnapStrategy::Grid` for hot-pixel snap rounding plus
+that validation. Certified coordinates must fit exact integer grid indices.
 
 ### Output semantics
 

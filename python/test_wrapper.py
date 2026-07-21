@@ -269,6 +269,17 @@ def test_polygonize_with_options():
             options={"noding": {"guarantee": "Validate"}},
             return_polygons=False,
         )
+    certified = polygonize_with_options(
+        coords=crossing_coords,
+        offsets=crossing_offsets,
+        options={
+            "node_input": True,
+            "precision_model": {"type": "fixed_grid", "grid_size": 1.0},
+            "noding": {"guarantee": "CertifiedFixedPrecision"},
+        },
+        return_polygons=False,
+    )
+    assert certified["polygons"] == []
 
     # Check if provenance exists
     sp = result['polygons'][0]
