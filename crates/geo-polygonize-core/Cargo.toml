@@ -32,7 +32,7 @@ ts-rs = "12.0.1"
 geoparquet = { version = "0.7.0", optional = true }
 flatgeobuf = { version = "6.0.1", optional = true, default-features = false }
 geozero = { version = "0.15.1", optional = true, default-features = false, features = ["with-geo"] }
-parquet = "57.3.0"
+parquet = { version = "57.3.0", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 multiversion = "0.8.0"
@@ -52,7 +52,7 @@ dhat = "0.3.3"
 
 [features]
 default = ["parallel"]
-geoparquet = ["dep:geoparquet"]
+geoparquet = ["dep:geoparquet", "dep:parquet"]
 flatgeobuf = ["dep:flatgeobuf", "dep:geozero"]
 parallel = ["dep:rayon"]
 python = ["dep:pyo3", "dep:numpy"]
