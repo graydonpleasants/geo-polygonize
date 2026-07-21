@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.44.0...geo-polygonize-v0.45.0) (2026-07-21)
+
+
+### Features
+
+* **core:** make Z handling explicit ([#880](https://github.com/graydonpleasants/geo-polygonize/issues/880)) ([11f8e1e](https://github.com/graydonpleasants/geo-polygonize/commit/11f8e1e4d11e8991e39134f999d7170d6d9a7d0c))
+
 ## [0.44.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.43.0...geo-polygonize-v0.44.0) (2026-07-21)
 
 
