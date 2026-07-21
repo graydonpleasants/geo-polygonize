@@ -37,6 +37,10 @@ grid contract; fixed precision rounds topology coordinates even without noding.
 Set `noding.guarantee` to `CertifiedFixedPrecision` for hot-pixel snap rounding;
 it requires `node_input`, fixed-grid precision, the Snap backend, and Grid output.
 
+Topology is two-dimensional. Configure `options.z.policy` when 3D input needs
+split-vertex interpolation, nearest-endpoint reconstruction, zeroed output, or
+an error for same-XY Z conflicts.
+
 Python users install `geo-polygonize-py` and import `geo_polygonize`:
 
 ```bash

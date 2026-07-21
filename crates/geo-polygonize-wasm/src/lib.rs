@@ -562,7 +562,7 @@ fn polygonize_geoarrow_internal(
         .map_err(|e| to_js_error("ArrowError", format!("Failed to concat arrays: {e}")))?;
 
     let result_array = polygonize_arrow(combined_array.as_ref(), &field, options)
-        .map_err(|e| to_js_error("TopologyFailure", format!("Polygonization error: {e}")))?;
+        .map_err(from_polygonizer_error)?;
 
     // Serialize result to IPC
     let mut output_buffer = Vec::new();

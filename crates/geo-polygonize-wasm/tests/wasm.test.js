@@ -231,6 +231,32 @@ describe('WASM Polygonizer', () => {
         expect(numIds).toBe(5);
     });
 
+    it('should report and reject Z conflicts through buffer options', async () => {
+        await init();
+        const { polygonizeWithOptionsBuffer } = await import('../../../dist/standard/es/index.js');
+        const coords = new Float64Array([
+            0, 0, 0, 1, 0, 0,
+            1, 0, 10, 1, 1, 10,
+            1, 1, 20, 0, 1, 20,
+            0, 1, 30, 0, 0, 30,
+        ]);
+        const offsets = new Uint32Array([0, 2, 4, 6]);
+        const lineIds = new Uint32Array([10, 20, 30, 40]);
+        const options = {
+            diagnostics: { enabled: true },
+            provenance: { enabled: true },
+            z: { policy: 'InterpolateAlongEdge', conflict_tolerance: 0 },
+        };
+
+        const result = polygonizeWithOptionsBuffer(coords, offsets, 3, options, lineIds);
+        expect(result.diagnostics.z_conflicts.conflict_node_count).toBe(4);
+        expect(result.diagnostics.z_conflicts.contributing_line_ids).toEqual([10, 20, 30, 40]);
+
+        expect(() => polygonizeWithOptionsBuffer(coords, offsets, 3, {
+            z: { policy: 'ErrorOnConflict', conflict_tolerance: 0 },
+        }, lineIds)).toThrow(/Z conflict/);
+    });
+
     it('should throw error when line_ids length does not match offsets length', async () => {
         expect.assertions(2);
         await init();

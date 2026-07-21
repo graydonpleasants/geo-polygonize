@@ -21,6 +21,9 @@ pub enum PolygonizeError {
     #[error("Topology failure: {reason}")]
     TopologyFailure { reason: String },
 
+    #[error("Z conflict at ({x}, {y}) from input lines {line_ids:?}")]
+    ZConflict { x: f64, y: f64, line_ids: Vec<u32> },
+
     #[error(
         "Noding validation failed between output segments {first_segment} and {second_segment}: {reason}"
     )]

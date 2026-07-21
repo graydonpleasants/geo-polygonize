@@ -1,0 +1,25 @@
+{
+  "caseId": "same_xy_z_conflict",
+  "description": "One closed CAD boundary whose adjacent source lines disagree on Z at every XY corner.",
+  "optionsProfile": "cfb_robust_v1",
+  "stride": 3,
+  "expectedStatus": "pass",
+  "blockingForCfb": true,
+  "lines": [
+    { "id": 10, "family": "lot_line", "coords": [[0, 0, 0], [1, 0, 0]] },
+    { "id": 20, "family": "lot_line", "coords": [[1, 0, 10], [1, 1, 10]] },
+    { "id": 30, "family": "lot_line", "coords": [[1, 1, 20], [0, 1, 20]] },
+    { "id": 40, "family": "lot_line", "coords": [[0, 1, 30], [0, 0, 30]] }
+  ],
+  "expected": {
+    "polygonCount": 1,
+    "totalArea": 1,
+    "areaTolerance": 1e-6,
+    "dangleCount": 0,
+    "cutEdgeCount": 0,
+    "invalidRingCount": 0,
+    "zConflictNodeCount": 4,
+    "zConflictLineIds": [10, 20, 30, 40],
+    "boundaryLineIds": [10, 20, 30, 40]
+  }
+}

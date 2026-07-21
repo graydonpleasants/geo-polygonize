@@ -1,12 +1,14 @@
 use crate::containment::ContainmentForest;
-use crate::diagnostics::{ContainmentStats, NodingIterationStats, PolygonizerDiagnostics};
+use crate::diagnostics::{
+    ContainmentStats, NodingIterationStats, PolygonizerDiagnostics, ZConflictStats,
+};
 use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::advanced::AdvancedNoder;
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
-use crate::options::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy};
+use crate::options::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -204,7 +206,7 @@ impl Polygonizer {
     fn build_graph(
         &mut self,
         mut all_segments: Vec<Line3D>,
-        diagnostics: Option<&mut PolygonizerDiagnostics>,
+        mut diagnostics: Option<&mut PolygonizerDiagnostics>,
     ) -> Result<()> {
         self.graph.clear();
         let grid_size = self.options.precision_model.grid_size();
@@ -216,6 +218,7 @@ impl Polygonizer {
                 let (snapped, candidates) = SnapNoder::pre_snap_to_reference_vertices_with_stats(
                     &all_segments,
                     self.options.pre_snap_tolerance,
+                    self.options.z.policy,
                 );
                 all_segments = snapped;
                 pre_snap_vertex_candidates = candidates;
@@ -257,8 +260,9 @@ impl Polygonizer {
                         NodingGuarantee::CertifiedFixedPrecision
                     ) {
                         let input_segment_count = all_segments.len();
-                        let noder = HotPixelNoder::new(grid_size)?;
-                        if let Some(diagnostics) = diagnostics {
+                        let noder =
+                            HotPixelNoder::new(grid_size)?.with_z_policy(self.options.z.policy);
+                        if let Some(diagnostics) = diagnostics.as_deref_mut() {
                             let (noded, intersections, mut work_stats) =
                                 noder.node_with_stats(all_segments)?;
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
@@ -276,41 +280,42 @@ impl Polygonizer {
                         } else {
                             segments = noder.node(all_segments)?;
                         }
-                        self.graph.bulk_load(segments);
-                        return Ok(());
-                    }
-
-                    let noder = SnapNoder::new(grid_size)
-                        .with_snap_strategy(self.options.snap_strategy.clone());
-                    // ponytail: one source coordinate per snapped node preserves connectivity;
-                    // use per-line restoration only if #798 can avoid reopening gaps.
-                    let restore_coordinates =
-                        matches!(self.options.snap_strategy, SnapStrategy::GeosCompat)
-                            .then(|| restored_coordinates(&noder, &all_segments));
-                    if let Some(diagnostics) = diagnostics {
-                        let (noded, stats, mut work_stats) = noder.node_with_stats(all_segments);
-                        work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
-                        diagnostics.intersection_stats.interpolated_intersections = stats
-                            .iter()
-                            .map(|iteration| iteration.intersections_found)
-                            .sum();
-                        diagnostics.noding_iterations = stats;
-                        diagnostics.intersection_stats.exact_intersections =
-                            work_stats.exact_intersection_calls;
-                        diagnostics.noding_work_stats = work_stats;
-                        segments = noded;
                     } else {
-                        segments = noder.node(all_segments);
-                    }
-                    if let Some(coordinates) = restore_coordinates {
-                        restore_noded_coordinates(&mut segments, &coordinates);
+                        let noder = SnapNoder::new(grid_size)
+                            .with_snap_strategy(self.options.snap_strategy.clone())
+                            .with_z_policy(self.options.z.policy);
+                        // ponytail: one source XY per snapped node preserves connectivity;
+                        // use per-line restoration only if #798 can avoid reopening gaps.
+                        let restore_coordinates =
+                            matches!(self.options.snap_strategy, SnapStrategy::GeosCompat)
+                                .then(|| restored_coordinates(&noder, &all_segments));
+                        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                            let (noded, stats, mut work_stats) =
+                                noder.node_with_stats(all_segments);
+                            work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
+                            diagnostics.intersection_stats.interpolated_intersections = stats
+                                .iter()
+                                .map(|iteration| iteration.intersections_found)
+                                .sum();
+                            diagnostics.noding_iterations = stats;
+                            diagnostics.intersection_stats.exact_intersections =
+                                work_stats.exact_intersection_calls;
+                            diagnostics.noding_work_stats = work_stats;
+                            segments = noded;
+                        } else {
+                            segments = noder.node(all_segments);
+                        }
+                        if let Some(coordinates) = restore_coordinates {
+                            restore_noded_coordinates(&mut segments, &coordinates);
+                        }
                     }
                 }
                 crate::options::NodingBackend::Advanced => {
-                    let noder = AdvancedNoder::new();
-                    if let Some(diagnostics) = diagnostics {
-                        let (noded, stats, mut work_stats) =
-                            SnapNoder::new(0.0).node_with_stats(all_segments);
+                    let noder = AdvancedNoder::new().with_z_policy(self.options.z.policy);
+                    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        let (noded, stats, mut work_stats) = SnapNoder::new(0.0)
+                            .with_z_policy(self.options.z.policy)
+                            .node_with_stats(all_segments);
                         work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                         diagnostics.intersection_stats.interpolated_intersections = stats
                             .iter()
@@ -329,13 +334,24 @@ impl Polygonizer {
         } else {
             if grid_size > 0.0 {
                 let snapper = SnapNoder::new(grid_size)
-                    .with_snap_strategy(self.options.snap_strategy.clone());
+                    .with_snap_strategy(self.options.snap_strategy.clone())
+                    .with_z_policy(self.options.z.policy);
                 for line in &mut all_segments {
                     line.start = snapper.snap(line.start);
                     line.end = snapper.snap(line.end);
                 }
             }
             segments = all_segments;
+        }
+
+        let z_conflicts = reconcile_segment_z(
+            &mut segments,
+            self.options.z.policy,
+            self.options.z.conflict_tolerance,
+            self.options.provenance.enabled,
+        )?;
+        if let Some(diagnostics) = diagnostics {
+            diagnostics.z_conflicts = z_conflicts;
         }
 
         if !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked) {
@@ -487,6 +503,115 @@ fn validate_lines(lines: &[Line3D]) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct SegmentEndpoint {
+    segment: usize,
+    is_end: bool,
+    coordinate: Coord3D,
+    line_id: u32,
+}
+
+fn reconcile_segment_z(
+    segments: &mut [Line3D],
+    policy: ZPolicy,
+    tolerance: f64,
+    include_line_ids: bool,
+) -> Result<ZConflictStats> {
+    if segments
+        .iter()
+        .all(|line| line.start.z == 0.0 && line.end.z == 0.0)
+    {
+        return Ok(ZConflictStats::default());
+    }
+
+    let mut endpoints = Vec::with_capacity(segments.len() * 2);
+    for (segment, line) in segments.iter().enumerate() {
+        endpoints.push(SegmentEndpoint {
+            segment,
+            is_end: false,
+            coordinate: line.start,
+            line_id: line.line_id,
+        });
+        endpoints.push(SegmentEndpoint {
+            segment,
+            is_end: true,
+            coordinate: line.end,
+            line_id: line.line_id,
+        });
+    }
+    endpoints.sort_unstable_by(|a, b| {
+        a.coordinate
+            .x
+            .total_cmp(&b.coordinate.x)
+            .then(a.coordinate.y.total_cmp(&b.coordinate.y))
+            .then(a.line_id.cmp(&b.line_id))
+            .then(a.coordinate.z.total_cmp(&b.coordinate.z))
+            .then(a.segment.cmp(&b.segment))
+            .then(a.is_end.cmp(&b.is_end))
+    });
+
+    let mut stats = ZConflictStats::default();
+    let mut first = 0;
+    while first < endpoints.len() {
+        let coordinate = endpoints[first].coordinate;
+        let mut end = first + 1;
+        while end < endpoints.len()
+            && endpoints[end].coordinate.x == coordinate.x
+            && endpoints[end].coordinate.y == coordinate.y
+        {
+            end += 1;
+        }
+
+        let group = &endpoints[first..end];
+        let min_z = group
+            .iter()
+            .map(|endpoint| endpoint.coordinate.z)
+            .min_by(f64::total_cmp)
+            .expect("endpoint group is non-empty");
+        let max_z = group
+            .iter()
+            .map(|endpoint| endpoint.coordinate.z)
+            .max_by(f64::total_cmp)
+            .expect("endpoint group is non-empty");
+        let is_conflict = max_z - min_z > tolerance;
+
+        if is_conflict {
+            stats.conflict_node_count += 1;
+            let mut line_ids: Vec<u32> = group.iter().map(|endpoint| endpoint.line_id).collect();
+            line_ids.sort_unstable();
+            line_ids.dedup();
+            if matches!(policy, ZPolicy::ErrorOnConflict) {
+                return Err(PolygonizeError::ZConflict {
+                    x: coordinate.x,
+                    y: coordinate.y,
+                    line_ids,
+                });
+            }
+            if include_line_ids {
+                stats.contributing_line_ids.extend(line_ids);
+            }
+        }
+
+        let z = if matches!(policy, ZPolicy::Ignore) {
+            0.0
+        } else {
+            group[0].coordinate.z
+        };
+        for endpoint in group {
+            if endpoint.is_end {
+                segments[endpoint.segment].end.z = z;
+            } else {
+                segments[endpoint.segment].start.z = z;
+            }
+        }
+        first = end;
+    }
+
+    stats.contributing_line_ids.sort_unstable();
+    stats.contributing_line_ids.dedup();
+    Ok(stats)
+}
+
 fn restored_coordinates(noder: &SnapNoder, lines: &[Line3D]) -> HashMap<(u64, u64), Coord3D> {
     let mut coordinates = HashMap::with_capacity(lines.len() * 2);
     for coord in lines.iter().flat_map(|line| [line.start, line.end]) {
@@ -518,14 +643,14 @@ fn coordinate_key(coord: Coord3D) -> (u64, u64) {
 
 fn restore_noded_coordinates(lines: &mut [Line3D], coordinates: &HashMap<(u64, u64), Coord3D>) {
     for line in lines {
-        line.start = coordinates
-            .get(&coordinate_key(line.start))
-            .copied()
-            .unwrap_or(line.start);
-        line.end = coordinates
-            .get(&coordinate_key(line.end))
-            .copied()
-            .unwrap_or(line.end);
+        if let Some(restored) = coordinates.get(&coordinate_key(line.start)) {
+            line.start.x = restored.x;
+            line.start.y = restored.y;
+        }
+        if let Some(restored) = coordinates.get(&coordinate_key(line.end)) {
+            line.end.x = restored.x;
+            line.end.y = restored.y;
+        }
     }
 }
 

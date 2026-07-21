@@ -36,6 +36,10 @@ pub struct CfbExpected {
     pub cut_edge_count: usize,
     pub invalid_ring_count: usize,
     #[serde(default)]
+    pub z_conflict_node_count: usize,
+    #[serde(default)]
+    pub z_conflict_line_ids: Vec<u32>,
+    #[serde(default)]
     pub boundary_line_ids: Vec<u64>,
 }
 
@@ -122,6 +126,28 @@ pub fn run_cfb_fixture(fixture: &CfbFixture) {
             result.diagnostics.as_ref().unwrap().invalid_ring_count,
             fixture.expected.invalid_ring_count,
             "{} diagnostic invalid-ring count",
+            fixture.case_id
+        );
+        assert_eq!(
+            result
+                .diagnostics
+                .as_ref()
+                .unwrap()
+                .z_conflicts
+                .conflict_node_count,
+            fixture.expected.z_conflict_node_count,
+            "{} Z-conflict node count",
+            fixture.case_id
+        );
+        assert_eq!(
+            result
+                .diagnostics
+                .as_ref()
+                .unwrap()
+                .z_conflicts
+                .contributing_line_ids,
+            fixture.expected.z_conflict_line_ids,
+            "{} Z-conflict line IDs",
             fixture.case_id
         );
 

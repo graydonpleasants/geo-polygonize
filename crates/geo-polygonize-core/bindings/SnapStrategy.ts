@@ -4,7 +4,7 @@
  * Strategy for robust snap noding and output coordinates.
  *
  * `Grid` uses the precision grid for both topology and output coordinates.
- * `GeosCompat` uses the grid for topology, then restores one deterministic nearest source
+ * `GeosCompat` uses the grid for topology, then restores one deterministic nearest source XY
  * coordinate per snapped node. This targets Shapely-style `snap` followed by full-precision
  * noding and polygonization; it does not emulate `set_precision` output.
  *

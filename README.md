@@ -80,6 +80,19 @@ Use `NodingGuarantee::CertifiedFixedPrecision` with `node_input`, `FixedGrid`,
 the `Snap` backend, and `SnapStrategy::Grid` for hot-pixel snap rounding plus
 that validation. Certified coordinates must fit exact integer grid indices.
 
+### Z semantics
+
+Topology is always computed in XY. `ZPolicy::InterpolateAlongEdge` is the
+default and reconstructs split-vertex Z on each source edge;
+`PreferNearestEndpoint` uses the nearer endpoint, and `Ignore` emits zero Z.
+When several source edges meet at the same XY node, the graph chooses the Z
+from the lowest line ID (then the lowest Z) and reports conflicts through
+diagnostics. `ErrorOnConflict` instead returns a typed error when the difference
+exceeds `z.conflict_tolerance`.
+
+Use `Line3D` or the Python/Wasm typed-buffer APIs with `stride=3` for Z-aware
+processing. The GeoRust, GeoJSON, and current GeoArrow adapters are XY-only.
+
 ### Output semantics
 
 The polygonizer intentionally returns only valid polygonal areas that can be formed from closed cycles:
@@ -165,7 +178,7 @@ are dissolved into one topology edge while every contributing nonzero
 
 `SnapStrategy::Grid` keeps topology and output coordinates on a configured
 fixed precision grid. The CFB profile uses `GeosCompat`: the grid establishes robust
-topology, then output nodes regain deterministic source coordinates to better
+topology, then output nodes regain deterministic source XY coordinates to better
 match Shapely `snap` plus full-precision noding. It is not `set_precision`
 emulation, and exact parity is not guaranteed for many-to-one snaps.
 

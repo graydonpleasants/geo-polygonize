@@ -34,13 +34,13 @@ mod polygonizer_tests;
 
 pub use diagnostics::{
     ContainmentStats, IntersectionStats, NodingIterationStats, NodingWorkStats,
-    PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats,
+    PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
 };
 pub use error::{PolygonizeError, Result};
 pub use options::{
     ContainmentOptions, DeterminismOptions, DiagnosticsOptions, NodingBackend, NodingGuarantee,
     NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel, ProvenanceOptions,
-    SnapStrategy, TouchPolicy,
+    SnapStrategy, TouchPolicy, ZOptions, ZPolicy,
 };
 #[doc(hidden)]
 pub use options::{DedupPolicy, TileOwnershipPolicy};
