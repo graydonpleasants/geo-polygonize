@@ -12,6 +12,8 @@
 pub mod containment;
 mod diagnostics;
 mod error;
+#[doc(hidden)]
+pub mod fingerprint;
 // Kept compiler-public for the repository's microbenchmarks; not a supported API.
 #[doc(hidden)]
 pub mod graph;
@@ -36,6 +38,11 @@ pub use diagnostics::{
     PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
 };
 pub use error::{PolygonizeError, Result};
+#[doc(hidden)]
+pub use fingerprint::{
+    normalize_polygonize_error, CoordinateFingerprintV1, ErrorWitnessV1, FingerprintDiffV1,
+    NormalizedPolygonizeErrorV1, TopologyFingerprintV1, TOPOLOGY_FINGERPRINT_V1_SCHEMA_VERSION,
+};
 pub use options::{
     ContainmentOptions, DeterminismOptions, DiagnosticsOptions, NodingBackend, NodingGuarantee,
     NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel, ProvenanceOptions,
