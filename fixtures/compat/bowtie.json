@@ -1,0 +1,39 @@
+{
+  "case_id": "bowtie_expected_parity",
+  "fixture": "crates/geo-polygonize-core/tests/fixtures/dirty/bowtie.json",
+  "classification": "expected_parity",
+  "reason": "A proper crossing with an exact fixed-grid intersection should produce the same two faces.",
+  "shapely_reference": {
+    "recipe": "polygonize(unary_union(lines))",
+    "polygon_count": 2,
+    "total_area": 50.0,
+    "area_tolerance": 0.0
+  },
+  "rust_profiles": [
+    {
+      "name": "grid_unchecked",
+      "options": {
+        "node_input": true,
+        "precision_model": { "type": "fixed_grid", "grid_size": 0.000001 },
+        "snap_strategy": "Grid"
+      }
+    },
+    {
+      "name": "geos_compat_unchecked",
+      "options": {
+        "node_input": true,
+        "precision_model": { "type": "fixed_grid", "grid_size": 0.000001 },
+        "snap_strategy": "GeosCompat"
+      }
+    },
+    {
+      "name": "certified_fixed_precision",
+      "options": {
+        "node_input": true,
+        "precision_model": { "type": "fixed_grid", "grid_size": 0.000001 },
+        "snap_strategy": "Grid",
+        "noding": { "guarantee": "CertifiedFixedPrecision" }
+      }
+    }
+  ]
+}
