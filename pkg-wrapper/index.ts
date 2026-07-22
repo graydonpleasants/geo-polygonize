@@ -36,6 +36,8 @@ export * from "./bindings/TileOwnershipPolicy";
 export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
+export * from "./bindings/TopologyFingerprintV1";
+export * from "./bindings/NormalizedPolygonizeErrorV1";
 export * from "./cfb";
 
 // Override the init function
