@@ -1,0 +1,232 @@
+use geo_polygonize_core::{
+    normalize_polygonize_error, polygonize, polygonize_line_strings, polygonize_with_workspace,
+    Coord3D, DeterminismOptions, DiagnosticsOptions, Line3D, NodingGuarantee, NodingOptions,
+    PolygonizerOptions, PolygonizerWorkspace, ProvenanceOptions, TopologyFingerprintV1,
+};
+use geo_types::LineString;
+use serde::Deserialize;
+use std::path::Path;
+
+#[derive(Deserialize)]
+struct Fixture {
+    options: Option<PolygonizerOptions>,
+    inputs: Vec<FixtureLine>,
+}
+
+#[derive(Deserialize)]
+struct FixtureLine {
+    start: FixtureCoordinate,
+    end: FixtureCoordinate,
+    id: u32,
+}
+
+#[derive(Deserialize)]
+struct FixtureCoordinate {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+fn fixture(path: &str) -> (Vec<Line3D>, PolygonizerOptions) {
+    let fixture: Fixture = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(path),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let options = PolygonizerOptions {
+        determinism: DeterminismOptions {
+            canonical_sort: true,
+            canonical_ring_rotation: true,
+            stable_tie_breaks: true,
+        },
+        diagnostics: DiagnosticsOptions {
+            enabled: true,
+            ..Default::default()
+        },
+        provenance: ProvenanceOptions {
+            enabled: true,
+            include_boundary_line_ids: true,
+        },
+        ..fixture.options.unwrap_or_default()
+    };
+    (
+        fixture
+            .inputs
+            .into_iter()
+            .map(|line| {
+                Line3D::new(
+                    Coord3D::new(line.start.x, line.start.y, line.start.z),
+                    Coord3D::new(line.end.x, line.end.y, line.end.z),
+                    line.id,
+                )
+            })
+            .collect(),
+        options,
+    )
+}
+
+fn fingerprint(
+    result: &geo_polygonize_core::PolygonizerResult,
+    options: &PolygonizerOptions,
+) -> TopologyFingerprintV1 {
+    TopologyFingerprintV1::try_from_result(result, options).unwrap()
+}
+
+#[test]
+fn one_shot_and_workspace_share_the_same_fingerprint() {
+    let (lines, options) = fixture("topology/reported_outputs.json");
+    let one_shot = fingerprint(&polygonize(lines.clone(), &options).unwrap(), &options);
+    let mut workspace = PolygonizerWorkspace::new();
+    let reused = fingerprint(
+        &polygonize_with_workspace(&lines, &options, &mut workspace).unwrap(),
+        &options,
+    );
+    assert_eq!(one_shot, reused);
+}
+
+#[test]
+fn borrowed_georust_input_retains_the_owned_contract() {
+    let ring = LineString::from(vec![
+        (0.0, 0.0),
+        (4.0, 0.0),
+        (4.0, 3.0),
+        (0.0, 3.0),
+        (0.0, 0.0),
+    ]);
+    let options = PolygonizerOptions {
+        provenance: ProvenanceOptions {
+            enabled: true,
+            include_boundary_line_ids: true,
+        },
+        ..Default::default()
+    };
+    let owned = vec![
+        Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(4.0, 0.0, 0.0), 0),
+        Line3D::new(Coord3D::new(4.0, 0.0, 0.0), Coord3D::new(4.0, 3.0, 0.0), 0),
+        Line3D::new(Coord3D::new(4.0, 3.0, 0.0), Coord3D::new(0.0, 3.0, 0.0), 0),
+        Line3D::new(Coord3D::new(0.0, 3.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 0),
+    ];
+    assert_eq!(
+        fingerprint(&polygonize(owned, &options).unwrap(), &options),
+        fingerprint(
+            &polygonize_line_strings([&ring], &options).unwrap(),
+            &options
+        ),
+    );
+}
+
+#[test]
+fn permutation_and_feature_builds_keep_the_canonical_fingerprint() {
+    let (lines, options) = fixture("topology/reported_outputs.json");
+    let expected = fingerprint(&polygonize(lines.clone(), &options).unwrap(), &options);
+    let mut permuted = lines;
+    permuted.reverse();
+    assert_eq!(
+        expected,
+        fingerprint(&polygonize(permuted, &options).unwrap(), &options)
+    );
+}
+
+#[test]
+fn golden_output_families_and_provenance_are_retained() {
+    let (lines, options) = fixture("topology/reported_outputs.json");
+    let report = fingerprint(&polygonize(lines, &options).unwrap(), &options);
+    assert_eq!(report.polygons.len(), 3);
+    assert_eq!(report.dangles.len(), 1);
+    assert_eq!(report.cut_edges.len(), 1);
+    assert_eq!(report.invalid_rings.len(), 2);
+    assert_eq!(
+        report.polygons[0]
+            .provenance
+            .as_ref()
+            .unwrap()
+            .boundary_line_ids[0],
+        "0x0000000000000001"
+    );
+
+    let (lines, options) = fixture("provenance/mixed_boundary_with_profile.json");
+    let report = fingerprint(&polygonize(lines, &options).unwrap(), &options);
+    assert_eq!(report.polygons.len(), 2);
+    assert!(report
+        .polygons
+        .iter()
+        .all(|polygon| polygon.provenance.is_some()));
+    let (lines, options) = fixture("provenance/mixed_boundary_with_profile.json");
+    assert_eq!(
+        report,
+        fingerprint(&polygonize(lines, &options).unwrap(), &options)
+    );
+}
+
+#[test]
+fn z_output_is_exact_and_negative_zero_is_normalized() {
+    let (lines, options) = fixture("z/ignore_conflicts.json");
+    let report = fingerprint(&polygonize(lines, &options).unwrap(), &options);
+    assert!(report.polygons[0]
+        .exterior
+        .iter()
+        .all(|coordinate| coordinate.z == "0x0000000000000000"));
+    let synthetic = geo_polygonize_core::PolygonizerResult {
+        polygons: Vec::new(),
+        dangles: vec![vec![Coord3D::new(-0.0, -0.0, -0.0)]],
+        cut_edges: Vec::new(),
+        invalid_rings: Vec::new(),
+        diagnostics: None,
+    };
+    let coordinate = fingerprint(&synthetic, &PolygonizerOptions::default()).dangles[0][0].clone();
+    assert_eq!(coordinate.x, "0x0000000000000000");
+    assert_eq!(coordinate.y, "0x0000000000000000");
+    assert_eq!(coordinate.z, "0x0000000000000000");
+}
+
+#[test]
+fn validation_and_option_failures_normalize_deterministically() {
+    let crossing = vec![
+        Line3D::new(Coord3D::new(-1.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 1),
+        Line3D::new(Coord3D::new(0.0, -1.0, 0.0), Coord3D::new(0.0, 1.0, 0.0), 2),
+    ];
+    let validation = polygonize(
+        crossing,
+        &PolygonizerOptions {
+            noding: NodingOptions {
+                guarantee: NodingGuarantee::Validate,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    let normalized = normalize_polygonize_error(&validation);
+    assert_eq!(normalized.code, "interior_intersection");
+    assert_eq!(
+        normalized.witness.unwrap().ids,
+        ["0x0000000000000000", "0x0000000000000001"]
+    );
+
+    let options = PolygonizerOptions {
+        pre_snap_tolerance: -1.0,
+        ..Default::default()
+    };
+    let first =
+        normalize_polygonize_error(&polygonize(Vec::<Line3D>::new(), &options).unwrap_err());
+    let second =
+        normalize_polygonize_error(&polygonize(Vec::<Line3D>::new(), &options).unwrap_err());
+    assert_eq!(first, second);
+    assert_eq!(first.field.as_deref(), Some("pre_snap_tolerance"));
+}
+
+#[test]
+fn field_level_diffs_name_the_changed_value() {
+    let (lines, options) = fixture("basic/square.json");
+    let expected = fingerprint(&polygonize(lines, &options).unwrap(), &options);
+    let mut actual = expected.clone();
+    actual.polygons[0].exterior[0].x = "0x3ff0000000000000".into();
+    let diff = expected.diff(&actual).unwrap();
+    assert_eq!(diff.path, "$.polygons[0].exterior[0].x");
+    assert_eq!(diff.expected, "0x0000000000000000");
+    assert_eq!(diff.actual, "0x3ff0000000000000");
+}

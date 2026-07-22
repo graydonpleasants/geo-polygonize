@@ -110,6 +110,10 @@ the dependency notes allow it.
 
 ### P0.1 Canonical conformance harness
 
+Progress: Rust-side `TopologyFingerprintV1` and normalized errors are complete
+for the one-shot, workspace, and borrowed GeoRust paths. Python, Wasm, Arrow,
+and file-adapter execution remains open below.
+
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
 - [ ] Rust one-shot `polygonize`.
