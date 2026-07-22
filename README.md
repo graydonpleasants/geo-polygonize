@@ -121,6 +121,8 @@ use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 // let result = polygonize_arrow(&array, &field, options);
 ```
 
+The FlatGeoBuf file adapter lives in the `geo-polygonize-flatgeobuf` crate.
+
 ### Python
 
 The Python package is published as `geo-polygonize-py` and imported as `geo_polygonize`.

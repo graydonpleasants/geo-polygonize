@@ -52,6 +52,3 @@ pub use polygonizer::{
 #[doc(hidden)]
 pub use tiling::{StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer};
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
-
-#[cfg(feature = "flatgeobuf")]
-pub mod flatgeobuf_api;

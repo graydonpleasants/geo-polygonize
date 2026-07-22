@@ -48,6 +48,16 @@
         },
         {
           "type": "toml",
+          "path": "crates/geo-polygonize-flatgeobuf/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "crates/geo-polygonize-flatgeobuf/Cargo.toml",
+          "jsonpath": "$.dependencies.geo-polygonize-core.version"
+        },
+        {
+          "type": "toml",
           "path": "crates/geo-polygonize-wasm/Cargo.toml",
           "jsonpath": "$.package.version"
         },

@@ -1,9 +1,8 @@
-use crate::error::PolygonizeError;
-use crate::options::PolygonizerOptions;
-use crate::polygonizer::polygonize;
-use crate::types::{Coord3D, Line3D, Polygon3D};
 use flatgeobuf::{
     FallibleStreamingIterator, FgbCrs, FgbReader, FgbWriter, FgbWriterOptions, GeometryType,
+};
+use geo_polygonize_core::{
+    polygonize, Coord3D, Line3D, Polygon3D, PolygonizeError, PolygonizerOptions,
 };
 use geo_traits::to_geo::ToGeoGeometry;
 use std::fs::File;
