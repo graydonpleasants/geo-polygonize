@@ -3,7 +3,7 @@ use crate::error::{PolygonizeError, Result};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
-use crate::options::ZPolicy;
+use crate::options::{ExecutionPolicy, ZPolicy};
 use crate::types::{Coord3D, IPoint, Line3D};
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use rstar::AABB;
@@ -37,12 +37,38 @@ impl HotPixelNoder {
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Result<Vec<Line3D>> {
-        self.node_with_stats(lines).map(|(lines, _, _)| lines)
+        self.node_with_stats_impl(lines, None)
+            .map(|(lines, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats(
         &self,
+        lines: Vec<Line3D>,
+    ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
+        self.node_with_stats_impl(lines, None)
+    }
+
+    pub(crate) fn node_with_execution_policy(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<Vec<Line3D>> {
+        self.node_with_stats_impl(lines, Some(execution_policy))
+            .map(|(lines, _, _)| lines)
+    }
+
+    pub(crate) fn node_with_stats_and_execution_policy(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
+        self.node_with_stats_impl(lines, Some(execution_policy))
+    }
+
+    fn node_with_stats_impl(
+        &self,
         mut lines: Vec<Line3D>,
+        execution_policy: Option<&ExecutionPolicy>,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
         for line in &mut lines {
             line.start = self.snap(line.start)?;
@@ -79,7 +105,15 @@ impl HotPixelNoder {
             candidates.sort_unstable();
             for second_index in candidates {
                 work.candidate_pairs += 1;
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy
+                        .check_noding_work(work.candidate_pairs, work.exact_intersection_calls)?;
+                }
                 work.exact_intersection_calls += 1;
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy
+                        .check_noding_work(work.candidate_pairs, work.exact_intersection_calls)?;
+                }
                 match line_intersection(first.to_line_2d(), lines[second_index].to_line_2d()) {
                     Some(LineIntersection::SinglePoint { intersection, .. }) => {
                         intersections += 1;
