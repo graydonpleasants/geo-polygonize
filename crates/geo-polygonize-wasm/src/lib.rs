@@ -4,7 +4,8 @@ use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 use geo_polygonize_core::{
-    polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer, TopologyFingerprintV1,
+    polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer, PolygonizerResult,
+    TopologyFingerprintV1,
 };
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
@@ -40,46 +41,7 @@ pub fn polygonize_with_options_js(
             )
         })?;
 
-    let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {}", e)))?;
-
-    let mut polygonizer = Polygonizer::with_options(options);
-
-    match geojson {
-        GeoJson::FeatureCollection(fc) => {
-            for feature in fc.features {
-                if let Some(geom) = feature.geometry {
-                    let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                        to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
-                    })?;
-                    polygonizer.add_geometry(geo_geom);
-                }
-            }
-        }
-        GeoJson::Feature(f) => {
-            if let Some(geom) = f.geometry {
-                let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                    to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
-                })?;
-                polygonizer.add_geometry(geo_geom);
-            }
-        }
-        GeoJson::Geometry(g) => {
-            let geo_geom: geo::Geometry<f64> = g
-                .try_into()
-                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {}", e)))?;
-            polygonizer.add_geometry(geo_geom);
-        }
-    }
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
-            .unwrap_or_else(|_| {
-                Err(geo_polygonize_core::PolygonizeError::Panic(
-                    "Panic occurred in Rust core".to_string(),
-                ))
-            })
-            .map_err(from_polygonizer_error)?;
+    let result = polygonize_geojson(geojson_str, &options)?;
 
     let geometries: Vec<Geometry> = result
         .polygons
@@ -112,6 +74,65 @@ pub fn polygonize_with_options_js(
         foreign_members: None,
     })
     .to_string())
+}
+
+#[wasm_bindgen(js_name = polygonizeFingerprintWithOptions)]
+/// Returns the exact retained topology contract for a GeoJSON canonical-options call.
+pub fn polygonize_fingerprint_with_options_js(
+    geojson_str: &str,
+    options_val: JsValue,
+) -> Result<String, JsValue> {
+    let options = serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+        to_js_error(
+            "InvalidArgumentType",
+            format!("Failed to parse options: {e}"),
+        )
+    })?;
+    let result = polygonize_geojson(geojson_str, &options)?;
+    serde_json::to_string(
+        &TopologyFingerprintV1::try_from_result(&result, &options)
+            .map_err(from_polygonizer_error)?,
+    )
+    .map_err(|e| to_js_error("InternalInvariantViolation", e))
+}
+
+fn polygonize_geojson(
+    geojson_str: &str,
+    options: &geo_polygonize_core::PolygonizerOptions,
+) -> Result<PolygonizerResult, JsValue> {
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {e}")))?;
+    let mut polygonizer = Polygonizer::with_options(options.clone());
+    let mut add = |geometry: geojson::Geometry| -> Result<(), JsValue> {
+        polygonizer.add_geometry(
+            geometry
+                .try_into()
+                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {e}")))?,
+        );
+        Ok(())
+    };
+    match geojson {
+        GeoJson::FeatureCollection(collection) => {
+            for feature in collection.features {
+                if let Some(geometry) = feature.geometry {
+                    add(geometry)?;
+                }
+            }
+        }
+        GeoJson::Feature(feature) => {
+            if let Some(geometry) = feature.geometry {
+                add(geometry)?;
+            }
+        }
+        GeoJson::Geometry(geometry) => add(geometry)?,
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| polygonizer.polygonize()))
+        .unwrap_or_else(|_| {
+            Err(geo_polygonize_core::PolygonizeError::Panic(
+                "Panic occurred in Rust core".to_string(),
+            ))
+        })
+        .map_err(from_polygonizer_error)
 }
 
 #[wasm_bindgen]
