@@ -17,6 +17,9 @@ pub struct ExecutionPolicy {
     pub max_exact_intersection_calls: Option<usize>,
     pub max_split_events: Option<usize>,
     pub max_noding_iterations: Option<usize>,
+    pub max_graph_nodes: Option<usize>,
+    pub max_graph_edges: Option<usize>,
+    pub max_rings: Option<usize>,
 }
 
 impl ExecutionPolicy {
