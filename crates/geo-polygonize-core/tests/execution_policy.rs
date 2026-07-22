@@ -16,6 +16,23 @@ fn assert_limit(error: PolygonizeError, stage: &str, limit: usize, observed: usi
     ));
 }
 
+fn add_square(lines: &mut Vec<Line3D>, x: f64, y: f64, size: f64, line_id: &mut u32) {
+    let corners = [
+        Coord3D::new(x, y, 0.0),
+        Coord3D::new(x + size, y, 0.0),
+        Coord3D::new(x + size, y + size, 0.0),
+        Coord3D::new(x, y + size, 0.0),
+    ];
+    for index in 0..corners.len() {
+        lines.push(Line3D::new(
+            corners[index],
+            corners[(index + 1) % corners.len()],
+            *line_id,
+        ));
+        *line_id += 1;
+    }
+}
+
 #[test]
 fn input_limits_stop_before_polygonization() {
     let line = LineString::from(vec![(0., 0.), (1., 0.), (1., 1.)]);
@@ -297,5 +314,96 @@ fn output_limits_stop_before_returning_a_result() {
             limit: 0,
             observed,
         }) if stage == "output_coordinates" && observed > 0
+    ));
+}
+
+#[test]
+fn adversarial_inputs_hit_their_declared_budget() {
+    let mut crossings = Vec::new();
+    for index in 0..10 {
+        crossings.push(Line3D::new(
+            Coord3D::new(0.0, index as f64, 0.0),
+            Coord3D::new(10.0, 10.0 - index as f64, 0.0),
+            index,
+        ));
+    }
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            crossings,
+            &PolygonizerOptions { node_input: true, ..Default::default() },
+            &ExecutionPolicy { max_candidate_pairs: Some(0), ..Default::default() },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
+            if stage == "candidate_pairs" && observed >= 45
+    ));
+
+    let overlaps = (0..8)
+        .map(|index| {
+            Line3D::new(
+                Coord3D::new(index as f64, 0.0, 0.0),
+                Coord3D::new(index as f64 + 10.0, 0.0, 0.0),
+                index,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            overlaps,
+            &PolygonizerOptions { node_input: true, ..Default::default() },
+            &ExecutionPolicy { max_exact_intersection_calls: Some(0), ..Default::default() },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
+            if stage == "exact_intersection_calls" && observed >= 28
+    ));
+
+    let duplicate = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);
+    assert_limit(
+        polygonize_with_execution_policy(
+            vec![duplicate; 128],
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy {
+                max_input_segments: Some(32),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "input_segments",
+        32,
+        128,
+    );
+
+    let mut nested = Vec::new();
+    let mut line_id = 0;
+    for offset in 0..8 {
+        add_square(
+            &mut nested,
+            offset as f64,
+            offset as f64,
+            20.0 - 2.0 * offset as f64,
+            &mut line_id,
+        );
+    }
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            nested,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy { max_rings: Some(0), ..Default::default() },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
+            if stage == "rings" && observed >= 8
+    ));
+
+    let mut output = Vec::new();
+    for index in 0..8 {
+        add_square(&mut output, index as f64 * 3.0, 0.0, 1.0, &mut line_id);
+    }
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            output,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy { max_output_polygons: Some(0), ..Default::default() },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
+            if stage == "output_polygons" && observed >= 8
     ));
 }

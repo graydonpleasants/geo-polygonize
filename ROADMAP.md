@@ -231,6 +231,9 @@ polygons unless a future API explicitly models partial, resumable computation.
 Add adversarial tests for dense crossings, overlap explosions, extreme duplicate
 multiplicity, deeply nested rings, and output amplification.
 
+Progress: Each named adversarial family now exercises a typed execution-policy
+limit in the core regression suite.
+
 ### P0.6 Cooperative cancellation
 
 - [ ] Add cancellation checkpoints at ingest, candidate enumeration, split
