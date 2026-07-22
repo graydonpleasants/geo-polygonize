@@ -407,14 +407,14 @@ impl Polygonizer {
         // 2. Prune dangles
         let mut dangles = self.graph.prune_dangles();
 
-        // 3. Find rings (3D)
+        // 3. Remove cut edges before extracting minimal rings.
+        let mut cut_edges = self.graph.delete_cut_edges();
+
+        // 4. Find rings (3D)
         let rings_with_ids = self.graph.get_edge_rings_with_graph_ids(
             self.options.node_input,
             self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids,
         );
-
-        // 3b. Find cut edges
-        let mut cut_edges = self.graph.get_cut_edges();
 
         if let Some(ref mut d) = diag {
             d.phase_times.graph_build = get_elapsed(t_graph_build_start);

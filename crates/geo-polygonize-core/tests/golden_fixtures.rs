@@ -72,6 +72,7 @@ struct GoldenResult {
 #[derive(Serialize, Deserialize, Debug)]
 struct GoldenFixture {
     name: String,
+    node_input: Option<bool>,
     inputs: Vec<GoldenLine>,
     expected: GoldenResult,
 }
@@ -83,7 +84,7 @@ fn run_golden_test(path: &Path) {
     let input_lines: Vec<Line3D> = fixture.inputs.iter().map(|l| l.into()).collect();
 
     let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    poly.options_mut().node_input = fixture.node_input.unwrap_or(true);
     poly.options_mut().determinism = DeterminismOptions {
         canonical_sort: true,
         canonical_ring_rotation: true,
@@ -144,15 +145,9 @@ fn test_all_fixtures() {
     let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures");
-    if !base_dir.exists() {
-        return;
-    }
-
     let mut count = 0;
-    for entry in walkdir::WalkDir::new(base_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in walkdir::WalkDir::new(base_dir) {
+        let entry = entry.expect("Failed to discover golden fixtures");
         let is_json = entry
             .path()
             .extension()
@@ -168,5 +163,6 @@ fn test_all_fixtures() {
             count += 1;
         }
     }
+    assert!(count > 0, "No golden fixtures found");
     println!("Ran {} golden fixtures", count);
 }
