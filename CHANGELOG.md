@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.65.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.64.0...geo-polygonize-v0.65.0) (2026-07-22)
+
+
+### Features
+
+* **core:** cap result growth ([#956](https://github.com/graydonpleasants/geo-polygonize/issues/956)) ([b7850e4](https://github.com/graydonpleasants/geo-polygonize/commit/b7850e4e11bddbda58644230b8558f3a40c5fb07))
+
 ## [0.64.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.63.0...geo-polygonize-v0.64.0) (2026-07-22)
 
 
