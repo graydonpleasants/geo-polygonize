@@ -630,6 +630,25 @@ impl Polygonizer {
             &mut invalid_rings,
             &self.options,
         );
+        self.execution_policy.check(
+            "output_polygons",
+            self.execution_policy.max_output_polygons,
+            result.len(),
+        )?;
+        let output_coordinates = result
+            .iter()
+            .map(|polygon| {
+                polygon.exterior.len() + polygon.interiors.iter().map(Vec::len).sum::<usize>()
+            })
+            .sum::<usize>()
+            + dangles.iter().map(Vec::len).sum::<usize>()
+            + cut_edges.iter().map(Vec::len).sum::<usize>()
+            + invalid_rings.iter().map(Vec::len).sum::<usize>();
+        self.execution_policy.check(
+            "output_coordinates",
+            self.execution_policy.max_output_coordinates,
+            output_coordinates,
+        )?;
 
         if let Some(ref mut d) = diag {
             d.phase_times.containment = get_elapsed(t_containment_start);
