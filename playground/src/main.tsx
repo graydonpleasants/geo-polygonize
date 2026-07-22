@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
-import init, { polygonize } from 'geo-polygonize';
+import init, {
+  polygonizeReportWithOptions,
+  type PolygonizerOptions,
+  type TopologyFingerprintV1,
+} from 'geo-polygonize';
 import {
   Container,
   Typography,
@@ -66,6 +70,32 @@ function computeBoundingBox(geojson: any) {
   };
 }
 
+function reportToGeojson(report: TopologyFingerprintV1) {
+  const view = new DataView(new ArrayBuffer(8));
+  const coordinate = (value: { x: string; y: string }) => {
+    const number = (bits: string) => {
+      view.setBigUint64(0, BigInt(bits));
+      return view.getFloat64(0);
+    };
+    return [number(value.x), number(value.y)];
+  };
+
+  return {
+    type: 'FeatureCollection',
+    features: report.polygons.map((polygon) => ({
+      type: 'Feature',
+      properties: null,
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          polygon.exterior.map(coordinate),
+          ...polygon.interiors.map((ring) => ring.coordinates.map(coordinate)),
+        ],
+      },
+    })),
+  };
+}
+
 // --- Main App Component ---
 function App() {
   const [manifest, setManifest] = useState<ManifestEntry[]>([]);
@@ -73,6 +103,7 @@ function App() {
   const [wasmReady, setWasmReady] = useState(false);
   const [inputGeojson, setInputGeojson] = useState<any>(null);
   const [outputGeojson, setOutputGeojson] = useState<any>(null);
+  const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Options
@@ -144,6 +175,7 @@ function App() {
     );
     setInputGeojson(null);
     setOutputGeojson(null);
+    setReport(null);
     setError(null);
 
     async function loadFixture() {
@@ -179,11 +211,22 @@ function App() {
   useEffect(() => {
     if (!wasmReady || !inputGeojson) return;
     try {
-      const resultStr = polygonize(JSON.stringify(inputGeojson), nodeInput, snapGridSize);
-      setOutputGeojson(JSON.parse(resultStr));
+      const options: Partial<PolygonizerOptions> = {
+        node_input: nodeInput,
+        precision_model:
+          nodeInput && snapGridSize !== 0
+            ? { type: 'fixed_grid', grid_size: snapGridSize }
+            : { type: 'floating' },
+      };
+      const nextReport = JSON.parse(
+        polygonizeReportWithOptions(JSON.stringify(inputGeojson), options),
+      ) as TopologyFingerprintV1;
+      setReport(nextReport);
+      setOutputGeojson(reportToGeojson(nextReport));
       setError(null);
     } catch (e: any) {
       setOutputGeojson(null);
+      setReport(null);
       setError("Polygonize Error: " + e.toString());
     }
   }, [wasmReady, inputGeojson, nodeInput, snapGridSize]);
@@ -248,10 +291,13 @@ function App() {
             </Typography>
           </Paper>
 
-          {outputGeojson && (
+          {report && (
             <Paper sx={{ p: 2, mt: 3 }}>
                <Typography variant="h6">Results</Typography>
-               <Typography>Polygons found: {outputGeojson.features.length}</Typography>
+               <Typography>Polygons found: {report.polygons.length}</Typography>
+               <Typography>Dangles: {report.dangles.length}</Typography>
+               <Typography>Cut edges: {report.cut_edges.length}</Typography>
+               <Typography>Invalid rings: {report.invalid_rings.length}</Typography>
             </Paper>
           )}
         </Grid>
