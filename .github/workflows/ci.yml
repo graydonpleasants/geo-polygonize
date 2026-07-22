@@ -75,6 +75,15 @@ jobs:
       - name: Run tests
         run: cargo test --locked --verbose
 
+  release-contract:
+    name: Release Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release versions
+        run: ./scripts/check-release-versions.sh
+
   supply-chain:
     name: Supply Chain
     runs-on: ubuntu-latest
@@ -211,7 +220,7 @@ jobs:
 
   test:
     name: CI Required
-    needs: [changes, rust, supply-chain, wasm-build, js]
+    needs: [changes, rust, release-contract, supply-chain, wasm-build, js]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -220,6 +229,7 @@ jobs:
         run: |
           [ "${{ needs.changes.result }}" = "success" ]
           [ "${{ needs.rust.result }}" = "success" ]
+          [ "${{ needs.release-contract.result }}" = "success" ]
           [ "${{ needs.supply-chain.result }}" = "success" ]
           [[ "${{ needs.wasm-build.result }}" =~ ^(success|skipped)$ ]]
           [[ "${{ needs.js.result }}" =~ ^(success|skipped)$ ]]
