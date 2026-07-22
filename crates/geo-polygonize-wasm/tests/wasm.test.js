@@ -102,6 +102,36 @@ describe('WASM Polygonizer', () => {
         })).features).toHaveLength(0);
     });
 
+    it('should match the shared canonical fixture through GeoJSON and buffers', async () => {
+        const {
+            default: initModule,
+            polygonizeFingerprintWithOptions,
+            polygonizeReportWithOptions,
+            polygonizeWithOptionsBuffer,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const fixture = JSON.parse(readFileSync(
+            resolve('crates/geo-polygonize-core/tests/fixtures/conformance/axis_aligned_ring_v1.json'),
+            'utf8',
+        ));
+
+        const input = JSON.stringify(fixture.geojson);
+        const report = JSON.parse(polygonizeReportWithOptions(input, fixture.options));
+        expect(JSON.parse(polygonizeFingerprintWithOptions(input, fixture.options))).toEqual(
+            fixture.expected_fingerprint,
+        );
+        expect(report).toEqual(fixture.expected_fingerprint);
+        expect(
+            polygonizeWithOptionsBuffer(
+                new Float64Array(fixture.coords),
+                new Uint32Array(fixture.offsets),
+                fixture.stride,
+                fixture.options,
+                new Uint32Array(fixture.line_ids),
+            ).topology_fingerprint,
+        ).toEqual(fixture.expected_fingerprint);
+    });
+
     it('should handle empty input', async () => {
         await init();
         const input = {

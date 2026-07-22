@@ -242,8 +242,12 @@ fn test_all_fixtures() {
             .path()
             .components()
             .any(|c| c.as_os_str() == "provenance");
+        let is_conformance = entry
+            .path()
+            .components()
+            .any(|c| c.as_os_str() == "conformance");
 
-        if is_json && !is_provenance {
+        if is_json && !is_provenance && !is_conformance {
             run_golden_test(entry.path());
             count += 1;
         }

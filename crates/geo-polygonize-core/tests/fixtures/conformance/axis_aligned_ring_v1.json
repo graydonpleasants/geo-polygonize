@@ -1,0 +1,56 @@
+{
+  "name": "axis_aligned_ring_default_options_v1",
+  "geojson": {
+    "type": "FeatureCollection",
+    "features": [{
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [4, 0], [4, 3], [0, 3], [0, 0]]
+      }
+    }]
+  },
+  "coords": [0, 0, 4, 0, 4, 3, 0, 3, 0, 0],
+  "offsets": [0],
+  "stride": 2,
+  "line_ids": [0],
+  "options": {},
+  "expected_fingerprint": {
+    "schema_version": 1,
+    "options": {
+      "containment": { "touch_policy": "AllowPointTouchDisallowEdgeShare" },
+      "determinism": {
+        "canonical_ring_rotation": true,
+        "canonical_sort": true,
+        "stable_tie_breaks": true
+      },
+      "diagnostics": { "enabled": false, "report_mode": false, "timings": false },
+      "extract_only_polygonal": false,
+      "input_profile_id": null,
+      "node_input": false,
+      "noding": { "backend": "Snap", "guarantee": "Unchecked" },
+      "output_filter": { "minimum_face_area": null },
+      "pre_snap_tolerance": 0.0,
+      "precision_model": { "type": "floating" },
+      "provenance": { "enabled": false, "include_boundary_line_ids": false },
+      "snap_strategy": "Grid",
+      "z": { "conflict_tolerance": 0.0, "policy": "InterpolateAlongEdge" }
+    },
+    "polygons": [{
+      "exterior": [
+        { "x": "0x0000000000000000", "y": "0x0000000000000000", "z": "0x0000000000000000" },
+        { "x": "0x0000000000000000", "y": "0x4008000000000000", "z": "0x0000000000000000" },
+        { "x": "0x4010000000000000", "y": "0x4008000000000000", "z": "0x0000000000000000" },
+        { "x": "0x4010000000000000", "y": "0x0000000000000000", "z": "0x0000000000000000" },
+        { "x": "0x0000000000000000", "y": "0x0000000000000000", "z": "0x0000000000000000" }
+      ],
+      "interiors": [],
+      "exterior_edge_ids": ["0x00000000"],
+      "provenance": null
+    }],
+    "dangles": [],
+    "cut_edges": [],
+    "invalid_rings": [],
+    "diagnostics": null
+  }
+}
