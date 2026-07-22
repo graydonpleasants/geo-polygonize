@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> [!NOTE]
+> Historical planning record. The cross-binding foundation described here has
+> shipped; use the repository's `ROADMAP.md` for active work.
+
 This document translates the roadmap into concrete API, data model, migration, and testing tasks for coding agents.
 
 It is intentionally more specific than `ROADMAP.md`. The roadmap explains what we want and why. This document explains how to land it in code without unnecessary churn.
