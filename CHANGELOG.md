@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.57.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.56.0...geo-polygonize-v0.57.0) (2026-07-22)
+
+
+### Features
+
+* **python:** expose normalized adapter errors ([#933](https://github.com/graydonpleasants/geo-polygonize/issues/933)) ([dc13645](https://github.com/graydonpleasants/geo-polygonize/commit/dc136456b25a0b0a05cd73150f1d10ee7f154d16))
+
 ## [0.56.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.55.0...geo-polygonize-v0.56.0) (2026-07-22)
 
 
