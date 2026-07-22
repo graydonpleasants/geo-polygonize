@@ -1,5 +1,9 @@
 # Issue Map
 
+> [!NOTE]
+> Historical planning record. These issue slices are retained for context; use
+> the repository's `ROADMAP.md` for active work.
+
 This document turns the roadmap into implementation-sized issues with IDs, dependencies, suggested owners, and PR slicing guidance.
 
 ## Labels

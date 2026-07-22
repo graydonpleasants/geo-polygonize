@@ -1,571 +1,98 @@
 # Engineering Roadmap
 
-This document outlines the strategic improvements planned for `geo-polygonize` to make it a best-in-class geospatial kernel across Rust, Python, and WebAssembly.
-
-The roadmap is divided into four sequential phases. Each phase contains specific modules, or “agent tracks,” to allow for parallel development and minimize conflicts. The main architectural direction is to turn meaningful behavior into explicit, testable policy without exposing unused configuration.
-
-This roadmap is intentionally implementation-oriented. Each track includes concrete deliverables, dependencies, acceptance criteria, likely code touch points, and notes for safe migration.
-
----
-
-## North Star
-
-By the end of this roadmap, the library should have:
-
-- deterministic, reproducible polygonization across Rust, Python, and Wasm
-- a canonical `PolygonizerOptions` schema shared across bindings
-- stable options-object entrypoints: `polygonize` in Rust and `polygonize_with_options` in Python/Wasm
-- documented 2D/3D and precision semantics
-- focused spatial-index and noding implementations
-- a containment forest abstraction that centralizes shell/hole logic
-- deterministic tiled polygonization with robust ownership and dedup
-- provenance-aware output, including optional per-polygon boundary line attribution
-- report/debug mode that can explain output differences by policy profile and by source boundary lines
-- a documented `geos_compat` snap strategy for users targeting GEOS/Shapely parity
-- typed, actionable binding errors instead of opaque JS/Python type failures
-- phase-level diagnostics, memory profiling, and CI-grade performance baselines
-- fuzzing, metamorphic tests, and differential tests against GEOS/JTS semantics where appropriate
-
----
-
-## Guiding Principles
-
-### 1. Make policies explicit
-Anything that changes output or robustness must become a named option, not an implementation accident.
-
-This includes:
-- snap strategy
-- noding backend
-- touch policy
-- tile ownership policy
-- determinism / canonical sort policy
-- provenance / report mode behavior
-
-### 2. Keep native and Wasm semantics aligned
-Platform-specific optimizations should not require public configuration when compile-time selection is sufficient.
-
-### 3. Prefer deterministic and benchmarkable over clever
-A slower change with stable ordering, explicit diagnostics, and golden coverage is better than a faster opaque change.
-
-### 4. Add stage boundaries before major algorithm swaps
-Before swapping in new indexes or noders, isolate the pipeline stages:
-
-- ingest / normalize
-- noding
-- graph build
-- ring extraction
-- containment
-- tiled ownership / dedup
-- output flatten / serialization
-
-That makes profiling, replacement, and rollback much safer.
-
-### 5. Optimize for library consumers, not just internal kernels
-The library must expose stable, inspectable behavior across Rust, Python, and WebAssembly.
-
-This means:
-- a shared options-object API across bindings
-- typed, actionable errors at all binding boundaries
-- explicit compatibility modes where semantics differ
-- provenance and diagnostics that help downstream systems explain results and mismatches
-
----
-
-# Phase 1: Baseline & Safety
-
-**Goal**: Establish deterministic output, regression harnesses, diagnostics, binding safety, and policy scaffolding before invasive algorithmic changes.
-
-This phase is the prerequisite for every later speedup.
-
-## 1. Testing & Validation (Agent Track A)
-
-**Goal**: Build a strong correctness baseline so aggressive changes like integer snapping, new spatial indexes, provenance tracking, or containment refactors can be validated cheaply and repeatedly.
-
-### Deliverables
-- deterministic output contract
-- checked-in golden corpus
-- metamorphic/property tests
-- fuzzing entrypoints
-- stronger differential testing against GEOS/Shapely
-
-### 1.1 Deterministic Output and Canonical Ordering
-**Action**
-- Guarantee deterministic ordering of polygons, outer rings, holes, dangles, invalid rings, and provenance line ID arrays in canonical mode.
-- Add a `DeterminismOptions` block with `canonical_sort`, `canonical_ring_rotation`, and `stable_tie_breaks`.
-
-**Acceptance criteria**
-- [x] Same input produces byte-identical serialized output across repeated runs.
-- [x] Same input with segment order permuted produces identical canonical output.
-- [x] Same input on native parallel and native non-parallel builds produces equivalent canonical output.
-
-### 1.2 Golden Fixture Corpus
-**Action**
-Create:
-- `fixtures/basic/`
-- `fixtures/topology/`
-- `fixtures/dirty/`
-- `fixtures/tiling/`
-- `fixtures/z/`
-- `fixtures/provenance/`
-- `fixtures/compat/`
-- `fixtures/bench/`
-
-**Acceptance criteria**
-- [ ] Each fixture has explicit expected topology metrics.
-- [ ] Canonical-mode tests run on all fixtures.
-- [ ] Fixture corpus is reused in benches and differential tests.
-
-### 1.3 Metamorphic and Property Tests
-**Action**
-Add property tests for permutation invariance, idempotence, stability under below-grid perturbations, ring-start rotation invariance, tiled vs non-tiled equivalence where expected, and provenance stability in canonical mode.
-
-### 1.4 Fuzzing Rollout
-**Action**
-- [x] Add `cargo-fuzz` harnesses for the core pipeline, Wasm typed-buffer ingestion, Arrow/FFI ingestion, tile ownership + dedup, and provenance-enabled report mode.
-
-### 1.5 Differential Tests Update
-**Action**
-Extend the Shapely differential harness with adversarial random corpora and explicit buckets for expected parity, expected divergence, and invalid / ambiguous inputs.
-
-## 2. Security & Boundaries (Agent Track B)
-
-**Goal**: Make all language and memory boundaries explicit, panic-safe, and documented.
-
-### Deliverables
-- `SECURITY.md`
-- threat model
-- panic-safe FFI boundaries
-- documented `unsafe`
-- input validation hardening
-
-### 2.1 Security Policy and Threat Model
-- [x] Add `SECURITY.md` and document the threat model.
-
-### 2.2 Panic Safety
-- [x] Wrap FFI/Wasm/Python boundary entrypoints with panic-catching and structured error reporting.
-
-### 2.3 Unsafe Audit
-- [x] Document every `unsafe` block with invariants and rationale.
-
-### 2.4 Input Validation
-- [x] Validate Arrow offsets and lengths, Wasm typed-array buffer sizes, stride mismatches, and NaN/Inf coordinates.
-
-## 3. Allocation & Diagnostics (Agent Track C)
-
-**Goal**: Create instrumentation that tells us where time and memory go before doing the big refactors.
-
-### Deliverables
-- `PolygonizerDiagnostics`
-- phase timers
-- allocation profiling
-- instruction-count benchmarks
-- perf CI strategy
-
-### 3.1 Diagnostics Object
-```rust
-pub struct PolygonizerDiagnostics {
-	pub input_segment_count: usize,
-	pub noded_segment_count: usize,
-	pub dangle_count: usize,
-	pub cut_edge_count: usize,
-	pub ring_count: usize,
-	pub shell_count: usize,
-	pub hole_count: usize,
-	pub invalid_ring_count: usize,
-	pub flat_line_count: usize,
-	pub phase_times: PolygonizerPhaseTimes,
-	pub noding_iterations: Vec<NodingIterationStats>,
-	pub snap_stats: SnapStats,
-	pub intersection_stats: IntersectionStats,
-}
-```
-
-### 3.2 Allocation Checks
-- [x] Use `dhat-rs` for allocation regression checks.
-- [x] Use `iai-callgrind` for instruction counts / cache behavior.
-
-### 3.3 Perf Workflows
-- [x] Add a dedicated `perf` workflow with stable microbench baselines.
-
-## 4. Binding Contracts & Report Mode (Agent Track D)
-
-**Goal**: Ensure the library is debuggable and ergonomically safe from the perspective of external consumers before expanding algorithmic complexity.
-
-### Deliverables
-- typed errors in Wasm/Python
-- report/debug mode scaffolding
-- fixture-level provenance acceptance tests
-- boundary-family mismatch explainability hooks
-
-### 4.1 Typed Binding Errors
-- [x] Define structured error families and map them cleanly into Wasm and Python.
-
-### 4.2 Report / Debug Mode Scaffold
-- [x] Add a `report_mode` flag that returns structured execution metadata without changing semantics.
-
-### 4.3 Provenance Acceptance Fixtures
-- [x] Add fixtures validating mixed-boundary attribution and profile-tag passthrough.
-
----
-
-# Phase 2: Core Speed & API Normalization
-
-**Goal**: Normalize public configuration and deliver the highest-value internal improvements with low conceptual risk.
-
-## 1. API & Configuration (Agent Track A)
-
-**Goal**: Create a single, stable options-object API across Rust, Python, and Wasm, while preserving legacy positional APIs as wrappers.
-
-### Deliverables
-- canonical `PolygonizerOptions`
-- stable options-object entrypoints in all bindings
-- migration path from legacy positional and field-based APIs
-- explicit policy enums
-- diagnostics and provenance toggles
-- compatibility-oriented snap strategies
-
-### 1.1 Stable Options-Object API
-- [x] Introduce `polygonize` in Rust and `polygonize_with_options(options)` in Python/Wasm.
-- [x] Keep positional APIs as wrappers.
-
-### 1.2 Canonical Options Schema
-```rust
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct PolygonizerOptions {
-	pub node_input: bool,
-	pub snap_grid_size: f64,
-	pub extract_only_polygonal: bool,
-	pub snap_strategy: SnapStrategy,
-	pub noding: NodingOptions,
-	pub containment: ContainmentOptions,
-	pub determinism: DeterminismOptions,
-	pub diagnostics: DiagnosticsOptions,
-	pub provenance: ProvenanceOptions,
-	pub input_profile_id: Option<String>,
-}
-```
-
-### 1.3 Policy Enums
-- `NodingBackend`
-- `SnapStrategy`
-- `TouchPolicy`
-- `TileOwnershipPolicy`
-- `DedupPolicy`
-
-### 1.4 Snap Strategy Compatibility Modes
-```rust
-pub enum SnapStrategy {
-	Grid,
-	GeosCompat,
-}
-```
-
-### 1.5 Legacy Compatibility
-- [x] Keep existing fields and positional APIs as shorthands that map into `PolygonizerOptions`.
-
-## 2. Provenance & Explainability (Agent Track B)
-
-**Goal**: Make output polygons explainable to external consumers by exposing boundary lineage, caller profile tags, and structured diagnostics.
-
-### Deliverables
-- optional line ID ingestion
-- per-polygon provenance payload
-- caller-provided profile passthrough
-- diagnostics/report payload
-- mismatch explanation support
-
-### 2.1 Optional Input Line IDs
-- [x] Accept optional `line_ids` alongside linework input in all bindings.
-
-### 2.2 Per-Polygon Provenance
-```rust
-pub struct PolygonProvenance {
-	pub boundary_line_ids: Vec<u64>,
-	pub input_profile_id: Option<String>,
-}
-```
-
-### 2.3 Diagnostics Payload
-- [x] Expand diagnostics/report payload to include polygon count, dangles, invalid rings, flat lines, snapped/intersection stats, and stage timings.
-
-### 2.4 Report Mode for Hybrid Scoring / Debug
-- [x] Same fixture run with report mode can explain mismatches by profile and boundary lines.
-
-## 3. Precision and Core Noding Cleanup (Agent Track C)
-
-### 3.1 Integerized Snap-Grid
-```rust
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct IPoint {
-	pub x: i64,
-	pub y: i64,
-}
-```
-
-### 3.2 Parametric Split Accumulation
-- [x] Replace squared-distance split sorting with parametric `t` accumulation and sorting.
-
-### 3.3 Remove Avoidable Clones
-- [x] Eliminate `input_lines.clone()` when `node_input=false` and reuse buffers where safe.
-
-## 4. Observability & SIMD / Runtime Dispatch (Agent Track D)
-
-### 4.1 Kernel Benches
-- [x] Add Criterion benches for split finding, grid build, split apply, containment, hashing, and provenance-enabled report overhead.
-
-### 4.2 Runtime SIMD Dispatch
-- [ ] Add architecture-aware runtime dispatch for scalar, Wasm SIMD `v128`, x86_64 AVX2, and optionally AVX-512.
-
-### 4.3 Wasm Docs
-- [ ] Document high-level vs typed-buffer APIs, `wasm-opt`, and COOP/COEP requirements.
-
----
-
-# Phase 3: Hardening & Scale
-
-**Goal**: Introduce the heavier algorithmic and architectural improvements once correctness, observability, and policy scaffolding are in place.
-
-## 1. Scaling & Concurrency (Agent Track A)
-- [x] Parallelize `UniformGrid::new`.
-- [x] Implement adaptive regrid.
-- [x] Replace centroid-only ownership with stronger tile ownership policies.
-- [x] Add cross-tile dedup via canonical ring or edge-set hashing.
-
-## 2. Topology & Containment Forests (Agent Track B)
-- [x] Extract containment into a dedicated module.
-- [x] Build a containment forest once and reuse it for shell/hole classification.
-- [x] Implement named touch policies.
-
-## 3. Spatial Index & Advanced Noders (Agent Track C)
-- [x] Use `rstar` for containment indexing.
-- [x] Prototype optional advanced noder backend.
-
-## 4. Supply Chain, Release, and OSS Quality (Agent Track D)
-- [x] Add SBOM generation, provenance/release automation, `cargo deny`, and `cargo audit`.
-
-## 5. Compatibility Profiles & Differential Explainability (Agent Track E)
-- [x] Harden `snap_strategy=geos_compat`.
-- [x] Extend report mode so mismatches can be attributed to profile, snap strategy, touch policy, and provenance differences.
-- [ ] Add a parity-focused compatibility corpus.
-
----
-
-# Phase 4: Next-Generation Ecosystem & Extreme Scale
-
-**Goal**: Push the library beyond standard in-memory operations by integrating advanced geometric algorithms, zero-copy data standards, and massive parallelization technologies across all targets.
-
-## 1. Algorithmic State-of-the-Art (Agent Track F)
-- [ ] Implement a proven sweep-line or monotone-chain noder if exact `SnapNoder` profiling demonstrates a need.
-- [x] Retire the incomplete `Advanced` sweep prototype in favor of exact `SnapNoder` semantics.
-
-## 2. Zero-Copy & Ecosystem Integration (Agent Track F)
-- [ ] Add native zero-copy GeoArrow integration across Rust, Wasm, and Python for zero-serialization data transfer.
-- [ ] Support cloud-native geospatial formats such as GeoParquet and FlatGeobuf for streaming chunked reads/writes.
-- [ ] Build adapters for Ray, Dask, and Spark distributed computing environments.
-
-## 3. Out-of-Core Processing (Agent Track F)
-- [ ] Implement out-of-core / streaming processing for datasets larger than available RAM.
-- [ ] Support disk-backed or memory-mapped spatial indexes for streaming data flows.
-
-## 4. Next-Gen Runtime Acceleration (Agent Track F)
-- [x] Enable WebAssembly Multithreading via Web Workers and `SharedArrayBuffer` for parallel execution in the browser.
-- [ ] Investigate WebGPU and native `wgpu` compute shaders for massively parallel point-in-polygon containment and intersection tests across native and web platforms.
-
-## 5. Advanced Topology & Spatial Artifacts (Agent Track G)
-- [ ] Graph-native Boolean overlay operations (Union, Intersection, Difference) evaluated directly via topological winding rules on the noded graph, rather than re-computing intersections.
-- [ ] Shared-edge topology-preserving boundary simplification applied post-polygonization to prevent gaps/overlaps (a capability standard `geo` simplification cannot natively guarantee).
-- [ ] Direct emission of serialized web mapping formats like Mapbox Vector Tiles (MVT) and TopoJSON.
-- [ ] Robust geometry buffering (offset curves) with a noder proven correct for complex self-intersections.
-
-## 6. Incremental & Real-Time Topology (Agent Track H)
-- [ ] Stateful, incremental `Polygonizer` that allows adding or removing lines dynamically without rebuilding the entire containment forest or graph.
-- [ ] Support for delta-updates to polygon sets for interactive real-time editing applications (e.g. browser-based mapping tools).
-
-## 7. Geodesic & Non-Planar Geometry (Agent Track I)
-- [ ] Native support for geographic coordinates (longitude/latitude) using spherical/ellipsoidal algorithms rather than projecting to Cartesian planes.
-- [ ] Geodesic noding and robust intersection calculation for polar and anti-meridian geometries.
-
-## 8. Database & Embedded Analytics (Agent Track J)
-- [ ] Native DuckDB spatial extension utilizing the Wasm or native core for lightning-fast SQL-based polygonization.
-- [ ] Custom PostGIS user-defined functions (UDFs) to replace slow `ST_Polygonize` workflows with `geo-polygonize` internally.
-
----
-
-# Recommended Execution Order
-
-## First wave
-1. deterministic output + canonical sorting
-2. golden corpus + adversarial fixtures
-3. `PolygonizerDiagnostics`
-4. typed binding errors
-5. report mode scaffold
-6. canonical `PolygonizerOptions`
-7. remove obvious clone/allocation waste
-
-## Second wave
-8. stable options-object entrypoints across bindings
-9. optional `line_ids` + provenance payload
-10. `SnapStrategy` with `grid` and `geos_compat`
-11. parametric split accumulation
-12. tile ownership policies
-13. [x] parallel `UniformGrid::new`
-
-## Third wave
-14. `ContainmentForest`
-15. adaptive regrid
-16. [x] optional advanced noder
-17. hardened mismatch explainability by profile and provenance
-
-## Fourth wave
-18. sweep-line or monotone-chain noder + arbitrary-precision fallback
-19. native zero-copy GeoArrow + GeoParquet/FlatGeobuf streaming IO
-20. out-of-core / streaming processing with disk-backed spatial indexing
-21. WebAssembly Multithreading + Native WGPU acceleration
-22. Graph-native Boolean overlay, topology-preserving simplification, and MVT/TopoJSON emission
-23. Robust geometry buffering via offset curves
-
-## Fifth wave
-24. Incremental and real-time topology (stateful Polygonizer)
-25. Geodesic / Non-Planar coordinates (ellipsoidal noding and intersection)
-26. Database extensions (DuckDB extension, PostGIS UDFs)
-
----
-
-# Suggested Agent Ownership
-
-## Agent Track A
-- deterministic ordering
-- golden fixtures
-- metamorphic tests
-- canonical options schema
-- docs + migration notes
-
-## Agent Track B
-- panic-safe boundaries
-- Arrow/Wasm validation
-- integer grid internals
-- clone reduction
-
-## Agent Track C
-- diagnostics
-- Criterion / iai-callgrind / dhat integration
-- SIMD dispatch
-- perf workflows
-
-## Agent Track D
-- typed binding errors
-- report mode
-- provenance fixtures
-- cross-binding API contract
-
-## Agent Track E
-- containment forest
-- tile ownership + dedup
-- containment indexing
-- adaptive grid
-- compatibility explainability
-
-## Agent Track F
-- sweep-line noder
-- robust arbitrary-precision fallback
-- zero-copy GeoArrow / GeoParquet / FlatGeobuf IO
-- out-of-core processing and disk-backed indexing
-- WebAssembly multi-threading
-- GPU / WebGPU `wgpu` compute shader acceleration
-
-## Agent Track G
-- graph-native boolean operations via winding rules
-- shared-edge topology-preserving boundary simplification
-- TopoJSON / Mapbox Vector Tile generation
-- Robust geometry buffering
-
-## Agent Track H
-- stateful incremental polygonizer
-- delta-updates for interactive editing
-
-## Agent Track I
-- native spherical/ellipsoidal algorithms
-- geodesic noding and intersection handling
-
-## Agent Track J
-- DuckDB spatial extension
-- PostGIS UDFs
-
----
-
-# Done Definition
-
-The roadmap is complete when:
-
-- every public binding can express the same core behavior through `PolygonizerOptions`
-- every public binding exposes its documented options-object entrypoint
-- legacy positional APIs are preserved as wrappers
-- deterministic mode is stable and covered by goldens
-- precision and Z semantics are explicit and documented
-- tiled and non-tiled behavior is predictable under named policies
-- provenance-aware output is available when requested
-- report mode can explain mismatches by profile and by boundary lines
-- `geos_compat` is documented with clear scale guidance and known semantic differences
-- Wasm/Python return typed, actionable errors for invalid inputs
-- containment logic is centralized
-- native and Wasm have target-appropriate backends
-- perf regressions are caught by diagnostics and CI-grade measurement
-- fuzzing and differential testing run continuously
-
----
-
-# Short-Term Milestone Plan
-
-## Milestone M1: Deterministic Baseline + Binding Safety
-- [x] canonical sort mode
-- [x] checked-in fixtures
-- [x] golden tests
-- [x] first diagnostics object
-- [x] typed Wasm/Python errors
-- [x] initial report mode scaffold
-
-## Milestone M2: Stable Options API + Provenance Surface
-- [x] canonical `PolygonizerOptions`
-- [x] `polygonize` in Rust and `polygonize_with_options(options)` in Python/Wasm
-- [x] legacy API wrappers
-- [x] optional `line_ids`
-- [x] `input_profile_id` passthrough
-- [x] initial per-polygon provenance payload
-
-## Milestone M3: Precision and Hot Path Cleanup
-- [x] `SnapStrategy` with `grid` and `geos_compat`
-- [x] parametric split accumulation
-- [x] clone reduction
-- [x] integer snap-grid prototype
-- [x] per-kernel benches
-
-## Milestone M4: Tiling + Containment + Explainability
-- [x] tile ownership policies
-- [x] containment forest
-- [x] touch policies
-- [x] cross-tile dedup
-- [x] report mode explains mismatches by profile and provenance
-
-## Milestone M5: Native Scale Features + Compatibility Hardening
-- [x] `rstar` containment index
-- [x] adaptive regrid
-- [x] optional advanced noder prototype
-- [x] hardened `geos_compat` mode with scale guidance
-
-## Milestone M6: Ecosystem Integrations & Extreme Scale
-- [ ] proven advanced noder with measured scaling beyond exact `SnapNoder`
-- [ ] native zero-copy GeoArrow, GeoParquet, and FlatGeobuf IO across Rust, Wasm, Python
-- [ ] out-of-core chunked execution pipeline with disk-backed spatial indexing
-- [x] WebAssembly multithreading with `SharedArrayBuffer` and Web Workers
-- [ ] native `wgpu` compute shaders for massively parallel point-in-polygon tests
-
-## Milestone M7: Advanced Topology & Spatial Artifacts
-- [ ] post-polygonization Boolean operations directly via topological winding rules
-- [ ] shared-edge topology-preserving boundary simplification to prevent overlaps/gaps natively
-- [ ] direct emission of TopoJSON and Mapbox Vector Tiles (MVT)
-- [ ] Robust geometry buffering (offset curves)
-
-## Milestone M8: Real-Time, Global, and Database Integration
-- [ ] Stateful, incremental `Polygonizer` for real-time interactive mapping
-- [ ] Geodesic and spherical noding/intersections
-- [ ] DuckDB extension and PostGIS UDF wrappers
+This is the current, evidence-gated roadmap for `geo-polygonize`. The original
+phase plan has been delivered where noted below; its detailed implementation
+and issue plans are retained as historical records, not active commitments.
+
+## Delivered
+
+The releases from `0.40.0` through `0.51.2` established the supported
+foundation:
+
+- stateless one-shot polygonization and reusable allocation-only workspaces;
+- one validated, serde-defaulted `PolygonizerOptions` schema across Rust,
+  Python, and Wasm;
+- finite-coordinate validation and scale-independent topology validity, with
+  explicit optional minimum-area filtering;
+- explicit floating and fixed precision models, full-noding validation, and
+  certified hot-pixel noding alongside iterative grid noding, which remains
+  documented as unchecked;
+- deterministic output, strict read-only golden comparisons, typed binding
+  errors, diagnostics, provenance, and explicit Z policies;
+- experimental tiled polygonization with named ownership/dedup policies,
+  collision-safe canonical deduplication, deterministic output, and outcome
+  reporting;
+- dedicated core, Arrow/GeoArrow/GeoParquet, Python, and FlatGeoBuf adapter
+  crates;
+- native and Wasm benchmarks, fuzzing, differential tests, supply-chain
+  checks, release provenance, and documented Wasm deployment requirements.
+
+## Next
+
+Work these in order. Each item should remain a small, independently releasable
+change.
+
+### 1. Broaden the golden corpus
+
+- [ ] Add explicit expected topology metrics to every golden fixture.
+- [ ] Cover dirty inputs, tiling, Z policy, compatibility, and benchmark-sized
+  inputs in addition to the existing basic, topology, and provenance cases.
+- [ ] Reuse the same fixtures in canonical, benchmark, and differential paths
+  where their contracts overlap.
+
+Done means a missing expected result fails, all result families (including cut
+edges and provenance) are compared, and every checked-in golden runs in
+canonical mode. The harness already enforces read-only expected results and
+full result-family comparisons; the remaining work is breadth, explicit metric
+fields, and reuse.
+
+### 2. Add a compatibility corpus
+
+- [ ] Classify cases as expected parity, expected divergence, or invalid /
+  ambiguous input.
+- [ ] Record GEOS/Shapely comparison results without turning compatibility
+  observations into unsupported robustness guarantees.
+- [ ] Exercise `grid`, `geos_compat`, and certified fixed-precision policies on
+  the same inputs.
+
+Done means regressions can be distinguished from documented semantic
+differences without relying on ad hoc generated cases.
+
+### 3. Measure before optimizing
+
+- [ ] Compare scalar and existing portable-SIMD kernels on supported native
+  targets using the checked-in benchmarks.
+- [ ] Add architecture-aware runtime dispatch only if those measurements show
+  a repeatable end-to-end win large enough to justify the maintenance cost.
+
+Wasm SIMD feature selection already exists. This item concerns native runtime
+dispatch; AVX2, AVX-512, or GPU backends are not commitments.
+
+## Evidence-gated later work
+
+These are valid directions, but none should begin without a concrete consumer,
+representative data, and a measured limitation in the current implementation:
+
+- production tiling equivalence and recovery contracts;
+- streaming or out-of-core processing;
+- deeper zero-copy paths across Rust, Python, and Wasm;
+- distributed-compute and database adapters;
+- a different advanced noder after exact `SnapNoder` profiling demonstrates a
+  scaling problem;
+- graph-native overlay, topology-preserving simplification, buffering, or
+  direct MVT/TopoJSON emission;
+- incremental topology, geodesic algorithms, or GPU compute.
+
+Crate splitting is complete for the current adapters. New crates should follow
+only from a real dependency boundary, not from this list.
+
+## Invariants for all future work
+
+- Keep core behavior expressible through the canonical options schema across
+  Rust, Python, and Wasm.
+- Preserve deterministic canonical output and structured, actionable errors.
+- Treat tiled polygonization as experimental until its documented equivalence
+  and error-reporting limits are closed.
+- Do not claim robustness beyond the selected noding policy's checked
+  postconditions.
+- Add the smallest regression check that would have caught each bug.

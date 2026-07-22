@@ -17,7 +17,7 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 
 ## Engineering Roadmap
 
-For an ambitious, prioritized plan covering performance, security, API consistency, and maintainability, see [ROADMAP.md](ROADMAP.md).
+For delivered foundations and the next evidence-gated work, see [ROADMAP.md](ROADMAP.md).
 
 ## Usage
 
