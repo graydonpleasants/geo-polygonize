@@ -1,0 +1,41 @@
+{
+  "name": "z_ignore_conflicts",
+  "options": {
+    "z": { "policy": "Ignore" }
+  },
+  "inputs": [
+    { "start": { "x": 0.0, "y": 0.0, "z": 0.0 }, "end": { "x": 1.0, "y": 0.0, "z": 0.0 }, "id": 10 },
+    { "start": { "x": 1.0, "y": 0.0, "z": 10.0 }, "end": { "x": 1.0, "y": 1.0, "z": 10.0 }, "id": 20 },
+    { "start": { "x": 1.0, "y": 1.0, "z": 20.0 }, "end": { "x": 0.0, "y": 1.0, "z": 20.0 }, "id": 30 },
+    { "start": { "x": 0.0, "y": 1.0, "z": 30.0 }, "end": { "x": 0.0, "y": 0.0, "z": 30.0 }, "id": 40 }
+  ],
+  "expected_metrics": {
+    "polygon_count": 1,
+    "total_area": 1.0,
+    "area_tolerance": 0.0,
+    "dangle_count": 0,
+    "cut_edge_count": 0,
+    "invalid_ring_count": 0
+  },
+  "expected": {
+    "polygons": [
+      {
+        "exterior": [
+          { "x": 0.0, "y": 0.0, "z": 0.0 },
+          { "x": 1.0, "y": 0.0, "z": 0.0 },
+          { "x": 1.0, "y": 1.0, "z": 0.0 },
+          { "x": 0.0, "y": 1.0, "z": 0.0 },
+          { "x": 0.0, "y": 0.0, "z": 0.0 }
+        ],
+        "interiors": [],
+        "exterior_ids": [10, 20, 30, 40],
+        "interiors_ids": [],
+        "boundary_line_ids": [10, 20, 30, 40],
+        "input_profile_id": null
+      }
+    ],
+    "dangles": [],
+    "cut_edges": [],
+    "invalid_rings": []
+  }
+}
