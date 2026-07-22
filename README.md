@@ -115,6 +115,9 @@ This behavior matches classical JTS/GEOS polygonization semantics and is useful 
 Rust Arrow and GeoArrow adapters live in the `geo-polygonize-arrow` crate;
 the Wasm crate includes it automatically.
 
+For the Arrow C Data Interface ABI, including ownership and error retrieval,
+see [docs/C_ABI.md](docs/C_ABI.md).
+
 ```rust
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 // ... create Arrow array ...
