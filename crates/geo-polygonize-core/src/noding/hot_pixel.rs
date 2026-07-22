@@ -189,6 +189,9 @@ impl HotPixelNoder {
             });
             points.dedup_by(|left, right| left.x == right.x && left.y == right.y);
             work.split_events += points.len().saturating_sub(2);
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_split_events(work.split_events)?;
+            }
             output.extend(points.windows(2).filter_map(|pair| {
                 (pair[0].x != pair[1].x || pair[0].y != pair[1].y).then_some(Line3D::new(
                     pair[0],

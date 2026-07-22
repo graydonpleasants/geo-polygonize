@@ -208,15 +208,15 @@ execution policy rather than extending `PolygonizerOptions`.
 
 Progress: The core now has an opt-in, non-semantic `ExecutionPolicy` that
 rejects oversized input line-string, segment, coordinate, and noded-segment
-counts before graph construction, plus noding candidate and exact-intersection
-work before splitting.
+counts before graph construction, plus noding candidate, exact-intersection,
+split-event, and iteration work before split application.
 
 Add opt-in limits for:
 
 - [x] input line strings, segments, and coordinates;
 - [x] noded segment expansion;
 - [x] candidate pairs and exact intersection calls;
-- [ ] split events and iterative-noding passes;
+- [x] split events and iterative-noding passes;
 - [ ] graph nodes, edges, rings, polygons, and output coordinates;
 - [ ] per-stage and total trace bytes;
 - [ ] estimated working memory where a reliable bound is available.

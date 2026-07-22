@@ -15,6 +15,8 @@ pub struct ExecutionPolicy {
     pub max_noded_segments: Option<usize>,
     pub max_candidate_pairs: Option<usize>,
     pub max_exact_intersection_calls: Option<usize>,
+    pub max_split_events: Option<usize>,
+    pub max_noding_iterations: Option<usize>,
 }
 
 impl ExecutionPolicy {
@@ -30,7 +32,10 @@ impl ExecutionPolicy {
     }
 
     pub(crate) fn has_noding_work_limits(&self) -> bool {
-        self.max_candidate_pairs.is_some() || self.max_exact_intersection_calls.is_some()
+        self.max_candidate_pairs.is_some()
+            || self.max_exact_intersection_calls.is_some()
+            || self.max_split_events.is_some()
+            || self.max_noding_iterations.is_some()
     }
 
     pub(crate) fn check_noding_work(
@@ -44,6 +49,14 @@ impl ExecutionPolicy {
             self.max_exact_intersection_calls,
             exact_intersection_calls,
         )
+    }
+
+    pub(crate) fn check_split_events(&self, observed: usize) -> Result<()> {
+        self.check("split_events", self.max_split_events, observed)
+    }
+
+    pub(crate) fn check_noding_iterations(&self, observed: usize) -> Result<()> {
+        self.check("noding_iterations", self.max_noding_iterations, observed)
     }
 }
 

@@ -165,3 +165,41 @@ fn certified_noding_obeys_candidate_limit() {
         1,
     );
 }
+
+#[test]
+fn split_and_iteration_limits_stop_noding() {
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let crossing = [
+        Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(2., 2., 0.), 0),
+        Line3D::new(Coord3D::new(0., 2., 0.), Coord3D::new(2., 0., 0.), 1),
+    ];
+
+    for (policy, stage) in [
+        (
+            ExecutionPolicy {
+                max_split_events: Some(0),
+                ..Default::default()
+            },
+            "split_events",
+        ),
+        (
+            ExecutionPolicy {
+                max_noding_iterations: Some(0),
+                ..Default::default()
+            },
+            "noding_iterations",
+        ),
+    ] {
+        assert!(matches!(
+            polygonize_with_execution_policy(crossing, &options, &policy),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage: actual_stage,
+                limit: 0,
+                observed,
+            }) if actual_stage == stage && observed > 0
+        ));
+    }
+}

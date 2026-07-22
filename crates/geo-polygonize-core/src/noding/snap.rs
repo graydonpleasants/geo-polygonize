@@ -185,7 +185,11 @@ impl SnapNoder {
             self.strategy == NodingStrategy::Auto && self.auto_prefers_simd(&lines);
         let mut new_lines = Vec::new();
         let mut total_work = NodingWorkStats::default();
+        let mut split_events = 0;
         for iteration_index in 0..self.max_iter {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_noding_iterations(iteration_index + 1)?;
+            }
             let input_segment_count = lines.len();
             let use_grid = match self.strategy {
                 NodingStrategy::Auto => {
@@ -256,6 +260,10 @@ impl SnapNoder {
                 // Z should be consistent (interpolated from the same line).
             });
             let split_event_count = events.len();
+            split_events += split_event_count;
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_split_events(split_events)?;
+            }
             if let Some(work_stats) = work_stats.as_deref_mut() {
                 work_stats.split_events += split_event_count;
             }
