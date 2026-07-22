@@ -1,17 +1,22 @@
-use geo_polygonize_core::PolygonizeError;
+use geo_polygonize_core::{normalize_polygonize_error, PolygonizeError};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct PolygonizerWasmError {
     name: String,
     message: String,
+    normalized: JsValue,
 }
 
 #[wasm_bindgen]
 impl PolygonizerWasmError {
     #[wasm_bindgen(constructor)]
     pub fn new(name: String, message: String) -> PolygonizerWasmError {
-        Self { name, message }
+        Self {
+            name,
+            message,
+            normalized: JsValue::NULL,
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -22,6 +27,11 @@ impl PolygonizerWasmError {
     #[wasm_bindgen(getter)]
     pub fn message(&self) -> String {
         self.message.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn normalized(&self) -> JsValue {
+        self.normalized.clone()
     }
 }
 
@@ -44,7 +54,9 @@ pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
         PolygonizeError::Panic(_) => "Panic".to_string(),
     };
 
-    let err = PolygonizerWasmError::new(name, e.to_string());
+    let mut err = PolygonizerWasmError::new(name, e.to_string());
+    err.normalized =
+        serde_wasm_bindgen::to_value(&normalize_polygonize_error(&e)).unwrap_or(JsValue::NULL);
     JsValue::from(err)
 }
 
