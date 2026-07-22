@@ -1,5 +1,6 @@
 {
   "name": "basic_square",
+  "options": { "node_input": true },
   "inputs": [
     {
       "start": {
@@ -54,6 +55,14 @@
       "id": 4
     }
   ],
+  "expected_metrics": {
+    "polygon_count": 1,
+    "total_area": 100.0,
+    "area_tolerance": 0.0,
+    "dangle_count": 0,
+    "cut_edge_count": 0,
+    "invalid_ring_count": 0
+  },
   "expected": {
     "polygons": [
       {
