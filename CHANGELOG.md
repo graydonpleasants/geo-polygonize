@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.55.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.54.0...geo-polygonize-v0.55.0) (2026-07-22)
+
+
+### Features
+
+* **wasm:** add full topology report API ([#929](https://github.com/graydonpleasants/geo-polygonize/issues/929)) ([a01e197](https://github.com/graydonpleasants/geo-polygonize/commit/a01e197d570c7f8122d9201374b8ba2b77e1ea4d))
+
 ## [0.54.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.53.0...geo-polygonize-v0.54.0) (2026-07-22)
 
 
