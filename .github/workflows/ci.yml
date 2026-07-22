@@ -210,7 +210,7 @@ jobs:
         run: npm test
 
   test:
-    name: test
+    name: CI Required
     needs: [changes, rust, supply-chain, wasm-build, js]
     if: always()
     runs-on: ubuntu-latest
