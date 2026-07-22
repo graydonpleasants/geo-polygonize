@@ -647,25 +647,34 @@ impl PlanarGraph {
         dangles
     }
 
-    /// Returns unvisited edges (neither marked as dangle nor visited by ring extraction).
-    pub fn get_cut_edges(&self) -> Vec<Vec<Coord3D>> {
-        let mut cuts = Vec::new();
-        for edge in &self.edges {
-            if edge.deleted {
-                continue;
-            }
-            let de1 = &self.directed_edges[edge.dir_edges[0]];
-            let de2 = &self.directed_edges[edge.dir_edges[1]];
+    /// Finds and removes edges whose two directions belong to the same maximal ring.
+    pub fn delete_cut_edges(&mut self) -> Vec<Vec<Coord3D>> {
+        NEXT_POINTERS.with(|cell| {
+            let mut next_pointers = cell.borrow_mut();
+            next_pointers.clear();
+            next_pointers.resize(self.directed_edges.len(), usize::MAX);
+            self.compute_next_cw_edges(&mut next_pointers);
 
-            if de1.is_marked || de2.is_marked {
-                continue;
-            }
+            let mut labels = vec![-1_i64; self.directed_edges.len()];
+            self.find_and_label_maximal_rings(&next_pointers, &mut labels);
 
-            if !de1.is_visited && !de2.is_visited {
+            let mut cuts = Vec::new();
+            for edge in &self.edges {
+                let [forward, reverse] = edge.dir_edges;
+                if edge.deleted
+                    || self.directed_edges[forward].is_marked
+                    || self.directed_edges[reverse].is_marked
+                    || labels[forward] != labels[reverse]
+                {
+                    continue;
+                }
+
+                self.directed_edges[forward].is_marked = true;
+                self.directed_edges[reverse].is_marked = true;
                 cuts.push(vec![edge.line.start, edge.line.end]);
             }
-        }
-        cuts
+            cuts
+        })
     }
 
     /// Extracts rings from the graph following the GEOS flow.
