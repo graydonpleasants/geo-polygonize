@@ -5,6 +5,7 @@ use geo_polygonize_core::{
 };
 use geo_types::LineString;
 use serde::Deserialize;
+use serde_json::Value;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -25,6 +26,47 @@ struct FixtureCoordinate {
     x: f64,
     y: f64,
     z: f64,
+}
+
+#[derive(Deserialize)]
+struct AdapterFixture {
+    coords: Vec<f64>,
+    offsets: Vec<u32>,
+    stride: u8,
+    line_ids: Vec<u32>,
+    options: PolygonizerOptions,
+    expected_fingerprint: Value,
+}
+
+fn adapter_fixture() -> (Vec<Line3D>, PolygonizerOptions, Value) {
+    let fixture: AdapterFixture = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/conformance/axis_aligned_ring_v1.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fixture.stride, 2);
+
+    let mut lines = Vec::new();
+    for (line_index, &start) in fixture.offsets.iter().enumerate() {
+        let end = fixture
+            .offsets
+            .get(line_index + 1)
+            .copied()
+            .unwrap_or((fixture.coords.len() / fixture.stride as usize) as u32);
+        for point_index in start..end - 1 {
+            let i = point_index as usize * fixture.stride as usize;
+            let j = i + fixture.stride as usize;
+            lines.push(Line3D::new(
+                Coord3D::new(fixture.coords[i], fixture.coords[i + 1], 0.0),
+                Coord3D::new(fixture.coords[j], fixture.coords[j + 1], 0.0),
+                fixture.line_ids[line_index],
+            ));
+        }
+    }
+    (lines, fixture.options, fixture.expected_fingerprint)
 }
 
 fn fixture(path: &str) -> (Vec<Line3D>, PolygonizerOptions) {
@@ -86,6 +128,37 @@ fn one_shot_and_workspace_share_the_same_fingerprint() {
         &options,
     );
     assert_eq!(one_shot, reused);
+}
+
+#[test]
+fn shared_adapter_fixture_matches_owned_workspace_and_borrowed_paths() {
+    let (lines, options, expected) = adapter_fixture();
+    let one_shot = fingerprint(&polygonize(lines.clone(), &options).unwrap(), &options);
+    assert_eq!(serde_json::to_value(&one_shot).unwrap(), expected);
+
+    let mut workspace = PolygonizerWorkspace::new();
+    assert_eq!(
+        one_shot,
+        fingerprint(
+            &polygonize_with_workspace(&lines, &options, &mut workspace).unwrap(),
+            &options,
+        )
+    );
+
+    let ring = LineString::from(vec![
+        (0.0, 0.0),
+        (4.0, 0.0),
+        (4.0, 3.0),
+        (0.0, 3.0),
+        (0.0, 0.0),
+    ]);
+    assert_eq!(
+        one_shot,
+        fingerprint(
+            &polygonize_line_strings([&ring], &options).unwrap(),
+            &options
+        )
+    );
 }
 
 #[test]

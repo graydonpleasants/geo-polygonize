@@ -111,20 +111,20 @@ the dependency notes allow it.
 ### P0.1 Canonical conformance harness
 
 Progress: Rust-side `TopologyFingerprintV1` and normalized errors are complete
-for the one-shot, workspace, and borrowed GeoRust paths. Python canonical
-options plus Wasm typed-buffer and GeoJSON canonical-options paths expose the
-shared success fingerprint. Fixture-level cross-adapter comparison, Arrow, and
-file-adapter execution remain open; normalized core failures are exposed by
+for the one-shot, workspace, and borrowed GeoRust paths. A shared exact fixture
+now runs through those three paths, Python canonical options, and both Wasm
+canonical-options paths (GeoJSON report/fingerprint and typed buffer). Arrow
+and file-adapter execution remain open; normalized core failures are exposed by
 Python and Wasm adapters.
 
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
-- [ ] Rust one-shot `polygonize`.
-- [ ] Rust `polygonize_with_workspace`.
-- [ ] Borrowed `geo_traits` / GeoRust facade.
-- [ ] Python canonical-options API.
-- [ ] Wasm canonical-options GeoJSON API.
-- [ ] Wasm typed-buffer API.
+- [x] Rust one-shot `polygonize`.
+- [x] Rust `polygonize_with_workspace`.
+- [x] Borrowed `geo_traits` / GeoRust facade.
+- [x] Python canonical-options API.
+- [x] Wasm canonical-options GeoJSON API.
+- [x] Wasm typed-buffer API.
 - [ ] GeoArrow / Arrow IPC API.
 - [ ] Arrow C Data Interface API.
 - [ ] FlatGeobuf and GeoParquet adapters where their input contracts overlap.
@@ -159,7 +159,7 @@ result but its GeoJSON return path is polygon-only.
   rings, provenance, diagnostics, and selected options.
 - [ ] Make the playground use the canonical options/report API rather than the
   legacy positional wrapper.
-- [ ] Add TypeScript types generated from the same Rust schema and conformance
+- [x] Add TypeScript types generated from the same Rust schema and conformance
   tests for both JSON and typed-buffer paths.
 
 **Done when:** function names, generated types, docs, and runtime return values

@@ -647,6 +647,11 @@ fn polygonize_and_flatten(
     .map_err(from_polygonizer_error)?;
     let topology_fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)
         .map_err(from_polygonizer_error)?;
+    let topology_fingerprint = js_sys::JSON::parse(
+        &serde_json::to_string(&topology_fingerprint)
+            .map_err(|e| to_js_error("InternalInvariantViolation", e))?,
+    )
+    .map_err(|e| to_js_error("InternalInvariantViolation", format!("{e:?}")))?;
 
     let flatten_started = js_sys::Date::now();
     let mut flat_coords = Vec::new();
@@ -725,8 +730,7 @@ fn polygonize_and_flatten(
         cut_edges: js_cut_edges,
         invalid_rings: js_invalid_rings,
         diagnostics: js_diagnostics,
-        topology_fingerprint: serde_wasm_bindgen::to_value(&topology_fingerprint)
-            .unwrap_or(JsValue::NULL),
+        topology_fingerprint,
     })
 }
 
