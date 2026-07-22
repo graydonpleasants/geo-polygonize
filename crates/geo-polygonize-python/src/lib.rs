@@ -1,7 +1,8 @@
-use crate::error::PolygonizeError;
-use crate::polygonize as polygonize_lines;
-use crate::types::{Coord3D, Line3D};
 use numpy::{PyArray1, PyReadonlyArray1};
+use polygonize_core::{
+    polygonize as polygonize_lines, Coord3D, Line3D, PolygonizeError, PolygonizerOptions,
+    PrecisionModel,
+};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -28,35 +29,31 @@ create_exception!(
     pyo3::exceptions::PyException
 );
 
-impl std::convert::From<PolygonizeError> for PyErr {
-    fn from(err: PolygonizeError) -> PyErr {
-        match err {
-            PolygonizeError::InvalidArgumentType {
-                field,
-                expected,
-                actual,
-            } => PolygonizeTypeError::new_err(format!(
-                "Invalid argument type for {field}: expected {expected}, got {actual}"
-            )),
-            PolygonizeError::InvalidGeometry { reason } => PolygonizeGeometryError::new_err(reason),
-            PolygonizeError::InvalidBufferShape { reason } => PolygonizeTypeError::new_err(reason),
-            PolygonizeError::UnsupportedOptionCombination { reason } => {
-                PolygonizeOptionsError::new_err(reason)
-            }
-            PolygonizeError::TopologyFailure { reason } => PolygonizeTopologyError::new_err(reason),
-            err @ PolygonizeError::ZConflict { .. } => {
-                PolygonizeTopologyError::new_err(err.to_string())
-            }
-            err @ PolygonizeError::NodingValidationFailure { .. } => {
-                PolygonizeTopologyError::new_err(err.to_string())
-            }
-            PolygonizeError::InternalInvariantViolation { reason } => {
-                PyRuntimeError::new_err(reason)
-            }
-            PolygonizeError::ArrowError(msg) => PyValueError::new_err(msg),
-            PolygonizeError::NullPointer(msg) => PyValueError::new_err(msg),
-            PolygonizeError::Panic(msg) => PyRuntimeError::new_err(msg),
+fn to_py_err(err: PolygonizeError) -> PyErr {
+    match err {
+        PolygonizeError::InvalidArgumentType {
+            field,
+            expected,
+            actual,
+        } => PolygonizeTypeError::new_err(format!(
+            "Invalid argument type for {field}: expected {expected}, got {actual}"
+        )),
+        PolygonizeError::InvalidGeometry { reason } => PolygonizeGeometryError::new_err(reason),
+        PolygonizeError::InvalidBufferShape { reason } => PolygonizeTypeError::new_err(reason),
+        PolygonizeError::UnsupportedOptionCombination { reason } => {
+            PolygonizeOptionsError::new_err(reason)
         }
+        PolygonizeError::TopologyFailure { reason } => PolygonizeTopologyError::new_err(reason),
+        err @ PolygonizeError::ZConflict { .. } => {
+            PolygonizeTopologyError::new_err(err.to_string())
+        }
+        err @ PolygonizeError::NodingValidationFailure { .. } => {
+            PolygonizeTopologyError::new_err(err.to_string())
+        }
+        PolygonizeError::InternalInvariantViolation { reason } => PyRuntimeError::new_err(reason),
+        PolygonizeError::ArrowError(msg) => PyValueError::new_err(msg),
+        PolygonizeError::NullPointer(msg) => PyValueError::new_err(msg),
+        PolygonizeError::Panic(msg) => PyRuntimeError::new_err(msg),
     }
 }
 
@@ -71,11 +68,11 @@ fn polygonize_with_options<'py>(
     options_json: Option<&str>,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
 ) -> PyResult<Py<PyAny>> {
-    let options: crate::options::PolygonizerOptions = if let Some(json) = options_json {
+    let options: PolygonizerOptions = if let Some(json) = options_json {
         serde_json::from_str(json)
             .map_err(|e| PolygonizeOptionsError::new_err(format!("Invalid options json: {}", e)))?
     } else {
-        crate::options::PolygonizerOptions::default()
+        PolygonizerOptions::default()
     };
 
     polygonize_internal(py, coords, offsets, stride, options, line_ids)
@@ -95,14 +92,14 @@ fn polygonize<'py>(
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     report_mode: bool,
 ) -> PyResult<Py<PyAny>> {
-    let mut options = crate::options::PolygonizerOptions::default();
+    let mut options = PolygonizerOptions::default();
     options.diagnostics.enabled = report_mode;
     options.diagnostics.report_mode = report_mode;
     options.node_input = node;
     options.precision_model = if node {
-        crate::options::PrecisionModel::from_grid_size(snap)
+        PrecisionModel::from_grid_size(snap)
     } else {
-        crate::options::PrecisionModel::Floating
+        PrecisionModel::Floating
     };
     options.extract_only_polygonal = extract_only_polygonal;
 
@@ -114,43 +111,40 @@ fn polygonize_internal<'py>(
     coords: PyReadonlyArray1<'py, f64>,
     offsets: PyReadonlyArray1<'py, u32>,
     stride: u8,
-    options: crate::options::PolygonizerOptions,
+    options: PolygonizerOptions,
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
 ) -> PyResult<Py<PyAny>> {
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
     if stride != 2 && stride != 3 {
-        return Err(PolygonizeError::InvalidBufferShape {
+        return Err(to_py_err(PolygonizeError::InvalidBufferShape {
             reason: "stride must be 2 or 3".to_string(),
-        }
-        .into());
+        }));
     }
 
     let stride_usize = stride as usize;
 
     if coords_slice.len() % stride_usize != 0 {
-        return Err(PolygonizeError::InvalidBufferShape {
+        return Err(to_py_err(PolygonizeError::InvalidBufferShape {
             reason: format!(
                 "Coordinates array length {} is not a multiple of stride {}",
                 coords_slice.len(),
                 stride_usize
             ),
-        }
-        .into());
+        }));
     }
 
     if let Some(ref ids) = line_ids {
         let ids_slice = ids.as_slice()?;
         if !offsets_slice.is_empty() && ids_slice.len() != offsets_slice.len() {
-            return Err(PolygonizeError::InvalidBufferShape {
+            return Err(to_py_err(PolygonizeError::InvalidBufferShape {
                 reason: format!(
                     "line_ids length {} does not match line count {}",
                     ids_slice.len(),
                     offsets_slice.len()
                 ),
-            }
-            .into());
+            }));
         }
     }
 
@@ -166,20 +160,20 @@ fn polygonize_internal<'py>(
             };
 
             if start > end {
-                return Err(PolygonizeError::InvalidBufferShape {
+                return Err(to_py_err(PolygonizeError::InvalidBufferShape {
                     reason: format!(
                         "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
                         start, end, i
                     ),
-                }.into());
+                }));
             }
             if end * stride_usize > coords_slice.len() {
-                return Err(PolygonizeError::InvalidBufferShape {
+                return Err(to_py_err(PolygonizeError::InvalidBufferShape {
                     reason: format!(
                         "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
                         end * stride_usize, coords_slice.len(), stride_usize
                     ),
-                }.into());
+                }));
             }
 
             // Get line ID if provided
@@ -223,7 +217,8 @@ fn polygonize_internal<'py>(
         Err(PolygonizeError::Panic(
             "Panic occurred in Rust core".to_string(),
         ))
-    })?;
+    })
+    .map_err(to_py_err)?;
 
     // Flatten logic
     let mut num_points = 0;

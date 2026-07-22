@@ -6,9 +6,6 @@ description = "A native Rust port of the JTS/GEOS polygonization algorithm. Reco
 license = "MIT OR Apache-2.0"
 readme = "../../README.md"
 
-[lib]
-crate-type = ["rlib", "cdylib"]
-
 [dependencies]
 geo = "0.32"
 geo-types = "0.7"
@@ -20,8 +17,6 @@ log = "0.4"
 thiserror = "1.0"
 float_next_after = "1.0"
 smallvec = "1.11"
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py38"], optional = true }
-numpy = { version = "0.29", optional = true }
 geo-traits = "0.3.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -49,7 +44,6 @@ dhat = "0.3.3"
 default = ["parallel"]
 flatgeobuf = ["dep:flatgeobuf", "dep:geozero"]
 parallel = ["dep:rayon"]
-python = ["dep:pyo3", "dep:numpy"]
 
 [[bench]]
 name = "polygonize_bench"

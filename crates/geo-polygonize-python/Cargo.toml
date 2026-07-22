@@ -1,0 +1,22 @@
+[package]
+name = "geo-polygonize-python"
+version = "0.49.0"
+edition = "2021"
+publish = false
+description = "Python extension module for geo-polygonize-core."
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "geo_polygonize_core"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+polygonize-core = { package = "geo-polygonize-core", path = "../geo-polygonize-core", version = "0.49.0" }
+pyo3 = { version = "0.29", features = ["abi3-py38"] }
+numpy = "0.29"
+serde_json = "1.0"
+
+[features]
+extension-module = ["pyo3/extension-module"]

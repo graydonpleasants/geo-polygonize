@@ -1045,8 +1045,6 @@ dependencies = [
  "iai-callgrind",
  "log",
  "multiversion",
- "numpy",
- "pyo3",
  "rand",
  "rayon",
  "robust",
@@ -1059,6 +1057,16 @@ dependencies = [
  "walkdir",
  "web-time",
  "wide",
+]
+
+[[package]]
+name = "geo-polygonize-python"
+version = "0.49.0"
+dependencies = [
+ "geo-polygonize-core",
+ "numpy",
+ "pyo3",
+ "serde_json",
 ]
 
 [[package]]
