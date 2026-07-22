@@ -42,6 +42,7 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
         )),
         PolygonizeError::InvalidGeometry { reason } => PolygonizeGeometryError::new_err(reason),
         PolygonizeError::InvalidBufferShape { reason } => PolygonizeTypeError::new_err(reason),
+        PolygonizeError::ResourceLimitExceeded { .. } => PyRuntimeError::new_err(err.to_string()),
         PolygonizeError::UnsupportedOptionCombination { reason } => {
             PolygonizeOptionsError::new_err(reason)
         }

@@ -45,17 +45,18 @@ pub use fingerprint::{
     NormalizedPolygonizeErrorV1, TopologyFingerprintV1, TOPOLOGY_FINGERPRINT_V1_SCHEMA_VERSION,
 };
 pub use options::{
-    ContainmentOptions, DeterminismOptions, DiagnosticsOptions, NodingBackend, NodingGuarantee,
-    NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel, ProvenanceOptions,
-    SnapStrategy, TouchPolicy, ZOptions, ZPolicy,
+    ContainmentOptions, DeterminismOptions, DiagnosticsOptions, ExecutionPolicy, NodingBackend,
+    NodingGuarantee, NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel,
+    ProvenanceOptions, SnapStrategy, TouchPolicy, ZOptions, ZPolicy,
 };
 #[doc(hidden)]
 pub use options::{DedupPolicy, TileOwnershipPolicy};
 #[doc(hidden)]
 pub use polygonizer::Polygonizer;
 pub use polygonizer::{
-    polygonize, polygonize_line_strings, polygonize_to_multi_polygon, polygonize_with_workspace,
-    PolygonizerResult, PolygonizerWorkspace,
+    polygonize, polygonize_line_strings, polygonize_line_strings_with_execution_policy,
+    polygonize_to_multi_polygon, polygonize_with_execution_policy, polygonize_with_workspace,
+    polygonize_with_workspace_and_execution_policy, PolygonizerResult, PolygonizerWorkspace,
 };
 #[doc(hidden)]
 pub use tiling::{StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer};

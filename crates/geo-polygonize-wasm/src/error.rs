@@ -40,6 +40,7 @@ pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
         PolygonizeError::InvalidArgumentType { .. } => "InvalidArgumentType".to_string(),
         PolygonizeError::InvalidGeometry { .. } => "InvalidGeometry".to_string(),
         PolygonizeError::InvalidBufferShape { .. } => "InvalidBufferShape".to_string(),
+        PolygonizeError::ResourceLimitExceeded { .. } => "ResourceLimitExceeded".to_string(),
         PolygonizeError::UnsupportedOptionCombination { .. } => {
             "UnsupportedOptionCombination".to_string()
         }

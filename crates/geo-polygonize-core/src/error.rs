@@ -15,6 +15,13 @@ pub enum PolygonizeError {
     #[error("Invalid buffer shape: {reason}")]
     InvalidBufferShape { reason: String },
 
+    #[error("Resource limit exceeded at {stage}: observed {observed}, limit {limit}")]
+    ResourceLimitExceeded {
+        stage: String,
+        limit: usize,
+        observed: usize,
+    },
+
     #[error("Unsupported option combination: {reason}")]
     UnsupportedOptionCombination { reason: String },
 
