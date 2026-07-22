@@ -3,7 +3,9 @@ mod error;
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
-use geo_polygonize_core::{polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer};
+use geo_polygonize_core::{
+    polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer, TopologyFingerprintV1,
+};
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
 use std::convert::TryInto;
@@ -226,6 +228,7 @@ pub struct WasmPolygonResult {
     cut_edges: JsValue,
     invalid_rings: JsValue,
     diagnostics: JsValue,
+    topology_fingerprint: JsValue,
 }
 
 #[wasm_bindgen]
@@ -284,6 +287,11 @@ impl WasmPolygonResult {
     #[wasm_bindgen(getter)]
     pub fn diagnostics(&self) -> JsValue {
         self.diagnostics.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn topology_fingerprint(&self) -> JsValue {
+        self.topology_fingerprint.clone()
     }
 }
 
@@ -604,6 +612,8 @@ fn polygonize_and_flatten(
         ))
     })
     .map_err(from_polygonizer_error)?;
+    let topology_fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)
+        .map_err(from_polygonizer_error)?;
 
     let flatten_started = js_sys::Date::now();
     let mut flat_coords = Vec::new();
@@ -682,6 +692,8 @@ fn polygonize_and_flatten(
         cut_edges: js_cut_edges,
         invalid_rings: js_invalid_rings,
         diagnostics: js_diagnostics,
+        topology_fingerprint: serde_wasm_bindgen::to_value(&topology_fingerprint)
+            .unwrap_or(JsValue::NULL),
     })
 }
 

@@ -1,7 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use polygonize_core::{
     polygonize as polygonize_lines, Coord3D, Line3D, PolygonizeError, PolygonizerOptions,
-    PrecisionModel,
+    PrecisionModel, TopologyFingerprintV1,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -219,6 +219,8 @@ fn polygonize_internal<'py>(
         ))
     })
     .map_err(to_py_err)?;
+    let topology_fingerprint =
+        TopologyFingerprintV1::try_from_result(&result, &options).map_err(to_py_err)?;
 
     // Flatten logic
     let mut num_points = 0;
@@ -390,12 +392,16 @@ fn polygonize_internal<'py>(
     dict.set_item("dangles", py_dangles)?;
     dict.set_item("cut_edges", py_cut_edges)?;
     dict.set_item("invalid_rings", py_invalid_rings)?;
+    let json_module = py.import("json")?;
+    let loads_func = json_module.getattr("loads")?;
+    dict.set_item(
+        "topology_fingerprint",
+        loads_func.call1((serde_json::to_string(&topology_fingerprint).unwrap(),))?,
+    )?;
 
     if let Some(ref diag) = result.diagnostics {
         // Map diagnostics using serde to a Python dict
         if let Ok(diag_json) = serde_json::to_string(diag) {
-            let json_module = py.import("json")?;
-            let loads_func = json_module.getattr("loads")?;
             let py_diag = loads_func.call1((diag_json,))?;
             dict.set_item("diagnostics", py_diag)?;
         }

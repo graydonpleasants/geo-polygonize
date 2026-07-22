@@ -240,6 +240,9 @@ def test_polygonize_with_options():
 
     result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=False)
     assert len(result['polygons']) == 1
+    fingerprint = result['topology_fingerprint']
+    assert fingerprint['schema_version'] == 1
+    assert fingerprint['polygons'][0]['exterior'][0]['x'].startswith('0x')
 
     default_result = polygonize_with_options(
         coords=coords,
