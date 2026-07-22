@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.51.0...geo-polygonize-v0.51.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **core:** classify cut edges before ring extraction ([#902](https://github.com/graydonpleasants/geo-polygonize/issues/902)) ([43c309a](https://github.com/graydonpleasants/geo-polygonize/commit/43c309af2435ed8ad532f8dcfeb61afc14c544a0))
+
 ## [0.51.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.50.0...geo-polygonize-v0.51.0) (2026-07-22)
 
 
