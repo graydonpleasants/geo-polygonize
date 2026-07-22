@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.50.0...geo-polygonize-v0.51.0) (2026-07-22)
+
+
+### Features
+
+* **core:** extract FlatGeoBuf adapter crate ([#900](https://github.com/graydonpleasants/geo-polygonize/issues/900)) ([8745276](https://github.com/graydonpleasants/geo-polygonize/commit/8745276414a6eae0eb2bdce1ba639d2497a3b9b8))
+
 ## [0.50.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.49.0...geo-polygonize-v0.50.0) (2026-07-22)
 
 
