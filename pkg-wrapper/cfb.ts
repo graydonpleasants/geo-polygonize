@@ -32,7 +32,7 @@ export const cfbRobustOptions: PolygonizerOptions = {
         conflict_tolerance: 0,
     },
     output_filter: {
-        minimum_face_area: undefined,
+        minimum_face_area: null,
     },
     input_profile_id: "cfb_robust_v1",
 };

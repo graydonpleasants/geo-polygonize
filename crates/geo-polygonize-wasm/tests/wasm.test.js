@@ -132,6 +132,33 @@ describe('WASM Polygonizer', () => {
         ).toEqual(fixture.expected_fingerprint);
     });
 
+    it('should round-trip every canonical option through report APIs', async () => {
+        const {
+            default: initModule,
+            polygonizeReportWithOptions,
+            polygonizeWithOptionsBuffer,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const input = JSON.parse(readFileSync(
+            resolve('crates/geo-polygonize-core/tests/fixtures/conformance/axis_aligned_ring_v1.json'),
+            'utf8',
+        ));
+        const options = JSON.parse(readFileSync(
+            resolve('crates/geo-polygonize-core/tests/fixtures/conformance/canonical_options_v1.json'),
+            'utf8',
+        )).options;
+
+        expect(JSON.parse(polygonizeReportWithOptions(JSON.stringify(input.geojson), options)).options)
+            .toEqual(options);
+        expect(polygonizeWithOptionsBuffer(
+            new Float64Array(input.coords),
+            new Uint32Array(input.offsets),
+            input.stride,
+            options,
+            new Uint32Array(input.line_ids),
+        ).topology_fingerprint.options).toEqual(options);
+    });
+
     it('should handle empty input', async () => {
         await init();
         const input = {

@@ -201,7 +201,7 @@ def test_invalid_stride():
 
 def test_polygonize_with_options():
     print("\nTesting polygonize_with_options API...")
-    from geo_polygonize import PolygonizeTopologyError, polygonize_with_options
+    from geo_polygonize import cfb_robust_options, PolygonizeTopologyError, polygonize_with_options
 
     coords = np.array([
         0.0, 0.0, 10.0, 0.0,
@@ -211,37 +211,13 @@ def test_polygonize_with_options():
     ], dtype=np.float64)
     offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
 
-    options = {
-        "node_input": True,
-        "precision_model": {"type": "fixed_grid", "grid_size": 1e-5},
-        "extract_only_polygonal": False,
-        "snap_strategy": "Grid",
-        "noding": {
-            "backend": "Snap"
-        },
-        "containment": {
-            "touch_policy": "AllowPointTouchDisallowEdgeShare"
-        },
-        "determinism": {
-            "canonical_sort": True,
-            "canonical_ring_rotation": True,
-            "stable_tie_breaks": True
-        },
-        "diagnostics": {
-            "enabled": True,
-            "report_mode": True
-        },
-        "provenance": {
-            "enabled": True,
-            "include_boundary_line_ids": False
-        },
-        "input_profile_id": "test_profile_123"
-    }
+    options = cfb_robust_options()
 
     result = polygonize_with_options(coords=coords, offsets=offsets, options=options, return_polygons=False)
     assert len(result['polygons']) == 1
     fingerprint = result['topology_fingerprint']
     assert fingerprint['schema_version'] == 1
+    assert fingerprint['options'] == options
     assert fingerprint['polygons'][0]['exterior'][0]['x'].startswith('0x')
 
     default_result = polygonize_with_options(
@@ -321,7 +297,7 @@ def test_polygonize_with_options():
     sp = result['polygons'][0]
     assert hasattr(sp, "provenance")
     assert sp.provenance is not None
-    assert sp.provenance["input_profile_id"] == "test_profile_123"
+    assert sp.provenance["input_profile_id"] == "cfb_robust_v1"
 
     print("polygonize_with_options API test passed!")
 
