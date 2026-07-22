@@ -229,6 +229,8 @@ describe('WASM Polygonizer', () => {
         // but we can at least assert the binding doesn't crash and returns the expected length.
         // It returns 5 elements for the single ring (5 coordinates)
         expect(numIds).toBe(5);
+        expect(result.topology_fingerprint.schema_version).toBe(1);
+        expect(result.topology_fingerprint.polygons[0].exterior[0].x).toMatch(/^0x/);
     });
 
     it('should report and reject Z conflicts through buffer options', async () => {

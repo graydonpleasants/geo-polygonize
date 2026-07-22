@@ -114,6 +114,10 @@ Progress: Rust-side `TopologyFingerprintV1` and normalized errors are complete
 for the one-shot, workspace, and borrowed GeoRust paths. Python, Wasm, Arrow,
 and file-adapter execution remains open below.
 
+The Python canonical-options and Wasm typed-buffer adapters now expose the
+shared success fingerprint; fixture-level cross-adapter comparison and the
+Wasm GeoJSON path remain open.
+
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
 - [ ] Rust one-shot `polygonize`.

@@ -30,3 +30,8 @@ Adapter tests for such APIs compare only the polygon subset they can retain.
 Future incompatible additions use `V2` rather than changing V1. Adapters must
 declare the highest schema they consume and retain V1 comparisons during a
 supported migration window.
+
+The Python canonical-options result exposes this value as
+`topology_fingerprint`. The Wasm typed-buffer result exposes the same value as
+`topology_fingerprint`; both are serialized directly by Rust rather than
+reconstructed in the adapter.
