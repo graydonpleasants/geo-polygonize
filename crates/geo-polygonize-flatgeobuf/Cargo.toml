@@ -1,0 +1,14 @@
+[package]
+name = "geo-polygonize-flatgeobuf"
+version = "0.50.0"
+edition = "2021"
+description = "FlatGeoBuf file adapter for geo-polygonize-core."
+license = "MIT OR Apache-2.0"
+readme = "../../README.md"
+
+[dependencies]
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.50.0" }
+flatgeobuf = { version = "6.0.1", default-features = false }
+geozero = { version = "0.15.1", default-features = false, features = ["with-geo"] }
+geo = "0.32"
+geo-traits = "0.3.0"
