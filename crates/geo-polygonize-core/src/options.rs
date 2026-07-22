@@ -12,6 +12,7 @@ pub struct ExecutionPolicy {
     pub max_input_line_strings: Option<usize>,
     pub max_input_segments: Option<usize>,
     pub max_input_coordinates: Option<usize>,
+    pub max_noded_segments: Option<usize>,
 }
 
 impl ExecutionPolicy {
