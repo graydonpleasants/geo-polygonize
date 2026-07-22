@@ -1,7 +1,7 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use polygonize_core::{
-    polygonize as polygonize_lines, Coord3D, Line3D, PolygonizeError, PolygonizerOptions,
-    PrecisionModel, TopologyFingerprintV1,
+    normalize_polygonize_error, polygonize as polygonize_lines, Coord3D, Line3D, PolygonizeError,
+    PolygonizerOptions, PrecisionModel, TopologyFingerprintV1,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -30,7 +30,9 @@ create_exception!(
 );
 
 fn to_py_err(err: PolygonizeError) -> PyErr {
-    match err {
+    let normalized = serde_json::to_string(&normalize_polygonize_error(&err))
+        .expect("normalized errors serialize");
+    let py_err = match err {
         PolygonizeError::InvalidArgumentType {
             field,
             expected,
@@ -54,7 +56,15 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
         PolygonizeError::ArrowError(msg) => PyValueError::new_err(msg),
         PolygonizeError::NullPointer(msg) => PyValueError::new_err(msg),
         PolygonizeError::Panic(msg) => PyRuntimeError::new_err(msg),
-    }
+    };
+    Python::try_attach(|py| {
+        py_err
+            .value(py)
+            .setattr("normalized", normalized)
+            .expect("exceptions accept attributes");
+    })
+    .expect("Python exception conversion runs while attached");
+    py_err
 }
 
 #[pyfunction]

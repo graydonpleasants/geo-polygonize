@@ -113,8 +113,9 @@ the dependency notes allow it.
 Progress: Rust-side `TopologyFingerprintV1` and normalized errors are complete
 for the one-shot, workspace, and borrowed GeoRust paths. Python canonical
 options plus Wasm typed-buffer and GeoJSON canonical-options paths expose the
-shared success fingerprint. Fixture-level cross-adapter comparison, normalized
-adapter failures, Arrow, and file-adapter execution remain open.
+shared success fingerprint. Fixture-level cross-adapter comparison, Arrow, and
+file-adapter execution remain open; normalized core failures are exposed by
+Python and Wasm adapters.
 
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
