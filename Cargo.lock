@@ -1066,6 +1066,7 @@ dependencies = [
  "geo-polygonize-core",
  "geo-traits",
  "geozero",
+ "serde_json",
 ]
 
 [[package]]
