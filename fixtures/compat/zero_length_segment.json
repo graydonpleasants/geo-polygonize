@@ -1,0 +1,13 @@
+{
+  "case_id": "zero_length_segment_invalid_ambiguous",
+  "fixture": "crates/geo-polygonize-core/tests/fixtures/compat/zero_length_segment.json",
+  "classification": "invalid_ambiguous",
+  "reason": "An exact zero-length segment has no topological edge; matching empty results only document how both engines discard this degenerate input.",
+  "shapely_reference": {
+    "recipe": "polygonize(unary_union(lines))",
+    "polygon_count": 0,
+    "total_area": 0.0,
+    "area_tolerance": 0.0
+  },
+  "rust_profiles": []
+}

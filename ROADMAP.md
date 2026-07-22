@@ -48,7 +48,7 @@ fields, and reuse.
 
 ### 2. Add a compatibility corpus
 
-- [ ] Classify cases as expected parity, expected divergence, or invalid /
+- [x] Classify cases as expected parity, expected divergence, or invalid /
   ambiguous input.
 - [x] Record GEOS/Shapely comparison results without turning compatibility
   observations into unsupported robustness guarantees.
