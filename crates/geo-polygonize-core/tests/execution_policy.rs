@@ -203,3 +203,57 @@ fn split_and_iteration_limits_stop_noding() {
         ));
     }
 }
+
+#[test]
+fn graph_and_ring_limits_stop_after_their_boundary() {
+    let options = PolygonizerOptions::default();
+    let segment = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);
+
+    for (policy, stage, observed) in [
+        (
+            ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            },
+            "graph_nodes",
+            2,
+        ),
+        (
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            "graph_edges",
+            1,
+        ),
+    ] {
+        assert_limit(
+            polygonize_with_execution_policy([segment], &options, &policy).unwrap_err(),
+            stage,
+            policy.max_graph_nodes.or(policy.max_graph_edges).unwrap(),
+            observed,
+        );
+    }
+
+    let square = [
+        Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0),
+        Line3D::new(Coord3D::new(1., 0., 0.), Coord3D::new(1., 1., 0.), 1),
+        Line3D::new(Coord3D::new(1., 1., 0.), Coord3D::new(0., 1., 0.), 2),
+        Line3D::new(Coord3D::new(0., 1., 0.), Coord3D::new(0., 0., 0.), 3),
+    ];
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            square,
+            &options,
+            &ExecutionPolicy {
+                max_rings: Some(0),
+                ..Default::default()
+            },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded {
+            stage,
+            limit: 0,
+            observed,
+        }) if stage == "rings" && observed > 0
+    ));
+}

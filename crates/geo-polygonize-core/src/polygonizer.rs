@@ -506,6 +506,16 @@ impl Polygonizer {
 
         // Use bulk load
         self.graph.bulk_load(segments);
+        self.execution_policy.check(
+            "graph_nodes",
+            self.execution_policy.max_graph_nodes,
+            self.graph.nodes_x.len(),
+        )?;
+        self.execution_policy.check(
+            "graph_edges",
+            self.execution_policy.max_graph_edges,
+            self.graph.edges.len(),
+        )?;
 
         Ok(())
     }
@@ -566,6 +576,11 @@ impl Polygonizer {
             self.options.node_input,
             self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids,
         );
+        self.execution_policy.check(
+            "rings",
+            self.execution_policy.max_rings,
+            rings_with_ids.len(),
+        )?;
 
         if let Some(ref mut d) = diag {
             d.phase_times.graph_build = get_elapsed(t_graph_build_start);
