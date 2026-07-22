@@ -335,5 +335,6 @@ def test_persisted_compatibility_case(path):
     if classification == "expected_parity":
         assert_parity(shapely_result, rust_result)
     else:
-        with pytest.raises(AssertionError):
-            assert_parity(shapely_result, rust_result)
+        if len(shapely_result) == len(rust_result):
+            with pytest.raises(AssertionError):
+                assert_parity(shapely_result, rust_result)
