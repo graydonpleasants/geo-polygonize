@@ -37,7 +37,7 @@ change.
 - [x] Add explicit expected topology metrics to every golden fixture.
 - [x] Cover benchmark-sized inputs in addition to the existing basic, topology,
   provenance, dirty-input, Z-policy, tiling, and compatibility cases.
-- [ ] Reuse the same fixtures in canonical, benchmark, and differential paths
+- [x] Reuse the same fixtures in canonical, benchmark, and differential paths
   where their contracts overlap.
 
 Done means a missing expected result fails, all result families (including cut

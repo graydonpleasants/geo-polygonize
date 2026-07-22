@@ -1,0 +1,18 @@
+{
+  "case_id": "benchmark_grid_10_expected_parity",
+  "fixture": "crates/geo-polygonize-core/tests/fixtures/benchmark/grid_10.json",
+  "classification": "expected_parity",
+  "reason": "The benchmark grid has exact integer crossings and should match GEOS topology and area.",
+  "shapely_reference": {
+    "recipe": "polygonize(unary_union(lines))",
+    "polygon_count": 100,
+    "total_area": 100.0,
+    "area_tolerance": 0.0
+  },
+  "rust_profiles": [
+    {
+      "name": "canonical",
+      "options": { "node_input": true }
+    }
+  ]
+}

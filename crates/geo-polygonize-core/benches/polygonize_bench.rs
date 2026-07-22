@@ -1,3 +1,6 @@
+mod common;
+
+use common::generate_grid;
 use criterion::measurement::Measurement;
 use criterion::{
     criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
@@ -11,23 +14,6 @@ use std::time::Duration;
 
 fn fast_ci() -> bool {
     std::env::var_os("BENCH_FAST_CI").is_some()
-}
-
-fn generate_grid(n: usize) -> Vec<LineString<f64>> {
-    let mut lines = Vec::new();
-    for i in 0..=n {
-        // Horizontal
-        lines.push(LineString::from(vec![
-            (0.0, i as f64),
-            (n as f64, i as f64),
-        ]));
-        // Vertical
-        lines.push(LineString::from(vec![
-            (i as f64, 0.0),
-            (i as f64, n as f64),
-        ]));
-    }
-    lines
 }
 
 // Generates a grid with bowtie patterns in every cell, guaranteeing intersections.
