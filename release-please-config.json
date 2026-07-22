@@ -28,6 +28,16 @@
         },
         {
           "type": "toml",
+          "path": "crates/geo-polygonize-python/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "crates/geo-polygonize-python/Cargo.toml",
+          "jsonpath": "$.dependencies.polygonize-core.version"
+        },
+        {
+          "type": "toml",
           "path": "crates/geo-polygonize-arrow/Cargo.toml",
           "jsonpath": "$.package.version"
         },

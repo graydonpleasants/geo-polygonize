@@ -28,9 +28,6 @@ mod types;
 #[doc(hidden)]
 pub mod utils;
 
-#[cfg(feature = "python")]
-pub mod python;
-
 #[cfg(test)]
 mod polygonizer_tests;
 
