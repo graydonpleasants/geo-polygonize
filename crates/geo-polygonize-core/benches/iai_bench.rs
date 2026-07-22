@@ -1,23 +1,11 @@
+mod common;
+
+use common::generate_grid;
 use geo_polygonize_core::Polygonizer;
 use geo_types::LineString;
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-
-fn generate_grid(n: usize) -> Vec<LineString<f64>> {
-    let mut lines = Vec::new();
-    for i in 0..=n {
-        lines.push(LineString::from(vec![
-            (0.0, i as f64),
-            (n as f64, i as f64),
-        ]));
-        lines.push(LineString::from(vec![
-            (i as f64, 0.0),
-            (i as f64, n as f64),
-        ]));
-    }
-    lines
-}
 
 fn generate_random_lines(n: usize, seed: u64) -> Vec<LineString<f64>> {
     let mut rng = StdRng::seed_from_u64(seed);
