@@ -27,6 +27,13 @@ fn conformance_fixture() -> Value {
     .unwrap()
 }
 
+fn canonical_options_fixture() -> Value {
+    serde_json::from_str(include_str!(
+        "../../geo-polygonize-core/tests/fixtures/conformance/canonical_options_v1.json"
+    ))
+    .unwrap()
+}
+
 fn conformance_input(fixture: &Value) -> (LineStringArray, Field) {
     let coords = fixture["coords"].as_array().unwrap();
     let line = geo::LineString::from(
@@ -116,7 +123,7 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
-    let options = serde_json::to_vec(&fixture["options"]).unwrap();
+    let options = serde_json::to_vec(&canonical_options_fixture()["options"]).unwrap();
     let status = unsafe {
         polygonize_with_options_ffi(
             &mut *input_array,

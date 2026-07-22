@@ -4,4 +4,4 @@ export type OutputFilterOptions = {
 /**
  * Keep faces whose area is greater than or equal to this value.
  */
-minimum_face_area?: number, };
+minimum_face_area?: number | null, };

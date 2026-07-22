@@ -391,7 +391,7 @@ pub struct ZOptions {
 #[ts(export)]
 pub struct OutputFilterOptions {
     /// Keep faces whose area is greater than or equal to this value.
-    #[ts(optional)]
+    #[ts(type = "number | null", optional)]
     pub minimum_face_area: Option<f64>,
 }
 

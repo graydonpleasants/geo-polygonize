@@ -171,11 +171,14 @@ describe the same contract.
 
 ### P0.3 Options and release synchronization
 
-- [ ] Round-trip every canonical option through Rust serde, generated
+Progress: Canonical option round-trips and migration coverage are complete;
+serialized metadata and release-policy synchronization remain.
+
+- [x] Round-trip every canonical option through Rust serde, generated
   TypeScript, Python helpers, Wasm, and C JSON options.
 - [ ] Add a CI gate preventing drift between Rust crate, npm, and PyPI releases.
 - [ ] Add explicit schema-version metadata to serialized reports and traces.
-- [ ] Publish migration tests for old supported option payloads.
+- [x] Publish migration tests for old supported option payloads.
 - [ ] Define which legacy positional APIs remain supported through `1.x`.
 
 ### P0.4 Versioned C ABI

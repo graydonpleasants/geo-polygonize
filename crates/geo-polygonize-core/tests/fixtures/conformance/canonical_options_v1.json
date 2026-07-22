@@ -1,0 +1,22 @@
+{
+  "name": "canonical_options_v1",
+  "options": {
+    "node_input": true,
+    "precision_model": { "type": "fixed_grid", "grid_size": 0.1 },
+    "pre_snap_tolerance": 0.5,
+    "extract_only_polygonal": false,
+    "snap_strategy": "GeosCompat",
+    "noding": { "backend": "Snap", "guarantee": "Unchecked" },
+    "containment": { "touch_policy": "AllowPointTouchDisallowEdgeShare" },
+    "determinism": {
+      "canonical_sort": true,
+      "canonical_ring_rotation": true,
+      "stable_tie_breaks": true
+    },
+    "diagnostics": { "enabled": true, "report_mode": true, "timings": false },
+    "provenance": { "enabled": true, "include_boundary_line_ids": true },
+    "z": { "policy": "InterpolateAlongEdge", "conflict_tolerance": 0.0 },
+    "output_filter": { "minimum_face_area": null },
+    "input_profile_id": "cfb_robust_v1"
+  }
+}

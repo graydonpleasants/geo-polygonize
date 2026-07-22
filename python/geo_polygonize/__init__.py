@@ -161,6 +161,7 @@ def cfb_robust_options():
         "diagnostics": {
             "enabled": True,
             "report_mode": True,
+            "timings": False,
         },
         "provenance": {
             "enabled": True,
