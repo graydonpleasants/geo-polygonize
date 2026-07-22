@@ -115,8 +115,8 @@ for the one-shot, workspace, and borrowed GeoRust paths. A shared exact fixture
 now runs through those three paths, Python canonical options, and both Wasm
 canonical-options paths (GeoJSON report/fingerprint and typed buffer). The
 same fixture's retained polygon contract now also runs through GeoArrow and
-the Arrow C Data Interface. File-adapter execution remains open; normalized
-core failures are exposed by Python and Wasm adapters.
+the Arrow C Data Interface, FlatGeobuf, and GeoParquet. Normalized core
+failures are exposed by Python and Wasm adapters.
 
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
@@ -128,7 +128,7 @@ Build one fixture-driven conformance suite covering every supported entrypoint:
 - [x] Wasm typed-buffer API.
 - [x] GeoArrow / Arrow IPC API.
 - [x] Arrow C Data Interface API.
-- [ ] FlatGeobuf and GeoParquet adapters where their input contracts overlap.
+- [x] FlatGeobuf and GeoParquet adapters where their input contracts overlap.
 
 Define a versioned canonical fingerprint containing:
 
