@@ -60,10 +60,26 @@ differences without relying on ad hoc generated cases.
 
 ### 3. Measure before optimizing
 
-- [ ] Compare scalar and existing portable-SIMD kernels on supported native
+- [x] Compare scalar and existing portable-SIMD kernels on supported native
   targets using the checked-in benchmarks.
-- [ ] Add architecture-aware runtime dispatch only if those measurements show
-  a repeatable end-to-end win large enough to justify the maintenance cost.
+- [x] Keep the existing architecture-aware dispatch; the measurements do not
+  justify another native backend or dispatch layer.
+
+The latest [x86-64 and AArch64 Criterion run](https://github.com/graydonpleasants/geo-polygonize/actions/runs/29914817090)
+confirmed that no single point-in-ring kernel wins across architectures and
+ring sizes. Representative repeated-query medians were:
+
+| Ring edges | Linux x86-64 | Linux AArch64 |
+|---:|---:|---:|
+| 128 | wide 133.92 µs; scalar 152.64 µs | scalar 127.86 µs; wide 220.91 µs |
+| 256 | wide 265.41 µs; scalar 277.56 µs | scalar 253.86 µs; wide 444.95 µs |
+| 1,024 | scalar 1.022 ms; wide 1.064 ms | scalar 1.029 ms; wide 1.765 ms |
+
+This supports the existing short-ring SIMD/long-ring scalar crossover on
+x86-64 and scalar path on Linux AArch64. The same run confirmed that forced
+grid versus brute-force SIMD noding still varies by workload shape, so the
+existing workload-aware `Auto` policy remains preferable to architecture-only
+selection.
 
 Wasm SIMD feature selection already exists. This item concerns native runtime
 dispatch; AVX2, AVX-512, or GPU backends are not commitments.
