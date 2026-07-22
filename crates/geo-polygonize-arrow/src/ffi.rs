@@ -3,9 +3,146 @@ use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::error::ArrowError;
 use arrow::ffi::{from_ffi_and_data_type, FFI_ArrowArray, FFI_ArrowSchema};
-use geo_polygonize_core::{PolygonizeError, PolygonizerOptions as CoreOptions, PrecisionModel};
+use geo_polygonize_core::{
+    normalize_polygonize_error, PolygonizeError, PolygonizerOptions as CoreOptions, PrecisionModel,
+};
 use geoarrow::array::IntoArrow;
 use std::convert::TryFrom;
+use std::ffi::{c_char, CString};
+
+pub const POLYGONIZE_FFI_ABI_VERSION: u32 = 1;
+
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolygonizeFfiStatus {
+    Success = 0,
+    InvalidArgument = 1,
+    InvalidArrowCData = 2,
+    SchemaExport = 4,
+    InvalidBufferShape = 5,
+    InvalidOption = 6,
+    InvalidGeometry = 7,
+    Topology = 8,
+    UnsupportedOptionCombination = 9,
+    InternalInvariant = 10,
+    Arrow = 11,
+    Unknown = 12,
+    Panic = 99,
+}
+
+#[repr(C)]
+pub struct PolygonizeFfiLastError {
+    pub status: i32,
+    pub family: *const c_char,
+    pub stage: *const c_char,
+    pub message: *const c_char,
+    pub witness: *const c_char,
+}
+
+struct LastErrorStorage {
+    _family: CString,
+    _stage: CString,
+    _message: CString,
+    _witness: CString,
+    value: PolygonizeFfiLastError,
+}
+
+thread_local! {
+    static LAST_ERROR: std::cell::RefCell<Option<LastErrorStorage>> = const { std::cell::RefCell::new(None) };
+}
+
+fn c_string(value: &str) -> CString {
+    CString::new(value).unwrap_or_else(|_| CString::new("invalid error text").unwrap())
+}
+
+fn clear_last_error() {
+    LAST_ERROR.with(|last| *last.borrow_mut() = None);
+}
+
+fn set_last_error(
+    status: PolygonizeFfiStatus,
+    family: &str,
+    stage: &str,
+    message: &str,
+    witness: &str,
+) -> i32 {
+    let family = c_string(family);
+    let stage = c_string(stage);
+    let message = c_string(message);
+    let witness = c_string(witness);
+    let value = PolygonizeFfiLastError {
+        status: status as i32,
+        family: family.as_ptr(),
+        stage: stage.as_ptr(),
+        message: message.as_ptr(),
+        witness: witness.as_ptr(),
+    };
+    LAST_ERROR.with(|last| {
+        *last.borrow_mut() = Some(LastErrorStorage {
+            _family: family,
+            _stage: stage,
+            _message: message,
+            _witness: witness,
+            value,
+        });
+    });
+    status as i32
+}
+
+fn set_static_error(status: PolygonizeFfiStatus, family: &str, stage: &str, message: &str) -> i32 {
+    set_last_error(status, family, stage, message, "")
+}
+
+fn set_polygonize_error(error: &PolygonizeError) -> i32 {
+    let normalized = normalize_polygonize_error(error);
+    let status = match error {
+        PolygonizeError::InvalidBufferShape { .. } => PolygonizeFfiStatus::InvalidBufferShape,
+        PolygonizeError::InvalidArgumentType { .. } => PolygonizeFfiStatus::InvalidOption,
+        PolygonizeError::InvalidGeometry { .. } => PolygonizeFfiStatus::InvalidGeometry,
+        PolygonizeError::TopologyFailure { .. }
+        | PolygonizeError::ZConflict { .. }
+        | PolygonizeError::NodingValidationFailure { .. } => PolygonizeFfiStatus::Topology,
+        PolygonizeError::UnsupportedOptionCombination { .. } => {
+            PolygonizeFfiStatus::UnsupportedOptionCombination
+        }
+        PolygonizeError::InternalInvariantViolation { .. } => {
+            PolygonizeFfiStatus::InternalInvariant
+        }
+        PolygonizeError::ArrowError(_) => PolygonizeFfiStatus::Arrow,
+        PolygonizeError::NullPointer(_) => PolygonizeFfiStatus::InvalidArgument,
+        PolygonizeError::Panic(_) => PolygonizeFfiStatus::Panic,
+    };
+    let witness = normalized
+        .witness
+        .map(|value| serde_json::to_string(&value).unwrap())
+        .unwrap_or_default();
+    set_last_error(
+        status,
+        &normalized.family,
+        &normalized.stage,
+        &error.to_string(),
+        &witness,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn polygonize_ffi_abi_version() -> u32 {
+    POLYGONIZE_FFI_ABI_VERSION
+}
+
+/// Returns the current thread's most recent FFI error, or null after success.
+///
+/// The returned pointer remains valid until the next polygonize FFI call on the
+/// same thread. Callers must copy any strings they need to retain.
+#[no_mangle]
+pub extern "C" fn polygonize_ffi_last_error() -> *const PolygonizeFfiLastError {
+    LAST_ERROR.with(|last| {
+        last.borrow()
+            .as_ref()
+            .map(|error| &error.value as *const PolygonizeFfiLastError)
+            .unwrap_or(std::ptr::null())
+    })
+}
 
 #[repr(C)]
 pub struct PolygonizerOptions {
@@ -79,7 +216,12 @@ pub unsafe extern "C" fn polygonize_ffi(
 ) -> i32 {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         if options.is_null() {
-            return 1;
+            return set_static_error(
+                PolygonizeFfiStatus::InvalidArgument,
+                "invalid_argument",
+                "options",
+                "options must not be null",
+            );
         }
         let opts = &*options;
         let node_input = opts.node_input != 0;
@@ -104,7 +246,14 @@ pub unsafe extern "C" fn polygonize_ffi(
             arrow_opts,
         )
     }))
-    .unwrap_or(99)
+    .unwrap_or_else(|_| {
+        set_static_error(
+            PolygonizeFfiStatus::Panic,
+            "internal",
+            "boundary",
+            "panic crossed the FFI boundary",
+        )
+    })
 }
 
 /// # Safety
@@ -123,18 +272,37 @@ pub unsafe extern "C" fn polygonize_with_options_ffi(
 ) -> i32 {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
         if options_json.is_null() {
-            return 1;
+            return set_static_error(
+                PolygonizeFfiStatus::InvalidArgument,
+                "invalid_argument",
+                "options",
+                "options_json must not be null",
+            );
         }
 
         let slice = std::slice::from_raw_parts(options_json, options_json_len);
         let options_str = match std::str::from_utf8(slice) {
             Ok(s) => s,
-            Err(_) => return 1,
+            Err(_) => {
+                return set_static_error(
+                    PolygonizeFfiStatus::InvalidArgument,
+                    "invalid_argument",
+                    "options",
+                    "options_json must be valid UTF-8",
+                )
+            }
         };
 
         let arrow_opts: CoreOptions = match serde_json::from_str(options_str) {
             Ok(o) => o,
-            Err(_) => return 1,
+            Err(_) => {
+                return set_static_error(
+                    PolygonizeFfiStatus::InvalidArgument,
+                    "invalid_argument",
+                    "options",
+                    "options_json must match PolygonizerOptions",
+                )
+            }
         };
 
         polygonize_ffi_internal(
@@ -145,7 +313,14 @@ pub unsafe extern "C" fn polygonize_with_options_ffi(
             arrow_opts,
         )
     }))
-    .unwrap_or(99)
+    .unwrap_or_else(|_| {
+        set_static_error(
+            PolygonizeFfiStatus::Panic,
+            "internal",
+            "boundary",
+            "panic crossed the FFI boundary",
+        )
+    })
 }
 
 unsafe fn polygonize_ffi_internal(
@@ -160,18 +335,37 @@ unsafe fn polygonize_ffi_internal(
         || output_array.is_null()
         || output_schema.is_null()
     {
-        return 1;
+        return set_static_error(
+            PolygonizeFfiStatus::InvalidArgument,
+            "invalid_argument",
+            "ffi",
+            "input and output pointers must not be null",
+        );
     }
 
     let field = match Field::try_from(&*input_schema) {
         Ok(f) => f,
-        Err(_) => return 2,
+        Err(_) => {
+            return set_static_error(
+                PolygonizeFfiStatus::InvalidArrowCData,
+                "arrow_c_data",
+                "input",
+                "input schema is invalid",
+            )
+        }
     };
 
     let array_val = std::ptr::replace(input_array, FFI_ArrowArray::empty());
     let arrow_data = match from_ffi_and_data_type(array_val, field.data_type().clone()) {
         Ok(data) => data,
-        Err(_) => return 2,
+        Err(_) => {
+            return set_static_error(
+                PolygonizeFfiStatus::InvalidArrowCData,
+                "arrow_c_data",
+                "input",
+                "input array is invalid",
+            )
+        }
     };
     let array = arrow::array::make_array(arrow_data);
 
@@ -186,26 +380,23 @@ unsafe fn polygonize_ffi_internal(
             let ffi_array = FFI_ArrowArray::new(&data);
             let ffi_schema = match DefaultSchemaExporter::try_export(&field) {
                 Ok(s) => s,
-                Err(_) => return 4,
+                Err(_) => {
+                    return set_static_error(
+                        PolygonizeFfiStatus::SchemaExport,
+                        "arrow_c_data",
+                        "output",
+                        "output schema export failed",
+                    )
+                }
             };
 
             std::ptr::write(output_array, ffi_array);
             std::ptr::write(output_schema, ffi_schema);
 
-            0
+            clear_last_error();
+            PolygonizeFfiStatus::Success as i32
         }
-        Err(e) => match e {
-            PolygonizeError::InvalidBufferShape { .. } => 5,
-            PolygonizeError::InvalidArgumentType { .. } => 6,
-            PolygonizeError::InvalidGeometry { .. } => 7,
-            PolygonizeError::TopologyFailure { .. } => 8,
-            PolygonizeError::ZConflict { .. } => 8,
-            PolygonizeError::NodingValidationFailure { .. } => 8,
-            PolygonizeError::UnsupportedOptionCombination { .. } => 9,
-            PolygonizeError::InternalInvariantViolation { .. } => 10,
-            PolygonizeError::ArrowError(_) => 11,
-            _ => 12,
-        },
+        Err(e) => set_polygonize_error(&e),
     }
 }
 
@@ -215,6 +406,7 @@ mod tests {
     use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
     use geoarrow::array::GeoArrowArray;
     use geoarrow::datatypes::{Dimension, LineStringType};
+    use std::ffi::CStr;
     use std::sync::Arc;
 
     struct MockGuard;
@@ -250,7 +442,7 @@ mod tests {
                 &options,
             )
         };
-        assert_eq!(status, 1);
+        assert_eq!(status, PolygonizeFfiStatus::InvalidArgument as i32);
     }
 
     #[test]
@@ -288,8 +480,56 @@ mod tests {
             )
         };
 
-        assert_eq!(status, 4);
+        assert_eq!(status, PolygonizeFfiStatus::SchemaExport as i32);
         assert_eq!(format!("{output_array:?}"), output_array_before);
         assert_eq!(format!("{output_schema:?}"), output_schema_before);
+    }
+
+    #[test]
+    fn test_ffi_version_and_last_error() {
+        assert_eq!(polygonize_ffi_abi_version(), POLYGONIZE_FFI_ABI_VERSION);
+
+        let status = unsafe {
+            polygonize_with_options_ffi(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                0,
+            )
+        };
+        assert_eq!(status, PolygonizeFfiStatus::InvalidArgument as i32);
+
+        let error = unsafe { &*polygonize_ffi_last_error() };
+        assert_eq!(error.status, status);
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.family) }.to_str().unwrap(),
+            "invalid_argument"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.stage) }.to_str().unwrap(),
+            "options"
+        );
+    }
+
+    #[test]
+    fn test_ffi_last_error_includes_noding_witness() {
+        set_polygonize_error(&PolygonizeError::NodingValidationFailure {
+            first_segment: 3,
+            second_segment: 8,
+            reason: "intersection".to_string(),
+        });
+
+        let error = unsafe { &*polygonize_ffi_last_error() };
+        assert_eq!(error.status, PolygonizeFfiStatus::Topology as i32);
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.family) }.to_str().unwrap(),
+            "topology"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.witness) }.to_str().unwrap(),
+            r#"{"ids":["0x0000000000000003","0x0000000000000008"],"coordinate":null}"#
+        );
     }
 }

@@ -184,13 +184,15 @@ reports carry schema metadata, and release versions are checked in CI.
 ### P0.4 Versioned C ABI
 
 The Arrow C Data Interface adapter has panic containment and atomic output
-publication, but the surrounding ABI still needs a stable production contract.
+publication. ABI discovery, fixed return codes, and thread-local structured
+error retrieval are now available; request evolution, ownership documentation,
+and transfer-boundary fault injection remain.
 
-- [ ] Add an ABI version query.
+- [x] Add an ABI version query.
 - [ ] Prefer a versioned/size-tagged request struct or the canonical JSON options
   entrypoint over extending the legacy `repr(C)` options struct.
-- [ ] Define stable numeric status codes.
-- [ ] Add structured last-error retrieval with error family, stage, message, and
+- [x] Define stable numeric status codes.
+- [x] Add structured last-error retrieval with error family, stage, message, and
   optional noding witness.
 - [ ] Document ownership transfer, cleanup, nullability, thread-safety, and
   reentrancy.
