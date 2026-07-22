@@ -1,6 +1,8 @@
 use geo_polygonize_core::{
-    polygonize, Coord3D, DeterminismOptions, Line3D, PolygonizerOptions, ProvenanceOptions,
+    polygonize, Coord3D, DedupPolicy, DeterminismOptions, Line3D, PolygonizerOptions,
+    ProvenanceOptions, TileOwnershipPolicy, TiledPolygonizer,
 };
+use geo_types::{Coord, Geometry, LineString, Rect};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -73,9 +75,19 @@ struct GoldenResult {
 struct GoldenFixture {
     name: String,
     options: PolygonizerOptions,
+    tiling: Option<GoldenTiling>,
     inputs: Vec<GoldenLine>,
     expected_metrics: GoldenMetrics,
     expected: GoldenResult,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GoldenTiling {
+    bbox: [f64; 4],
+    tile_size: f64,
+    buffer: f64,
+    ownership_policy: TileOwnershipPolicy,
+    dedup_policy: DedupPolicy,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -104,18 +116,57 @@ fn run_golden_test(path: &Path) {
         include_boundary_line_ids: true,
     };
 
-    let res = polygonize(input_lines, &options).unwrap();
-    let actual_area: f64 = res
-        .polygons
+    let (polygons, dangles, cut_edges, invalid_rings) = if let Some(tiling) = fixture.tiling {
+        let geometries: Vec<_> = input_lines
+            .iter()
+            .map(|line| {
+                Geometry::LineString(LineString::new(vec![
+                    line.start.to_coord_2d(),
+                    line.end.to_coord_2d(),
+                ]))
+            })
+            .collect();
+        let mut polygonizer = TiledPolygonizer::new(
+            Rect::new(
+                Coord {
+                    x: tiling.bbox[0],
+                    y: tiling.bbox[1],
+                },
+                Coord {
+                    x: tiling.bbox[2],
+                    y: tiling.bbox[3],
+                },
+            ),
+            tiling.tile_size,
+        )
+        .with_buffer(tiling.buffer)
+        .with_options(options)
+        .with_ownership_policy(tiling.ownership_policy)
+        .with_dedup_policy(tiling.dedup_policy);
+        for geometry in &geometries {
+            polygonizer.add_geometry(geometry);
+        }
+        let result = polygonizer.polygonize().unwrap();
+        (result.polygons, Vec::new(), Vec::new(), Vec::new())
+    } else {
+        let result = polygonize(input_lines, &options).unwrap();
+        (
+            result.polygons,
+            result.dangles,
+            result.cut_edges,
+            result.invalid_rings,
+        )
+    };
+    let actual_area: f64 = polygons
         .iter()
         .map(|polygon| polygon.unsigned_area_2d())
         .sum();
     assert_eq!(
         [
-            res.polygons.len(),
-            res.dangles.len(),
-            res.cut_edges.len(),
-            res.invalid_rings.len(),
+            polygons.len(),
+            dangles.len(),
+            cut_edges.len(),
+            invalid_rings.len(),
         ],
         [
             fixture.expected_metrics.polygon_count,
@@ -135,8 +186,7 @@ fn run_golden_test(path: &Path) {
         actual_area
     );
     let actual_result = GoldenResult {
-        polygons: res
-            .polygons
+        polygons: polygons
             .into_iter()
             .map(|p| {
                 let provenance = p.provenance.unwrap_or_default();
@@ -154,18 +204,15 @@ fn run_golden_test(path: &Path) {
                 }
             })
             .collect(),
-        dangles: res
-            .dangles
+        dangles: dangles
             .into_iter()
             .map(|d| d.into_iter().map(|c| c.into()).collect())
             .collect(),
-        cut_edges: res
-            .cut_edges
+        cut_edges: cut_edges
             .into_iter()
             .map(|edge| edge.into_iter().map(|c| c.into()).collect())
             .collect(),
-        invalid_rings: res
-            .invalid_rings
+        invalid_rings: invalid_rings
             .into_iter()
             .map(|r| r.into_iter().map(|c| c.into()).collect())
             .collect(),
