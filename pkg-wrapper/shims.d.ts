@@ -12,6 +12,12 @@ export declare function polygonizeWithOptions(
     options_val: Partial<PolygonizerOptions>
 ): string;
 
+/** Versioned full topology report; unlike `polygonizeWithOptions`, this retains non-polygon output. */
+export declare function polygonizeReportWithOptions(
+    geojson_str: string,
+    options_val: Partial<PolygonizerOptions>
+): string;
+
 export declare function polygonizeGeoArrowWithOptions(
     ipc_bytes: Uint8Array,
     options_val: Partial<PolygonizerOptions>
