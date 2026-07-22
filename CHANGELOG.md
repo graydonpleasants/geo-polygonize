@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.54.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.53.0...geo-polygonize-v0.54.0) (2026-07-22)
+
+
+### Features
+
+* **wasm:** expose GeoJSON conformance fingerprint ([#926](https://github.com/graydonpleasants/geo-polygonize/issues/926)) ([24c785b](https://github.com/graydonpleasants/geo-polygonize/commit/24c785b025d8fdfb69f06298e5805e136ea3b0f7))
+
 ## [0.53.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.52.0...geo-polygonize-v0.53.0) (2026-07-22)
 
 
