@@ -2,7 +2,7 @@ mod error;
 
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
-use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 use geo_polygonize_core::{polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer};
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};

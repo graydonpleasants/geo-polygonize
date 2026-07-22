@@ -1,0 +1,33 @@
+[package]
+name = "geo-polygonize-arrow"
+version = "0.48.0"
+edition = "2021"
+description = "Arrow and GeoArrow adapters for geo-polygonize-core."
+license = "MIT OR Apache-2.0"
+readme = "../../README.md"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.48.0" }
+arrow = { version = "57", features = ["ffi"] }
+geoarrow = "0.7.0"
+geo = "0.32"
+geo-traits = "0.3.0"
+serde_json = "1.0"
+geoparquet = { version = "0.7.0", optional = true }
+parquet = { version = "57.3.0", optional = true }
+
+[dev-dependencies]
+geoarrow-test = "0.7.0"
+geo-types = "0.7"
+rand = "0.8"
+dhat = "0.3.3"
+
+[features]
+geoparquet = ["dep:geoparquet", "dep:parquet"]
+
+[[bench]]
+name = "allocation_bench"
+harness = false

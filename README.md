@@ -112,11 +112,11 @@ This behavior matches classical JTS/GEOS polygonization semantics and is useful 
 
 ### GeoArrow Integration
 
-The Rust `arrow_api` and `ffi` modules require the opt-in `arrow` Cargo feature;
-the Wasm crate enables it automatically.
+Rust Arrow and GeoArrow adapters live in the `geo-polygonize-arrow` crate;
+the Wasm crate includes it automatically.
 
 ```rust
-use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 // ... create Arrow array ...
 // let result = polygonize_arrow(&array, &field, options);
 ```

@@ -1008,11 +1008,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo-polygonize-arrow"
+version = "0.48.0"
+dependencies = [
+ "arrow",
+ "dhat",
+ "geo",
+ "geo-polygonize-core",
+ "geo-traits",
+ "geo-types",
+ "geoarrow",
+ "geoarrow-test",
+ "geoparquet",
+ "parquet",
+ "rand",
+ "serde_json",
+]
+
+[[package]]
 name = "geo-polygonize-core"
 version = "0.48.0"
 dependencies = [
  "approx",
- "arrow",
  "clap",
  "criterion",
  "dhat",
@@ -1021,10 +1038,7 @@ dependencies = [
  "geo",
  "geo-traits",
  "geo-types",
- "geoarrow",
- "geoarrow-test",
  "geojson",
- "geoparquet",
  "geozero",
  "getrandom 0.2.17",
  "humantime-serde",
@@ -1032,7 +1046,6 @@ dependencies = [
  "log",
  "multiversion",
  "numpy",
- "parquet",
  "pyo3",
  "rand",
  "rayon",
@@ -1056,6 +1069,7 @@ dependencies = [
  "arrow-ipc",
  "console_error_panic_hook",
  "geo",
+ "geo-polygonize-arrow",
  "geo-polygonize-core",
  "geo-traits",
  "geoarrow",

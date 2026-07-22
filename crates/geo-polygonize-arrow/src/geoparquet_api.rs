@@ -1,9 +1,8 @@
-use crate::arrow_api::polygonize_arrow;
-use crate::error::PolygonizeError;
-use crate::options::PolygonizerOptions;
+use crate::polygonize_arrow;
 use arrow::array::Array;
 use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
+use geo_polygonize_core::{PolygonizeError, PolygonizerOptions};
 use geoarrow::array::GeoArrowArray;
 use geoarrow::datatypes::CoordType;
 use geoparquet::reader::{GeoParquetReaderBuilder, GeoParquetRecordBatchReader};

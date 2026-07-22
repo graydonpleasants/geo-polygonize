@@ -1,9 +1,7 @@
-#![cfg(feature = "arrow")]
-
 use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions};
+use geo_polygonize_arrow::ffi::{polygonize_ffi, PolygonizerOptions};
 use geoarrow::array::{GeoArrowArray, PolygonArray};
 use geoarrow::datatypes::{Crs, Metadata};
 use std::convert::TryFrom;

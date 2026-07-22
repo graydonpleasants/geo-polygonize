@@ -1,8 +1,9 @@
-use crate::arrow_api::polygonize_arrow;
+use crate::polygonize_arrow;
 use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::error::ArrowError;
 use arrow::ffi::{from_ffi_and_data_type, FFI_ArrowArray, FFI_ArrowSchema};
+use geo_polygonize_core::{PolygonizeError, PolygonizerOptions as CoreOptions, PrecisionModel};
 use geoarrow::array::IntoArrow;
 use std::convert::TryFrom;
 
@@ -82,12 +83,12 @@ pub unsafe extern "C" fn polygonize_ffi(
         }
         let opts = &*options;
         let node_input = opts.node_input != 0;
-        let mut arrow_opts = crate::options::PolygonizerOptions {
+        let mut arrow_opts = CoreOptions {
             node_input,
             precision_model: if node_input {
-                crate::options::PrecisionModel::from_grid_size(opts.snap_grid_size)
+                PrecisionModel::from_grid_size(opts.snap_grid_size)
             } else {
-                crate::options::PrecisionModel::Floating
+                PrecisionModel::Floating
             },
             extract_only_polygonal: opts.extract_only_polygonal != 0,
             ..Default::default()
@@ -131,8 +132,7 @@ pub unsafe extern "C" fn polygonize_with_options_ffi(
             Err(_) => return 1,
         };
 
-        let arrow_opts: crate::options::PolygonizerOptions = match serde_json::from_str(options_str)
-        {
+        let arrow_opts: CoreOptions = match serde_json::from_str(options_str) {
             Ok(o) => o,
             Err(_) => return 1,
         };
@@ -153,7 +153,7 @@ unsafe fn polygonize_ffi_internal(
     input_schema: *mut FFI_ArrowSchema,
     output_array: *mut FFI_ArrowArray,
     output_schema: *mut FFI_ArrowSchema,
-    arrow_opts: crate::options::PolygonizerOptions,
+    arrow_opts: CoreOptions,
 ) -> i32 {
     if input_array.is_null()
         || input_schema.is_null()
@@ -195,15 +195,15 @@ unsafe fn polygonize_ffi_internal(
             0
         }
         Err(e) => match e {
-            crate::error::PolygonizeError::InvalidBufferShape { .. } => 5,
-            crate::error::PolygonizeError::InvalidArgumentType { .. } => 6,
-            crate::error::PolygonizeError::InvalidGeometry { .. } => 7,
-            crate::error::PolygonizeError::TopologyFailure { .. } => 8,
-            crate::error::PolygonizeError::ZConflict { .. } => 8,
-            crate::error::PolygonizeError::NodingValidationFailure { .. } => 8,
-            crate::error::PolygonizeError::UnsupportedOptionCombination { .. } => 9,
-            crate::error::PolygonizeError::InternalInvariantViolation { .. } => 10,
-            crate::error::PolygonizeError::ArrowError(_) => 11,
+            PolygonizeError::InvalidBufferShape { .. } => 5,
+            PolygonizeError::InvalidArgumentType { .. } => 6,
+            PolygonizeError::InvalidGeometry { .. } => 7,
+            PolygonizeError::TopologyFailure { .. } => 8,
+            PolygonizeError::ZConflict { .. } => 8,
+            PolygonizeError::NodingValidationFailure { .. } => 8,
+            PolygonizeError::UnsupportedOptionCombination { .. } => 9,
+            PolygonizeError::InternalInvariantViolation { .. } => 10,
+            PolygonizeError::ArrowError(_) => 11,
             _ => 12,
         },
     }

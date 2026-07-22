@@ -1,15 +1,13 @@
-use crate::error::PolygonizeError;
-use crate::polygonize;
-use crate::types::{Coord3D, Line3D};
 use arrow::array::{Array, AsArray, GenericListArray};
 use arrow::datatypes::{DataType, Field, Float64Type};
+use geo_polygonize_core::{polygonize, Coord3D, Line3D, PolygonizeError};
 use geo_traits::to_geo::ToGeoLineString;
 use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, PolygonBuilder};
 use geoarrow::datatypes::{Dimension, GeoArrowType, Metadata, PolygonType};
 use std::convert::TryFrom;
 use std::sync::Arc;
 
-pub use crate::options::PolygonizerOptions;
+pub use geo_polygonize_core::PolygonizerOptions;
 
 pub fn polygonize_arrow(
     array: &dyn Array,

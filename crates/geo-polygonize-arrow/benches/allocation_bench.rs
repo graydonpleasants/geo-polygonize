@@ -4,8 +4,8 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 use arrow::array::make_array;
 use arrow::datatypes::Field;
 use arrow::ffi::{from_ffi_and_data_type, FFI_ArrowArray, FFI_ArrowSchema};
-use geo_polygonize_core::arrow_api::polygonize_arrow;
-use geo_polygonize_core::ffi::{polygonize_ffi, PolygonizerOptions as FfiOptions};
+use geo_polygonize_arrow::ffi::{polygonize_ffi, PolygonizerOptions as FfiOptions};
+use geo_polygonize_arrow::polygonize_arrow;
 use geo_polygonize_core::Polygonizer;
 use geo_polygonize_core::PolygonizerOptions;
 use geo_types::{Coord, LineString};
@@ -156,7 +156,7 @@ fn main() {
 #[cfg(feature = "geoparquet")]
 fn measure_geoparquet() {
     use arrow::record_batch::RecordBatch;
-    use geo_polygonize_core::geoparquet_api::polygonize_geoparquet_file;
+    use geo_polygonize_arrow::geoparquet_api::polygonize_geoparquet_file;
     use geoparquet::writer::{GeoParquetRecordBatchEncoder, GeoParquetWriterOptions};
     use parquet::arrow::ArrowWriter;
     use std::fs::{self, File};
