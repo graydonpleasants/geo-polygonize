@@ -1,7 +1,7 @@
 use crate::diagnostics::{NodingIterationStats, NodingWorkStats};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::UniformGrid;
-use crate::options::{SnapStrategy, ZPolicy};
+use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -113,7 +113,8 @@ impl SnapNoder {
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Vec<Line3D> {
-        self.node_impl(lines, None, None)
+        self.node_impl(lines, None, None, None)
+            .expect("unlimited noding cannot fail")
     }
 
     pub(crate) fn node_with_stats(
@@ -122,8 +123,34 @@ impl SnapNoder {
     ) -> (Vec<Line3D>, Vec<NodingIterationStats>, NodingWorkStats) {
         let mut stats = Vec::new();
         let mut work_stats = NodingWorkStats::default();
-        let lines = self.node_impl(lines, Some(&mut stats), Some(&mut work_stats));
+        let lines = self
+            .node_impl(lines, Some(&mut stats), Some(&mut work_stats), None)
+            .expect("unlimited noding cannot fail");
         (lines, stats, work_stats)
+    }
+
+    pub(crate) fn node_with_execution_policy(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<Line3D>> {
+        self.node_impl(lines, None, None, Some(execution_policy))
+    }
+
+    pub(crate) fn node_with_stats_and_execution_policy(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<(Vec<Line3D>, Vec<NodingIterationStats>, NodingWorkStats)> {
+        let mut stats = Vec::new();
+        let mut work_stats = NodingWorkStats::default();
+        let lines = self.node_impl(
+            lines,
+            Some(&mut stats),
+            Some(&mut work_stats),
+            Some(execution_policy),
+        )?;
+        Ok((lines, stats, work_stats))
     }
 
     fn node_impl(
@@ -131,7 +158,8 @@ impl SnapNoder {
         mut lines: Vec<Line3D>,
         mut stats: Option<&mut Vec<NodingIterationStats>>,
         mut work_stats: Option<&mut NodingWorkStats>,
-    ) -> Vec<Line3D> {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<Line3D>> {
         // 1. Initial Snap of endpoints
         for line in &mut lines {
             line.start = self.snap(line.start);
@@ -156,6 +184,7 @@ impl SnapNoder {
         let auto_prefers_simd =
             self.strategy == NodingStrategy::Auto && self.auto_prefers_simd(&lines);
         let mut new_lines = Vec::new();
+        let mut total_work = NodingWorkStats::default();
         for iteration_index in 0..self.max_iter {
             let input_segment_count = lines.len();
             let use_grid = match self.strategy {
@@ -169,15 +198,37 @@ impl SnapNoder {
 
             let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
-                if let Some(work_stats) = work_stats.as_deref_mut() {
-                    work_stats.merge(Self::measure_simd_work(&lines));
+                let measured_work = (work_stats.is_some() || execution_policy.is_some())
+                    .then(|| Self::measure_simd_work(&lines));
+                if let Some(measured_work) = measured_work {
+                    if let Some(execution_policy) = execution_policy {
+                        total_work.merge(measured_work.clone());
+                        execution_policy.check_noding_work(
+                            total_work.candidate_pairs,
+                            total_work.exact_intersection_calls,
+                        )?;
+                    }
+                    if let Some(work_stats) = work_stats.as_deref_mut() {
+                        work_stats.merge(measured_work);
+                    }
                 }
                 self.find_splits_simd(&lines)
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                if let Some(work_stats) = work_stats.as_deref_mut() {
-                    work_stats.merge(grid.measure_work(&lines));
+                let measured_work = (work_stats.is_some() || execution_policy.is_some())
+                    .then(|| grid.measure_work(&lines));
+                if let Some(measured_work) = measured_work {
+                    if let Some(execution_policy) = execution_policy {
+                        total_work.merge(measured_work.clone());
+                        execution_policy.check_noding_work(
+                            total_work.candidate_pairs,
+                            total_work.exact_intersection_calls,
+                        )?;
+                    }
+                    if let Some(work_stats) = work_stats.as_deref_mut() {
+                        work_stats.merge(measured_work);
+                    }
                 }
                 grid.find_splits(&lines, self)
             };
@@ -297,7 +348,7 @@ impl SnapNoder {
             }
         }
 
-        lines
+        Ok(lines)
     }
 
     fn auto_prefers_simd(&self, lines: &[Line3D]) -> bool {

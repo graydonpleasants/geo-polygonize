@@ -312,6 +312,7 @@ impl Polygonizer {
         self.graph.clear();
         let grid_size = self.options.precision_model.grid_size();
         let mut segments;
+        let has_noding_work_limits = self.execution_policy.has_noding_work_limits();
 
         if self.options.node_input {
             let mut pre_snap_vertex_candidates = 0;
@@ -364,8 +365,14 @@ impl Polygonizer {
                         let noder =
                             HotPixelNoder::new(grid_size)?.with_z_policy(self.options.z.policy);
                         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                            let (noded, intersections, mut work_stats) =
-                                noder.node_with_stats(all_segments)?;
+                            let (noded, intersections, mut work_stats) = if has_noding_work_limits {
+                                noder.node_with_stats_and_execution_policy(
+                                    all_segments,
+                                    &self.execution_policy,
+                                )?
+                            } else {
+                                noder.node_with_stats(all_segments)?
+                            };
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             diagnostics.intersection_stats.interpolated_intersections =
                                 work_stats.split_events;
@@ -379,7 +386,14 @@ impl Polygonizer {
                             diagnostics.noding_work_stats = work_stats;
                             segments = noded;
                         } else {
-                            segments = noder.node(all_segments)?;
+                            segments = if has_noding_work_limits {
+                                noder.node_with_execution_policy(
+                                    all_segments,
+                                    &self.execution_policy,
+                                )?
+                            } else {
+                                noder.node(all_segments)?
+                            };
                         }
                     } else {
                         let noder = SnapNoder::new(grid_size)
@@ -391,8 +405,14 @@ impl Polygonizer {
                             matches!(self.options.snap_strategy, SnapStrategy::GeosCompat)
                                 .then(|| restored_coordinates(&noder, &all_segments));
                         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                            let (noded, stats, mut work_stats) =
-                                noder.node_with_stats(all_segments);
+                            let (noded, stats, mut work_stats) = if has_noding_work_limits {
+                                noder.node_with_stats_and_execution_policy(
+                                    all_segments,
+                                    &self.execution_policy,
+                                )?
+                            } else {
+                                noder.node_with_stats(all_segments)
+                            };
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             diagnostics.intersection_stats.interpolated_intersections = stats
                                 .iter()
@@ -404,7 +424,14 @@ impl Polygonizer {
                             diagnostics.noding_work_stats = work_stats;
                             segments = noded;
                         } else {
-                            segments = noder.node(all_segments);
+                            segments = if has_noding_work_limits {
+                                noder.node_with_execution_policy(
+                                    all_segments,
+                                    &self.execution_policy,
+                                )?
+                            } else {
+                                noder.node(all_segments)
+                            };
                         }
                         if let Some(coordinates) = restore_coordinates {
                             restore_noded_coordinates(&mut segments, &coordinates);
@@ -414,9 +441,15 @@ impl Polygonizer {
                 crate::options::NodingBackend::Advanced => {
                     let noder = AdvancedNoder::new().with_z_policy(self.options.z.policy);
                     if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                        let (noded, stats, mut work_stats) = SnapNoder::new(0.0)
-                            .with_z_policy(self.options.z.policy)
-                            .node_with_stats(all_segments);
+                        let noder = SnapNoder::new(0.0).with_z_policy(self.options.z.policy);
+                        let (noded, stats, mut work_stats) = if has_noding_work_limits {
+                            noder.node_with_stats_and_execution_policy(
+                                all_segments,
+                                &self.execution_policy,
+                            )?
+                        } else {
+                            noder.node_with_stats(all_segments)
+                        };
                         work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                         diagnostics.intersection_stats.interpolated_intersections = stats
                             .iter()
@@ -428,7 +461,13 @@ impl Polygonizer {
                         diagnostics.noding_work_stats = work_stats;
                         segments = noded;
                     } else {
-                        segments = noder.node(all_segments);
+                        segments = if has_noding_work_limits {
+                            SnapNoder::new(0.0)
+                                .with_z_policy(self.options.z.policy)
+                                .node_with_execution_policy(all_segments, &self.execution_policy)?
+                        } else {
+                            noder.node(all_segments)
+                        };
                     }
                 }
             }
