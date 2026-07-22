@@ -63,7 +63,7 @@ describe('WASM Polygonizer', () => {
     });
 
     it('should apply defaults to partial options', async () => {
-        const { default: initModule, polygonizeWithOptions } = await import('../../../dist/standard/es/index.js');
+        const { default: initModule, polygonizeFingerprintWithOptions, polygonizeWithOptions } = await import('../../../dist/standard/es/index.js');
         await initModule();
         const input = {
             type: "FeatureCollection",
@@ -77,6 +77,9 @@ describe('WASM Polygonizer', () => {
         };
 
         expect(JSON.parse(polygonizeWithOptions(JSON.stringify(input), {})).features).toHaveLength(1);
+        const fingerprint = JSON.parse(polygonizeFingerprintWithOptions(JSON.stringify(input), {}));
+        expect(fingerprint.schema_version).toBe(1);
+        expect(fingerprint.polygons[0].exterior[0].x).toMatch(/^0x/);
         expect(() => polygonizeWithOptions(JSON.stringify(input), {
             precision_model: { type: "fixed_grid", grid_size: -1 },
         })).toThrow(/precision_model.grid_size/);
