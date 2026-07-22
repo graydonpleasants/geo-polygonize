@@ -207,13 +207,13 @@ execution policy rather than extending `PolygonizerOptions`.
 ### P0.5 Execution budgets
 
 Progress: The core now has an opt-in, non-semantic `ExecutionPolicy` that
-rejects oversized input line-string, segment, and coordinate counts before
-polygonization starts.
+rejects oversized input line-string, segment, coordinate, and noded-segment
+counts before graph construction.
 
 Add opt-in limits for:
 
 - [x] input line strings, segments, and coordinates;
-- [ ] noded segment expansion;
+- [x] noded segment expansion;
 - [ ] candidate pairs and exact intersection calls;
 - [ ] split events and iterative-noding passes;
 - [ ] graph nodes, edges, rings, polygons, and output coordinates;

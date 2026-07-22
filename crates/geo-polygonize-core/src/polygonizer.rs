@@ -445,6 +445,12 @@ impl Polygonizer {
             segments = all_segments;
         }
 
+        self.execution_policy.check(
+            "noded_segments",
+            self.execution_policy.max_noded_segments,
+            segments.len(),
+        )?;
+
         let z_conflicts = reconcile_segment_z(
             &mut segments,
             self.options.z.policy,

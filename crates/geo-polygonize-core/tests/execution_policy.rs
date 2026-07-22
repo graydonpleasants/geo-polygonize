@@ -65,3 +65,31 @@ fn input_limits_stop_before_polygonization() {
         2,
     );
 }
+
+#[test]
+fn noded_segment_limit_stops_after_noding() {
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let crossing = [
+        Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(2., 2., 0.), 0),
+        Line3D::new(Coord3D::new(0., 2., 0.), Coord3D::new(2., 0., 0.), 1),
+    ];
+
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            crossing,
+            &options,
+            &ExecutionPolicy {
+                max_noded_segments: Some(0),
+                ..Default::default()
+            },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded {
+            stage,
+            limit: 0,
+            observed,
+        }) if stage == "noded_segments" && observed > 0
+    ));
+}
