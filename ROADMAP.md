@@ -35,8 +35,8 @@ change.
 ### 1. Broaden the golden corpus
 
 - [x] Add explicit expected topology metrics to every golden fixture.
-- [ ] Cover tiling, compatibility, and benchmark-sized inputs in addition to
-  the existing basic, topology, provenance, dirty-input, and Z-policy cases.
+- [ ] Cover compatibility and benchmark-sized inputs in addition to the
+  existing basic, topology, provenance, dirty-input, Z-policy, and tiling cases.
 - [ ] Reuse the same fixtures in canonical, benchmark, and differential paths
   where their contracts overlap.
 
