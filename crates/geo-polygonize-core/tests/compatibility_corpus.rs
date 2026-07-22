@@ -12,7 +12,7 @@ struct CompatibilityCase {
     rust_profiles: Vec<RustProfile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Classification {
     ExpectedParity,
@@ -70,6 +70,7 @@ fn repository_root() -> PathBuf {
 #[test]
 fn compatibility_corpus_matches_recorded_contracts() {
     let root = repository_root();
+    let mut seen_classifications = [false; 3];
     let mut manifests: Vec<_> = fs::read_dir(root.join("fixtures/compat"))
         .expect("compatibility fixture directory should exist")
         .map(|entry| {
@@ -90,6 +91,11 @@ fn compatibility_corpus_matches_recorded_contracts() {
             &fs::read_to_string(&manifest).expect("compatibility fixture should be readable"),
         )
         .expect("compatibility fixture should parse");
+        seen_classifications[match case.classification {
+            Classification::ExpectedParity => 0,
+            Classification::ExpectedDivergence => 1,
+            Classification::InvalidAmbiguous => 2,
+        }] = true;
         let golden: GoldenFixture = serde_json::from_str(
             &fs::read_to_string(root.join(&case.fixture))
                 .expect("golden fixture should be readable"),
@@ -155,4 +161,9 @@ fn compatibility_corpus_matches_recorded_contracts() {
             );
         }
     }
+
+    assert_eq!(
+        seen_classifications, [true; 3],
+        "expected parity, divergence, and invalid/ambiguous cases"
+    );
 }
