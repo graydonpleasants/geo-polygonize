@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-wasm"
-version = "0.57.0"
+version = "0.58.0"
 edition = "2021"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
@@ -10,8 +10,8 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.57.0" }
-geo-polygonize-arrow = { path = "../geo-polygonize-arrow", version = "0.57.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.58.0" }
+geo-polygonize-arrow = { path = "../geo-polygonize-arrow", version = "0.58.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"
