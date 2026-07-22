@@ -238,6 +238,15 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             "invalid_buffer_shape",
             "input_validation",
         ),
+        PolygonizeError::ResourceLimitExceeded {
+            stage,
+            limit,
+            observed,
+        } => NormalizedPolygonizeErrorV1 {
+            limit: Some(limit.to_string()),
+            observed: Some(observed.to_string()),
+            ..base("resource_limit", "resource_limit_exceeded", stage)
+        },
         PolygonizeError::UnsupportedOptionCombination { .. } => base(
             "invalid_argument",
             "unsupported_option_combination",

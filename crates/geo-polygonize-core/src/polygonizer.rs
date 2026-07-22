@@ -8,7 +8,9 @@ use crate::noding::advanced::AdvancedNoder;
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
-use crate::options::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy};
+use crate::options::{
+    ExecutionPolicy, NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy,
+};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -38,6 +40,7 @@ use rayon::prelude::*;
 pub struct Polygonizer {
     graph: PlanarGraph,
     options: PolygonizerOptions,
+    execution_policy: ExecutionPolicy,
     input_lines: Vec<Line3D>,
 }
 
@@ -87,7 +90,29 @@ pub fn polygonize(
     lines: impl IntoIterator<Item = Line3D>,
     options: &PolygonizerOptions,
 ) -> Result<PolygonizerResult> {
-    Polygonizer::with_options(options.clone()).polygonize_owned(lines.into_iter().collect())
+    polygonize_with_execution_policy(lines, options, &ExecutionPolicy::default())
+}
+
+/// Polygonize an owned stream of line segments with non-semantic execution limits.
+pub fn polygonize_with_execution_policy(
+    lines: impl IntoIterator<Item = Line3D>,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<PolygonizerResult> {
+    let lines: Vec<_> = lines.into_iter().collect();
+    execution_policy.check(
+        "input_segments",
+        execution_policy.max_input_segments,
+        lines.len(),
+    )?;
+    execution_policy.check(
+        "input_coordinates",
+        execution_policy.max_input_coordinates,
+        lines.len().saturating_mul(2),
+    )?;
+    Polygonizer::with_options(options.clone())
+        .with_execution_policy(execution_policy.clone())
+        .polygonize_owned(lines)
 }
 
 /// Polygonize borrowed or owned GeoRust line strings without first building [`Line3D`] values.
@@ -102,8 +127,31 @@ where
     I: IntoIterator<Item = L>,
     L: LineStringTrait<T = f64>,
 {
+    polygonize_line_strings_with_execution_policy(
+        line_strings,
+        options,
+        &ExecutionPolicy::default(),
+    )
+}
+
+/// Polygonize GeoRust line strings with non-semantic execution limits.
+pub fn polygonize_line_strings_with_execution_policy<I, L>(
+    line_strings: I,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<PolygonizerResult>
+where
+    I: IntoIterator<Item = L>,
+    L: LineStringTrait<T = f64>,
+{
     let mut segments = Vec::new();
+    let mut coordinate_count = 0;
     for (line_id, line_string) in line_strings.into_iter().enumerate() {
+        execution_policy.check(
+            "input_line_strings",
+            execution_policy.max_input_line_strings,
+            line_id + 1,
+        )?;
         let line_id = u32::try_from(line_id).map_err(|_| PolygonizeError::InvalidGeometry {
             reason: "more than u32::MAX input line strings".to_string(),
         })?;
@@ -111,14 +159,33 @@ where
         let Some(first) = coordinates.next() else {
             continue;
         };
+        coordinate_count += 1;
+        execution_policy.check(
+            "input_coordinates",
+            execution_policy.max_input_coordinates,
+            coordinate_count,
+        )?;
         let mut previous = Coord3D::new(first.x(), first.y(), 0.0);
         for coordinate in coordinates {
+            coordinate_count += 1;
+            execution_policy.check(
+                "input_coordinates",
+                execution_policy.max_input_coordinates,
+                coordinate_count,
+            )?;
+            execution_policy.check(
+                "input_segments",
+                execution_policy.max_input_segments,
+                segments.len() + 1,
+            )?;
             let current = Coord3D::new(coordinate.x(), coordinate.y(), 0.0);
             segments.push(Line3D::new(previous, current, line_id));
             previous = current;
         }
     }
-    polygonize(segments, options)
+    Polygonizer::with_options(options.clone())
+        .with_execution_policy(execution_policy.clone())
+        .polygonize_owned(segments)
 }
 
 /// Polygonize line segments and return only the GeoRust polygon output.
@@ -135,9 +202,35 @@ pub fn polygonize_with_workspace(
     options: &PolygonizerOptions,
     workspace: &mut PolygonizerWorkspace,
 ) -> Result<PolygonizerResult> {
+    polygonize_with_workspace_and_execution_policy(
+        lines,
+        options,
+        workspace,
+        &ExecutionPolicy::default(),
+    )
+}
+
+/// Polygonize a borrowed slice with reusable allocations and execution limits.
+pub fn polygonize_with_workspace_and_execution_policy(
+    lines: &[Line3D],
+    options: &PolygonizerOptions,
+    workspace: &mut PolygonizerWorkspace,
+    execution_policy: &ExecutionPolicy,
+) -> Result<PolygonizerResult> {
+    execution_policy.check(
+        "input_segments",
+        execution_policy.max_input_segments,
+        lines.len(),
+    )?;
+    execution_policy.check(
+        "input_coordinates",
+        execution_policy.max_input_coordinates,
+        lines.len().saturating_mul(2),
+    )?;
     let mut runner = Polygonizer {
         graph: std::mem::take(&mut workspace.graph),
         options: options.clone(),
+        execution_policy: execution_policy.clone(),
         input_lines: Vec::new(),
     };
     let result = runner.polygonize_owned(lines.to_vec());
@@ -152,6 +245,7 @@ impl Polygonizer {
         Self {
             graph: PlanarGraph::new(),
             options: PolygonizerOptions::default(),
+            execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
         }
     }
@@ -160,6 +254,7 @@ impl Polygonizer {
         Self {
             graph: PlanarGraph::new(),
             options,
+            execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
         }
     }
@@ -185,6 +280,12 @@ impl Polygonizer {
 
     pub fn with_precision_model(mut self, precision_model: PrecisionModel) -> Self {
         self.options.precision_model = precision_model;
+        self
+    }
+
+    /// Sets non-semantic limits for this polygonizer instance.
+    pub fn with_execution_policy(mut self, execution_policy: ExecutionPolicy) -> Self {
+        self.execution_policy = execution_policy;
         self
     }
 
@@ -374,6 +475,11 @@ impl Polygonizer {
 
     fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
         self.options.validate()?;
+        self.execution_policy.check(
+            "input_segments",
+            self.execution_policy.max_input_segments,
+            input_lines.len(),
+        )?;
         validate_lines(&input_lines)?;
 
         let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {

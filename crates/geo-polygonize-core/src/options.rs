@@ -3,6 +3,30 @@ use ts_rs::TS;
 
 use crate::error::{PolygonizeError, Result};
 
+/// Non-semantic limits applied before polygonization begins.
+///
+/// Limits are opt-in. They are intentionally separate from `PolygonizerOptions`
+/// so equivalent topology options retain identical meaning across callers.
+#[derive(Clone, Debug, Default)]
+pub struct ExecutionPolicy {
+    pub max_input_line_strings: Option<usize>,
+    pub max_input_segments: Option<usize>,
+    pub max_input_coordinates: Option<usize>,
+}
+
+impl ExecutionPolicy {
+    pub(crate) fn check(&self, stage: &str, limit: Option<usize>, observed: usize) -> Result<()> {
+        if let Some(limit) = limit.filter(|limit| observed > *limit) {
+            return Err(PolygonizeError::ResourceLimitExceeded {
+                stage: stage.to_string(),
+                limit,
+                observed,
+            });
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(default, deny_unknown_fields)]
 #[ts(export)]

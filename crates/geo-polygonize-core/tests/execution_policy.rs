@@ -1,0 +1,67 @@
+use geo_polygonize_core::{
+    polygonize_line_strings_with_execution_policy, polygonize_with_execution_policy, Coord3D,
+    ExecutionPolicy, Line3D, PolygonizeError, PolygonizerOptions,
+};
+use geo_types::LineString;
+
+fn assert_limit(error: PolygonizeError, stage: &str, limit: usize, observed: usize) {
+    assert!(matches!(
+        error,
+        PolygonizeError::ResourceLimitExceeded {
+            stage: actual_stage,
+            limit: actual_limit,
+            observed: actual_observed,
+        } if actual_stage == stage && actual_limit == limit && actual_observed == observed
+    ));
+}
+
+#[test]
+fn input_limits_stop_before_polygonization() {
+    let line = LineString::from(vec![(0., 0.), (1., 0.), (1., 1.)]);
+    let options = PolygonizerOptions::default();
+
+    assert_limit(
+        polygonize_line_strings_with_execution_policy(
+            [&line],
+            &options,
+            &ExecutionPolicy {
+                max_input_line_strings: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "input_line_strings",
+        0,
+        1,
+    );
+    assert_limit(
+        polygonize_line_strings_with_execution_policy(
+            [&line],
+            &options,
+            &ExecutionPolicy {
+                max_input_coordinates: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "input_coordinates",
+        2,
+        3,
+    );
+
+    let segment = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);
+    assert_limit(
+        polygonize_with_execution_policy(
+            [segment.clone(), segment],
+            &options,
+            &ExecutionPolicy {
+                max_input_segments: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "input_segments",
+        1,
+        2,
+    );
+}
