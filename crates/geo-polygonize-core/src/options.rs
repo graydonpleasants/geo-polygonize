@@ -20,6 +20,8 @@ pub struct ExecutionPolicy {
     pub max_graph_nodes: Option<usize>,
     pub max_graph_edges: Option<usize>,
     pub max_rings: Option<usize>,
+    pub max_output_polygons: Option<usize>,
+    pub max_output_coordinates: Option<usize>,
 }
 
 impl ExecutionPolicy {

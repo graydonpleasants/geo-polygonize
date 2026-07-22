@@ -210,7 +210,8 @@ Progress: The core now has an opt-in, non-semantic `ExecutionPolicy` that
 rejects oversized input line-string, segment, coordinate, and noded-segment
 counts before graph construction, plus noding candidate, exact-intersection,
 split-event, and iteration work before split application. Graph node, edge, and
-ring limits now stop before classification.
+ring limits now stop before classification. Final polygon and output-coordinate
+limits stop before a result is returned.
 
 Add opt-in limits for:
 
@@ -219,7 +220,7 @@ Add opt-in limits for:
 - [x] candidate pairs and exact intersection calls;
 - [x] split events and iterative-noding passes;
 - [x] graph nodes, edges, and rings;
-- [ ] polygons and output coordinates;
+- [x] polygons and output coordinates;
 - [ ] per-stage and total trace bytes;
 - [ ] estimated working memory where a reliable bound is available.
 

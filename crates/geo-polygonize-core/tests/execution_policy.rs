@@ -257,3 +257,45 @@ fn graph_and_ring_limits_stop_after_their_boundary() {
         }) if stage == "rings" && observed > 0
     ));
 }
+
+#[test]
+fn output_limits_stop_before_returning_a_result() {
+    let square = [
+        Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0),
+        Line3D::new(Coord3D::new(1., 0., 0.), Coord3D::new(1., 1., 0.), 1),
+        Line3D::new(Coord3D::new(1., 1., 0.), Coord3D::new(0., 1., 0.), 2),
+        Line3D::new(Coord3D::new(0., 1., 0.), Coord3D::new(0., 0., 0.), 3),
+    ];
+    let options = PolygonizerOptions::default();
+
+    assert_limit(
+        polygonize_with_execution_policy(
+            square,
+            &options,
+            &ExecutionPolicy {
+                max_output_polygons: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "output_polygons",
+        0,
+        1,
+    );
+    assert!(matches!(
+        polygonize_with_execution_policy(
+            square,
+            &options,
+            &ExecutionPolicy {
+                max_output_polygons: Some(1),
+                max_output_coordinates: Some(0),
+                ..Default::default()
+            },
+        ),
+        Err(PolygonizeError::ResourceLimitExceeded {
+            stage,
+            limit: 0,
+            observed,
+        }) if stage == "output_coordinates" && observed > 0
+    ));
+}
