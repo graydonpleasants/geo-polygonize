@@ -1,5 +1,6 @@
 {
   "name": "basic_square_with_hole",
+  "options": { "node_input": true },
   "inputs": [
     {
       "start": {
@@ -106,6 +107,14 @@
       "id": 8
     }
   ],
+  "expected_metrics": {
+    "polygon_count": 2,
+    "total_area": 100.0,
+    "area_tolerance": 0.0,
+    "dangle_count": 0,
+    "cut_edge_count": 0,
+    "invalid_ring_count": 0
+  },
   "expected": {
     "polygons": [
       {

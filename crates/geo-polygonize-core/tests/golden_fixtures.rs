@@ -1,6 +1,6 @@
-use geo_polygonize_core::DeterminismOptions;
-use geo_polygonize_core::Polygonizer;
-use geo_polygonize_core::{Coord3D, Line3D};
+use geo_polygonize_core::{
+    polygonize, Coord3D, DeterminismOptions, Line3D, PolygonizerOptions, ProvenanceOptions,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -72,9 +72,20 @@ struct GoldenResult {
 #[derive(Serialize, Deserialize, Debug)]
 struct GoldenFixture {
     name: String,
-    node_input: Option<bool>,
+    options: PolygonizerOptions,
     inputs: Vec<GoldenLine>,
+    expected_metrics: GoldenMetrics,
     expected: GoldenResult,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GoldenMetrics {
+    polygon_count: usize,
+    total_area: f64,
+    area_tolerance: f64,
+    dangle_count: usize,
+    cut_edge_count: usize,
+    invalid_ring_count: usize,
 }
 
 fn run_golden_test(path: &Path) {
@@ -82,20 +93,47 @@ fn run_golden_test(path: &Path) {
     let fixture: GoldenFixture = serde_json::from_str(&content).expect("Failed to parse fixture");
 
     let input_lines: Vec<Line3D> = fixture.inputs.iter().map(|l| l.into()).collect();
-
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = fixture.node_input.unwrap_or(true);
-    poly.options_mut().determinism = DeterminismOptions {
+    let mut options = fixture.options;
+    options.determinism = DeterminismOptions {
         canonical_sort: true,
         canonical_ring_rotation: true,
         stable_tie_breaks: true,
     };
-    poly.options_mut().provenance.enabled = true;
-    poly.options_mut().provenance.include_boundary_line_ids = true;
-    poly.add_lines(input_lines);
+    options.provenance = ProvenanceOptions {
+        enabled: true,
+        include_boundary_line_ids: true,
+    };
 
-    let res = poly.polygonize().unwrap();
-
+    let res = polygonize(input_lines, &options).unwrap();
+    let actual_area: f64 = res
+        .polygons
+        .iter()
+        .map(|polygon| polygon.unsigned_area_2d())
+        .sum();
+    assert_eq!(
+        [
+            res.polygons.len(),
+            res.dangles.len(),
+            res.cut_edges.len(),
+            res.invalid_rings.len(),
+        ],
+        [
+            fixture.expected_metrics.polygon_count,
+            fixture.expected_metrics.dangle_count,
+            fixture.expected_metrics.cut_edge_count,
+            fixture.expected_metrics.invalid_ring_count,
+        ],
+        "{} counts [polygons, dangles, cut edges, invalid rings]",
+        fixture.name
+    );
+    assert!(
+        (actual_area - fixture.expected_metrics.total_area).abs()
+            <= fixture.expected_metrics.area_tolerance,
+        "{} total area: expected {}, got {}",
+        fixture.name,
+        fixture.expected_metrics.total_area,
+        actual_area
+    );
     let actual_result = GoldenResult {
         polygons: res
             .polygons
