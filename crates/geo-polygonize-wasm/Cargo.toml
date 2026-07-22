@@ -10,7 +10,8 @@ readme = "../../README.md"
 crate-type = ["cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.48.0", features = ["arrow"] }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.48.0" }
+geo-polygonize-arrow = { path = "../geo-polygonize-arrow", version = "0.48.0" }
 wasm-bindgen = "0.2"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3"

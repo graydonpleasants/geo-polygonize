@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/geo-polygonize-arrow",
     "xtask",
     "crates/geo-polygonize-core",
     "crates/geo-polygonize-wasm"

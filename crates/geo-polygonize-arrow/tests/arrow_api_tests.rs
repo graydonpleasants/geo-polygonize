@@ -1,9 +1,7 @@
-#![cfg(feature = "arrow")]
-
 use arrow::array::{Array, Float64Array, LargeListArray, StructArray};
 use arrow::buffer::OffsetBuffer;
 use arrow::datatypes::{DataType, Field};
-use geo_polygonize_core::arrow_api::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 use geo_traits::{LineStringTrait, PolygonTrait};
 use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{Crs, Dimension, Edges, LineStringType, Metadata};

@@ -8,14 +8,10 @@
 //! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
 //! - **Wasm**: Optimized for WebAssembly environments.
 
-#[cfg(feature = "arrow")]
-pub mod arrow_api;
 #[doc(hidden)]
 pub mod containment;
 mod diagnostics;
 mod error;
-#[cfg(feature = "arrow")]
-pub mod ffi;
 // Kept compiler-public for the repository's microbenchmarks; not a supported API.
 #[doc(hidden)]
 pub mod graph;
@@ -59,9 +55,6 @@ pub use polygonizer::{
 #[doc(hidden)]
 pub use tiling::{StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer};
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
-
-#[cfg(feature = "geoparquet")]
-pub mod geoparquet_api;
 
 #[cfg(feature = "flatgeobuf")]
 pub mod flatgeobuf_api;

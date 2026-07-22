@@ -1,8 +1,8 @@
 #![cfg(feature = "geoparquet")]
 
 use arrow::record_batch::RecordBatch;
-use geo_polygonize_core::geoparquet_api::polygonize_geoparquet_file;
-use geo_polygonize_core::PolygonizerOptions;
+use geo_polygonize_arrow::geoparquet_api::polygonize_geoparquet_file;
+use geo_polygonize_arrow::PolygonizerOptions;
 use geoarrow::array::{GeoArrowArray, PolygonArray};
 use geoarrow::datatypes::Metadata;
 use geoparquet::reader::{GeoParquetReaderBuilder, GeoParquetRecordBatchReader};
