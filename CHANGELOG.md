@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.59.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.58.1...geo-polygonize-v0.59.0) (2026-07-22)
+
+
+### Features
+
+* **core:** add Arrow C ABI status contract ([#943](https://github.com/graydonpleasants/geo-polygonize/issues/943)) ([b28b776](https://github.com/graydonpleasants/geo-polygonize/commit/b28b776e1992d55f03c035b22caf541e1274d1a6))
+
 ## [0.58.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.58.0...geo-polygonize-v0.58.1) (2026-07-22)
 
 
