@@ -35,8 +35,8 @@ change.
 ### 1. Broaden the golden corpus
 
 - [x] Add explicit expected topology metrics to every golden fixture.
-- [ ] Cover compatibility and benchmark-sized inputs in addition to the
-  existing basic, topology, provenance, dirty-input, Z-policy, and tiling cases.
+- [ ] Cover benchmark-sized inputs in addition to the existing basic, topology,
+  provenance, dirty-input, Z-policy, tiling, and compatibility cases.
 - [ ] Reuse the same fixtures in canonical, benchmark, and differential paths
   where their contracts overlap.
 
@@ -50,7 +50,7 @@ fields, and reuse.
 
 - [ ] Classify cases as expected parity, expected divergence, or invalid /
   ambiguous input.
-- [ ] Record GEOS/Shapely comparison results without turning compatibility
+- [x] Record GEOS/Shapely comparison results without turning compatibility
   observations into unsupported robustness guarantees.
 - [x] Exercise `grid`, `geos_compat`, and certified fixed-precision policies on
   the same inputs.
