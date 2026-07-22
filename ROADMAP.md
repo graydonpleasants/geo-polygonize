@@ -52,7 +52,7 @@ fields, and reuse.
   ambiguous input.
 - [ ] Record GEOS/Shapely comparison results without turning compatibility
   observations into unsupported robustness guarantees.
-- [ ] Exercise `grid`, `geos_compat`, and certified fixed-precision policies on
+- [x] Exercise `grid`, `geos_compat`, and certified fixed-precision policies on
   the same inputs.
 
 Done means regressions can be distinguished from documented semantic

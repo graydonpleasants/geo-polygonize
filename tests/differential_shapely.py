@@ -6,6 +6,7 @@ import pytest
 import numpy as np
 import os
 import random
+from pathlib import Path
 from shapely.geometry import LineString, shape, mapping, Point
 from shapely.ops import polygonize, unary_union
 
@@ -296,3 +297,43 @@ def test_differential_parity(generator):
     # Using a constant floor of 1.0s to account for CLI startup and IO overhead
     assert rust_time < max(shapely_time * 10.0, 1.0), \
         f"Rust performance regression: Rust {rust_time:.4f}s > max(Shapely {shapely_time:.4f}s * 10, 1.0s)"
+
+
+COMPAT_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "compat"
+
+
+@pytest.mark.parametrize("path", sorted(COMPAT_DIR.glob("*.json")))
+def test_persisted_compatibility_case(path):
+    case = json.loads(path.read_text())
+    fixture_path = Path(__file__).resolve().parents[1] / case["fixture"]
+    fixture = json.loads(fixture_path.read_text())
+    lines = [
+        LineString([
+            (line["start"]["x"], line["start"]["y"]),
+            (line["end"]["x"], line["end"]["y"]),
+        ])
+        for line in fixture["inputs"]
+    ]
+
+    shapely_result = run_shapely(lines)
+    reference = case["shapely_reference"]
+    assert len(shapely_result) == reference["polygon_count"]
+    assert sum(polygon.area for polygon in shapely_result) == pytest.approx(
+        reference["total_area"], abs=reference["area_tolerance"]
+    )
+
+    classification = case["classification"]
+    assert classification in {
+        "expected_parity",
+        "expected_divergence",
+        "invalid_ambiguous",
+    }
+    if classification == "invalid_ambiguous":
+        return
+
+    rust_result = run_rust_cli(lines)
+    if classification == "expected_parity":
+        assert_parity(shapely_result, rust_result)
+    else:
+        with pytest.raises(AssertionError):
+            assert_parity(shapely_result, rust_result)
