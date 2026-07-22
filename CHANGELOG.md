@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.49.0...geo-polygonize-v0.50.0) (2026-07-22)
+
+
+### Features
+
+* **python:** extract extension crate ([#898](https://github.com/graydonpleasants/geo-polygonize/issues/898)) ([11b99cb](https://github.com/graydonpleasants/geo-polygonize/commit/11b99cb9dc4d0f5c0232a29545f2f687965ad92e))
+
 ## [0.49.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.48.0...geo-polygonize-v0.49.0) (2026-07-22)
 
 
