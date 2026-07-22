@@ -111,12 +111,10 @@ the dependency notes allow it.
 ### P0.1 Canonical conformance harness
 
 Progress: Rust-side `TopologyFingerprintV1` and normalized errors are complete
-for the one-shot, workspace, and borrowed GeoRust paths. Python, Wasm, Arrow,
-and file-adapter execution remains open below.
-
-The Python canonical-options and Wasm typed-buffer adapters now expose the
-shared success fingerprint; fixture-level cross-adapter comparison and the
-Wasm GeoJSON path remain open.
+for the one-shot, workspace, and borrowed GeoRust paths. Python canonical
+options plus Wasm typed-buffer and GeoJSON canonical-options paths expose the
+shared success fingerprint. Fixture-level cross-adapter comparison, normalized
+adapter failures, Arrow, and file-adapter execution remain open.
 
 Build one fixture-driven conformance suite covering every supported entrypoint:
 
@@ -153,9 +151,9 @@ reports a field-level semantic diff for any mismatch.
 The current high-level Wasm options endpoint is documented as returning a full
 result but its GeoJSON return path is polygon-only.
 
-- [ ] Keep the existing polygon-only API for compatibility and document it
+- [x] Keep the existing polygon-only API for compatibility and document it
   accurately.
-- [ ] Add a clearly named full-result endpoint, for example
+- [x] Add a clearly named full-result endpoint,
   `polygonizeReportWithOptions`, returning polygons, dangles, cut edges, invalid
   rings, provenance, diagnostics, and selected options.
 - [ ] Make the playground use the canonical options/report API rather than the

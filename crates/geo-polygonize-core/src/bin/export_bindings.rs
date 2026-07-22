@@ -21,4 +21,6 @@ fn main() {
     let _ = ZPolicy::export_all(&config);
     let _ = ZOptions::export_all(&config);
     let _ = DedupPolicy::export_all(&config);
+    let _ = TopologyFingerprintV1::export_all(&config);
+    let _ = NormalizedPolygonizeErrorV1::export_all(&config);
 }

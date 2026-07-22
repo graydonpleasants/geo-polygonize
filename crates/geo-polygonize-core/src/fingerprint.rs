@@ -6,15 +6,18 @@
 use crate::{Coord3D, PolygonizeError, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 use serde_json::Value;
+use ts_rs::TS;
 
 /// The current topology fingerprint schema version.
 pub const TOPOLOGY_FINGERPRINT_V1_SCHEMA_VERSION: u32 = 1;
 
 /// A versioned, structured canonical representation of a successful run.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct TopologyFingerprintV1 {
     pub schema_version: u32,
     /// The serialized canonical options object is part of the semantic contract.
+    #[ts(type = "unknown")]
     pub options: Value,
     pub polygons: Vec<PolygonFingerprintV1>,
     pub dangles: Vec<Vec<CoordinateFingerprintV1>>,
@@ -24,14 +27,16 @@ pub struct TopologyFingerprintV1 {
 }
 
 /// An exact finite coordinate. Every component is an IEEE-754 bit pattern.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, TS)]
+#[ts(export)]
 pub struct CoordinateFingerprintV1 {
     pub x: String,
     pub y: String,
     pub z: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct PolygonFingerprintV1 {
     pub exterior: Vec<CoordinateFingerprintV1>,
     pub interiors: Vec<RingFingerprintV1>,
@@ -40,13 +45,15 @@ pub struct PolygonFingerprintV1 {
     pub provenance: Option<ProvenanceFingerprintV1>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct RingFingerprintV1 {
     pub coordinates: Vec<CoordinateFingerprintV1>,
     pub edge_ids: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct ProvenanceFingerprintV1 {
     /// Complete source sets, never JSON numbers, so JavaScript cannot lose IDs.
     pub boundary_line_ids: Vec<String>,
@@ -54,7 +61,8 @@ pub struct ProvenanceFingerprintV1 {
 }
 
 /// Only topology-level diagnostics. Timings and work counters are deliberately excluded.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct TopologyDiagnosticsFingerprintV1 {
     pub dangle_count: usize,
     pub cut_edge_count: usize,
@@ -69,7 +77,8 @@ pub struct TopologyDiagnosticsFingerprintV1 {
 }
 
 /// A structured, stable error equality contract.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct NormalizedPolygonizeErrorV1 {
     pub schema_version: u32,
     pub family: String,
@@ -83,17 +92,21 @@ pub struct NormalizedPolygonizeErrorV1 {
     pub witness: Option<ErrorWitnessV1>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct ErrorWitnessV1 {
     pub ids: Vec<String>,
     pub coordinate: Option<CoordinateFingerprintV1>,
 }
 
 /// A first, field-level difference suitable for terse CI failures.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct FingerprintDiffV1 {
     pub path: String,
+    #[ts(type = "unknown")]
     pub expected: Value,
+    #[ts(type = "unknown")]
     pub actual: Value,
 }
 
