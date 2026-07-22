@@ -51,6 +51,7 @@ const wasm = await initBest(
   { module_or_path: simdUrl },
 );
 
+// This compatibility API returns polygons only.
 const resultStr = wasm.polygonizeWithOptions(
   JSON.stringify(geojson),
   cfbRobustOptions,

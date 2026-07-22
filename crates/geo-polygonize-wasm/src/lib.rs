@@ -23,9 +23,9 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 #[wasm_bindgen(js_name = polygonizeWithOptions)]
 /// Polygonizes a GeoJSON FeatureCollection using the canonical `PolygonizerOptions`.
 ///
-/// This is the primary entry point for JavaScript users. It accepts a JSON string
-/// of options and returns a JSON string representing the result, including faces,
-/// dangles, cut-lines, and (optionally) provenance/diagnostics.
+/// This compatibility entry point returns polygons only. Use
+/// [`polygonize_report_with_options_js`] when dangles, cut edges, invalid rings,
+/// provenance, diagnostics, and exact coordinate encoding are required.
 pub fn polygonize_with_options_js(
     geojson_str: &str,
     options_val: JsValue,
@@ -94,6 +94,18 @@ pub fn polygonize_fingerprint_with_options_js(
             .map_err(from_polygonizer_error)?,
     )
     .map_err(|e| to_js_error("InternalInvariantViolation", e))
+}
+
+#[wasm_bindgen(js_name = polygonizeReportWithOptions)]
+/// Returns the complete versioned topology report for a GeoJSON canonical-options call.
+///
+/// The report is the JSON serialization of `TopologyFingerprintV1`; it is the
+/// stable cross-binding success contract, not a polygon-only GeoJSON projection.
+pub fn polygonize_report_with_options_js(
+    geojson_str: &str,
+    options_val: JsValue,
+) -> Result<String, JsValue> {
+    polygonize_fingerprint_with_options_js(geojson_str, options_val)
 }
 
 fn polygonize_geojson(
