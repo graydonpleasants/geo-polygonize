@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.60.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.59.0...geo-polygonize-v0.60.0) (2026-07-22)
+
+
+### Features
+
+* **core:** add input execution budgets ([#945](https://github.com/graydonpleasants/geo-polygonize/issues/945)) ([f7505e7](https://github.com/graydonpleasants/geo-polygonize/commit/f7505e79aaee5c016a99c8004bbdbff85d6b621e))
+
 ## [0.59.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.58.1...geo-polygonize-v0.59.0) (2026-07-22)
 
 
