@@ -1,114 +1,679 @@
 # Engineering Roadmap
 
-This is the current, evidence-gated roadmap for `geo-polygonize`. The original
-phase plan has been delivered where noted below; its detailed implementation
-and issue plans are retained as historical records, not active commitments.
+This is the active, evidence-gated roadmap for `geo-polygonize`.
 
-## Delivered
+It was reconciled against `main` through PR #919 on July 22, 2026. The
+foundation planned in the original roadmap has largely shipped; this document
+now orders the remaining work required for a production-grade, state-of-the-art
+planar polygonization library. Milestone names are planning buckets, not release
+date or version promises.
 
-The releases from `0.40.0` through `0.51.2` established the supported
-foundation:
+## North star
 
-- stateless one-shot polygonization and reusable allocation-only workspaces;
-- one validated, serde-defaulted `PolygonizerOptions` schema across Rust,
-  Python, and Wasm;
-- finite-coordinate validation and scale-independent topology validity, with
-  explicit optional minimum-area filtering;
-- explicit floating and fixed precision models, full-noding validation, and
-  certified hot-pixel noding alongside iterative grid noding, which remains
-  documented as unchecked;
-- deterministic output, strict read-only golden comparisons, typed binding
-  errors, diagnostics, provenance, and explicit Z policies;
-- experimental tiled polygonization with named ownership/dedup policies,
-  collision-safe canonical deduplication, deterministic output, and outcome
-  reporting;
-- dedicated core, Arrow/GeoArrow/GeoParquet, Python, and FlatGeoBuf adapter
-  crates;
-- native and Wasm benchmarks, fuzzing, differential tests, supply-chain
-  checks, release provenance, and documented Wasm deployment requirements.
+Make `geo-polygonize` the best-supported pure-Rust planar
+linework-to-polygons kernel across native Rust, Python, WebAssembly, and Arrow:
 
-## Next
+- certified fixed-precision correctness when that guarantee is selected;
+- deterministic, explainable results with complete source provenance;
+- one semantic contract across every supported binding and data path;
+- bounded and cancellable execution on untrusted or unexpectedly difficult
+  inputs;
+- performance leadership demonstrated on public, correctness-gated workloads;
+- a stable GeoRust-native facade with clear support and compatibility policies.
 
-Work these in order. Each item should remain a small, independently releasable
-change.
+The target is not merely “faster than GEOS on a synthetic benchmark.” The
+target is a defensible contract:
 
-### 1. Broaden the golden corpus
+> For a documented input class and precision policy, `geo-polygonize` produces
+> a deterministic, independently validated topology result, exposes enough
+> evidence to explain failures, and does so competitively across supported
+> targets.
 
-- [x] Add explicit expected topology metrics to every golden fixture.
-- [x] Cover benchmark-sized inputs in addition to the existing basic, topology,
-  provenance, dirty-input, Z-policy, tiling, and compatibility cases.
-- [x] Reuse the same fixtures in canonical, benchmark, and differential paths
-  where their contracts overlap.
+## Delivered baseline
 
-Done means a missing expected result fails, all result families (including cut
-edges and provenance) are compared, and every checked-in golden runs in
-canonical mode. The harness already enforces read-only expected results and
-full result-family comparisons; the remaining work is breadth, explicit metric
-fields, and reuse.
+The releases from `0.40.0` through `0.51.2`, plus PR #919, established the
+current foundation:
 
-### 2. Add a compatibility corpus
+- [x] Stateless one-shot polygonization and reusable allocation-only workspaces.
+- [x] One validated, serde-defaulted `PolygonizerOptions` schema across Rust,
+  Python, and Wasm.
+- [x] Finite-coordinate validation and scale-independent topology validity,
+  with explicit optional minimum-area filtering.
+- [x] Explicit floating and fixed precision models.
+- [x] Independent full-noding validation with deterministic failure witnesses.
+- [x] Certified hot-pixel fixed-precision noding.
+- [x] Iterative grid noding documented as unchecked rather than certified.
+- [x] Deterministic canonical output and strict, read-only golden fixtures.
+- [x] A persisted compatibility corpus containing parity, expected divergence,
+  and invalid/ambiguous cases.
+- [x] Typed binding errors, diagnostics, complete edge-dissolve provenance, and
+  explicit Z policies.
+- [x] A narrow stable Rust facade plus borrowed `geo_traits` input and
+  `geo_types::MultiPolygon` conversion.
+- [x] Experimental tiled polygonization with validated options, safe ownership,
+  collision-safe deduplication, deterministic output, equivalence fixtures, and
+  per-tile/stitching reports.
+- [x] Dedicated core, Arrow/GeoArrow/GeoParquet, Python, FlatGeobuf, and Wasm
+  crates or adapters.
+- [x] Native and Wasm benchmarks, allocation/instruction profiling, fuzzing,
+  differential tests, supply-chain checks, and release automation.
+- [x] Measured native scalar/portable-SIMD dispatch on Linux x86-64 and AArch64;
+  the evidence supports retaining the current workload- and architecture-aware
+  choices rather than adding another native SIMD layer.
 
-- [x] Classify cases as expected parity, expected divergence, or invalid /
-  ambiguous input.
-- [x] Record GEOS/Shapely comparison results without turning compatibility
-  observations into unsupported robustness guarantees.
-- [x] Exercise `grid`, `geos_compat`, and certified fixed-precision policies on
-  the same inputs.
+## Definition of production readiness
 
-Done means regressions can be distinguished from documented semantic
-differences without relying on ad hoc generated cases.
+The library is production-ready when all of the following are true:
 
-### 3. Measure before optimizing
+1. **Correctness is selectable and checkable.** Certified modes have independent
+   postcondition checks. Unchecked modes are named and documented as such.
+2. **Bindings agree.** Equivalent APIs across Rust, Python, Wasm, Arrow, and C
+   produce the same canonical topology fingerprint or the same normalized error.
+3. **Work is bounded.** Callers can set resource budgets and cancel long-running
+   work without receiving silent partial output.
+4. **Failures are reproducible.** Difficult inputs produce structured witnesses,
+   versioned traces, and minimizable fixtures.
+5. **Performance claims are comparable.** Benchmarks use equivalent pipelines,
+   correctness gates, public data, pinned dependencies, and reproducible
+   environments.
+6. **The stable surface is supportable.** MSRV, targets, feature combinations,
+   ABI behavior, deprecation policy, and release synchronization are explicit.
 
-- [x] Compare scalar and existing portable-SIMD kernels on supported native
-  targets using the checked-in benchmarks.
-- [x] Keep the existing architecture-aware dispatch; the measurements do not
-  justify another native backend or dispatch layer.
+## Operating rules
 
-The latest [x86-64 and AArch64 Criterion run](https://github.com/graydonpleasants/geo-polygonize/actions/runs/29914817090)
-confirmed that no single point-in-ring kernel wins across architectures and
-ring sizes. Representative repeated-query medians were:
+These rules apply to every milestone:
 
-| Ring edges | Linux x86-64 | Linux AArch64 |
-|---:|---:|---:|
-| 128 | wide 133.92 µs; scalar 152.64 µs | scalar 127.86 µs; wide 220.91 µs |
-| 256 | wide 265.41 µs; scalar 277.56 µs | scalar 253.86 µs; wide 444.95 µs |
-| 1,024 | scalar 1.022 ms; wide 1.064 ms | scalar 1.029 ms; wide 1.765 ms |
+- Keep changes small, independently releasable, and guarded by the smallest
+  regression that would have caught the problem.
+- Keep semantic controls in the canonical options schema. Keep operational
+  controls such as time, memory, trace, and output budgets in a separate
+  execution policy.
+- Never silently change precision, switch guarantees, or return partial output.
+- Do not expose a new backend publicly until it passes the independent validator,
+  the conformance corpus, and a predeclared benchmark promotion gate.
+- Preserve deterministic canonical output and complete source provenance through
+  every optimization.
+- Do not publish a performance comparison until topology correctness has passed
+  first.
+- Do not add a new crate without a real dependency boundary and consumer.
+- Keep experimental tiling, graph internals, and research backends hidden until
+  their contracts are complete.
+- Record rejected experiments and their evidence so they are not repeatedly
+  rediscovered.
 
-This supports the existing short-ring SIMD/long-ring scalar crossover on
-x86-64 and scalar path on Linux AArch64. The same run confirmed that forced
-grid versus brute-force SIMD noding still varies by workload shape, so the
-existing workload-aware `Auto` policy remains preferable to architecture-only
-selection.
+# Active execution plan
 
-Wasm SIMD feature selection already exists. This item concerns native runtime
-dispatch; AVX2, AVX-512, or GPU backends are not commitments.
+Work the following milestones in order. Parallel work is appropriate only where
+the dependency notes allow it.
 
-## Evidence-gated later work
+## P0 — Production contract and bounded execution
 
-These are valid directions, but none should begin without a concrete consumer,
-representative data, and a measured limitation in the current implementation:
+### P0.1 Canonical conformance harness
 
-- production tiling equivalence and recovery contracts;
-- streaming or out-of-core processing;
-- deeper zero-copy paths across Rust, Python, and Wasm;
-- distributed-compute and database adapters;
-- a different advanced noder after exact `SnapNoder` profiling demonstrates a
-  scaling problem;
-- graph-native overlay, topology-preserving simplification, buffering, or
-  direct MVT/TopoJSON emission;
-- incremental topology, geodesic algorithms, or GPU compute.
+Build one fixture-driven conformance suite covering every supported entrypoint:
 
-Crate splitting is complete for the current adapters. New crates should follow
-only from a real dependency boundary, not from this list.
+- [ ] Rust one-shot `polygonize`.
+- [ ] Rust `polygonize_with_workspace`.
+- [ ] Borrowed `geo_traits` / GeoRust facade.
+- [ ] Python canonical-options API.
+- [ ] Wasm canonical-options GeoJSON API.
+- [ ] Wasm typed-buffer API.
+- [ ] GeoArrow / Arrow IPC API.
+- [ ] Arrow C Data Interface API.
+- [ ] FlatGeobuf and GeoParquet adapters where their input contracts overlap.
 
-## Invariants for all future work
+Define a versioned canonical fingerprint containing:
 
-- Keep core behavior expressible through the canonical options schema across
-  Rust, Python, and Wasm.
+- canonical polygons, ring coordinates, and hole structure;
+- dangles, cut edges, and invalid rings;
+- representative edge IDs and complete provenance source sets;
+- deterministic topology diagnostics;
+- normalized error family, stage, and witness when execution fails.
+
+Timings, allocator-dependent counters, and platform-specific metadata must not
+participate in semantic equality.
+
+Intentionally lossy APIs, such as direct `MultiPolygon` conversion, must declare
+which result families they discard. Their tests should compare the retained
+contract rather than pretending the API is lossless.
+
+**Done when:** one fixture can be executed through all equivalent paths and CI
+reports a field-level semantic diff for any mismatch.
+
+### P0.2 Align the Wasm API contracts
+
+The current high-level Wasm options endpoint is documented as returning a full
+result but its GeoJSON return path is polygon-only.
+
+- [ ] Keep the existing polygon-only API for compatibility and document it
+  accurately.
+- [ ] Add a clearly named full-result endpoint, for example
+  `polygonizeReportWithOptions`, returning polygons, dangles, cut edges, invalid
+  rings, provenance, diagnostics, and selected options.
+- [ ] Make the playground use the canonical options/report API rather than the
+  legacy positional wrapper.
+- [ ] Add TypeScript types generated from the same Rust schema and conformance
+  tests for both JSON and typed-buffer paths.
+
+**Done when:** function names, generated types, docs, and runtime return values
+describe the same contract.
+
+### P0.3 Options and release synchronization
+
+- [ ] Round-trip every canonical option through Rust serde, generated
+  TypeScript, Python helpers, Wasm, and C JSON options.
+- [ ] Add a CI gate preventing drift between Rust crate, npm, and PyPI releases.
+- [ ] Add explicit schema-version metadata to serialized reports and traces.
+- [ ] Publish migration tests for old supported option payloads.
+- [ ] Define which legacy positional APIs remain supported through `1.x`.
+
+### P0.4 Versioned C ABI
+
+The Arrow C Data Interface adapter has panic containment and atomic output
+publication, but the surrounding ABI still needs a stable production contract.
+
+- [ ] Add an ABI version query.
+- [ ] Prefer a versioned/size-tagged request struct or the canonical JSON options
+  entrypoint over extending the legacy `repr(C)` options struct.
+- [ ] Define stable numeric status codes.
+- [ ] Add structured last-error retrieval with error family, stage, message, and
+  optional noding witness.
+- [ ] Document ownership transfer, cleanup, nullability, thread-safety, and
+  reentrancy.
+- [ ] Test failure injection before and after every ownership-transfer boundary.
+
+**Done when:** a C consumer can detect ABI compatibility and diagnose a failure
+without parsing logs or relying on Rust enum layout.
+
+Operational limits should not alter topology semantics, so introduce a separate
+execution policy rather than extending `PolygonizerOptions`.
+
+### P0.5 Execution budgets
+
+Add opt-in limits for:
+
+- [ ] input line strings, segments, and coordinates;
+- [ ] noded segment expansion;
+- [ ] candidate pairs and exact intersection calls;
+- [ ] split events and iterative-noding passes;
+- [ ] graph nodes, edges, rings, polygons, and output coordinates;
+- [ ] per-stage and total trace bytes;
+- [ ] estimated working memory where a reliable bound is available.
+
+Return a typed result such as
+`ResourceLimitExceeded { stage, limit, observed }`. Do not return partial
+polygons unless a future API explicitly models partial, resumable computation.
+
+Add adversarial tests for dense crossings, overlap explosions, extreme duplicate
+multiplicity, deeply nested rings, and output amplification.
+
+### P0.6 Cooperative cancellation
+
+- [ ] Add cancellation checkpoints at ingest, candidate enumeration, split
+  application, graph construction, ring extraction, containment, canonicalization,
+  and output flattening.
+- [ ] Provide a native cancellation token or callback that does not become part
+  of semantic options.
+- [ ] Release the Python GIL during pure Rust work where safe and check Python
+  signals at bounded intervals.
+- [ ] For Wasm, use a worker-based or genuinely asynchronous/chunked API for
+  cancellation. Do not claim `AbortSignal` support for a synchronous main-thread
+  Wasm call that cannot yield.
+- [ ] Ensure cancellation unwinds temporary state safely and never poisons a
+  reusable workspace.
+
+**Done when:** every long-running phase can be stopped within a documented work
+interval and the same workspace can subsequently execute a valid fixture.
+
+## P1 — Evidence and explainability
+
+### P1.1 Public workload corpus
+
+Create a redistributable corpus with small checked-in clips and optional larger
+checksum-pinned downloads covering:
+
+- [ ] already-noded cadastral or coverage boundaries;
+- [ ] OSM/network linework;
+- [ ] CAD/CFB dirty linework;
+- [ ] contour or hydrographic boundaries;
+- [ ] long sparse polylines;
+- [ ] dense crossing-heavy linework;
+- [ ] collinear overlaps and duplicate boundaries;
+- [ ] disconnected but spatially nested rings;
+- [ ] extreme translations, coordinate spans, and grid sizes;
+- [ ] 2.5D inputs exercising every Z policy.
+
+Every workload must include provenance/license metadata, expected contract class,
+and the precision/noding policy being tested.
+
+### P1.2 Equivalent benchmark lanes
+
+Maintain three distinct comparisons:
+
+1. **Already-noded polygonization:** graph/face extraction against
+   GEOS/JTS polygonization on the same fully noded input.
+2. **Floating noding plus polygonization:** equivalent floating noding and
+   polygonization pipelines.
+3. **Certified fixed precision:** hot-pixel snap rounding, independent
+   validation, and polygonization against an equivalent JTS fixed-precision
+   pipeline.
+
+Do not mix integrated noding on one side with a bare polygonizer on the other.
+
+Before recording time, require:
+
+- [ ] full-noding validation where the policy claims it;
+- [ ] expected compatibility classification;
+- [ ] canonical topology fingerprint or documented divergence;
+- [ ] polygon, ring, dangle, cut-edge, invalid-ring, and provenance metrics.
+
+Record:
+
+- p50, p95, throughput, and sample count;
+- phase times;
+- allocations and peak RSS;
+- candidate pairs, exact predicates, split events, and segment expansion;
+- input and output sizes;
+- architecture, OS, compiler, feature flags, dependency versions, and commit SHA.
+
+### P1.3 Durable benchmark reporting
+
+- [ ] Publish machine-readable artifacts and a human-readable trend dashboard.
+- [ ] Separate noisy runner samples from decision-quality measurements.
+- [ ] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
+- [ ] Define the minimum effect size and regression budget before each backend or
+  dispatch experiment.
+- [ ] Keep rejected experiments and crossover measurements linked from the
+  relevant decision record.
+
+### P1.4 Differential minimization
+
+- [ ] Build a line-set delta debugger that minimizes failures while preserving
+  the selected options and observed mismatch.
+- [ ] Minimize coordinate complexity after feature/segment minimization.
+- [ ] Preserve source IDs and Z conflicts during minimization.
+- [ ] Persist every minimized novel failure as a strict golden and compatibility
+  classification.
+- [ ] Export a standalone repro bundle containing input, options, versions,
+  fingerprint, reference metrics, and witness.
+
+**Done when:** a fuzz or production mismatch can become a checked-in, human-sized
+fixture without manually rewriting the geometry.
+
+### P1.5 Trace schema
+
+Add an opt-in, versioned, bounded trace with zero meaningful overhead when
+disabled. Trace levels should be selectable so callers do not need to serialize
+the entire pipeline.
+
+Candidate events and snapshots:
+
+- [ ] normalized input segments and source IDs;
+- [ ] snapped coordinates, fixed-grid cells, and certified hot pixels;
+- [ ] candidate pairs and exact intersection/split witnesses;
+- [ ] noded and dissolved edges with complete source sets;
+- [ ] graph nodes and directed halfedges;
+- [ ] dangle pruning and cut-edge classification;
+- [ ] maximal rings, minimal rings, and invalid-ring reasons;
+- [ ] shell/hole classification and containment candidates;
+- [ ] canonical ordering decisions;
+- [ ] tile ownership, deduplication, retries, and fallback decisions.
+
+Trace output must include byte limits, truncation metadata, schema version,
+library version, and canonical options.
+
+### P1.6 Turn the playground into a topology debugger
+
+- [ ] Add the playground prominently to the docs navigation.
+- [ ] Support paste, upload, drag-and-drop, drawing, and fixture selection.
+- [ ] Expose the canonical options schema, including `Validate` and
+  `CertifiedFixedPrecision`.
+- [ ] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
+  graph edges, dangles, cut edges, invalid rings, shells, holes, and final faces.
+- [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
+- [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
+- [ ] Compare two option profiles side by side.
+- [ ] Encode small deterministic repros in shareable URLs.
+- [ ] Export an exact golden/compatibility fixture bundle.
+- [ ] Run differential minimization in a worker and visualize each reduction.
+
+**Done when:** a user can move from a failing input to a minimized, exportable
+fixture while seeing which topology stage changed the result.
+
+## P2 — Arrangement model and adaptive algorithms
+
+The current graph is half-edge-like and efficient, but it does not yet retain an
+explicit face/arrangement model. Build this internally before starting overlay,
+shared-edge simplification, or incremental topology.
+
+### P2.1 Arrangement validator
+
+Add a debug/test validator for the live graph:
+
+- [ ] twin symmetry is an involution;
+- [ ] each twin reverses source and destination;
+- [ ] edge, adjacency, and degree counts agree;
+- [ ] no live adjacency references a deleted edge;
+- [ ] every live topology edge has a nonempty, sorted source set;
+- [ ] angular adjacency order is deterministic;
+- [ ] ring cycles close and do not accidentally reuse directed edges;
+- [ ] every directed edge is assigned to the expected maximal/minimal cycle;
+- [ ] the planar Euler relation `V - E + F = C + 1` holds where the stage
+  preconditions apply, including the unbounded face.
+
+Run it in tests, fuzz targets, and optionally diagnostic builds—not in the
+default release hot path.
+
+### P2.2 Explicit `next` and face identity
+
+- [ ] Derive and store directed-edge `next` links after angular ordering.
+- [ ] Assign deterministic face/cycle IDs.
+- [ ] Identify the unbounded face explicitly.
+- [ ] Retain mappings from faces to boundary source sets and Z decisions.
+- [ ] Compare the explicit face walk against the current ring extractor on the
+  entire golden corpus before replacing anything.
+- [ ] Keep the arrangement private until overlay-quality invariants are proven.
+
+This creates a DCEL-like internal arrangement without committing the public API
+to a specific graph representation.
+
+### P2.3 Connected-component decomposition
+
+Decompose the fully noded, dissolved graph before expensive graph-local work:
+
+- [ ] identify connected components deterministically;
+- [ ] perform component-local dangle pruning, cut-edge classification, edge
+  sorting, and ring extraction in parallel;
+- [ ] merge component results into deterministic global order;
+- [ ] reuse component-local scratch buffers and measure peak memory;
+- [ ] evaluate flat/CSR adjacency versus `Vec<Vec<_>>` using real workloads.
+
+Important: disconnected graph components can still be spatially nested. Shell
+and hole containment must remain global unless components are grouped by a
+proven, disjoint-envelope partition. Do not independently finalize polygons per
+graph component and thereby lose nesting relationships.
+
+**Promotion gate:** exact canonical equivalence across all fixtures and bindings,
+plus a predeclared end-to-end or peak-memory win on representative
+multi-component data.
+
+The existing public backend surface should remain unchanged during research.
+Certified fixed precision remains the hot-pixel contract.
+
+### P2.4 Candidate-enumeration boundary
+
+- [ ] Separate broad-phase candidate enumeration from robust exact
+  intersection, split accumulation, normalization, and dissolve.
+- [ ] Preserve source line-string/segment-string boundaries internally; flattened
+  independent segments discard the monotone-chain structure needed by some
+  indexes.
+- [ ] Add deterministic workload descriptors:
+  - segment and line-string counts;
+  - average/max chain length;
+  - envelope and grid occupancy;
+  - candidate and split density;
+  - collinear-overlap incidence;
+  - coordinate span and grid scale.
+- [ ] Feed all experimental candidates through the independent validator and the
+  same split/dissolve path.
+
+### P2.5 Evaluate sparse and long-line backends
+
+Prototype internally, without a public enum variant:
+
+- [ ] the existing `geo::Intersections` Bentley–Ottmann sweep implementation for
+  sparse-intersection workloads;
+- [ ] a monotone-chain indexed candidate generator inspired by JTS
+  `MCIndexNoder` for long sparse polylines;
+- [ ] current SIMD brute-force and uniform-grid paths as baselines;
+- [ ] connected-component-local candidate generation where decomposition helps.
+
+Document overlap, degeneracy, determinism, provenance, Wasm, and parallelism
+behavior for every prototype.
+
+### P2.6 Backend promotion gate
+
+A backend or dispatch rule may become production-visible only when:
+
+- [ ] it has zero unexpected validator failures in the golden, compatibility,
+  real-world, and fuzz corpora;
+- [ ] it preserves canonical output, source sets, Z behavior, and errors;
+- [ ] its end-to-end effect exceeds a predeclared meaningful threshold on more
+  than one representative workload and supported architecture;
+- [ ] it causes no material regression outside its target workload;
+- [ ] its maintenance and compile-time costs are documented;
+- [ ] its dispatch inputs are deterministic and inspectable.
+
+Prefer simple benchmark-derived rules over opaque runtime learning or
+autotuning.
+
+### P2.7 Integerized fixed-grid experiment
+
+Evaluate representing certified fixed-grid XY coordinates as checked integers
+internally:
+
+- [ ] convert using a documented origin/scale and checked `i64` arithmetic;
+- [ ] detect overflow before topology work;
+- [ ] benchmark hashing, equality, ordering, graph construction, and hot-pixel
+  operations;
+- [ ] prove round-trip behavior at supported coordinate/grid ranges;
+- [ ] keep Z and source payloads separate from XY topology identity.
+
+Do not silently clamp, wrap, or reduce precision.
+
+### P2.8 Explicit robustness fallback profile
+
+A staged fallback may be useful for applications that prefer a result over a
+single fixed policy, but it must be opt-in and fully observable.
+
+Possible ordered attempts:
+
+1. floating noding plus validation;
+2. caller-authorized snap tolerance;
+3. bounded self-snap retries;
+4. caller-authorized fixed precision;
+5. certified hot-pixel noding and validation.
+
+- [ ] Record every attempted policy and failure witness.
+- [ ] Never mutate the caller’s precision contract silently.
+- [ ] Return the effective policy in the report.
+- [ ] Bound retries using the execution policy.
+- [ ] Add compatibility fixtures for fallback selection.
+
+## P3 — Production tiling, streaming, and `1.0`
+
+Treat two different algorithms separately:
+
+1. **replicate-and-own tiling** with a bounded halo;
+2. **true boundary-graph stitching** across partitions.
+
+### P3.1 Coverage validation for replicate-and-own tiling
+
+- [ ] Detect owned faces or connected regions that touch an unresolved halo or
+  partition boundary.
+- [ ] Report source IDs and boundary evidence that were required but not fully
+  observed.
+- [ ] Add explicit guarantee levels such as `BestEffort` and
+  `ValidateCoverage`; do not rename best effort as certified.
+- [ ] Randomize tile origins, sizes, and traversal orders in metamorphic tests.
+- [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
+  faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
+  overlaps, and dirty boundary intersections.
+
+### P3.2 Deterministic recovery
+
+When coverage cannot be proven:
+
+- [ ] retry only the unresolved tile region with a larger halo;
+- [ ] fall back to untiled processing for the unresolved connected region;
+- [ ] merge the fallback result canonically with already validated regions;
+- [ ] stop with a typed resource/coverage error when the configured budget is
+  exhausted;
+- [ ] record every retry and fallback in the stitching report and topology trace.
+
+### P3.3 True graph stitching
+
+After the explicit arrangement model exists:
+
+- [ ] define canonical partition-border node and edge keys;
+- [ ] match and reconcile twin boundary halfedges;
+- [ ] merge source sets and Z decisions across partitions;
+- [ ] reconcile connected components before face extraction;
+- [ ] validate the stitched arrangement and its unbounded face;
+- [ ] compare exact canonical results with untiled execution.
+
+Promote tiling from hidden experimental API only after a documented input class
+has either a validated equivalence contract or a deterministic fallback.
+
+### P3.4 Streaming and out-of-core execution
+
+Begin only after tiling coverage/recovery is credible.
+
+- [ ] Define streaming ingest for Arrow `RecordBatch`, GeoParquet row groups, and
+  FlatGeobuf features with bounded memory and backpressure.
+- [ ] Preserve source IDs and input profile metadata across chunks.
+- [ ] Separate stream partitioning from topology partitioning.
+- [ ] Add resumable manifests containing checksums, options, partition state, and
+  library version.
+- [ ] Evaluate disk-backed or memory-mapped indexes only after profiling shows a
+  concrete memory bottleneck.
+- [ ] Measure total I/O, peak RSS, temporary storage, recovery behavior, and
+  output equivalence—not only kernel time.
+
+This milestone supersedes the broad intent of issue #672.
+
+### P3.5 Stable support policy
+
+- [ ] Freeze the stable root facade; keep research backends and graph internals
+  private.
+- [ ] Remove expired aliases and transitional mutable configuration paths.
+- [ ] Publish MSRV, target, feature-matrix, and platform support policies.
+- [ ] Define semver, deprecation, and migration windows.
+- [ ] Enforce synchronized crates.io, npm, and PyPI release state.
+- [ ] Document panic, cancellation, resource-limit, and thread-safety behavior.
+
+### P3.6 Complete production documentation
+
+Add or finish dedicated guides for:
+
+- [ ] topology and output semantics;
+- [ ] floating, fixed, validated, and certified noding guarantees;
+- [ ] Z and provenance behavior;
+- [ ] compatibility profiles and known divergences;
+- [ ] tiling guarantees and fallback behavior;
+- [ ] Wasm memory lifetime, workers, threads, and cancellation;
+- [ ] Python memory/GIL behavior;
+- [ ] Arrow C ABI ownership and error retrieval;
+- [ ] benchmark methodology and how to reproduce claims.
+
+Compile examples, run rustdoc with warnings denied, check links, and ensure the
+interactive debugger uses the published package rather than repository-only
+shortcuts.
+
+### P3.7 Verification matrix
+
+- [ ] Run canonical equality across serial and parallel native builds.
+- [ ] Run cross-binding conformance on every stable entrypoint.
+- [ ] Run the certified corpus with zero residual noding failures.
+- [ ] Run scheduled differential fuzzing and persist novel minimized cases.
+- [ ] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
+  dependencies support them.
+- [ ] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
+  Python ABI combinations.
+- [ ] Verify every public error family has a documented and tested construction
+  path.
+
+### `1.0` exit criteria
+
+`1.0` is eligible when:
+
+- all stable cross-binding conformance tests pass;
+- certified fixed-precision mode has no unexplained validator failure in the
+  public corpus and documented fuzz budget;
+- canonical output agrees across supported serial/parallel targets;
+- execution budgets, cancellation, and FFI ownership have tested contracts;
+- the real-world benchmark report is reproducible and correctness-gated;
+- no known critical or high-severity correctness issue is open;
+- the support, semver, and synchronized release policies are enforced.
+
+# Post-`1.0` capability tree
+
+The existing broad feature issues remain useful, but they need explicit
+dependencies and narrower scopes.
+
+| Existing issue | Reframed scope | Required predecessors |
+|---|---|---|
+| [#720 — graph-native Boolean overlay](https://github.com/graydonpleasants/geo-polygonize/issues/720) | Winding-labeled overlay on an explicit arrangement; start with two-input union/intersection and an overlay-specific compatibility corpus. | P2 explicit faces, arrangement validator, robust noding, provenance algebra. |
+| [#714 — topology-preserving simplification](https://github.com/graydonpleasants/geo-polygonize/issues/714) | Simplify shared edge chains once, then rebuild/validate all incident faces. | P2 face model, shared-edge identity, arrangement validator. |
+| [#688 — robust buffering](https://github.com/graydonpleasants/geo-polygonize/issues/688) | Offset-curve generation followed by certified noding and face selection. Remove the obsolete assumption that it depends on the retired sweep prototype. | Certified noding, arrangement/overlay face selection, dedicated buffer corpus. |
+| [#697 — MVT and TopoJSON](https://github.com/graydonpleasants/geo-polygonize/issues/697) | Downstream adapter crates with topology-preserving quantization and shared-edge encoding. | Stable topology-preserving simplification and real consumers; not a core-kernel concern. |
+| [#663 — incremental topology](https://github.com/graydonpleasants/geo-polygonize/issues/663) | Separate experimental arrangement API with stable component/face IDs, local invalidation, and delta reports. | P2 explicit arrangement, component decomposition, mutation invariants. |
+| [#769 — geodesic polygonization](https://github.com/graydonpleasants/geo-polygonize/issues/769) | Separate spherical/ellipsoidal kernel or crate. Do not add it as a mode inside the planar precision model. | A written geodesic topology contract, anti-meridian/polar corpus, robust spherical predicates. |
+| [#664 — database adapters](https://github.com/graydonpleasants/geo-polygonize/issues/664) | Consumer-driven DuckDB/PostGIS adapters around stable Arrow/streaming contracts. | P3 streaming, stable ABI, concrete users and deployment benchmarks. |
+| [#771 — GPU point-in-polygon](https://github.com/graydonpleasants/geo-polygonize/issues/771) | GPU broad-phase or batch predicate experiment only after profiling proves transfer/setup amortization. Keep CPU validation and fallback mandatory. | Public large-workload corpus, traceable candidate boundary, measured CPU bottleneck. |
+
+Distributed Ray/Dask/Spark integration should follow the same rule as database
+adapters: build it only after the streaming partition contract exists and a real
+consumer supplies representative data.
+
+# Recommended PR sequence
+
+This is the suggested dependency-respecting order for the next work:
+
+1. Define canonical topology fingerprint and normalized errors.
+2. Build Rust/Python/Wasm/Arrow cross-binding conformance.
+3. Align Wasm polygon-only and full-report API contracts.
+4. Add schema/report versions and release synchronization gates.
+5. Add execution budgets and adversarial amplification tests.
+6. Add native/Python/Wasm cancellation contracts.
+7. Version and document the C ABI.
+8. Establish the public real-world corpus manifest.
+9. Split benchmark comparisons into equivalent correctness-gated lanes.
+10. Add machine-readable benchmark reports and trend publishing.
+11. Add automatic mismatch minimization and repro bundles.
+12. Define the bounded topology trace schema.
+13. Upgrade the playground into the interactive debugger.
+14. Add the internal arrangement validator.
+15. Derive explicit `next` links, face IDs, and the unbounded face.
+16. Add connected-component-local graph processing with global containment.
+17. Instrument workload descriptors and candidate-enumeration boundaries.
+18. Evaluate sweep-line and monotone-chain candidate generators.
+19. Evaluate checked integer fixed-grid topology.
+20. Add tiling coverage validation and deterministic recovery.
+21. Implement true boundary-graph stitching if evidence justifies it.
+22. Add streaming ingest and only then evaluate out-of-core indexes.
+23. Close the `1.0` support, documentation, and verification gates.
+
+# Research references
+
+These references describe useful contracts and candidate algorithms; they are
+not dependencies or automatic implementation choices.
+
+- [JTS `SnapRoundingNoder`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/snapround/SnapRoundingNoder.html)
+- [JTS `ValidatingNoder`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/ValidatingNoder.html)
+- [JTS `FastNodingValidator`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/FastNodingValidator.html)
+- [JTS `MCIndexNoder`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/MCIndexNoder.html)
+- [JTS `OverlayNGRobust`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/operation/overlayng/OverlayNGRobust.html)
+- [`geo::algorithm::sweep::Intersections`](https://docs.rs/geo/latest/geo/algorithm/sweep/struct.Intersections.html)
+- [GEOS `UnaryUnionOp`](https://libgeos.org/doxygen/classgeos_1_1operation_1_1geounion_1_1UnaryUnionOp.html)
+- [CGAL 2D Arrangements and DCEL](https://doc.cgal.org/latest/Arrangement_on_surface_2/index.html)
+- [CGAL arrangements with history](https://doc.cgal.org/latest/Arrangement_on_surface_2/classCGAL_1_1Arrangement__with__history__2.html)
+
+# Invariants for all future work
+
+- Keep core behavior expressible through the canonical semantic options schema
+  across Rust, Python, and Wasm.
+- Keep execution budgets and cancellation separate from semantic options.
 - Preserve deterministic canonical output and structured, actionable errors.
-- Treat tiled polygonization as experimental until its documented equivalence
-  and error-reporting limits are closed.
-- Do not claim robustness beyond the selected noding policy's checked
+- Preserve complete source provenance through noding, dissolve, graph
+  decomposition, tiling, and future topology operations.
+- Treat tiled polygonization as experimental until its equivalence, coverage,
+  and recovery contracts are closed.
+- Do not claim robustness beyond the selected noding policy’s checked
   postconditions.
-- Add the smallest regression check that would have caught each bug.
+- Do not silently fall back to another precision or noding guarantee.
+- Do not accept a performance win before its correctness gate passes.
+- Do not add a stable API path without cross-binding conformance coverage where
+  an equivalent path exists.
+- Ensure every hard failure can emit a bounded witness or reproducible trace.
+- Add the smallest strict regression that would have caught each bug.

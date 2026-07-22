@@ -6,6 +6,8 @@ export default defineConfig({
   description: "A native Rust port of the JTS/GEOS polygonization algorithm (Wasm)",
   ignoreDeadLinks: [
     /^\/playground\//,
+    // ROADMAP.md lives at the repository root, outside the VitePress source tree.
+    /(?:^|\/)\.\.\/ROADMAP$/,
   ],
   themeConfig: {
     nav: [
