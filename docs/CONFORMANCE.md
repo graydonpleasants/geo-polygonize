@@ -35,3 +35,16 @@ The Python canonical-options result exposes this value as
 `topology_fingerprint`. The Wasm typed-buffer result exposes the same value as
 `topology_fingerprint`; both are serialized directly by Rust rather than
 reconstructed in the adapter.
+
+## Serialized report and compatibility policy
+
+Topology fingerprints, normalized errors, and serialized diagnostics expose a
+`schema_version`. The repository does not yet emit a topology trace; P1.5 must
+define its versioned trace schema before exposing one.
+
+The canonical options APIs are the forward-compatible contract. Through 1.x,
+the legacy positional APIs remain supported: Python `polygonize`, Wasm
+`polygonize`, `polygonize_buffers`, and `polygonize_geoarrow`, plus the legacy
+Arrow C `polygonize_ffi` request struct. They remain polygon-only where they
+already are polygon-only. New options and result fields are added only through
+the canonical JSON/options APIs; legacy calls are not extended.

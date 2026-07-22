@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub const POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PolygonizerPhaseTimes {
     pub ingest_and_node: Duration,
@@ -97,8 +99,10 @@ impl NodingWorkStats {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PolygonizerDiagnostics {
+    #[serde(default = "diagnostics_schema_version")]
+    pub schema_version: u32,
     pub input_segment_count: usize,
     pub noded_segment_count: usize,
     pub dangle_count: usize,
@@ -118,4 +122,47 @@ pub struct PolygonizerDiagnostics {
     pub z_conflicts: ZConflictStats,
     pub containment_stats: ContainmentStats,
     pub noding_work_stats: NodingWorkStats,
+}
+
+fn diagnostics_schema_version() -> u32 {
+    POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION
+}
+
+impl Default for PolygonizerDiagnostics {
+    fn default() -> Self {
+        Self {
+            schema_version: diagnostics_schema_version(),
+            input_segment_count: 0,
+            noded_segment_count: 0,
+            dangle_count: 0,
+            cut_edge_count: 0,
+            ring_count: 0,
+            shell_count: 0,
+            hole_count: 0,
+            unassigned_hole_count: 0,
+            unassigned_hole_area: 0.0,
+            invalid_ring_count: 0,
+            flat_line_count: 0,
+            phase_times: PolygonizerPhaseTimes::default(),
+            noding_iterations: Vec::new(),
+            snap_stats: SnapStats::default(),
+            intersection_stats: IntersectionStats::default(),
+            z_conflicts: ZConflictStats::default(),
+            containment_stats: ContainmentStats::default(),
+            noding_work_stats: NodingWorkStats::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostics_include_a_schema_version() {
+        assert_eq!(
+            serde_json::to_value(PolygonizerDiagnostics::default()).unwrap()["schema_version"],
+            POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION
+        );
+    }
 }
