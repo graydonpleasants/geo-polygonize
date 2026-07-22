@@ -153,12 +153,15 @@ reports a field-level semantic diff for any mismatch.
 The current high-level Wasm options endpoint is documented as returning a full
 result but its GeoJSON return path is polygon-only.
 
+Progress: Complete. The playground uses the canonical options/report API and
+projects its exact report coordinates only for visualization.
+
 - [x] Keep the existing polygon-only API for compatibility and document it
   accurately.
 - [x] Add a clearly named full-result endpoint,
   `polygonizeReportWithOptions`, returning polygons, dangles, cut edges, invalid
   rings, provenance, diagnostics, and selected options.
-- [ ] Make the playground use the canonical options/report API rather than the
+- [x] Make the playground use the canonical options/report API rather than the
   legacy positional wrapper.
 - [x] Add TypeScript types generated from the same Rust schema and conformance
   tests for both JSON and typed-buffer paths.
