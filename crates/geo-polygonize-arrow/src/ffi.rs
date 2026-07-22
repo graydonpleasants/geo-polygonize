@@ -205,7 +205,10 @@ impl SchemaExporter for MockSchemaExporter {
 /// - `input_array` and `input_schema` must be valid, non-null pointers to valid Arrow C Data Interface structures.
 /// - `output_array` and `output_schema` must be valid, non-null pointers to allocated but uninitialized or safe-to-overwrite Arrow C Data Interface structures.
 /// - `options` must be a valid, non-null pointer to a `PolygonizerOptions` struct.
+/// - A valid input array is consumed after its schema is accepted; output ownership transfers only on success.
 /// - We use `std::panic::catch_unwind` at this boundary to ensure panics don't cross the FFI boundary, returning a defined error code (99) instead.
+///
+/// See `docs/C_ABI.md` for the complete ABI and ownership contract.
 #[no_mangle]
 pub unsafe extern "C" fn polygonize_ffi(
     input_array: *mut FFI_ArrowArray,
@@ -259,6 +262,9 @@ pub unsafe extern "C" fn polygonize_ffi(
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
+///
+/// `options_json` is borrowed for this call. A valid input array is consumed
+/// after schema validation, while outputs transfer only on success.
 ///
 /// We use `std::panic::catch_unwind` at this boundary to ensure panics don't cross the FFI boundary, returning a defined error code (99) instead.
 #[no_mangle]
@@ -343,9 +349,11 @@ unsafe fn polygonize_ffi_internal(
         );
     }
 
-    let field = match Field::try_from(&*input_schema) {
-        Ok(f) => f,
-        Err(_) => {
+    let field = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        Field::try_from(&*input_schema)
+    })) {
+        Ok(Ok(field)) => field,
+        Ok(Err(_)) | Err(_) => {
             return set_static_error(
                 PolygonizeFfiStatus::InvalidArrowCData,
                 "arrow_c_data",
@@ -481,6 +489,45 @@ mod tests {
         };
 
         assert_eq!(status, PolygonizeFfiStatus::SchemaExport as i32);
+        assert_eq!(
+            format!("{:?}", &*input_array_ffi),
+            format!("{:?}", FFI_ArrowArray::empty())
+        );
+        assert_eq!(format!("{output_array:?}"), output_array_before);
+        assert_eq!(format!("{output_schema:?}"), output_schema_before);
+    }
+
+    #[test]
+    fn test_ffi_invalid_schema_keeps_input_and_outputs() {
+        let typ = LineStringType::new(Dimension::XY, Arc::new(Default::default()));
+        let input_arrow_array = geoarrow::array::LineStringBuilder::new(typ).finish();
+        let array_ref = input_arrow_array.into_array_ref();
+        let (mut input_array, _) = arrow::ffi::to_ffi(&array_ref.to_data()).unwrap();
+        let mut input_schema = FFI_ArrowSchema::empty();
+        let input_array_before = format!("{input_array:?}");
+        let mut output_array = FFI_ArrowArray::empty();
+        let mut output_schema = FFI_ArrowSchema::empty();
+        let output_array_before = format!("{output_array:?}");
+        let output_schema_before = format!("{output_schema:?}");
+        let options = PolygonizerOptions {
+            node_input: 0,
+            snap_grid_size: 1e-10,
+            extract_only_polygonal: 0,
+            report_mode: 0,
+        };
+
+        let status = unsafe {
+            polygonize_ffi(
+                &mut input_array,
+                &mut input_schema,
+                &mut output_array,
+                &mut output_schema,
+                &options,
+            )
+        };
+
+        assert_eq!(status, PolygonizeFfiStatus::InvalidArrowCData as i32);
+        assert_eq!(format!("{input_array:?}"), input_array_before);
         assert_eq!(format!("{output_array:?}"), output_array_before);
         assert_eq!(format!("{output_schema:?}"), output_schema_before);
     }
