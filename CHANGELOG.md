@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.58.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.58.0...geo-polygonize-v0.58.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **wasm:** use canonical report in playground ([d8fa39d](https://github.com/graydonpleasants/geo-polygonize/commit/d8fa39da6a227fbea830482fb67dc687b32ee8e0))
+* **wasm:** use canonical report in playground ([#939](https://github.com/graydonpleasants/geo-polygonize/issues/939)) ([e9bac6e](https://github.com/graydonpleasants/geo-polygonize/commit/e9bac6e90bb7885bcfd23fa9528266a9aeb48399))
+
 ## [0.58.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.57.0...geo-polygonize-v0.58.0) (2026-07-22)
 
 
