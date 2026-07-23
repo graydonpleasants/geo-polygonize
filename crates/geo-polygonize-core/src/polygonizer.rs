@@ -609,8 +609,11 @@ impl Polygonizer {
 
         // 4. Classify Rings (Shell vs Hole)
         let t_ring_extraction_start = get_time();
-        let (shells, holes, invalid_rings_candidates) =
-            extract_and_classify_rings(rings_with_ids, self.options.node_input);
+        let (shells, holes, invalid_rings_candidates) = extract_and_classify_rings(
+            rings_with_ids,
+            self.options.node_input,
+            &self.execution_policy,
+        )?;
 
         if let Some(ref mut d) = diag {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
@@ -638,7 +641,7 @@ impl Polygonizer {
             Vec::new()
         } else {
             let shells_2d: Vec<Polygon<f64>> = shells.iter().map(|s| s.to_polygon_2d()).collect();
-            process_invalid_rings(invalid_rings_candidates, &shells_2d)
+            process_invalid_rings(invalid_rings_candidates, &shells_2d, &self.execution_policy)?
         };
 
         let mut result =
@@ -926,12 +929,15 @@ type ClassifiedRing = (Polygon3D, Option<RingGraphIdentity>);
 pub(crate) fn extract_and_classify_rings(
     rings_with_ids: Vec<ExtractedRing>,
     include_graph_ids: bool,
-) -> (Vec<ClassifiedRing>, Vec<ClassifiedRing>, Vec<Polygon3D>) {
+    execution_policy: &ExecutionPolicy,
+) -> Result<(Vec<ClassifiedRing>, Vec<ClassifiedRing>, Vec<Polygon3D>)> {
+    execution_policy.check_cancelled("ring_extraction")?;
     let mut shells = Vec::with_capacity(rings_with_ids.len() / 2);
     let mut holes = Vec::with_capacity(rings_with_ids.len() / 2);
     let mut invalid_rings_candidates = Vec::new();
 
-    for ring in rings_with_ids {
+    for (index, ring) in rings_with_ids.into_iter().enumerate() {
+        execution_policy.check_cancelled_every("ring_extraction", index)?;
         let mut poly3d = Polygon3D::new(ring.coords, vec![], ring.line_ids, vec![]);
         poly3d.set_boundary_source_line_ids(ring.source_line_ids);
         let area = poly3d.signed_area_2d();
@@ -952,7 +958,7 @@ pub(crate) fn extract_and_classify_rings(
         }
     }
 
-    (shells, holes, invalid_rings_candidates)
+    Ok((shells, holes, invalid_rings_candidates))
 }
 
 #[allow(clippy::type_complexity)]
@@ -1284,6 +1290,25 @@ mod topology_tests {
     }
 
     #[test]
+    fn post_ring_processing_observes_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            extract_and_classify_rings(vec![], false, &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ring_extraction"
+        ));
+        assert!(matches!(
+            process_invalid_rings(vec![], &[], &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
+        ));
+    }
+
+    #[test]
     fn reorder_polygons_applies_sorted_old_indices() {
         let polygon =
             |label| Polygon3D::new(vec![Coord3D::new(label, 0.0, 0.0)], vec![], vec![], vec![]);
@@ -1469,16 +1494,24 @@ fn sort_open_lines(lines: &mut [Vec<Coord3D>]) {
 pub(crate) fn process_invalid_rings(
     rings: Vec<Polygon3D>,
     valid_shells_2d: &[Polygon<f64>],
-) -> Vec<Vec<Coord3D>> {
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<Vec<Coord3D>>> {
+    execution_policy.check_cancelled("canonicalization")?;
     let mut processable = Vec::new();
     let mut others = Vec::new();
+    let mut work_items = 0;
 
     for ring in rings {
-        if ring
-            .exterior
-            .iter()
-            .all(|c| c.x.is_finite() && c.y.is_finite())
-        {
+        let mut finite = true;
+        for coord in &ring.exterior {
+            execution_policy.check_cancelled_every("canonicalization", work_items)?;
+            work_items += 1;
+            if !coord.x.is_finite() || !coord.y.is_finite() {
+                finite = false;
+                break;
+            }
+        }
+        if finite {
             processable.push(ring);
         } else {
             others.push(ring);
@@ -1486,35 +1519,27 @@ pub(crate) fn process_invalid_rings(
     }
 
     // Sort by 2D bbox area in ascending order using Schwartzian Transform
-    let mut processable_with_areas: Vec<_> = processable
-        .into_iter()
-        .map(|ring| {
-            let area = if ring.exterior.is_empty() {
-                0.0
-            } else {
-                let mut min_x = ring.exterior[0].x;
-                let mut max_x = ring.exterior[0].x;
-                let mut min_y = ring.exterior[0].y;
-                let mut max_y = ring.exterior[0].y;
-                for c in &ring.exterior[1..] {
-                    if c.x < min_x {
-                        min_x = c.x;
-                    }
-                    if c.x > max_x {
-                        max_x = c.x;
-                    }
-                    if c.y < min_y {
-                        min_y = c.y;
-                    }
-                    if c.y > max_y {
-                        max_y = c.y;
-                    }
-                }
-                (max_x - min_x) * (max_y - min_y)
-            };
-            (ring, area)
-        })
-        .collect();
+    let mut processable_with_areas = Vec::with_capacity(processable.len());
+    for ring in processable {
+        let area = if ring.exterior.is_empty() {
+            0.0
+        } else {
+            let mut min_x = ring.exterior[0].x;
+            let mut max_x = ring.exterior[0].x;
+            let mut min_y = ring.exterior[0].y;
+            let mut max_y = ring.exterior[0].y;
+            for coord in &ring.exterior[1..] {
+                execution_policy.check_cancelled_every("canonicalization", work_items)?;
+                work_items += 1;
+                min_x = min_x.min(coord.x);
+                max_x = max_x.max(coord.x);
+                min_y = min_y.min(coord.y);
+                max_y = max_y.max(coord.y);
+            }
+            (max_x - min_x) * (max_y - min_y)
+        };
+        processable_with_areas.push((ring, area));
+    }
 
     processable_with_areas.sort_unstable_by(|(_, area_a), (_, area_b)| area_a.total_cmp(area_b));
 
@@ -1531,18 +1556,43 @@ pub(crate) fn process_invalid_rings(
         let p2d = ring.to_polygon_2d();
         // Outer invalid rings are discarded if their linework is entirely contained
         // by an already-processed (smaller) invalid ring or a valid ring.
-        let contains_invalid = accepted.iter().any(|existing| p2d.contains(&existing.p2d));
-        let contains_valid = valid_shells_2d.iter().any(|valid| p2d.contains(valid));
+        let mut contains_invalid = false;
+        for existing in &accepted {
+            execution_policy.check_cancelled_every("canonicalization", work_items)?;
+            work_items += 1;
+            if p2d.contains(&existing.p2d) {
+                contains_invalid = true;
+                break;
+            }
+        }
+        let mut contains_valid = false;
+        for valid in valid_shells_2d {
+            execution_policy.check_cancelled_every("canonicalization", work_items)?;
+            work_items += 1;
+            if p2d.contains(valid) {
+                contains_valid = true;
+                break;
+            }
+        }
 
         if !contains_invalid && !contains_valid {
             accepted.push(RingPair { p3d: ring, p2d });
         }
     }
 
-    let mut result: Vec<Vec<Coord3D>> = accepted.into_iter().map(|rp| rp.p3d.exterior).collect();
-    result.extend(others.into_iter().map(|p| p.exterior));
+    let mut result = Vec::with_capacity(accepted.len() + others.len());
+    for pair in accepted {
+        execution_policy.check_cancelled_every("canonicalization", work_items)?;
+        work_items += 1;
+        result.push(pair.p3d.exterior);
+    }
+    for ring in others {
+        execution_policy.check_cancelled_every("canonicalization", work_items)?;
+        work_items += 1;
+        result.push(ring.exterior);
+    }
 
-    result
+    Ok(result)
 }
 
 pub fn bounding_rect_3d(coords: &[Coord3D]) -> Option<geo::Rect<f64>> {
