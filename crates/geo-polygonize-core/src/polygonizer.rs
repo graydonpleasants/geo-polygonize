@@ -624,7 +624,7 @@ impl Polygonizer {
             containment_stats,
         ) = {
             self.execution_policy.check_cancelled("containment")?;
-            establish_topology(shells, holes, &self.options)
+            establish_topology(shells, holes, &self.options, Some(&self.execution_policy))?
         };
 
         // 6. Construct Final Polygons
@@ -955,14 +955,15 @@ fn establish_topology(
     shells: Vec<ClassifiedRing>,
     holes: Vec<ClassifiedRing>,
     options: &PolygonizerOptions,
-) -> (
+    execution_policy: Option<&ExecutionPolicy>,
+) -> Result<(
     Vec<Polygon3D>,
     Vec<Vec<Vec<Coord3D>>>,
     Vec<Vec<Vec<u32>>>,
     usize,
     f64,
     ContainmentStats,
-) {
+)> {
     let (mut shells, mut shell_graph_ids): (Vec<_>, Vec<_>) = shells.into_iter().unzip();
     let collect_stats = options.diagnostics.enabled;
     let mut containment_stats = ContainmentStats::default();
@@ -1032,13 +1033,22 @@ fn establish_topology(
         };
 
     let assignments: Vec<_>;
-    #[cfg(feature = "parallel")]
-    {
-        assignments = holes.into_par_iter().map(process_hole_assignment).collect();
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        assignments = holes.into_iter().map(process_hole_assignment).collect();
+    if let Some(execution_policy) = execution_policy {
+        let mut checked = Vec::with_capacity(holes.len());
+        for (index, hole) in holes.into_iter().enumerate() {
+            execution_policy.check_cancelled_every("containment", index)?;
+            checked.push(process_hole_assignment(hole));
+        }
+        assignments = checked;
+    } else {
+        #[cfg(feature = "parallel")]
+        {
+            assignments = holes.into_par_iter().map(process_hole_assignment).collect();
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            assignments = holes.into_iter().map(process_hole_assignment).collect();
+        }
     }
 
     let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
@@ -1063,14 +1073,14 @@ fn establish_topology(
         forest.record_locator_reuse(&mut containment_stats);
     }
 
-    (
+    Ok((
         shells,
         shell_holes,
         shell_holes_ids,
         unassigned_hole_count,
         unassigned_hole_area,
         containment_stats,
-    )
+    ))
 }
 
 pub(crate) fn construct_final_polygons(
@@ -1205,6 +1215,7 @@ fn has_three_distinct_xy(coords: &[Coord3D]) -> bool {
 #[cfg(test)]
 mod topology_tests {
     use super::*;
+    use crate::{CancellationToken, PolygonizeError};
 
     #[test]
     fn establish_topology_reports_unassigned_holes() {
@@ -1221,11 +1232,50 @@ mod topology_tests {
             vec![],
         );
 
-        let (_, _, _, unassigned_count, unassigned_area, _) =
-            establish_topology(vec![], vec![(hole, None)], &PolygonizerOptions::default());
+        let (_, _, _, unassigned_count, unassigned_area, _) = establish_topology(
+            vec![],
+            vec![(hole, None)],
+            &PolygonizerOptions::default(),
+            None,
+        )
+        .unwrap();
 
         assert_eq!(unassigned_count, 1);
         assert!((unassigned_area - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn establish_topology_observes_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            establish_topology(
+                vec![],
+                vec![(
+                    Polygon3D::new(
+                        vec![
+                            Coord3D::new(0.0, 0.0, 0.0),
+                            Coord3D::new(0.0, 10.0, 0.0),
+                            Coord3D::new(10.0, 10.0, 0.0),
+                            Coord3D::new(10.0, 0.0, 0.0),
+                            Coord3D::new(0.0, 0.0, 0.0),
+                        ],
+                        vec![],
+                        vec![1, 2, 3, 4],
+                        vec![],
+                    ),
+                    None,
+                )],
+                &PolygonizerOptions::default(),
+                Some(&policy),
+            ),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "containment"
+        ));
     }
 
     #[test]
