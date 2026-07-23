@@ -1,5 +1,6 @@
 use crate::error::{PolygonizeError, Result};
 use crate::index::{IndexedEnvelope, RStarBackend};
+use crate::options::ExecutionPolicy;
 use crate::types::Line3D;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use geo_types::Coord;
@@ -16,6 +17,25 @@ impl ValidatingNoder {
 
     /// Returns the first pair containing an interior intersection or overlap.
     pub fn validate(&self, lines: &[Line3D]) -> Result<()> {
+        self.validate_impl(lines, None)
+    }
+
+    pub(crate) fn validate_with_execution_policy(
+        &self,
+        lines: &[Line3D],
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        self.validate_impl(lines, Some(execution_policy))
+    }
+
+    fn validate_impl(
+        &self,
+        lines: &[Line3D],
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> Result<()> {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("noding_validation")?;
+        }
         let index = RStarBackend::new(
             lines
                 .iter()
@@ -28,6 +48,9 @@ impl ValidatingNoder {
         );
 
         for (first_index, first) in lines.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("noding_validation", first_index)?;
+            }
             if first.start.x == first.end.x && first.start.y == first.end.y {
                 return failure(
                     first_index,
@@ -41,7 +64,10 @@ impl ValidatingNoder {
                 .filter(|second_index| *second_index > first_index)
                 .collect();
             candidates.sort_unstable();
-            for second_index in candidates {
+            for (candidate_index, second_index) in candidates.into_iter().enumerate() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("noding_validation", candidate_index)?;
+                }
                 let second = &lines[second_index];
                 if same_segment_xy(first, second) {
                     continue;
@@ -116,6 +142,7 @@ fn failure(first_segment: usize, second_segment: usize, reason: String) -> Resul
 mod tests {
     use super::*;
     use crate::types::Coord3D;
+    use crate::{CancellationToken, ExecutionPolicy};
 
     fn line(start: (f64, f64), end: (f64, f64)) -> Line3D {
         Line3D::new(
@@ -134,6 +161,21 @@ mod tests {
             line((0.0, 0.0), (0.0, 1.0)),
         ];
         ValidatingNoder::new().validate(&lines).unwrap();
+    }
+
+    #[test]
+    fn policy_path_observes_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            ValidatingNoder::new().validate_with_execution_policy(&[], &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "noding_validation"
+        ));
     }
 
     #[test]

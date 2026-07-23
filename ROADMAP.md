@@ -261,6 +261,8 @@ Line-string conversion and fixed-grid snapping also poll every 256 input
 coordinates or segments.
 GeoCompat coordinate restoration also polls every 256 snapped coordinates or
 noded segments.
+Token-aware noding validation also polls every 256 segments or candidate pairs;
+candidate sorting remains phase-boundary-only.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
