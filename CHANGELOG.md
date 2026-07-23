@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.66.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.65.0...geo-polygonize-v0.66.0) (2026-07-23)
+
+
+### Features
+
+* **core:** add native cancellation checkpoints ([#959](https://github.com/graydonpleasants/geo-polygonize/issues/959)) ([b1f97c5](https://github.com/graydonpleasants/geo-polygonize/commit/b1f97c527a4bada0c655bc71039d15df09fc7295))
+* **python:** release GIL for cancellable runs ([#960](https://github.com/graydonpleasants/geo-polygonize/issues/960)) ([919c8aa](https://github.com/graydonpleasants/geo-polygonize/commit/919c8aafa0684b734c71a84d57eaef72e25461c4))
+* **wasm:** add cancellable worker calls ([#961](https://github.com/graydonpleasants/geo-polygonize/issues/961)) ([c42adb6](https://github.com/graydonpleasants/geo-polygonize/commit/c42adb62ca525181f7184d0152c944869799fa63))
+
 ## [0.65.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.64.0...geo-polygonize-v0.65.0) (2026-07-22)
 
 
