@@ -243,7 +243,9 @@ cancelled workspace run is reusable after resetting its token. Python releases
 the GIL for owned Rust work and polls signals every 10 ms before cancelling the
 worker token. Wasm has cancellable GeoJSON and report calls in disposable
 browser workers; aborting terminates the worker rather than claiming that a
-synchronous main-thread Wasm export can yield.
+synchronous main-thread Wasm export can yield. SIMD noding polls cancellation
+every 256 candidate comparisons and every 256 split events; grid, hot-pixel,
+and later core phases still need equivalent bounded checkpoints.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,

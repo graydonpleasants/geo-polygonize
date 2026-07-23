@@ -7,6 +7,9 @@ use std::sync::{
     Arc,
 };
 
+/// Maximum noding work items between cooperative cancellation checks.
+pub(crate) const CANCELLATION_CHECK_INTERVAL: usize = 256;
+
 /// Cooperative native cancellation handle for an [`ExecutionPolicy`].
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
@@ -101,6 +104,13 @@ impl ExecutionPolicy {
             return Err(PolygonizeError::Cancelled {
                 stage: stage.to_string(),
             });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_cancelled_every(&self, stage: &str, work_items: usize) -> Result<()> {
+        if work_items.is_multiple_of(CANCELLATION_CHECK_INTERVAL) {
+            self.check_cancelled(stage)?;
         }
         Ok(())
     }
