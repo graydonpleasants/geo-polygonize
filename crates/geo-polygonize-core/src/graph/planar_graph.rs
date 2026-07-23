@@ -239,8 +239,28 @@ impl PlanarGraph {
     /// Bulk loads edges into the graph.
     /// This is significantly faster than `add_line_string` for large datasets as it avoids HashMap lookups.
     pub fn bulk_load(&mut self, lines: Vec<Line3D>) {
+        self.bulk_load_impl(lines, None)
+            .expect("unlimited graph loading cannot fail")
+    }
+
+    pub(crate) fn bulk_load_with_execution_policy(
+        &mut self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<()> {
+        self.bulk_load_impl(lines, Some(execution_policy))
+    }
+
+    fn bulk_load_impl(
+        &mut self,
+        lines: Vec<Line3D>,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<()> {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("graph_construction")?;
+        }
         if lines.is_empty() {
-            return;
+            return Ok(());
         }
 
         // 1. Collect all coordinates and precompute Z-order
@@ -277,7 +297,10 @@ impl PlanarGraph {
         self.nodes_degree.reserve(entries.len());
         self.nodes_marked.reserve(entries.len());
 
-        for entry in &entries {
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", index)?;
+            }
             self.nodes_x.push(entry.c.x);
             self.nodes_y.push(entry.c.y);
             self.nodes_z.push(entry.c.z);
@@ -314,7 +337,10 @@ impl PlanarGraph {
         let mut valid_edges = Vec::with_capacity(lines.len());
         let mut degrees = vec![0usize; self.nodes_x.len()]; // This might be large?
 
-        for line in lines {
+        for (index, line) in lines.into_iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", index)?;
+            }
             let p0 = line.start;
             let p1 = line.end;
 
@@ -340,7 +366,10 @@ impl PlanarGraph {
         });
 
         let mut dissolved: Vec<(NodeId, NodeId, Line3D, EdgeSources)> = Vec::new();
-        for (u, v, line) in valid_edges {
+        for (index, (u, v, line)) in valid_edges.into_iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", index)?;
+            }
             let key = (u.min(v), u.max(v));
             if let Some((last_u, last_v, _, sources)) = dissolved.last_mut() {
                 if ((*last_u).min(*last_v), (*last_u).max(*last_v)) == key {
@@ -350,7 +379,10 @@ impl PlanarGraph {
             }
             dissolved.push((u, v, line, EdgeSources::from_line_id(line.line_id)));
         }
-        for (u, v, _, _) in &dissolved {
+        for (index, (u, v, _, _)) in dissolved.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", index)?;
+            }
             degrees[*u] += 1;
             degrees[*v] += 1;
         }
@@ -372,6 +404,9 @@ impl PlanarGraph {
         let directed_edges_start_len = self.directed_edges.len();
 
         for (i, (u, v, line, sources)) in dissolved.into_iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", i)?;
+            }
             let (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge) = create_edge_components(
                 i,
                 u,
@@ -390,6 +425,7 @@ impl PlanarGraph {
             self.nodes_outgoing[v].push(de_v_u_idx);
             self.nodes_degree[v] += 1;
         }
+        Ok(())
     }
 
     /// Adds a line to the graph and returns the new EdgeId.
@@ -591,6 +627,40 @@ impl PlanarGraph {
                     compare_angular(center, target_a, target_b)
                 });
             });
+    }
+
+    pub(crate) fn sort_edges_with_execution_policy(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<()> {
+        execution_policy.check_cancelled("graph_construction")?;
+        let nodes_x = &self.nodes_x;
+        let nodes_y = &self.nodes_y;
+        let directed_edges = &self.directed_edges;
+
+        for (src_idx, adj) in self.nodes_outgoing.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("graph_construction", src_idx)?;
+            adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+
+            let center = Coord {
+                x: nodes_x[src_idx],
+                y: nodes_y[src_idx],
+            };
+            adj.sort_by(|&a_idx, &b_idx| {
+                let a_de = &directed_edges[a_idx];
+                let b_de = &directed_edges[b_idx];
+                let target_a = Coord {
+                    x: nodes_x[a_de.dst],
+                    y: nodes_y[a_de.dst],
+                };
+                let target_b = Coord {
+                    x: nodes_x[b_de.dst],
+                    y: nodes_y[b_de.dst],
+                };
+                compare_angular(center, target_a, target_b)
+            });
+        }
+        Ok(())
     }
 
     /// Prunes dangles (nodes with degree 1) from the graph iteratively.
