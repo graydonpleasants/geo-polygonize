@@ -109,7 +109,7 @@ impl ExecutionPolicy {
     }
 
     pub(crate) fn check_cancelled_every(&self, stage: &str, work_items: usize) -> Result<()> {
-        if work_items % CANCELLATION_CHECK_INTERVAL == 0 {
+        if work_items.is_multiple_of(CANCELLATION_CHECK_INTERVAL) {
             self.check_cancelled(stage)?;
         }
         Ok(())
