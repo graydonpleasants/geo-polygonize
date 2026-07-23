@@ -248,6 +248,8 @@ poll every 256 work items; grid polls between cells. Later core phases still
 need equivalent bounded checkpoints. Graph dangle pruning also polls node
 discovery and its mutable work stack every 256 items; token-aware containment
 polls every 256 hole assignments while token-free runs retain the parallel path.
+Cut-edge removal and minimal-ring extraction also poll every 256 graph-traversal
+work items.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,

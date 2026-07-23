@@ -581,14 +581,19 @@ impl Polygonizer {
         };
 
         // 3. Remove cut edges before extracting minimal rings.
-        let mut cut_edges = self.graph.delete_cut_edges();
+        let mut cut_edges = self
+            .graph
+            .delete_cut_edges_with_execution_policy(&self.execution_policy)?;
 
         // 4. Find rings (3D)
-        self.execution_policy.check_cancelled("ring_extraction")?;
-        let rings_with_ids = self.graph.get_edge_rings_with_graph_ids(
-            self.options.node_input,
-            self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids,
-        );
+        let rings_with_ids = self
+            .graph
+            .get_edge_rings_with_graph_ids_and_execution_policy(
+                self.options.node_input,
+                self.options.provenance.enabled
+                    && self.options.provenance.include_boundary_line_ids,
+                &self.execution_policy,
+            )?;
         self.execution_policy.check(
             "rings",
             self.execution_policy.max_rings,

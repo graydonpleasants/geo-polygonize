@@ -42,6 +42,27 @@ mod tests {
     }
 
     #[test]
+    fn ring_operations_observe_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        let mut graph = PlanarGraph::new();
+        assert!(matches!(
+            graph.delete_cut_edges_with_execution_policy(&policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ring_extraction"
+        ));
+
+        assert!(matches!(
+            graph.get_edge_rings_with_graph_ids_and_execution_policy(false, false, &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ring_extraction"
+        ));
+    }
+
+    #[test]
     fn test_bulk_load_duplicate_nodes_different_z() {
         use crate::types::Coord3D;
 
