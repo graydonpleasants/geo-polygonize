@@ -3,6 +3,7 @@
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
     use crate::types::Line3D;
+    use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use geo_types::{Coord, LineString};
 
     #[test]
@@ -21,6 +22,23 @@ mod tests {
         // Node at (0,0) should have 2 outgoing edges
         let center_node_idx = graph.node_map.get(&Coord::from((0.0, 0.0)).into()).unwrap();
         assert_eq!(graph.nodes_outgoing[*center_node_idx].len(), 2);
+    }
+
+    #[test]
+    fn dangle_pruning_observes_cancellation() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line_string(LineString::from(vec![(0.0, 0.0), (1.0, 0.0)]));
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            graph.prune_dangles_with_execution_policy(&policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
+        ));
     }
 
     #[test]
