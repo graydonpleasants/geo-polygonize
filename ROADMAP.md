@@ -239,14 +239,16 @@ limit in the core regression suite.
 Progress: Native `CancellationToken` values live in `ExecutionPolicy`, not
 semantic options. Core checkpoints cover ingest, noding, graph construction,
 ring extraction, containment, canonicalization, and output flattening; a
-cancelled workspace run is reusable after resetting its token.
+cancelled workspace run is reusable after resetting its token. Python releases
+the GIL for owned Rust work and polls signals every 10 ms before cancelling the
+worker token.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
   and output flattening.
 - [x] Provide a native cancellation token or callback that does not become part
   of semantic options.
-- [ ] Release the Python GIL during pure Rust work where safe and check Python
+- [x] Release the Python GIL during pure Rust work where safe and check Python
   signals at bounded intervals.
 - [ ] For Wasm, use a worker-based or genuinely asynchronous/chunked API for
   cancellation. Do not claim `AbortSignal` support for a synchronous main-thread

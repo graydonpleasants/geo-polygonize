@@ -1,12 +1,18 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use polygonize_core::{
-    normalize_polygonize_error, polygonize as polygonize_lines, Coord3D, Line3D, PolygonizeError,
-    PolygonizerOptions, PrecisionModel, TopologyFingerprintV1,
+    normalize_polygonize_error, polygonize_with_execution_policy, CancellationToken, Coord3D,
+    ExecutionPolicy, Line3D, PolygonizeError, PolygonizerOptions, PrecisionModel,
+    TopologyFingerprintV1,
 };
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
+
+const SIGNAL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 create_exception!(
     geo_polygonize_core,
@@ -67,6 +73,61 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
     })
     .expect("Python exception conversion runs while attached");
     py_err
+}
+
+fn polygonize_without_gil(
+    py: Python<'_>,
+    lines: Vec<Line3D>,
+    options: PolygonizerOptions,
+) -> PyResult<(polygonize_core::PolygonizerResult, TopologyFingerprintV1)> {
+    py.check_signals()?;
+    let token = CancellationToken::new();
+    let policy = ExecutionPolicy {
+        cancellation_token: Some(token.clone()),
+        ..Default::default()
+    };
+    let (sender, receiver) = sync_channel(1);
+    let worker = thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = polygonize_with_execution_policy(lines, &options, &policy)?;
+            let fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)?;
+            Ok((result, fingerprint))
+        }))
+        .unwrap_or_else(|_| {
+            Err(PolygonizeError::Panic(
+                "Panic occurred in Rust core".to_string(),
+            ))
+        });
+        let _ = sender.send(result);
+    });
+
+    let result = py.detach(move || {
+        let result = loop {
+            match receiver.recv_timeout(SIGNAL_POLL_INTERVAL) {
+                Ok(result) => break Ok(result),
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Err(signal) = Python::attach(|py| py.check_signals()) {
+                        token.cancel();
+                        break Err(signal);
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    break Ok(Err(PolygonizeError::Panic(
+                        "Rust worker exited before returning a result".to_string(),
+                    )));
+                }
+            }
+        };
+        if result.is_err() {
+            let _ = receiver.recv();
+        }
+        worker
+            .join()
+            .map_err(|_| PyRuntimeError::new_err("Rust worker panicked"))?;
+        result
+    });
+
+    result?.map_err(to_py_err)
 }
 
 #[pyfunction]
@@ -222,17 +283,7 @@ fn polygonize_internal<'py>(
         }
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        polygonize_lines(lines, &options)
-    }))
-    .unwrap_or_else(|_| {
-        Err(PolygonizeError::Panic(
-            "Panic occurred in Rust core".to_string(),
-        ))
-    })
-    .map_err(to_py_err)?;
-    let topology_fingerprint =
-        TopologyFingerprintV1::try_from_result(&result, &options).map_err(to_py_err)?;
+    let (result, topology_fingerprint) = polygonize_without_gil(py, lines, options)?;
 
     // Flatten logic
     let mut num_points = 0;
