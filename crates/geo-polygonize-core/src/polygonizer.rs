@@ -648,15 +648,20 @@ impl Polygonizer {
             result.len(),
         )?;
         self.execution_policy.check_cancelled("output_flattening")?;
-        let output_coordinates = result
-            .iter()
-            .map(|polygon| {
-                polygon.exterior.len() + polygon.interiors.iter().map(Vec::len).sum::<usize>()
-            })
-            .sum::<usize>()
-            + dangles.iter().map(Vec::len).sum::<usize>()
-            + cut_edges.iter().map(Vec::len).sum::<usize>()
-            + invalid_rings.iter().map(Vec::len).sum::<usize>();
+        let mut output_coordinates = 0;
+        for (index, polygon) in result.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("output_flattening", index)?;
+            output_coordinates +=
+                polygon.exterior.len() + polygon.interiors.iter().map(Vec::len).sum::<usize>();
+        }
+        for lines in [&dangles, &cut_edges, &invalid_rings] {
+            for (index, line) in lines.iter().enumerate() {
+                self.execution_policy
+                    .check_cancelled_every("output_flattening", index)?;
+                output_coordinates += line.len();
+            }
+        }
         self.execution_policy.check(
             "output_coordinates",
             self.execution_policy.max_output_coordinates,
