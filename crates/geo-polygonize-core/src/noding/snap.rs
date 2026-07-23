@@ -217,7 +217,11 @@ impl SnapNoder {
                         work_stats.merge(measured_work);
                     }
                 }
-                self.find_splits_simd(&lines)
+                if let Some(execution_policy) = execution_policy {
+                    self.find_splits_simd_with_execution_policy(&lines, execution_policy)?
+                } else {
+                    self.find_splits_simd(&lines)
+                }
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
@@ -293,6 +297,9 @@ impl SnapNoder {
 
                 points.clear();
                 while event_idx < events.len() && events[event_idx].0 == line_idx {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check_cancelled_every("split_application", event_idx)?;
+                    }
                     points.push(events[event_idx].1);
                     event_idx += 1;
                 }
@@ -767,7 +774,8 @@ impl SnapNoder {
                     .par_iter()
                     .enumerate()
                     .flat_map(|(i, &query_line)| {
-                        self.check_intersection_simd(query_line, i, lines, &soa)
+                        self.check_intersection_simd(query_line, i, lines, &soa, None)
+                            .expect("unlimited noding cannot fail")
                     })
                     .collect()
             } else {
@@ -776,7 +784,8 @@ impl SnapNoder {
                     .iter()
                     .enumerate()
                     .flat_map(|(i, &query_line)| {
-                        self.check_intersection_simd(query_line, i, lines, &soa)
+                        self.check_intersection_simd(query_line, i, lines, &soa, None)
+                            .expect("unlimited noding cannot fail")
                     })
                     .collect()
             }
@@ -786,11 +795,32 @@ impl SnapNoder {
         {
             let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
-                let events = self.check_intersection_simd(query_line, i, lines, &soa);
+                let events = self
+                    .check_intersection_simd(query_line, i, lines, &soa, None)
+                    .expect("unlimited noding cannot fail");
                 splits.extend(events);
             }
             splits
         }
+    }
+
+    fn find_splits_simd_with_execution_policy(
+        &self,
+        lines: &[Line3D],
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<(usize, Coord3D)>> {
+        let soa = SoALines::new(lines);
+        let mut splits = Vec::new();
+        for (i, &query_line) in lines.iter().enumerate() {
+            splits.extend(self.check_intersection_simd(
+                query_line,
+                i,
+                lines,
+                &soa,
+                Some(execution_policy),
+            )?);
+        }
+        Ok(splits)
     }
 
     #[inline]
@@ -821,8 +851,10 @@ impl SnapNoder {
         i: usize,
         lines: &[Line3D],
         soa: &SoALines,
-    ) -> Vec<(usize, Coord3D)> {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
+        let mut checked = 0;
         // Start block to avoid duplicate checks (j > i)
         // We start checking at index i+1.
         // The SoA batching index `j` steps by 4.
@@ -834,6 +866,10 @@ impl SnapNoder {
         // Handling unaligned start to be absolutely safe and avoid self-check artifacts
         #[allow(clippy::needless_range_loop)]
         for j in (i + 1)..start_block.min(lines.len()) {
+            checked += 1;
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("candidate_enumeration", checked)?;
+            }
             let target_line = lines[j];
             // Standard BBox check
             let q_min_x = query_line.start.x.min(query_line.end.x);
@@ -861,6 +897,10 @@ impl SnapNoder {
         let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
 
         for j in (start_block..soa.len()).step_by(4) {
+            checked += 4;
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("candidate_enumeration", checked)?;
+            }
             let mask = soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
 
             if mask != 0 {
@@ -886,7 +926,7 @@ impl SnapNoder {
                 }
             }
         }
-        events
+        Ok(events)
     }
 
     #[inline]
@@ -913,6 +953,7 @@ impl SnapNoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use rand::Rng;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
@@ -972,6 +1013,24 @@ mod tests {
             assert_eq!(e_g.0, e_s.0, "Index mismatch");
             assert!((e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10);
         }
+    }
+
+    #[test]
+    fn simd_scan_observes_cancellation_within_the_poll_interval() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        let lines = (0..300)
+            .map(|y| make_line(0.0, y as f64, 1.0, y as f64))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            SnapNoder::new(1.0).find_splits_simd_with_execution_policy(&lines, &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
     }
 
     #[test]
