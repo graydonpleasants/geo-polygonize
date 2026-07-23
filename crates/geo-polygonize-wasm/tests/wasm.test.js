@@ -10,6 +10,14 @@ describe('WASM Polygonizer', () => {
         expect(existsSync(resolve('dist/threads/pkg-threads/geo_polygonize.d.ts'))).toBe(true);
     });
 
+    it('should publish the browser worker cancellation entry point', async () => {
+        expect(existsSync(resolve('dist/standard/es/polygonize_worker.js'))).toBe(true);
+        const { polygonizeReportWithOptionsAsync, polygonizeWithOptionsAsync } =
+            await import('../../../dist/standard/es/index.js');
+        expect(polygonizeWithOptionsAsync).toBeTypeOf('function');
+        expect(polygonizeReportWithOptionsAsync).toBeTypeOf('function');
+    });
+
     it('should initialize slim with module alias options', async () => {
         const { cfbRobustOptions, initBest } = await import('../../../dist/slim/es/index_slim.js');
         const wasm = await initBest(

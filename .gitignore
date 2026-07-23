@@ -10,6 +10,7 @@ dist/
 pkg-scalar/
 pkg-simd/
 pkg-threads/
+pkg-wrapper/bindings/
 test_venv
 
 # Cargo Fuzz
