@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.69.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.68.0...geo-polygonize-v0.69.0) (2026-07-23)
+
+
+### Features
+
+* **core:** poll output cancellation checks ([#967](https://github.com/graydonpleasants/geo-polygonize/issues/967)) ([b7580da](https://github.com/graydonpleasants/geo-polygonize/commit/b7580daf61faeaa16f38e0f447a810596bef13e8))
+
 ## [0.68.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.67.0...geo-polygonize-v0.68.0) (2026-07-23)
 
 
