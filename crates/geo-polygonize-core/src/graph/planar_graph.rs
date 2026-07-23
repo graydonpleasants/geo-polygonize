@@ -1,3 +1,4 @@
+use crate::options::ExecutionPolicy;
 use crate::types::{Coord3D, EdgeSources, Line3D};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{compare_angular, z_order_index};
@@ -594,16 +595,38 @@ impl PlanarGraph {
 
     /// Prunes dangles (nodes with degree 1) from the graph iteratively.
     pub fn prune_dangles(&mut self) -> Vec<Vec<Coord3D>> {
-        let mut dangles = Vec::new();
-        let mut to_process: Vec<NodeId> = self
-            .nodes_degree
-            .iter()
-            .enumerate()
-            .filter(|(i, &d)| d == 1 && !self.nodes_marked[*i])
-            .map(|(i, _)| i)
-            .collect();
+        self.prune_dangles_impl(None)
+            .expect("unlimited graph pruning cannot fail")
+    }
 
+    pub(crate) fn prune_dangles_with_execution_policy(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<Vec<Coord3D>>> {
+        self.prune_dangles_impl(Some(execution_policy))
+    }
+
+    fn prune_dangles_impl(
+        &mut self,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<Vec<Coord3D>>> {
+        let mut dangles = Vec::new();
+        let mut to_process = Vec::new();
+        for (node_idx, &degree) in self.nodes_degree.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", node_idx)?;
+            }
+            if degree == 1 && !self.nodes_marked[node_idx] {
+                to_process.push(node_idx);
+            }
+        }
+
+        let mut processed = 0;
         while let Some(node_idx) = to_process.pop() {
+            processed += 1;
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_construction", processed)?;
+            }
             if self.nodes_degree[node_idx] != 1 {
                 continue;
             }
@@ -644,7 +667,7 @@ impl PlanarGraph {
                 }
             }
         }
-        dangles
+        Ok(dangles)
     }
 
     /// Finds and removes edges whose two directions belong to the same maximal ring.

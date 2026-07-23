@@ -573,7 +573,12 @@ impl Polygonizer {
             .check_cancelled("graph_construction")?;
 
         // 2. Prune dangles
-        let mut dangles = self.graph.prune_dangles();
+        let mut dangles = if self.execution_policy.cancellation_token.is_some() {
+            self.graph
+                .prune_dangles_with_execution_policy(&self.execution_policy)?
+        } else {
+            self.graph.prune_dangles()
+        };
 
         // 3. Remove cut edges before extracting minimal rings.
         let mut cut_edges = self.graph.delete_cut_edges();
