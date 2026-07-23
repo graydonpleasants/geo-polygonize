@@ -251,6 +251,8 @@ polls every 256 hole assignments while token-free runs retain the parallel path.
 Cut-edge removal and minimal-ring extraction also poll every 256 graph-traversal
 work items. Ring classification and invalid-ring filtering poll every 256
 ring, coordinate, and containment-comparison work items.
+Final polygon assembly and deterministic-ordering preprocessing also poll every
+256 items; their standard-library sort calls remain phase-boundary-only.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
