@@ -144,9 +144,11 @@ where
     I: IntoIterator<Item = L>,
     L: LineStringTrait<T = f64>,
 {
+    execution_policy.check_cancelled("ingest")?;
     let mut segments = Vec::new();
     let mut coordinate_count = 0;
     for (line_id, line_string) in line_strings.into_iter().enumerate() {
+        execution_policy.check_cancelled_every("ingest", line_id)?;
         execution_policy.check(
             "input_line_strings",
             execution_policy.max_input_line_strings,
@@ -160,6 +162,7 @@ where
             continue;
         };
         coordinate_count += 1;
+        execution_policy.check_cancelled_every("ingest", coordinate_count)?;
         execution_policy.check(
             "input_coordinates",
             execution_policy.max_input_coordinates,
@@ -168,6 +171,7 @@ where
         let mut previous = Coord3D::new(first.x(), first.y(), 0.0);
         for coordinate in coordinates {
             coordinate_count += 1;
+            execution_policy.check_cancelled_every("ingest", coordinate_count)?;
             execution_policy.check(
                 "input_coordinates",
                 execution_policy.max_input_coordinates,
@@ -478,7 +482,9 @@ impl Polygonizer {
                 let snapper = SnapNoder::new(grid_size)
                     .with_snap_strategy(self.options.snap_strategy.clone())
                     .with_z_policy(self.options.z.policy);
-                for line in &mut all_segments {
+                for (index, line) in all_segments.iter_mut().enumerate() {
+                    self.execution_policy
+                        .check_cancelled_every("graph_construction", index)?;
                     line.start = snapper.snap(line.start);
                     line.end = snapper.snap(line.end);
                 }
@@ -1372,6 +1378,14 @@ mod topology_tests {
         assert!(matches!(
             reconcile_segment_z(&mut [], ZPolicy::default(), 0.0, false, &policy),
             Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
+        ));
+        assert!(matches!(
+            polygonize_line_strings_with_execution_policy(
+                Vec::<geo_types::LineString<f64>>::new(),
+                &PolygonizerOptions::default(),
+                &policy,
+            ),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
         ));
     }
 
