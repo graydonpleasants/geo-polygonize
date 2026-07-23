@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-arrow"
-version = "0.70.0"
+version = "0.71.0"
 edition = "2021"
 description = "Arrow and GeoArrow adapters for geo-polygonize-core."
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ readme = "../../README.md"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.70.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "0.71.0" }
 arrow = { version = "57", features = ["ffi"] }
 geoarrow = "0.7.0"
 geo = "0.32"
