@@ -63,6 +63,26 @@ mod tests {
     }
 
     #[test]
+    fn graph_build_operations_observe_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        let mut graph = PlanarGraph::new();
+
+        assert!(matches!(
+            graph.bulk_load_with_execution_policy(vec![], &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
+        ));
+        assert!(matches!(
+            graph.sort_edges_with_execution_policy(&policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
+        ));
+    }
+
+    #[test]
     fn test_bulk_load_duplicate_nodes_different_z() {
         use crate::types::Coord3D;
 

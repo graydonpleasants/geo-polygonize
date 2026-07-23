@@ -507,9 +507,12 @@ impl Polygonizer {
         }
 
         // Use bulk load
-        self.graph.bulk_load(segments);
-        self.execution_policy
-            .check_cancelled("graph_construction")?;
+        if self.execution_policy.cancellation_token.is_some() {
+            self.graph
+                .bulk_load_with_execution_policy(segments, &self.execution_policy)?;
+        } else {
+            self.graph.bulk_load(segments);
+        }
         self.execution_policy.check(
             "graph_nodes",
             self.execution_policy.max_graph_nodes,
@@ -568,9 +571,12 @@ impl Polygonizer {
 
         let t_graph_build_start = get_time();
         // 1. Sort edges (Geometry Graph operation)
-        self.graph.sort_edges();
-        self.execution_policy
-            .check_cancelled("graph_construction")?;
+        if self.execution_policy.cancellation_token.is_some() {
+            self.graph
+                .sort_edges_with_execution_policy(&self.execution_policy)?;
+        } else {
+            self.graph.sort_edges();
+        }
 
         // 2. Prune dangles
         let mut dangles = if self.execution_policy.cancellation_token.is_some() {
