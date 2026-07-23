@@ -188,6 +188,7 @@ impl SnapNoder {
         let mut split_events = 0;
         for iteration_index in 0..self.max_iter {
             if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled("candidate_enumeration")?;
                 execution_policy.check_noding_iterations(iteration_index + 1)?;
             }
             let input_segment_count = lines.len();
@@ -262,6 +263,7 @@ impl SnapNoder {
             let split_event_count = events.len();
             split_events += split_event_count;
             if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled("split_application")?;
                 execution_policy.check_split_events(split_events)?;
             }
             if let Some(work_stats) = work_stats.as_deref_mut() {

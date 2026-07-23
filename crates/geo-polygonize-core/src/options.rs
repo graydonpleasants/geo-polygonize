@@ -2,6 +2,32 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::error::{PolygonizeError, Result};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
+/// Cooperative native cancellation handle for an [`ExecutionPolicy`].
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken(Arc<AtomicBool>);
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 /// Non-semantic limits applied before polygonization begins.
 ///
@@ -9,6 +35,7 @@ use crate::error::{PolygonizeError, Result};
 /// so equivalent topology options retain identical meaning across callers.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionPolicy {
+    pub cancellation_token: Option<CancellationToken>,
     pub max_input_line_strings: Option<usize>,
     pub max_input_segments: Option<usize>,
     pub max_input_coordinates: Option<usize>,
@@ -37,7 +64,8 @@ impl ExecutionPolicy {
     }
 
     pub(crate) fn has_noding_work_limits(&self) -> bool {
-        self.max_candidate_pairs.is_some()
+        self.cancellation_token.is_some()
+            || self.max_candidate_pairs.is_some()
             || self.max_exact_intersection_calls.is_some()
             || self.max_split_events.is_some()
             || self.max_noding_iterations.is_some()
@@ -62,6 +90,19 @@ impl ExecutionPolicy {
 
     pub(crate) fn check_noding_iterations(&self, observed: usize) -> Result<()> {
         self.check("noding_iterations", self.max_noding_iterations, observed)
+    }
+
+    pub(crate) fn check_cancelled(&self, stage: &str) -> Result<()> {
+        if self
+            .cancellation_token
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return Err(PolygonizeError::Cancelled {
+                stage: stage.to_string(),
+            });
+        }
+        Ok(())
     }
 }
 

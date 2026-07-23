@@ -45,9 +45,9 @@ pub use fingerprint::{
     NormalizedPolygonizeErrorV1, TopologyFingerprintV1, TOPOLOGY_FINGERPRINT_V1_SCHEMA_VERSION,
 };
 pub use options::{
-    ContainmentOptions, DeterminismOptions, DiagnosticsOptions, ExecutionPolicy, NodingBackend,
-    NodingGuarantee, NodingOptions, OutputFilterOptions, PolygonizerOptions, PrecisionModel,
-    ProvenanceOptions, SnapStrategy, TouchPolicy, ZOptions, ZPolicy,
+    CancellationToken, ContainmentOptions, DeterminismOptions, DiagnosticsOptions, ExecutionPolicy,
+    NodingBackend, NodingGuarantee, NodingOptions, OutputFilterOptions, PolygonizerOptions,
+    PrecisionModel, ProvenanceOptions, SnapStrategy, TouchPolicy, ZOptions, ZPolicy,
 };
 #[doc(hidden)]
 pub use options::{DedupPolicy, TileOwnershipPolicy};

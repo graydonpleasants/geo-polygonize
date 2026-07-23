@@ -247,6 +247,7 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             observed: Some(observed.to_string()),
             ..base("resource_limit", "resource_limit_exceeded", stage)
         },
+        PolygonizeError::Cancelled { stage } => base("cancelled", "cancelled", stage),
         PolygonizeError::UnsupportedOptionCombination { .. } => base(
             "invalid_argument",
             "unsupported_option_combination",

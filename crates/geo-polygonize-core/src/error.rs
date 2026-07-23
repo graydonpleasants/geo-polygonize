@@ -22,6 +22,9 @@ pub enum PolygonizeError {
         observed: usize,
     },
 
+    #[error("Polygonization cancelled at {stage}")]
+    Cancelled { stage: String },
+
     #[error("Unsupported option combination: {reason}")]
     UnsupportedOptionCombination { reason: String },
 
