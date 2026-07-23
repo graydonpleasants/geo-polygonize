@@ -497,6 +497,7 @@ impl Polygonizer {
             self.options.z.policy,
             self.options.z.conflict_tolerance,
             self.options.provenance.enabled,
+            &self.execution_policy,
         )?;
         if let Some(diagnostics) = diagnostics {
             diagnostics.z_conflicts = z_conflicts;
@@ -543,7 +544,7 @@ impl Polygonizer {
             self.execution_policy.max_input_segments,
             input_lines.len(),
         )?;
-        validate_lines(&input_lines)?;
+        validate_lines(&input_lines, &self.execution_policy)?;
 
         let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {
             let d = PolygonizerDiagnostics {
@@ -710,22 +711,24 @@ impl Polygonizer {
     }
 }
 
-fn validate_lines(lines: &[Line3D]) -> Result<()> {
-    if lines.iter().any(|line| {
-        [
+fn validate_lines(lines: &[Line3D], execution_policy: &ExecutionPolicy) -> Result<()> {
+    execution_policy.check_cancelled("ingest")?;
+    for (index, line) in lines.iter().enumerate() {
+        execution_policy.check_cancelled_every("ingest", index)?;
+        for value in [
             line.start.x,
             line.start.y,
             line.start.z,
             line.end.x,
             line.end.y,
             line.end.z,
-        ]
-        .iter()
-        .any(|value| !value.is_finite())
-    }) {
-        return Err(PolygonizeError::InvalidGeometry {
-            reason: "line coordinates must be finite".to_string(),
-        });
+        ] {
+            if !value.is_finite() {
+                return Err(PolygonizeError::InvalidGeometry {
+                    reason: "line coordinates must be finite".to_string(),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -743,16 +746,21 @@ fn reconcile_segment_z(
     policy: ZPolicy,
     tolerance: f64,
     include_line_ids: bool,
+    execution_policy: &ExecutionPolicy,
 ) -> Result<ZConflictStats> {
-    if segments
-        .iter()
-        .all(|line| line.start.z == 0.0 && line.end.z == 0.0)
-    {
+    execution_policy.check_cancelled("graph_construction")?;
+    let mut has_nonzero_z = false;
+    for (index, line) in segments.iter().enumerate() {
+        execution_policy.check_cancelled_every("graph_construction", index)?;
+        has_nonzero_z |= line.start.z != 0.0 || line.end.z != 0.0;
+    }
+    if !has_nonzero_z {
         return Ok(ZConflictStats::default());
     }
 
     let mut endpoints = Vec::with_capacity(segments.len() * 2);
     for (segment, line) in segments.iter().enumerate() {
+        execution_policy.check_cancelled_every("graph_construction", segment)?;
         endpoints.push(SegmentEndpoint {
             segment,
             is_end: false,
@@ -780,6 +788,7 @@ fn reconcile_segment_z(
     let mut stats = ZConflictStats::default();
     let mut first = 0;
     while first < endpoints.len() {
+        execution_policy.check_cancelled_every("graph_construction", first)?;
         let coordinate = endpoints[first].coordinate;
         let mut end = first + 1;
         while end < endpoints.len()
@@ -790,21 +799,22 @@ fn reconcile_segment_z(
         }
 
         let group = &endpoints[first..end];
-        let min_z = group
-            .iter()
-            .map(|endpoint| endpoint.coordinate.z)
-            .min_by(f64::total_cmp)
-            .expect("endpoint group is non-empty");
-        let max_z = group
-            .iter()
-            .map(|endpoint| endpoint.coordinate.z)
-            .max_by(f64::total_cmp)
-            .expect("endpoint group is non-empty");
+        let mut min_z = group[0].coordinate.z;
+        let mut max_z = min_z;
+        for (index, endpoint) in group.iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_construction", first + index)?;
+            min_z = min_z.min(endpoint.coordinate.z);
+            max_z = max_z.max(endpoint.coordinate.z);
+        }
         let is_conflict = max_z - min_z > tolerance;
 
         if is_conflict {
             stats.conflict_node_count += 1;
-            let mut line_ids: Vec<u32> = group.iter().map(|endpoint| endpoint.line_id).collect();
+            let mut line_ids = Vec::with_capacity(group.len());
+            for (index, endpoint) in group.iter().enumerate() {
+                execution_policy.check_cancelled_every("graph_construction", first + index)?;
+                line_ids.push(endpoint.line_id);
+            }
             line_ids.sort_unstable();
             line_ids.dedup();
             if matches!(policy, ZPolicy::ErrorOnConflict) {
@@ -824,7 +834,8 @@ fn reconcile_segment_z(
         } else {
             group[0].coordinate.z
         };
-        for endpoint in group {
+        for (index, endpoint) in group.iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_construction", first + index)?;
             if endpoint.is_end {
                 segments[endpoint.segment].end.z = z;
             } else {
@@ -1342,6 +1353,25 @@ mod topology_tests {
                 &policy,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
+        ));
+    }
+
+    #[test]
+    fn input_processing_observes_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            validate_lines(&[], &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
+        ));
+        assert!(matches!(
+            reconcile_segment_z(&mut [], ZPolicy::default(), 0.0, false, &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
         ));
     }
 
