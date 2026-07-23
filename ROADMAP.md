@@ -246,7 +246,8 @@ browser workers; aborting terminates the worker rather than claiming that a
 synchronous main-thread Wasm export can yield. SIMD and hot-pixel split scans
 poll every 256 work items; grid polls between cells. Later core phases still
 need equivalent bounded checkpoints. Graph dangle pruning also polls node
-discovery and its mutable work stack every 256 items.
+discovery and its mutable work stack every 256 items; token-aware containment
+polls every 256 hole assignments while token-free runs retain the parallel path.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
