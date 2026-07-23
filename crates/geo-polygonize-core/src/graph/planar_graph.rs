@@ -672,17 +672,38 @@ impl PlanarGraph {
 
     /// Finds and removes edges whose two directions belong to the same maximal ring.
     pub fn delete_cut_edges(&mut self) -> Vec<Vec<Coord3D>> {
+        self.delete_cut_edges_impl(None)
+            .expect("unlimited cut-edge removal cannot fail")
+    }
+
+    pub(crate) fn delete_cut_edges_with_execution_policy(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<Vec<Coord3D>>> {
+        self.delete_cut_edges_impl(Some(execution_policy))
+    }
+
+    fn delete_cut_edges_impl(
+        &mut self,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<Vec<Coord3D>>> {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("ring_extraction")?;
+        }
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
             next_pointers.clear();
             next_pointers.resize(self.directed_edges.len(), usize::MAX);
-            self.compute_next_cw_edges(&mut next_pointers);
+            self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
             let mut labels = vec![-1_i64; self.directed_edges.len()];
-            self.find_and_label_maximal_rings(&next_pointers, &mut labels);
+            self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
 
             let mut cuts = Vec::new();
-            for edge in &self.edges {
+            for (edge_idx, edge) in self.edges.iter().enumerate() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", edge_idx)?;
+                }
                 let [forward, reverse] = edge.dir_edges;
                 if edge.deleted
                     || self.directed_edges[forward].is_marked
@@ -696,7 +717,7 @@ impl PlanarGraph {
                 self.directed_edges[reverse].is_marked = true;
                 cuts.push(vec![edge.line.start, edge.line.end]);
             }
-            cuts
+            Ok(cuts)
         })
     }
 
@@ -713,6 +734,32 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
     ) -> Vec<ExtractedRing> {
+        self.get_edge_rings_with_graph_ids_impl(include_graph_ids, include_source_ids, None)
+            .expect("unlimited ring extraction cannot fail")
+    }
+
+    pub(crate) fn get_edge_rings_with_graph_ids_and_execution_policy(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<ExtractedRing>> {
+        self.get_edge_rings_with_graph_ids_impl(
+            include_graph_ids,
+            include_source_ids,
+            Some(execution_policy),
+        )
+    }
+
+    fn get_edge_rings_with_graph_ids_impl(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<ExtractedRing>> {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("ring_extraction")?;
+        }
         NEXT_POINTERS.with(|cell| {
             let mut next_pointers = cell.borrow_mut();
             next_pointers.clear();
@@ -721,35 +768,52 @@ impl PlanarGraph {
             let mut labels = vec![-1_i64; self.directed_edges.len()];
 
             // Step 1: computeNextCWEdges over every node.
-            self.compute_next_cw_edges(&mut next_pointers);
+            self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
             // Step 2: find and label maximal rings.
             let maximal_ring_starts =
-                self.find_and_label_maximal_rings(&next_pointers, &mut labels);
+                self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
 
             // Step 3: convert maximal to minimal rings by relinking intersection nodes.
             self.convert_maximal_to_minimal_rings(
                 &maximal_ring_starts,
                 &mut next_pointers,
                 &labels,
-            );
+                execution_policy,
+            )?;
 
             // Extract the minimal rings from the graph.
-            self.extract_valid_rings(&next_pointers, include_graph_ids, include_source_ids)
+            self.extract_valid_rings(
+                &next_pointers,
+                include_graph_ids,
+                include_source_ids,
+                execution_policy,
+            )
         })
     }
 
     /// Step 1: computeNextCWEdges over every node.
     /// Edges in nodes_outgoing are in CCW order. For each pair of consecutive outgoing
     /// edges (prev, curr), set next(sym(prev)) = curr, and close the cycle.
-    fn compute_next_cw_edges(&self, next_pointers: &mut [usize]) {
+    fn compute_next_cw_edges(
+        &self,
+        next_pointers: &mut [usize],
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<()> {
         let mut valid_edges = Vec::new();
+        let mut work_items = 0;
         for outgoing in &self.nodes_outgoing {
             valid_edges.clear();
-            valid_edges.extend(outgoing.iter().copied().filter(|&idx| {
+            for &idx in outgoing {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
                 let de = &self.directed_edges[idx];
-                !de.is_marked && !self.edges[de.edge_idx].deleted
-            }));
+                if !de.is_marked && !self.edges[de.edge_idx].deleted {
+                    valid_edges.push(idx);
+                }
+            }
 
             if valid_edges.is_empty() {
                 continue;
@@ -761,6 +825,7 @@ impl PlanarGraph {
                 next = curr;
             }
         }
+        Ok(())
     }
 
     /// Step 2: find and label maximal rings.
@@ -768,10 +833,16 @@ impl PlanarGraph {
         &self,
         next_pointers: &[usize],
         labels: &mut [i64],
-    ) -> Vec<DirEdgeId> {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<DirEdgeId>> {
         let mut maximal_ring_starts = Vec::new();
         let mut curr_label = 1_i64;
+        let mut work_items = 0;
         for start_de_idx in 0..self.directed_edges.len() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+            }
+            work_items += 1;
             if self.directed_edges[start_de_idx].is_marked || labels[start_de_idx] >= 0 {
                 continue;
             }
@@ -779,6 +850,10 @@ impl PlanarGraph {
             maximal_ring_starts.push(start_de_idx);
             let mut curr = start_de_idx;
             loop {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
                 if labels[curr] >= 0 {
                     break;
                 }
@@ -792,7 +867,7 @@ impl PlanarGraph {
             }
             curr_label += 1;
         }
-        maximal_ring_starts
+        Ok(maximal_ring_starts)
     }
 
     /// Step 3: convert maximal to minimal rings by relinking intersection nodes.
@@ -802,9 +877,11 @@ impl PlanarGraph {
         maximal_ring_starts: &[DirEdgeId],
         next_pointers: &mut [usize],
         labels: &[i64],
-    ) {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<()> {
         let mut intersection_nodes = Vec::<NodeId>::new();
         let mut seen_intersection_nodes = vec![false; self.nodes_x.len()];
+        let mut work_items = 0;
 
         for &start_de_idx in maximal_ring_starts {
             let ring_label = labels[start_de_idx];
@@ -817,11 +894,19 @@ impl PlanarGraph {
             // findIntersectionNodes(startDE, label)
             let mut curr = start_de_idx;
             loop {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
                 let node = self.directed_edges[curr].src;
 
                 // Degree of this node within the current ring label.
                 let mut degree_for_label = 0;
                 for &out_de in &self.nodes_outgoing[node] {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                    }
+                    work_items += 1;
                     if labels[out_de] == ring_label {
                         degree_for_label += 1;
                     }
@@ -847,6 +932,10 @@ impl PlanarGraph {
 
                 // Traverse node star in reverse to process CCW linking semantics.
                 for &de_idx in outgoing.iter().rev() {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                    }
+                    work_items += 1;
                     let sym_idx = self.directed_edges[de_idx].sym_idx;
 
                     let out_de = (labels[de_idx] == ring_label).then_some(de_idx);
@@ -877,6 +966,7 @@ impl PlanarGraph {
                 seen_intersection_nodes[node] = false;
             }
         }
+        Ok(())
     }
 
     /// Extracts valid rings by following `next_pointers`.
@@ -885,16 +975,25 @@ impl PlanarGraph {
         next_pointers: &[usize],
         include_graph_ids: bool,
         include_source_ids: bool,
-    ) -> Vec<ExtractedRing> {
-        for de in &mut self.directed_edges {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<ExtractedRing>> {
+        for (de_idx, de) in self.directed_edges.iter_mut().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", de_idx)?;
+            }
             de.is_visited = false;
         }
 
         // Reuse vector to avoid allocations
         let mut ring_edges = Vec::new();
         let mut rings = Vec::new();
+        let mut work_items = 0;
 
         for start_de_idx in 0..self.directed_edges.len() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+            }
+            work_items += 1;
             if self.directed_edges[start_de_idx].is_visited
                 || self.directed_edges[start_de_idx].is_marked
             {
@@ -910,6 +1009,10 @@ impl PlanarGraph {
             let mut is_valid_ring = true;
 
             loop {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
                 let curr_de = &mut self.directed_edges[curr_de_idx];
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
@@ -955,6 +1058,10 @@ impl PlanarGraph {
                 });
 
                 for &de_idx in &ring_edges {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                    }
+                    work_items += 1;
                     let de = &self.directed_edges[de_idx];
                     let edge_idx = de.edge_idx;
                     ids.push(self.edges[edge_idx].line.line_id);
@@ -989,6 +1096,6 @@ impl PlanarGraph {
                 });
             }
         }
-        rings
+        Ok(rings)
     }
 }
