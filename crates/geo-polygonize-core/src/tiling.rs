@@ -1,4 +1,4 @@
-use crate::options::{DedupPolicy, TileOwnershipPolicy};
+use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
 use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
@@ -280,7 +280,9 @@ impl<'a> TiledPolygonizer<'a> {
             &mut cut_edges,
             &mut invalid_rings,
             &self.options,
-        );
+            &ExecutionPolicy::default(),
+        )
+        .expect("default execution policy cannot cancel");
         let output_polygon_count = polygons.len();
         Ok(TiledPolygonizeResult {
             polygons,

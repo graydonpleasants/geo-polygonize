@@ -644,17 +644,22 @@ impl Polygonizer {
             process_invalid_rings(invalid_rings_candidates, &shells_2d, &self.execution_policy)?
         };
 
-        let mut result =
-            construct_final_polygons(shells, shell_holes, shell_holes_ids, &self.options);
+        let mut result = construct_final_polygons(
+            shells,
+            shell_holes,
+            shell_holes_ids,
+            &self.options,
+            &self.execution_policy,
+        )?;
 
-        self.execution_policy.check_cancelled("canonicalization")?;
         result = apply_determinism(
             result,
             &mut dangles,
             &mut cut_edges,
             &mut invalid_rings,
             &self.options,
-        );
+            &self.execution_policy,
+        )?;
         self.execution_policy.check(
             "output_polygons",
             self.execution_policy.max_output_polygons,
@@ -1099,18 +1104,25 @@ pub(crate) fn construct_final_polygons(
     shell_holes: Vec<Vec<Vec<Coord3D>>>,
     shell_holes_ids: Vec<Vec<Vec<u32>>>,
     options: &PolygonizerOptions,
-) -> Vec<Polygon3D> {
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<Polygon3D>> {
+    execution_policy.check_cancelled("canonicalization")?;
     let mut result = Vec::with_capacity(shells.len());
-    for ((shell, mut holes), mut holes_ids) in
-        shells.into_iter().zip(shell_holes).zip(shell_holes_ids)
+    for (shell_index, ((shell, mut holes), mut holes_ids)) in shells
+        .into_iter()
+        .zip(shell_holes)
+        .zip(shell_holes_ids)
+        .enumerate()
     {
+        execution_policy.check_cancelled_every("canonicalization", shell_index)?;
         let boundary_source_line_ids = shell.boundary_source_line_ids;
         let mut exterior = shell.exterior;
         let mut exterior_ids = shell.exterior_ids;
 
         if options.determinism.canonical_ring_rotation {
             canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
-            for (h, h_ids) in holes.iter_mut().zip(holes_ids.iter_mut()) {
+            for (hole_index, (h, h_ids)) in holes.iter_mut().zip(holes_ids.iter_mut()).enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", hole_index)?;
                 canonicalize_ring(h, Some(h_ids));
             }
         }
@@ -1178,7 +1190,8 @@ pub(crate) fn construct_final_polygons(
         if options.provenance.enabled {
             let mut b_ids = Vec::new();
             if options.provenance.include_boundary_line_ids {
-                for &id in &p.boundary_source_line_ids {
+                for (id_index, &id) in p.boundary_source_line_ids.iter().enumerate() {
+                    execution_policy.check_cancelled_every("canonicalization", id_index)?;
                     if id != 0 {
                         b_ids.push(id as u64);
                     }
@@ -1204,7 +1217,7 @@ pub(crate) fn construct_final_polygons(
             result.push(p);
         }
     }
-    result
+    Ok(result)
 }
 
 fn has_three_distinct_xy(coords: &[Coord3D]) -> bool {
@@ -1306,6 +1319,24 @@ mod topology_tests {
             process_invalid_rings(vec![], &[], &policy),
             Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
         ));
+        assert!(matches!(
+            construct_final_polygons(vec![], vec![], vec![], &PolygonizerOptions::default(), &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
+        ));
+        let mut dangles = vec![];
+        let mut cut_edges = vec![];
+        let mut invalid_rings = vec![];
+        assert!(matches!(
+            apply_determinism(
+                vec![],
+                &mut dangles,
+                &mut cut_edges,
+                &mut invalid_rings,
+                &PolygonizerOptions::default(),
+                &policy,
+            ),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
+        ));
     }
 
     #[test]
@@ -1327,22 +1358,22 @@ pub(crate) fn apply_determinism(
     cut_edges: &mut [Vec<Coord3D>],
     invalid_rings: &mut Vec<Vec<Coord3D>>,
     options: &PolygonizerOptions,
-) -> Vec<Polygon3D> {
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<Polygon3D>> {
+    execution_policy.check_cancelled("canonicalization")?;
     if options.determinism.canonical_sort {
         let use_stable_tie_breaks = options.determinism.stable_tie_breaks;
         if use_stable_tie_breaks {
-            let mut sort_keys: Vec<_> = result
-                .iter()
-                .enumerate()
-                .map(|(index, p)| {
-                    let area = p.exterior_unsigned_area_2d();
-                    let b = bounding_rect_3d(&p.exterior).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    (index, area, b, p.interiors.len())
-                })
-                .collect();
+            let mut sort_keys = Vec::with_capacity(result.len());
+            for (index, polygon) in result.iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                let area = polygon.exterior_unsigned_area_2d();
+                let bbox = bounding_rect_3d(&polygon.exterior).unwrap_or(geo::Rect::new(
+                    geo::Coord { x: 0.0, y: 0.0 },
+                    geo::Coord { x: 0.0, y: 0.0 },
+                ));
+                sort_keys.push((index, area, bbox, polygon.interiors.len()));
+            }
 
             sort_keys.sort_unstable_by(|(_, area1, b1, holes1), (_, area2, b2, holes2)| {
                 area2.total_cmp(area1).then_with(|| {
@@ -1359,14 +1390,11 @@ pub(crate) fn apply_determinism(
                 sort_keys.into_iter().map(|(index, _, _, _)| index),
             );
         } else {
-            let mut sort_keys: Vec<_> = result
-                .iter()
-                .enumerate()
-                .map(|(index, p)| {
-                    let area = p.exterior_unsigned_area_2d();
-                    (index, area)
-                })
-                .collect();
+            let mut sort_keys = Vec::with_capacity(result.len());
+            for (index, polygon) in result.iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                sort_keys.push((index, polygon.exterior_unsigned_area_2d()));
+            }
 
             sort_keys.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
 
@@ -1374,13 +1402,16 @@ pub(crate) fn apply_determinism(
         }
 
         if options.determinism.canonical_ring_rotation {
-            for d in dangles.iter_mut() {
+            for (index, d) in dangles.iter_mut().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
                 canonicalize_open_line(d);
             }
-            for edge in cut_edges.iter_mut() {
+            for (index, edge) in cut_edges.iter_mut().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
                 canonicalize_open_line(edge);
             }
-            for ir in invalid_rings.iter_mut() {
+            for (index, ir) in invalid_rings.iter_mut().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
                 canonicalize_ring(ir, None);
             }
         }
@@ -1389,16 +1420,15 @@ pub(crate) fn apply_determinism(
             // Bolt optimization: Schwartzian Transform for dangles.
             // Caches the bounding boxes of the open lines to avoid redundant
             // O(N) evaluations of `bounding_rect_3d` during the O(K log K) sort closure.
-            let mut dangles_with_cache: Vec<_> = dangles
-                .iter_mut()
-                .map(|l| {
-                    let b = bounding_rect_3d(l).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    (std::mem::take(l), b)
-                })
-                .collect();
+            let mut dangles_with_cache = Vec::with_capacity(dangles.len());
+            for (index, line) in dangles.iter_mut().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                let bbox = bounding_rect_3d(line).unwrap_or(geo::Rect::new(
+                    geo::Coord { x: 0.0, y: 0.0 },
+                    geo::Coord { x: 0.0, y: 0.0 },
+                ));
+                dangles_with_cache.push((std::mem::take(line), bbox));
+            }
 
             dangles_with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
                 b1.min()
@@ -1409,30 +1439,29 @@ pub(crate) fn apply_determinism(
             });
 
             for (i, (l, _)) in dangles_with_cache.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", i)?;
                 dangles[i] = l;
             }
             sort_open_lines(cut_edges);
         }
 
-        let mut combined_invalid: Vec<_> = invalid_rings
-            .drain(..)
-            .map(|r| {
-                let area = Polygon3D::ring_signed_area_2d(&r).abs();
-                (r, area)
-            })
-            .collect();
+        let mut combined_invalid = Vec::with_capacity(invalid_rings.len());
+        for (index, ring) in invalid_rings.drain(..).enumerate() {
+            execution_policy.check_cancelled_every("canonicalization", index)?;
+            let area = Polygon3D::ring_signed_area_2d(&ring).abs();
+            combined_invalid.push((ring, area));
+        }
 
         if use_stable_tie_breaks {
-            let mut invalid_with_bbox: Vec<_> = combined_invalid
-                .into_iter()
-                .map(|(r, area)| {
-                    let b = bounding_rect_3d(&r).unwrap_or(geo::Rect::new(
-                        geo::Coord { x: 0.0, y: 0.0 },
-                        geo::Coord { x: 0.0, y: 0.0 },
-                    ));
-                    (r, area, b)
-                })
-                .collect();
+            let mut invalid_with_bbox = Vec::with_capacity(combined_invalid.len());
+            for (index, (ring, area)) in combined_invalid.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                let bbox = bounding_rect_3d(&ring).unwrap_or(geo::Rect::new(
+                    geo::Coord { x: 0.0, y: 0.0 },
+                    geo::Coord { x: 0.0, y: 0.0 },
+                ));
+                invalid_with_bbox.push((ring, area, bbox));
+            }
 
             invalid_with_bbox.sort_unstable_by(|(r1, area1, b1), (r2, area2, b2)| {
                 area2.total_cmp(area1).then_with(|| {
@@ -1443,13 +1472,19 @@ pub(crate) fn apply_determinism(
                         .then(r1.len().cmp(&r2.len()))
                 })
             });
-            invalid_rings.extend(invalid_with_bbox.into_iter().map(|(r, _, _)| r));
+            for (index, (ring, _, _)) in invalid_with_bbox.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                invalid_rings.push(ring);
+            }
         } else {
             combined_invalid.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
-            invalid_rings.extend(combined_invalid.into_iter().map(|(r, _)| r));
+            for (index, (ring, _)) in combined_invalid.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("canonicalization", index)?;
+                invalid_rings.push(ring);
+            }
         }
     }
-    result
+    Ok(result)
 }
 
 fn reorder_polygons(result: &mut [Polygon3D], old_indices: impl Iterator<Item = usize>) {
