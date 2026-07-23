@@ -309,6 +309,8 @@ impl Polygonizer {
         mut all_segments: Vec<Line3D>,
         mut diagnostics: Option<&mut PolygonizerDiagnostics>,
     ) -> Result<()> {
+        self.execution_policy
+            .check_cancelled("graph_construction")?;
         self.graph.clear();
         let grid_size = self.options.precision_model.grid_size();
         let mut segments;
@@ -506,6 +508,8 @@ impl Polygonizer {
 
         // Use bulk load
         self.graph.bulk_load(segments);
+        self.execution_policy
+            .check_cancelled("graph_construction")?;
         self.execution_policy.check(
             "graph_nodes",
             self.execution_policy.max_graph_nodes,
@@ -530,6 +534,7 @@ impl Polygonizer {
 
     fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
         self.options.validate()?;
+        self.execution_policy.check_cancelled("ingest")?;
         self.execution_policy.check(
             "input_segments",
             self.execution_policy.max_input_segments,
@@ -564,6 +569,8 @@ impl Polygonizer {
         let t_graph_build_start = get_time();
         // 1. Sort edges (Geometry Graph operation)
         self.graph.sort_edges();
+        self.execution_policy
+            .check_cancelled("graph_construction")?;
 
         // 2. Prune dangles
         let mut dangles = self.graph.prune_dangles();
@@ -572,6 +579,7 @@ impl Polygonizer {
         let mut cut_edges = self.graph.delete_cut_edges();
 
         // 4. Find rings (3D)
+        self.execution_policy.check_cancelled("ring_extraction")?;
         let rings_with_ids = self.graph.get_edge_rings_with_graph_ids(
             self.options.node_input,
             self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids,
@@ -609,7 +617,10 @@ impl Polygonizer {
             unassigned_hole_count,
             unassigned_hole_area,
             containment_stats,
-        ) = establish_topology(shells, holes, &self.options);
+        ) = {
+            self.execution_policy.check_cancelled("containment")?;
+            establish_topology(shells, holes, &self.options)
+        };
 
         // 6. Construct Final Polygons
         // Ensure we don't crash on NaNs during processing
@@ -623,6 +634,7 @@ impl Polygonizer {
         let mut result =
             construct_final_polygons(shells, shell_holes, shell_holes_ids, &self.options);
 
+        self.execution_policy.check_cancelled("canonicalization")?;
         result = apply_determinism(
             result,
             &mut dangles,
@@ -635,6 +647,7 @@ impl Polygonizer {
             self.execution_policy.max_output_polygons,
             result.len(),
         )?;
+        self.execution_policy.check_cancelled("output_flattening")?;
         let output_coordinates = result
             .iter()
             .map(|polygon| {

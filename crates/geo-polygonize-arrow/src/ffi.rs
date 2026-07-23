@@ -98,6 +98,7 @@ fn set_polygonize_error(error: &PolygonizeError) -> i32 {
     let status = match error {
         PolygonizeError::InvalidBufferShape { .. } => PolygonizeFfiStatus::InvalidBufferShape,
         PolygonizeError::ResourceLimitExceeded { .. } => PolygonizeFfiStatus::Unknown,
+        PolygonizeError::Cancelled { .. } => PolygonizeFfiStatus::Unknown,
         PolygonizeError::InvalidArgumentType { .. } => PolygonizeFfiStatus::InvalidOption,
         PolygonizeError::InvalidGeometry { .. } => PolygonizeFfiStatus::InvalidGeometry,
         PolygonizeError::TopologyFailure { .. }

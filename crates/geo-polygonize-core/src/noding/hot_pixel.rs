@@ -106,6 +106,7 @@ impl HotPixelNoder {
             for second_index in candidates {
                 work.candidate_pairs += 1;
                 if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled("candidate_enumeration")?;
                     execution_policy
                         .check_noding_work(work.candidate_pairs, work.exact_intersection_calls)?;
                 }
@@ -143,6 +144,9 @@ impl HotPixelNoder {
         );
         let mut output = Vec::new();
         for line in lines {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled("split_application")?;
+            }
             let start = self.grid_point(line.start)?;
             let end = self.grid_point(line.end)?;
             let query = AABB::from_corners(

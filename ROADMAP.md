@@ -236,17 +236,22 @@ limit in the core regression suite.
 
 ### P0.6 Cooperative cancellation
 
-- [ ] Add cancellation checkpoints at ingest, candidate enumeration, split
+Progress: Native `CancellationToken` values live in `ExecutionPolicy`, not
+semantic options. Core checkpoints cover ingest, noding, graph construction,
+ring extraction, containment, canonicalization, and output flattening; a
+cancelled workspace run is reusable after resetting its token.
+
+- [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
   and output flattening.
-- [ ] Provide a native cancellation token or callback that does not become part
+- [x] Provide a native cancellation token or callback that does not become part
   of semantic options.
 - [ ] Release the Python GIL during pure Rust work where safe and check Python
   signals at bounded intervals.
 - [ ] For Wasm, use a worker-based or genuinely asynchronous/chunked API for
   cancellation. Do not claim `AbortSignal` support for a synchronous main-thread
   Wasm call that cannot yield.
-- [ ] Ensure cancellation unwinds temporary state safely and never poisons a
+- [x] Ensure cancellation unwinds temporary state safely and never poisons a
   reusable workspace.
 
 **Done when:** every long-running phase can be stopped within a documented work
