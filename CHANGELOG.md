@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.67.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.66.0...geo-polygonize-v0.67.0) (2026-07-23)
+
+
+### Features
+
+* **core:** bound SIMD cancellation checks ([#963](https://github.com/graydonpleasants/geo-polygonize/issues/963)) ([9fafcaf](https://github.com/graydonpleasants/geo-polygonize/commit/9fafcafe8c08c03f7c5b577decc5b7e1114281b8))
+
 ## [0.66.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.65.0...geo-polygonize-v0.66.0) (2026-07-23)
 
 
