@@ -521,7 +521,12 @@ impl Polygonizer {
         }
 
         if !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked) {
-            ValidatingNoder::new().validate(&segments)?;
+            if self.execution_policy.cancellation_token.is_some() {
+                ValidatingNoder::new()
+                    .validate_with_execution_policy(&segments, &self.execution_policy)?;
+            } else {
+                ValidatingNoder::new().validate(&segments)?;
+            }
         }
 
         // Use bulk load
