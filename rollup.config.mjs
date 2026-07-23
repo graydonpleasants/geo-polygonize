@@ -55,10 +55,34 @@ const rolls = (fmt, env) => {
   };
 };
 
+const workerRoll = {
+  input: "pkg-wrapper/polygonize_worker.ts",
+  output: {
+    dir: "dist/standard/es",
+    format: "es",
+    entryFileNames: "polygonize_worker.js",
+  },
+  plugins: [
+    resolve(),
+    commonjs(),
+    typescript({
+      declaration: true,
+      outDir: "dist/standard/es",
+      rootDir: "pkg-wrapper",
+    }),
+    url({
+      include: ["**/*.wasm"],
+      limit: Infinity,
+      emitFiles: false,
+    }),
+  ],
+};
+
 export default [
   rolls("es", "standard"),
   rolls("cjs", "standard"),
   rolls("es", "slim"),
   rolls("cjs", "slim"),
   rolls("es", "threads"),
+  workerRoll,
 ];

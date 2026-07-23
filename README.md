@@ -281,6 +281,22 @@ async function run() {
 }
 ```
 
+For cancellable browser work, use the worker-backed asynchronous entry point.
+Aborting terminates its disposable worker; the direct Wasm exports above remain
+synchronous and cannot be interrupted with an `AbortSignal`.
+
+```javascript
+import { polygonizeWithOptionsAsync } from "geo-polygonize";
+
+const controller = new AbortController();
+const result = await polygonizeWithOptionsAsync(
+    JSON.stringify(geojson),
+    cfbRobustOptions,
+    { signal: controller.signal },
+);
+// controller.abort();
+```
+
 **Multithreaded Usage (Experimental):**
 This library provides a multithreaded build powered by `wasm-bindgen-rayon`.
 
