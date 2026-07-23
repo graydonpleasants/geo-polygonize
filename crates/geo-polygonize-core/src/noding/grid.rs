@@ -1,5 +1,6 @@
 use crate::diagnostics::NodingWorkStats;
 use crate::noding::snap::SnapNoder;
+use crate::options::ExecutionPolicy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -424,6 +425,35 @@ impl UniformGrid {
         splits
     }
 
+    pub(crate) fn find_splits_with_execution_policy(
+        &self,
+        lines: &[Line3D],
+        snap_noder: &SnapNoder,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<(usize, Coord3D)>> {
+        let soa = SoALines::new(lines);
+        let mut splits = Vec::new();
+        for idx in 0..self.rows * self.cols {
+            execution_policy.check_cancelled_every("candidate_enumeration", idx)?;
+            let start = self.cell_offsets[idx];
+            let end = self.cell_offsets[idx + 1];
+            self.process_cell(
+                idx / self.cols,
+                idx % self.cols,
+                &self.cell_items[start..end],
+                lines,
+                snap_noder,
+                &soa,
+                &mut splits,
+            );
+        }
+        execution_policy.check_cancelled("candidate_enumeration")?;
+        if !self.global_lines.is_empty() {
+            splits.extend(self.process_global_lines(lines, snap_noder, &soa));
+        }
+        Ok(splits)
+    }
+
     pub(crate) fn measure_work(&self, lines: &[Line3D]) -> NodingWorkStats {
         let mut stats = NodingWorkStats {
             grid_cells: self.rows * self.cols,
@@ -685,6 +715,7 @@ mod tests {
     use super::*;
     use crate::noding::snap::SnapNoder;
     use crate::types::{Coord3D, Line3D};
+    use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use approx::assert_relative_eq;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
@@ -706,6 +737,25 @@ mod tests {
         let noder = SnapNoder::new(1e-6);
         let splits = grid.find_splits(&[], &noder);
         assert!(splits.is_empty());
+    }
+
+    #[test]
+    fn policy_path_observes_cancellation_before_returning() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            UniformGrid::new(&[]).find_splits_with_execution_policy(
+                &[],
+                &SnapNoder::new(1.0),
+                &policy,
+            ),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
     }
 
     #[test]

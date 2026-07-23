@@ -239,7 +239,11 @@ impl SnapNoder {
                         work_stats.merge(measured_work);
                     }
                 }
-                grid.find_splits(&lines, self)
+                if let Some(execution_policy) = execution_policy {
+                    grid.find_splits_with_execution_policy(&lines, self, execution_policy)?
+                } else {
+                    grid.find_splits(&lines, self)
+                }
             };
 
             if events.is_empty() {
