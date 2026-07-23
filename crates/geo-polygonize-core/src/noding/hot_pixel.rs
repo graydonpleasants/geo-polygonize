@@ -165,7 +165,10 @@ impl HotPixelNoder {
             candidates.sort_unstable();
 
             let mut points = vec![line.start, line.end];
-            for hot_pixel_index in candidates {
+            for (candidate_index, hot_pixel_index) in candidates.into_iter().enumerate() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("split_application", candidate_index)?;
+                }
                 let hot_pixel = hot_pixels[hot_pixel_index];
                 if hot_pixel == start
                     || hot_pixel == end
