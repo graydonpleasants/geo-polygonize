@@ -255,6 +255,8 @@ Final polygon assembly and deterministic-ordering preprocessing also poll every
 256 items; their standard-library sort calls remain phase-boundary-only.
 Token-aware graph bulk loading and node-star preparation also poll every 256
 nodes or edges; their internal sorting remains phase-boundary-only.
+Input validation and Z-conflict reconciliation also poll every 256 lines or
+endpoints; Z reconciliation sorting remains phase-boundary-only.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,
