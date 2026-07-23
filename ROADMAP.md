@@ -259,6 +259,8 @@ Input validation and Z-conflict reconciliation also poll every 256 lines or
 endpoints; Z reconciliation sorting remains phase-boundary-only.
 Line-string conversion and fixed-grid snapping also poll every 256 input
 coordinates or segments.
+GeoCompat coordinate restoration also polls every 256 snapped coordinates or
+noded segments.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,

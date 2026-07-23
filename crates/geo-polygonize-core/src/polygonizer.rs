@@ -408,8 +408,15 @@ impl Polygonizer {
                         // ponytail: one source XY per snapped node preserves connectivity;
                         // use per-line restoration only if #798 can avoid reopening gaps.
                         let restore_coordinates =
-                            matches!(self.options.snap_strategy, SnapStrategy::GeosCompat)
-                                .then(|| restored_coordinates(&noder, &all_segments));
+                            if matches!(self.options.snap_strategy, SnapStrategy::GeosCompat) {
+                                Some(restored_coordinates(
+                                    &noder,
+                                    &all_segments,
+                                    &self.execution_policy,
+                                )?)
+                            } else {
+                                None
+                            };
                         if let Some(diagnostics) = diagnostics.as_deref_mut() {
                             let (noded, stats, mut work_stats) = if has_noding_work_limits {
                                 noder.node_with_stats_and_execution_policy(
@@ -440,7 +447,11 @@ impl Polygonizer {
                             };
                         }
                         if let Some(coordinates) = restore_coordinates {
-                            restore_noded_coordinates(&mut segments, &coordinates);
+                            restore_noded_coordinates(
+                                &mut segments,
+                                &coordinates,
+                                &self.execution_policy,
+                            )?;
                         }
                     }
                 }
@@ -856,9 +867,19 @@ fn reconcile_segment_z(
     Ok(stats)
 }
 
-fn restored_coordinates(noder: &SnapNoder, lines: &[Line3D]) -> HashMap<(u64, u64), Coord3D> {
+fn restored_coordinates(
+    noder: &SnapNoder,
+    lines: &[Line3D],
+    execution_policy: &ExecutionPolicy,
+) -> Result<HashMap<(u64, u64), Coord3D>> {
+    execution_policy.check_cancelled("noding")?;
     let mut coordinates = HashMap::with_capacity(lines.len() * 2);
-    for coord in lines.iter().flat_map(|line| [line.start, line.end]) {
+    for (index, coord) in lines
+        .iter()
+        .flat_map(|line| [line.start, line.end])
+        .enumerate()
+    {
+        execution_policy.check_cancelled_every("noding", index)?;
         let snapped = noder.snap(coord);
         let key = coordinate_key(snapped);
         coordinates
@@ -876,7 +897,7 @@ fn restored_coordinates(noder: &SnapNoder, lines: &[Line3D]) -> HashMap<(u64, u6
             })
             .or_insert(coord);
     }
-    coordinates
+    Ok(coordinates)
 }
 
 fn coordinate_key(coord: Coord3D) -> (u64, u64) {
@@ -885,8 +906,14 @@ fn coordinate_key(coord: Coord3D) -> (u64, u64) {
     (x.to_bits(), y.to_bits())
 }
 
-fn restore_noded_coordinates(lines: &mut [Line3D], coordinates: &HashMap<(u64, u64), Coord3D>) {
-    for line in lines {
+fn restore_noded_coordinates(
+    lines: &mut [Line3D],
+    coordinates: &HashMap<(u64, u64), Coord3D>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<()> {
+    execution_policy.check_cancelled("noding")?;
+    for (index, line) in lines.iter_mut().enumerate() {
+        execution_policy.check_cancelled_every("noding", index)?;
         if let Some(restored) = coordinates.get(&coordinate_key(line.start)) {
             line.start.x = restored.x;
             line.start.y = restored.y;
@@ -896,6 +923,7 @@ fn restore_noded_coordinates(lines: &mut [Line3D], coordinates: &HashMap<(u64, u
             line.end.y = restored.y;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Vec<u32>>) {
@@ -1386,6 +1414,14 @@ mod topology_tests {
                 &policy,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
+        ));
+        assert!(matches!(
+            restored_coordinates(&SnapNoder::new(1.0), &[], &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "noding"
+        ));
+        assert!(matches!(
+            restore_noded_coordinates(&mut [], &HashMap::new(), &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "noding"
         ));
     }
 
