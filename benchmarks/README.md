@@ -17,18 +17,32 @@ features, and dependency versions. Phase names and throughput units are explicit
 strings so different runners can report their native phases without pretending
 unlike pipelines are equivalent.
 
-The already-noded runner requires an externally established fingerprint and
-reference dependency version, validates that the input is fully noded before
-timing, and rejects any timed sample whose fingerprint changes:
+`reference-result-v1.schema.json` defines the external correctness evidence.
+Its topology fingerprint compares only fields both implementations can produce:
+canonical XY polygon rings, dangles, cut edges, and invalid rings. Rust-only
+edge IDs, provenance, options, and diagnostics remain in the benchmark record
+but cannot be used as cross-implementation equality evidence.
+
+Generate a GEOS/Shapely reference for the already-noded or floating lane:
+
+```bash
+python3 benchmarks/reference_geos.py \
+  --lane already-noded \
+  --workload already-noded-coverage-v1 \
+  --output target/reference-result.json
+```
+
+The benchmark runner validates that the reference workload, lane, dependency
+versions, payload hash, and topology all match before timing. It also rejects
+any timed sample whose fingerprint changes:
 
 ```bash
 cargo run -p geo-polygonize-core --release --example benchmark_record -- \
   --lane already-noded \
   --workload already-noded-coverage-v1 \
   --samples 30 \
-  --expected-fingerprint-sha256 <64-lowercase-hex-digits> \
   --peak-rss-bytes <externally-measured-peak> \
-  --reference-dependency geos=3.13.1 \
+  --reference-result target/reference-result.json \
   --output target/benchmark-record.json
 ```
 
@@ -39,8 +53,11 @@ the repository's existing `dhat` allocator.
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
 untimed full-noding validation of that pipeline before collecting samples.
+Generate its reference with `reference_geos.py --lane floating`.
 
 Use `--lane certified-fixed` only with a parity-class `certified-fixed`
 workload. Its untimed gate and timed samples both retain
 `CertifiedFixedPrecision`, so the lane measures hot-pixel snap rounding and
-never substitutes the floating or iterative snap backend.
+never substitutes the floating or iterative snap backend. GEOS/Shapely does not
+provide the equivalent certified JTS pipeline, so the GEOS reference generator
+deliberately rejects that lane.

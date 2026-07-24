@@ -324,8 +324,11 @@ Before recording time, require:
 Progress: Benchmark record V1 now encodes these gates and all three lanes as a
 strict machine-readable schema. The native runner now enforces them for
 already-noded, floating, and certified fixed-precision workloads before timing,
-and requires external reference and peak-RSS evidence. Cross-implementation
-reference execution and result publication remain separate work.
+and requires external reference and peak-RSS evidence. A versioned
+cross-implementation topology fingerprint and GEOS/Shapely reference runner now
+cover the already-noded and floating lanes without pretending Rust-only
+provenance or diagnostics are external equality evidence. Equivalent JTS
+certified-fixed reference execution and result publication remain separate work.
 
 Record:
 
