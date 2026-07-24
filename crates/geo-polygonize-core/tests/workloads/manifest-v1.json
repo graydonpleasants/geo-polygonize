@@ -10,7 +10,7 @@
       "attribution": "geo-polygonize contributors; synthetic fixture",
       "artifact": {
         "clip_path": "clips/already-noded-coverage.geojson",
-        "sha256": "bc8a7f64903c50fd6da5619926e80f23c5672b945dedf63db1ac8f330a72a89e"
+        "sha256": "e4cb8fdf539707c898cb690b4ea0abbe5823b2cbc46505b9db7c3a8e06efaac5"
       },
       "coordinate_reference": "local Cartesian",
       "units": "units",
@@ -18,7 +18,7 @@
       "permitted_profiles": ["already-noded"],
       "options": [{"node_input": false}],
       "retained_result_families": ["polygons", "provenance", "diagnostics"],
-      "size": {"line_strings": 6, "segments": 6, "coordinates": 12, "expected_candidate_class": "sparse"}
+      "size": {"line_strings": 12, "segments": 12, "coordinates": 24, "expected_candidate_class": "sparse"}
     },
     {
       "id": "network-linework-v1",
