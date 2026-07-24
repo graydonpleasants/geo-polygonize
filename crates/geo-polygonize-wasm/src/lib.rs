@@ -664,15 +664,26 @@ fn polygonize_and_flatten(
     let js_cut_edges = serde_wasm_bindgen::to_value(&result.cut_edges).unwrap_or(JsValue::NULL);
     let js_invalid_rings =
         serde_wasm_bindgen::to_value(&result.invalid_rings).unwrap_or(JsValue::NULL);
+    let offset = |value: usize, name: &str| {
+        u32::try_from(value).map_err(|_| {
+            to_js_error(
+                "ResourceLimitExceeded",
+                format!("{name} exceeds the Wasm u32 offset range"),
+            )
+        })
+    };
 
     for poly in result.polygons {
         provenances.push(poly.provenance);
-        polygon_offsets.push(ring_offsets.len() as u32);
+        polygon_offsets.push(offset(ring_offsets.len(), "polygon ring offset")?);
 
         let exterior = poly.exterior;
         let interiors = poly.interiors;
 
-        ring_offsets.push((flat_coords.len() / stride as usize) as u32);
+        ring_offsets.push(offset(
+            flat_coords.len() / stride as usize,
+            "ring coordinate offset",
+        )?);
         for (k, coord) in exterior.iter().enumerate() {
             flat_coords.push(coord.x);
             flat_coords.push(coord.y);
@@ -687,7 +698,10 @@ fn polygonize_and_flatten(
         }
 
         for (h_idx, ring) in interiors.iter().enumerate() {
-            ring_offsets.push((flat_coords.len() / stride as usize) as u32);
+            ring_offsets.push(offset(
+                flat_coords.len() / stride as usize,
+                "ring coordinate offset",
+            )?);
             for (k, coord) in ring.iter().enumerate() {
                 flat_coords.push(coord.x);
                 flat_coords.push(coord.y);

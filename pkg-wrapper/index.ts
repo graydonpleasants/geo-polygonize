@@ -2,15 +2,7 @@ import wasmInit, * as exports from "../pkg-scalar/geo_polygonize.js";
 import wasmScalarUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
 import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
 import type { PolygonizerOptions } from "./bindings/PolygonizerOptions";
-
-// Perform SIMD detection once at module load time
-const simdSupported = (() => {
-    try {
-        return WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
-    } catch (e) {
-        return false;
-    }
-})();
+import { selectRuntime } from "./runtime";
 
 // Cache the initialization promise
 let initPromise: Promise<typeof exports> | undefined;
@@ -128,11 +120,11 @@ export function polygonizeReportWithOptionsAsync(
 export default function init(_input?: any): Promise<typeof exports> {
     if (initPromise) return initPromise;
 
-    const url = simdSupported ? wasmSimdUrl : wasmScalarUrl;
+    const runtime = selectRuntime(wasmScalarUrl, wasmSimdUrl);
 
     // Create the promise and cache it
     initPromise = (async () => {
-        await wasmInit(url);
+        await wasmInit(runtime.module);
         return exports;
     })();
 

@@ -2,9 +2,11 @@ import init, {
     polygonizeReportWithOptions,
     polygonizeWithOptions,
 } from "../pkg-scalar/geo_polygonize.js";
-import wasmUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
+import wasmScalarUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
+import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
+import { selectRuntime } from "./runtime";
 
-type Operation = "polygons" | "report";
+type Operation = "initialize" | "polygons" | "report";
 
 type Request = {
     id: number;
@@ -14,18 +16,21 @@ type Request = {
 };
 
 let initialized: Promise<void> | undefined;
+const runtime = selectRuntime(wasmScalarUrl, wasmSimdUrl);
 
 function initialize() {
-    initialized ??= init(wasmUrl).then(() => {});
+    initialized ??= init(runtime.module).then(() => {});
     return initialized;
 }
 
 self.addEventListener("message", async ({ data }: MessageEvent<Request>) => {
     try {
         await initialize();
-        const result = data.operation === "polygons"
-            ? polygonizeWithOptions(data.geojson, data.options)
-            : polygonizeReportWithOptions(data.geojson, data.options);
+        const result = data.operation === "initialize"
+            ? runtime.variant
+            : data.operation === "polygons"
+                ? polygonizeWithOptions(data.geojson, data.options)
+                : polygonizeReportWithOptions(data.geojson, data.options);
         self.postMessage({ id: data.id, result });
     } catch (error) {
         const exception = error instanceof Error ? error : new Error(String(error));
