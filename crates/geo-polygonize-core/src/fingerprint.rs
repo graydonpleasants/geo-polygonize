@@ -125,17 +125,20 @@ impl TopologyFingerprintV1 {
                     .iter()
                     .zip(&polygon.interiors_ids)
                     .map(|(coordinates, ids)| {
+                        let (coordinates, edge_ids) = canonical_ring_with_ids(coordinates, ids)?;
                         Ok(RingFingerprintV1 {
-                            coordinates: canonical_ring(coordinates)?,
-                            edge_ids: canonical_ids(ids),
+                            coordinates,
+                            edge_ids,
                         })
                     })
                     .collect::<crate::Result<_>>()?;
                 interiors.sort_by_key(sort_key);
+                let (exterior, exterior_edge_ids) =
+                    canonical_ring_with_ids(&polygon.exterior, &polygon.exterior_ids)?;
                 Ok(PolygonFingerprintV1 {
-                    exterior: canonical_ring(&polygon.exterior)?,
+                    exterior,
                     interiors,
-                    exterior_edge_ids: canonical_ids(&polygon.exterior_ids),
+                    exterior_edge_ids,
                     provenance: polygon.provenance.as_ref().map(|provenance| {
                         let mut boundary_line_ids: Vec<_> = provenance
                             .boundary_line_ids
@@ -344,17 +347,82 @@ fn canonical_ring(ring: &[Coord3D]) -> crate::Result<Vec<CoordinateFingerprintV1
     Ok(canonical)
 }
 
-fn rotate_minimum(ring: &[CoordinateFingerprintV1]) -> Vec<CoordinateFingerprintV1> {
-    (0..ring.len())
-        .map(|start| {
-            ring[start..]
-                .iter()
-                .chain(&ring[..start])
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .min()
-        .expect("ring is non-empty")
+fn canonical_ring_with_ids(
+    ring: &[Coord3D],
+    ids: &[u32],
+) -> crate::Result<(Vec<CoordinateFingerprintV1>, Vec<String>)> {
+    let mut coordinates = coordinates(ring)?;
+    if coordinates.len() > 1 && coordinates.first() == coordinates.last() {
+        coordinates.pop();
+    }
+    if coordinates.is_empty() {
+        return Ok((coordinates, Vec::new()));
+    }
+    if coordinates.len() != ids.len() {
+        return Err(PolygonizeError::InternalInvariantViolation {
+            reason: format!(
+                "fingerprint ring has {} edges but {} representative IDs",
+                coordinates.len(),
+                ids.len()
+            ),
+        });
+    }
+
+    let forward: Vec<_> = coordinates
+        .iter()
+        .cloned()
+        .zip(ids.iter().copied().map(id32))
+        .collect();
+    let forward = rotate_minimum(&forward);
+
+    coordinates.reverse();
+    let mut reversed_ids: Vec<_> = ids.iter().rev().copied().map(id32).collect();
+    reversed_ids.rotate_left(1);
+    let backwards: Vec<_> = coordinates.into_iter().zip(reversed_ids).collect();
+    let backwards = rotate_minimum(&backwards);
+
+    let canonical = forward.min(backwards);
+    let (mut coordinates, edge_ids): (Vec<_>, Vec<_>) = canonical.into_iter().unzip();
+    coordinates.push(coordinates[0].clone());
+    Ok((coordinates, edge_ids))
+}
+
+fn rotate_minimum<T: Clone + Ord>(ring: &[T]) -> Vec<T> {
+    let start = minimum_rotation_index(ring);
+    ring[start..]
+        .iter()
+        .chain(&ring[..start])
+        .cloned()
+        .collect()
+}
+
+// Booth's algorithm: linear comparisons and one final linear clone.
+fn minimum_rotation_index<T: Ord>(ring: &[T]) -> usize {
+    let n = ring.len();
+    if n < 2 {
+        return 0;
+    }
+    let (mut left, mut right, mut offset) = (0, 1, 0);
+    while left < n && right < n && offset < n {
+        match ring[(left + offset) % n].cmp(&ring[(right + offset) % n]) {
+            std::cmp::Ordering::Equal => offset += 1,
+            std::cmp::Ordering::Less => {
+                right += offset + 1;
+                if right == left {
+                    right += 1;
+                }
+                offset = 0;
+            }
+            std::cmp::Ordering::Greater => {
+                left += offset + 1;
+                if left == right {
+                    left += 1;
+                }
+                offset = 0;
+            }
+        }
+    }
+    left.min(right)
 }
 
 fn coordinates(points: &[Coord3D]) -> crate::Result<Vec<CoordinateFingerprintV1>> {
@@ -384,13 +452,6 @@ fn float_bits(value: f64) -> crate::Result<String> {
 
 fn id32(value: u32) -> String {
     format!("0x{value:08x}")
-}
-
-fn canonical_ids(ids: &[u32]) -> Vec<String> {
-    let mut ids: Vec<_> = ids.iter().copied().map(id32).collect();
-    ids.sort();
-    ids.dedup();
-    ids
 }
 
 fn id64(value: u64) -> String {

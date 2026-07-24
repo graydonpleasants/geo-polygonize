@@ -6,7 +6,10 @@ use criterion::{
     criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
-use geo_polygonize_core::{Polygonizer, TiledPolygonizer};
+use geo_polygonize_core::{
+    Coord3D, Polygon3D, Polygonizer, PolygonizerOptions, PolygonizerResult, TiledPolygonizer,
+    TopologyFingerprintV1,
+};
 use geo_types::{Coord, LineString, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -270,7 +273,7 @@ criterion_group!(
 
 // --- KERNEL BENCHES (Split finding, containment, hashing, grid build) ---
 use geo_polygonize_core::noding::grid::UniformGrid;
-use geo_polygonize_core::{Coord3D, Line3D};
+use geo_polygonize_core::Line3D;
 
 fn make_random_lines(count: usize) -> Vec<Line3D> {
     let mut rng = StdRng::seed_from_u64(42);
@@ -436,12 +439,46 @@ fn bench_kernel_node(c: &mut Criterion) {
     });
 }
 
+fn bench_large_ring_fingerprint(c: &mut Criterion) {
+    let vertex_count = 10_001;
+    let mut ring: Vec<_> = (0..vertex_count)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / vertex_count as f64;
+            Coord3D::new(angle.cos(), angle.sin(), 0.0)
+        })
+        .collect();
+    ring.push(ring[0]);
+    let result = PolygonizerResult {
+        polygons: vec![Polygon3D::new(
+            ring,
+            Vec::new(),
+            (0..vertex_count as u32).collect(),
+            Vec::new(),
+        )],
+        dangles: Vec::new(),
+        cut_edges: Vec::new(),
+        invalid_rings: Vec::new(),
+        diagnostics: None,
+    };
+    let options = PolygonizerOptions::default();
+    c.bench_function("fingerprint_ring_10k", |b| {
+        b.iter(|| {
+            TopologyFingerprintV1::try_from_result(
+                criterion::black_box(&result),
+                criterion::black_box(&options),
+            )
+            .unwrap()
+        });
+    });
+}
+
 criterion_group!(
     kernel_benches,
     bench_noding_workloads,
     bench_kernel_grid_build,
     bench_kernel_find_splits,
     bench_kernel_node,
-    bench_pre_snap
+    bench_pre_snap,
+    bench_large_ring_fingerprint
 );
 criterion_main!(benches, kernel_benches);

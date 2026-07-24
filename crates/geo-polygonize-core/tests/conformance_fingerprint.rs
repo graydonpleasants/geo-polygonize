@@ -1,7 +1,8 @@
 use geo_polygonize_core::{
     normalize_polygonize_error, polygonize, polygonize_line_strings, polygonize_with_workspace,
     Coord3D, DeterminismOptions, DiagnosticsOptions, Line3D, NodingGuarantee, NodingOptions,
-    PolygonizerOptions, PolygonizerWorkspace, ProvenanceOptions, TopologyFingerprintV1,
+    Polygon3D, PolygonizerOptions, PolygonizerResult, PolygonizerWorkspace, ProvenanceOptions,
+    TopologyFingerprintV1,
 };
 use geo_types::LineString;
 use serde::Deserialize;
@@ -116,6 +117,115 @@ fn fingerprint(
     options: &PolygonizerOptions,
 ) -> TopologyFingerprintV1 {
     TopologyFingerprintV1::try_from_result(result, options).unwrap()
+}
+
+fn synthetic_polygon(
+    exterior: Vec<Coord3D>,
+    exterior_ids: Vec<u32>,
+    interiors: Vec<Vec<Coord3D>>,
+    interiors_ids: Vec<Vec<u32>>,
+) -> PolygonizerResult {
+    PolygonizerResult {
+        polygons: vec![Polygon3D::new(
+            exterior,
+            interiors,
+            exterior_ids,
+            interiors_ids,
+        )],
+        dangles: Vec::new(),
+        cut_edges: Vec::new(),
+        invalid_rings: Vec::new(),
+        diagnostics: None,
+    }
+}
+
+fn square() -> Vec<Coord3D> {
+    vec![
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(2.0, 0.0, 0.0),
+        Coord3D::new(2.0, 2.0, 0.0),
+        Coord3D::new(0.0, 2.0, 0.0),
+        Coord3D::new(0.0, 0.0, 0.0),
+    ]
+}
+
+#[test]
+fn fingerprint_preserves_edge_attribution_rotation_reversal_and_multiplicity() {
+    let options = PolygonizerOptions::default();
+    let expected = fingerprint(
+        &synthetic_polygon(square(), vec![7, 8, 7, 9], Vec::new(), Vec::new()),
+        &options,
+    );
+    assert_eq!(
+        expected.polygons[0].exterior_edge_ids,
+        ["0x00000007", "0x00000008", "0x00000007", "0x00000009"]
+    );
+
+    let rotated = vec![
+        Coord3D::new(2.0, 2.0, 0.0),
+        Coord3D::new(0.0, 2.0, 0.0),
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(2.0, 0.0, 0.0),
+        Coord3D::new(2.0, 2.0, 0.0),
+    ];
+    assert_eq!(
+        expected,
+        fingerprint(
+            &synthetic_polygon(rotated, vec![7, 9, 7, 8], Vec::new(), Vec::new()),
+            &options
+        )
+    );
+
+    let mut reversed = square();
+    reversed.reverse();
+    assert_eq!(
+        expected,
+        fingerprint(
+            &synthetic_polygon(reversed, vec![9, 7, 8, 7], Vec::new(), Vec::new()),
+            &options
+        )
+    );
+
+    let different = fingerprint(
+        &synthetic_polygon(square(), vec![7, 8, 9, 7], Vec::new(), Vec::new()),
+        &options,
+    );
+    assert_ne!(expected, different);
+}
+
+#[test]
+fn interior_rings_use_the_same_attribution_canonicalization() {
+    let options = PolygonizerOptions::default();
+    let result = synthetic_polygon(
+        square(),
+        vec![7, 8, 7, 9],
+        vec![square()],
+        vec![vec![7, 8, 7, 9]],
+    );
+    let report = fingerprint(&result, &options);
+    assert_eq!(
+        report.polygons[0].exterior_edge_ids,
+        report.polygons[0].interiors[0].edge_ids
+    );
+}
+
+#[test]
+fn large_ring_fingerprint_is_linear_space() {
+    let vertex_count = 10_001;
+    let mut ring: Vec<_> = (0..vertex_count)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / vertex_count as f64;
+            Coord3D::new(angle.cos(), angle.sin(), 0.0)
+        })
+        .collect();
+    ring.push(ring[0]);
+    let ids = (0..vertex_count as u32).collect();
+    let report = fingerprint(
+        &synthetic_polygon(ring, ids, Vec::new(), Vec::new()),
+        &PolygonizerOptions::default(),
+    );
+    assert_eq!(report.polygons[0].exterior.len(), vertex_count + 1);
+    assert_eq!(report.polygons[0].exterior_edge_ids.len(), vertex_count);
 }
 
 #[test]
