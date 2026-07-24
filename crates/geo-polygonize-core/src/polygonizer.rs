@@ -99,20 +99,36 @@ pub fn polygonize_with_execution_policy(
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
 ) -> Result<PolygonizerResult> {
-    let lines: Vec<_> = lines.into_iter().collect();
-    execution_policy.check(
-        "input_segments",
-        execution_policy.max_input_segments,
-        lines.len(),
-    )?;
-    execution_policy.check(
-        "input_coordinates",
-        execution_policy.max_input_coordinates,
-        lines.len().saturating_mul(2),
-    )?;
+    execution_policy.check_cancelled("ingest")?;
+    let mut collected = Vec::new();
+    for line in lines {
+        let observed = collected.len().checked_add(1).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "input-segment counter overflow".to_string(),
+            }
+        })?;
+        execution_policy.check(
+            "input_segments",
+            execution_policy.max_input_segments,
+            observed,
+        )?;
+        let coordinates =
+            observed
+                .checked_mul(2)
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "input-coordinate counter overflow".to_string(),
+                })?;
+        execution_policy.check(
+            "input_coordinates",
+            execution_policy.max_input_coordinates,
+            coordinates,
+        )?;
+        execution_policy.check_cancelled_every("ingest", observed)?;
+        collected.push(line);
+    }
     Polygonizer::with_options(options.clone())
         .with_execution_policy(execution_policy.clone())
-        .polygonize_owned(lines)
+        .polygonize_owned(collected)
 }
 
 /// Polygonize borrowed or owned GeoRust line strings without first building [`Line3D`] values.
@@ -146,7 +162,7 @@ where
 {
     execution_policy.check_cancelled("ingest")?;
     let mut segments = Vec::new();
-    let mut coordinate_count = 0;
+    let mut coordinate_count: usize = 0;
     for (line_id, line_string) in line_strings.into_iter().enumerate() {
         execution_policy.check_cancelled_every("ingest", line_id)?;
         execution_policy.check(
@@ -161,7 +177,11 @@ where
         let Some(first) = coordinates.next() else {
             continue;
         };
-        coordinate_count += 1;
+        coordinate_count = coordinate_count.checked_add(1).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "input-coordinate counter overflow".to_string(),
+            }
+        })?;
         execution_policy.check_cancelled_every("ingest", coordinate_count)?;
         execution_policy.check(
             "input_coordinates",
@@ -170,7 +190,11 @@ where
         )?;
         let mut previous = Coord3D::new(first.x(), first.y(), 0.0);
         for coordinate in coordinates {
-            coordinate_count += 1;
+            coordinate_count = coordinate_count.checked_add(1).ok_or_else(|| {
+                PolygonizeError::InternalInvariantViolation {
+                    reason: "input-coordinate counter overflow".to_string(),
+                }
+            })?;
             execution_policy.check_cancelled_every("ingest", coordinate_count)?;
             execution_policy.check(
                 "input_coordinates",
@@ -180,7 +204,11 @@ where
             execution_policy.check(
                 "input_segments",
                 execution_policy.max_input_segments,
-                segments.len() + 1,
+                segments.len().checked_add(1).ok_or_else(|| {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: "input-segment counter overflow".to_string(),
+                    }
+                })?,
             )?;
             let current = Coord3D::new(coordinate.x(), coordinate.y(), 0.0);
             segments.push(Line3D::new(previous, current, line_id));
@@ -229,7 +257,12 @@ pub fn polygonize_with_workspace_and_execution_policy(
     execution_policy.check(
         "input_coordinates",
         execution_policy.max_input_coordinates,
-        lines.len().saturating_mul(2),
+        lines
+            .len()
+            .checked_mul(2)
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "input-coordinate counter overflow".to_string(),
+            })?,
     )?;
     let mut runner = Polygonizer {
         graph: std::mem::take(&mut workspace.graph),
@@ -531,7 +564,10 @@ impl Polygonizer {
         }
 
         // Use bulk load
-        if self.execution_policy.cancellation_token.is_some() {
+        if self.execution_policy.cancellation_token.is_some()
+            || self.execution_policy.max_graph_nodes.is_some()
+            || self.execution_policy.max_graph_edges.is_some()
+        {
             self.graph
                 .bulk_load_with_execution_policy(segments, &self.execution_policy)?;
         } else {
@@ -696,18 +732,32 @@ impl Polygonizer {
             result.len(),
         )?;
         self.execution_policy.check_cancelled("output_flattening")?;
-        let mut output_coordinates = 0;
+        let mut output_coordinates = 0usize;
         for (index, polygon) in result.iter().enumerate() {
             self.execution_policy
                 .check_cancelled_every("output_flattening", index)?;
-            output_coordinates +=
-                polygon.exterior.len() + polygon.interiors.iter().map(Vec::len).sum::<usize>();
+            output_coordinates = output_coordinates
+                .checked_add(polygon.exterior.len())
+                .and_then(|count| {
+                    polygon
+                        .interiors
+                        .iter()
+                        .try_fold(count, |count, ring| count.checked_add(ring.len()))
+                })
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "output coordinate count overflow".to_string(),
+                })?;
         }
         for lines in [&dangles, &cut_edges, &invalid_rings] {
             for (index, line) in lines.iter().enumerate() {
                 self.execution_policy
                     .check_cancelled_every("output_flattening", index)?;
-                output_coordinates += line.len();
+                output_coordinates =
+                    output_coordinates.checked_add(line.len()).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "output coordinate count overflow".to_string(),
+                        }
+                    })?;
             }
         }
         self.execution_policy.check(
@@ -1164,7 +1214,11 @@ pub(crate) fn construct_final_polygons(
     execution_policy: &ExecutionPolicy,
 ) -> Result<Vec<Polygon3D>> {
     execution_policy.check_cancelled("canonicalization")?;
-    let mut result = Vec::with_capacity(shells.len());
+    let capacity = execution_policy
+        .max_output_polygons
+        .map_or(shells.len(), |limit| shells.len().min(limit));
+    let mut result = Vec::with_capacity(capacity);
+    let mut output_coordinates = 0usize;
     for (shell_index, ((shell, mut holes), mut holes_ids)) in shells
         .into_iter()
         .zip(shell_holes)
@@ -1271,6 +1325,30 @@ pub(crate) fn construct_final_polygons(
                 .minimum_face_area
                 .is_none_or(|minimum| area >= minimum)
         {
+            execution_policy.check(
+                "output_polygons",
+                execution_policy.max_output_polygons,
+                result.len().checked_add(1).ok_or_else(|| {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: "output polygon count overflow".to_string(),
+                    }
+                })?,
+            )?;
+            output_coordinates = output_coordinates
+                .checked_add(p.exterior.len())
+                .and_then(|count| {
+                    p.interiors
+                        .iter()
+                        .try_fold(count, |count, ring| count.checked_add(ring.len()))
+                })
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "output coordinate count overflow".to_string(),
+                })?;
+            execution_policy.check(
+                "output_coordinates",
+                execution_policy.max_output_coordinates,
+                output_coordinates,
+            )?;
             result.push(p);
         }
     }

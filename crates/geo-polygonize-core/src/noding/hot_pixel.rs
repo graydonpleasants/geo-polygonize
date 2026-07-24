@@ -219,6 +219,17 @@ impl HotPixelNoder {
                         .check_cancelled_every("split_application", replacement_index)?;
                 }
                 if pair[0].x != pair[1].x || pair[0].y != pair[1].y {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check(
+                            "noded_segments",
+                            execution_policy.max_noded_segments,
+                            output.len().checked_add(1).ok_or_else(|| {
+                                PolygonizeError::InternalInvariantViolation {
+                                    reason: "noded segment count overflow".to_string(),
+                                }
+                            })?,
+                        )?;
+                    }
                     output.push(Line3D::new(pair[0], pair[1], line.line_id));
                 }
             }

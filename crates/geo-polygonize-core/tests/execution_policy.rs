@@ -85,6 +85,33 @@ fn input_limits_stop_before_polygonization() {
 }
 
 #[test]
+fn owned_iterator_stops_after_limit_plus_one_items() {
+    let segment = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);
+    let mut yielded = 0;
+    let guarded = std::iter::from_fn(|| {
+        assert!(yielded < 2, "iterator consumed beyond limit + 1");
+        yielded += 1;
+        Some(segment)
+    });
+
+    assert_limit(
+        polygonize_with_execution_policy(
+            guarded,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy {
+                max_input_segments: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap_err(),
+        "input_segments",
+        1,
+        2,
+    );
+    assert_eq!(yielded, 2);
+}
+
+#[test]
 fn noded_segment_limit_stops_after_noding() {
     let options = PolygonizerOptions {
         node_input: true,
@@ -369,7 +396,7 @@ fn adversarial_inputs_hit_their_declared_budget() {
         .unwrap_err(),
         "input_segments",
         32,
-        128,
+        33,
     );
 
     let mut nested = Vec::new();
@@ -404,6 +431,6 @@ fn adversarial_inputs_hit_their_declared_budget() {
             &ExecutionPolicy { max_output_polygons: Some(0), ..Default::default() },
         ),
         Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
-            if stage == "output_polygons" && observed >= 8
+            if stage == "output_polygons" && observed == 1
     ));
 }

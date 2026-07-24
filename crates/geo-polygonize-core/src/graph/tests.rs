@@ -2,7 +2,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::graph::planar_graph::PlanarGraph;
-    use crate::types::Line3D;
+    use crate::types::{Coord3D, Line3D};
     use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use geo_types::{Coord, LineString};
 
@@ -80,6 +80,56 @@ mod tests {
             graph.sort_edges_with_execution_policy(&policy),
             Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
         ));
+    }
+
+    #[test]
+    fn graph_limits_are_checked_before_graph_capacity_growth() {
+        let lines = vec![Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            1,
+        )];
+
+        let mut graph = PlanarGraph::new();
+        let error = graph
+            .bulk_load_with_execution_policy(
+                lines.clone(),
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "graph_nodes"
+        ));
+        assert_eq!(graph.nodes_x.capacity(), 0);
+
+        let mut graph = PlanarGraph::new();
+        let error = graph
+            .bulk_load_with_execution_policy(
+                lines,
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "graph_edges"
+        ));
+        assert_eq!(graph.edges.capacity(), 0);
+        assert_eq!(graph.directed_edges.capacity(), 0);
     }
 
     #[test]

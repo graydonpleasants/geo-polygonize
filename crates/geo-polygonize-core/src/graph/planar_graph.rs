@@ -290,6 +290,14 @@ impl PlanarGraph {
 
         // 3. Build Nodes
         let start_node_idx = self.nodes_x.len();
+        if let Some(execution_policy) = execution_policy {
+            let observed = start_node_idx.checked_add(entries.len()).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "graph node count overflow".to_string(),
+                }
+            })?;
+            execution_policy.check("graph_nodes", execution_policy.max_graph_nodes, observed)?;
+        }
         self.nodes_x.reserve(entries.len());
         self.nodes_y.reserve(entries.len());
         self.nodes_z.reserve(entries.len());
@@ -387,6 +395,17 @@ impl PlanarGraph {
             degrees[*v] += 1;
         }
 
+        if let Some(execution_policy) = execution_policy {
+            let observed = self
+                .edges
+                .len()
+                .checked_add(dissolved.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "graph edge count overflow".to_string(),
+                })?;
+            execution_policy.check("graph_edges", execution_policy.max_graph_edges, observed)?;
+        }
+
         // Reserve exact capacity
         par_zip_for_each(
             &mut self.nodes_outgoing,
@@ -398,7 +417,12 @@ impl PlanarGraph {
 
         // 5. Build Edges
         self.edges.reserve(dissolved.len());
-        self.directed_edges.reserve(dissolved.len() * 2);
+        let directed_edge_count = dissolved.len().checked_mul(2).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "directed edge count overflow".to_string(),
+            }
+        })?;
+        self.directed_edges.reserve(directed_edge_count);
 
         let edges_start_len = self.edges.len();
         let directed_edges_start_len = self.directed_edges.len();
