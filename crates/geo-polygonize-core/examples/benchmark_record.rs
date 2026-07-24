@@ -1,10 +1,10 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use geo_polygonize_core::{
     polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions, PolygonizerResult,
-    TopologyFingerprintV1,
+    PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::Deserialize;
@@ -16,8 +16,10 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 #[derive(Parser)]
-#[command(about = "Emit one correctness-gated already-noded benchmark record")]
+#[command(about = "Emit one correctness-gated benchmark record")]
 struct Args {
+    #[arg(long, value_enum)]
+    lane: Lane,
     #[arg(long)]
     workload: String,
     #[arg(long)]
@@ -30,6 +32,37 @@ struct Args {
     reference_dependencies: Vec<String>,
     #[arg(long)]
     output: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Lane {
+    AlreadyNoded,
+    Floating,
+}
+
+impl Lane {
+    fn profile(self) -> &'static str {
+        match self {
+            Self::AlreadyNoded => "already-noded",
+            Self::Floating => "floating",
+        }
+    }
+
+    fn record_name(self) -> &'static str {
+        match self {
+            Self::AlreadyNoded => "already-noded-polygonization",
+            Self::Floating => "floating-noding-plus-polygonization",
+        }
+    }
+
+    fn accepts(self, options: &PolygonizerOptions) -> bool {
+        match self {
+            Self::AlreadyNoded => !options.node_input,
+            Self::Floating => {
+                options.node_input && matches!(options.precision_model, PrecisionModel::Floating)
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -89,11 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         || !workload
             .permitted_profiles
             .iter()
-            .any(|profile| profile == "already-noded")
+            .any(|profile| profile == args.lane.profile())
     {
         return Err(format!(
-            "{} is not a parity-class already-noded workload",
-            workload.id
+            "{} is not a parity-class {} workload",
+            workload.id,
+            args.lane.profile()
         )
         .into());
     }
@@ -111,8 +145,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut options = workload
         .options
         .into_iter()
-        .find(|options| !options.node_input)
-        .ok_or("workload has no already-noded options")?;
+        .find(|options| args.lane.accepts(options))
+        .ok_or_else(|| format!("workload has no {} options", args.lane.profile()))?;
     options.provenance.enabled = true;
     options.provenance.include_boundary_line_ids = true;
 
@@ -176,9 +210,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_coordinates = output_coordinates(&correctness);
     let record = json!({
         "schema_version": 1,
-        "record_id": format!("{}-{}-already-noded", workload.id, &commit[..12]),
+        "record_id": format!("{}-{}-{}", workload.id, &commit[..12], args.lane.profile()),
         "workload_id": workload.id,
-        "lane": "already-noded-polygonization",
+        "lane": args.lane.record_name(),
         "implementation": {
             "name": "geo-polygonize-core",
             "version": env!("CARGO_PKG_VERSION"),
@@ -409,5 +443,17 @@ mod tests {
         let hash = "00".repeat(32);
         assert_eq!(parse_sha256(&hash).unwrap(), [0; 32]);
         assert!(parse_sha256(&"AA".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn lanes_select_only_equivalent_options() {
+        let mut options = PolygonizerOptions::default();
+        assert!(Lane::AlreadyNoded.accepts(&options));
+        assert!(!Lane::Floating.accepts(&options));
+        options.node_input = true;
+        assert!(!Lane::AlreadyNoded.accepts(&options));
+        assert!(Lane::Floating.accepts(&options));
+        options.precision_model = PrecisionModel::FixedGrid { grid_size: 1.0 };
+        assert!(!Lane::Floating.accepts(&options));
     }
 }

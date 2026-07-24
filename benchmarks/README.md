@@ -23,6 +23,7 @@ timing, and rejects any timed sample whose fingerprint changes:
 
 ```bash
 cargo run -p geo-polygonize-core --release --example benchmark_record -- \
+  --lane already-noded \
   --workload already-noded-coverage-v1 \
   --samples 30 \
   --expected-fingerprint-sha256 <64-lowercase-hex-digits> \
@@ -34,3 +35,7 @@ cargo run -p geo-polygonize-core --release --example benchmark_record -- \
 Peak RSS remains an explicit harness input because the Rust standard library
 does not expose a portable process peak. The runner measures allocations with
 the repository's existing `dhat` allocator.
+
+Use `--lane floating` with a parity-class workload that permits the floating
+profile to measure floating noding plus polygonization. The runner performs an
+untimed full-noding validation of that pipeline before collecting samples.
