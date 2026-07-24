@@ -1,5 +1,6 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::noding::snap::SnapNoder;
+use crate::options::ExecutionPolicy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -143,6 +144,61 @@ fn segment_cells(
     cells
 }
 
+fn serial_bounds(
+    lines: &[Line3D],
+    execution_policy: Option<&ExecutionPolicy>,
+) -> crate::Result<(f64, f64, f64, f64)> {
+    let mut bounds = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled_every("grid_construction", index)?;
+        }
+        bounds.0 = bounds.0.min(line.start.x.min(line.end.x));
+        bounds.1 = bounds.1.min(line.start.y.min(line.end.y));
+        bounds.2 = bounds.2.max(line.start.x.max(line.end.x));
+        bounds.3 = bounds.3.max(line.start.y.max(line.end.y));
+    }
+    Ok(bounds)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn count_cells(
+    lines: &[Line3D],
+    min_x: f64,
+    min_y: f64,
+    cell_size: f64,
+    cols: usize,
+    rows: usize,
+    execution_policy: Option<&ExecutionPolicy>,
+    max_cells_per_line: usize,
+) -> crate::Result<(Vec<usize>, Vec<usize>)> {
+    let cell_count = cols.checked_mul(rows).ok_or_else(|| {
+        crate::PolygonizeError::InternalInvariantViolation {
+            reason: "uniform-grid cell count overflow".to_string(),
+        }
+    })?;
+    let mut counts = vec![0usize; cell_count];
+    let mut global_lines = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled_every("grid_construction", index)?;
+        }
+        let cells = segment_cells(line, min_x, min_y, cell_size, cols, rows);
+        if cells.len() > max_cells_per_line {
+            global_lines.push(index);
+            continue;
+        }
+        for cell in cells {
+            counts[cell] = counts[cell].checked_add(1).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "uniform-grid cell population overflow".to_string(),
+                }
+            })?;
+        }
+    }
+    Ok((counts, global_lines))
+}
+
 pub struct UniformGrid {
     /// Compressed Sparse Row (CSR) storage
     /// cell_offsets[i]..cell_offsets[i+1] gives the range in cell_items for cell i
@@ -159,45 +215,53 @@ pub struct UniformGrid {
 
 impl UniformGrid {
     pub fn new(lines: &[Line3D]) -> Self {
+        Self::new_impl(lines, None).expect("unlimited grid construction cannot fail")
+    }
+
+    pub(crate) fn new_with_execution_policy(
+        lines: &[Line3D],
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Self> {
+        Self::new_impl(lines, Some(execution_policy))
+    }
+
+    fn new_impl(
+        lines: &[Line3D],
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Self> {
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("grid_construction")?;
+        }
         if lines.is_empty() {
-            return Self::empty();
+            return Ok(Self::empty());
         }
 
         // 1. Calculate Bounds & Heuristics
         #[cfg(feature = "parallel")]
-        let (min_x, min_y, max_x, max_y) = lines
-            .par_iter()
-            .fold(
-                || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
-                |acc, line| {
-                    (
-                        acc.0.min(line.start.x.min(line.end.x)),
-                        acc.1.min(line.start.y.min(line.end.y)),
-                        acc.2.max(line.start.x.max(line.end.x)),
-                        acc.3.max(line.start.y.max(line.end.y)),
-                    )
-                },
-            )
-            .reduce(
-                || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
-                |a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
-            );
+        let (min_x, min_y, max_x, max_y) = if execution_policy.is_some() {
+            serial_bounds(lines, execution_policy)?
+        } else {
+            lines
+                .par_iter()
+                .fold(
+                    || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                    |acc, line| {
+                        (
+                            acc.0.min(line.start.x.min(line.end.x)),
+                            acc.1.min(line.start.y.min(line.end.y)),
+                            acc.2.max(line.start.x.max(line.end.x)),
+                            acc.3.max(line.start.y.max(line.end.y)),
+                        )
+                    },
+                )
+                .reduce(
+                    || (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+                    |a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
+                )
+        };
 
         #[cfg(not(feature = "parallel"))]
-        let (min_x, min_y, max_x, max_y) = {
-            let mut min_x = f64::MAX;
-            let mut min_y = f64::MAX;
-            let mut max_x = f64::MIN;
-            let mut max_y = f64::MIN;
-
-            for line in lines {
-                min_x = min_x.min(line.start.x.min(line.end.x));
-                min_y = min_y.min(line.start.y.min(line.end.y));
-                max_x = max_x.max(line.start.x.max(line.end.x));
-                max_y = max_y.max(line.start.y.max(line.end.y));
-            }
-            (min_x, min_y, max_x, max_y)
-        };
+        let (min_x, min_y, max_x, max_y) = serial_bounds(lines, execution_policy)?;
 
         let width = max_x - min_x;
         let height = max_y - min_y;
@@ -234,16 +298,32 @@ impl UniformGrid {
             // Add small epsilon to ensure max boundary falls into a valid cell
             cols = ((width + 1e-9) / cell_size).ceil() as usize;
             rows = ((height + 1e-9) / cell_size).ceil() as usize;
+            let cell_count = cols.checked_mul(rows).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "uniform-grid cell count overflow".to_string(),
+                }
+            })?;
 
             // Pass 1: Count entries per cell & Identify Global Lines
             #[cfg(feature = "parallel")]
-            let (pass_counts, pass_globals) = {
+            let (pass_counts, pass_globals) = if execution_policy.is_some() {
+                count_cells(
+                    lines,
+                    min_x,
+                    min_y,
+                    cell_size,
+                    cols,
+                    rows,
+                    execution_policy,
+                    MAX_CELLS_PER_LINE,
+                )?
+            } else {
                 let chunk_size = (lines.len() / rayon::current_num_threads()).max(1);
                 let results: Vec<_> = lines
                     .par_chunks(chunk_size)
                     .enumerate()
                     .map(|(chunk_idx, chunk)| {
-                        let mut local_counts = vec![0usize; cols * rows];
+                        let mut local_counts = vec![0usize; cell_count];
                         let mut local_global = Vec::new();
                         let start_i = chunk_idx * chunk_size;
 
@@ -255,18 +335,18 @@ impl UniformGrid {
                                 continue;
                             }
                             for cell in cells {
-                                local_counts[cell] += 1;
+                                local_counts[cell] = local_counts[cell].saturating_add(1);
                             }
                         }
                         (local_counts, local_global)
                     })
                     .collect();
 
-                let mut final_counts = vec![0usize; cols * rows];
+                let mut final_counts = vec![0usize; cell_count];
                 let mut final_globals = Vec::new();
                 for (local_counts, local_global) in results {
                     for i in 0..final_counts.len() {
-                        final_counts[i] += local_counts[i];
+                        final_counts[i] = final_counts[i].saturating_add(local_counts[i]);
                     }
                     final_globals.extend(local_global);
                 }
@@ -274,22 +354,16 @@ impl UniformGrid {
             };
 
             #[cfg(not(feature = "parallel"))]
-            let (pass_counts, pass_globals) = {
-                let mut local_counts = vec![0usize; cols * rows];
-                let mut local_global = Vec::new();
-
-                for (i, line) in lines.iter().enumerate() {
-                    let cells = segment_cells(line, min_x, min_y, cell_size, cols, rows);
-                    if cells.len() > MAX_CELLS_PER_LINE {
-                        local_global.push(i);
-                        continue;
-                    }
-                    for cell in cells {
-                        local_counts[cell] += 1;
-                    }
-                }
-                (local_counts, local_global)
-            };
+            let (pass_counts, pass_globals) = count_cells(
+                lines,
+                min_x,
+                min_y,
+                cell_size,
+                cols,
+                rows,
+                execution_policy,
+                MAX_CELLS_PER_LINE,
+            )?;
 
             counts = pass_counts;
             global_lines = pass_globals;
@@ -300,7 +374,7 @@ impl UniformGrid {
                 // Skew detected: too many lines in a single cell.
                 // Refine grid by halving cell size, unless we have too many cells.
                 // We limit total cells to avoid memory explosion.
-                if (cols * 2) * (rows * 2) < 1_000_000 {
+                if cell_count.saturating_mul(4) < 1_000_000 {
                     cell_size /= 2.0;
                     continue; // Retry with finer grid
                 }
@@ -311,11 +385,24 @@ impl UniformGrid {
         }
 
         // Prefix Sum to create offsets
-        let mut cell_offsets = Vec::with_capacity(cols * rows + 1);
-        let mut sum = 0;
+        let cell_count = cols.checked_mul(rows).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "uniform-grid cell count overflow".to_string(),
+            }
+        })?;
+        let mut cell_offsets = Vec::with_capacity(cell_count.checked_add(1).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "uniform-grid offset count overflow".to_string(),
+            }
+        })?);
+        let mut sum = 0usize;
         cell_offsets.push(0);
         for count in counts {
-            sum += count;
+            sum = sum.checked_add(count).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "uniform-grid item count overflow".to_string(),
+                }
+            })?;
             cell_offsets.push(sum);
         }
 
@@ -323,12 +410,15 @@ impl UniformGrid {
         let mut cell_items = vec![0u32; sum];
         // We need a running tracker of where to insert in each cell.
         // Copy the start offsets to use as current write pointers.
-        let mut current_offsets = cell_offsets[0..cols * rows].to_vec();
+        let mut current_offsets = cell_offsets[0..cell_count].to_vec();
 
         // Use peekable iterator to skip global lines efficiently
         let mut global_iter = global_lines.iter().peekable();
 
         for (i, line) in lines.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("grid_construction", i)?;
+            }
             // Check if this line is global
             if let Some(&&global_idx) = global_iter.peek() {
                 if i == global_idx {
@@ -339,12 +429,20 @@ impl UniformGrid {
 
             for cell in segment_cells(line, min_x, min_y, cell_size, cols, rows) {
                 let write_pos = current_offsets[cell];
-                cell_items[write_pos] = i as u32;
-                current_offsets[cell] += 1;
+                cell_items[write_pos] = u32::try_from(i).map_err(|_| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "uniform-grid line index exceeds u32".to_string(),
+                    }
+                })?;
+                current_offsets[cell] = current_offsets[cell].checked_add(1).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "uniform-grid write offset overflow".to_string(),
+                    }
+                })?;
             }
         }
 
-        Self {
+        Ok(Self {
             cell_offsets,
             cell_items,
             global_lines,
@@ -352,7 +450,7 @@ impl UniformGrid {
             cols,
             rows,
             bounds_min: Coord { x: min_x, y: min_y },
-        }
+        })
     }
 
     fn empty() -> Self {
@@ -774,6 +872,24 @@ mod tests {
                 &mut ExecutionWorkTracker::new(Some(&policy), None),
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
+    }
+
+    #[test]
+    fn grid_construction_polls_during_input_passes() {
+        let lines = (0..512)
+            .map(|index| make_line(0.0, index as f64, 1.0, index as f64 + 0.5))
+            .collect::<Vec<_>>();
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 17)),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            UniformGrid::new_with_execution_policy(&lines, &policy),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "grid_construction"
         ));
     }
 

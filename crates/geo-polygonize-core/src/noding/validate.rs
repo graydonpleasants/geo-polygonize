@@ -63,6 +63,10 @@ impl ValidatingNoder {
                 .locate_in_envelope_intersecting(&envelope(first))
                 .filter(|second_index| *second_index > first_index)
                 .collect();
+            if let Some(execution_policy) = execution_policy {
+                execution_policy
+                    .check_uncancellable_sort("noding_validation_sort", candidates.len())?;
+            }
             candidates.sort_unstable();
             for (candidate_index, second_index) in candidates.into_iter().enumerate() {
                 if let Some(execution_policy) = execution_policy {

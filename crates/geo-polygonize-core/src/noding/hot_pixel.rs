@@ -79,7 +79,12 @@ impl HotPixelNoder {
         let snapper = SnapNoder::new(self.grid_size).with_z_policy(self.z_policy);
         snapper.normalize_and_dedup(&mut lines);
 
-        let mut hot_pixels = Vec::with_capacity(lines.len() * 2);
+        let hot_pixel_capacity = lines.len().checked_mul(2).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "hot-pixel endpoint count overflow".to_string(),
+            }
+        })?;
+        let mut hot_pixels = Vec::with_capacity(hot_pixel_capacity);
         for line in &lines {
             hot_pixels.push(self.grid_point(line.start)?);
             hot_pixels.push(self.grid_point(line.end)?);
@@ -102,6 +107,10 @@ impl HotPixelNoder {
                 .locate_in_envelope_intersecting(&line_envelope(first))
                 .filter(|second_index| *second_index > first_index)
                 .collect();
+            if let Some(execution_policy) = execution_policy {
+                execution_policy
+                    .check_uncancellable_sort("hot_pixel_candidate_sort", candidates.len())?;
+            }
             candidates.sort_unstable();
             for second_index in candidates {
                 work.candidate_pairs = work.candidate_pairs.checked_add(1).ok_or_else(|| {
@@ -138,6 +147,9 @@ impl HotPixelNoder {
                 }
             }
         }
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("hot_pixel_sort", hot_pixels.len())?;
+        }
         hot_pixels.sort_unstable();
         hot_pixels.dedup();
 
@@ -171,6 +183,10 @@ impl HotPixelNoder {
             let mut candidates: Vec<_> = hot_pixel_index
                 .locate_in_envelope_intersecting(&query)
                 .collect();
+            if let Some(execution_policy) = execution_policy {
+                execution_policy
+                    .check_uncancellable_sort("hot_pixel_candidate_sort", candidates.len())?;
+            }
             candidates.sort_unstable();
 
             let mut points = vec![line.start, line.end];
@@ -194,6 +210,9 @@ impl HotPixelNoder {
 
             let dx = end.x - start.x;
             let dy = end.y - start.y;
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_uncancellable_sort("split_point_sort", points.len())?;
+            }
             points.sort_unstable_by(|left, right| {
                 let left_grid = self.grid_point(*left).expect("validated grid coordinate");
                 let right_grid = self.grid_point(*right).expect("validated grid coordinate");

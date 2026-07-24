@@ -9,6 +9,9 @@ use std::sync::{
 
 /// Maximum noding work items between cooperative cancellation checks.
 pub(crate) const CANCELLATION_CHECK_INTERVAL: usize = 256;
+/// Maximum items accepted by an uninterruptible standard-library sort when
+/// cooperative cancellation is enabled.
+pub(crate) const MAX_UNCANCELLABLE_SORT_ITEMS: usize = 1_000_000;
 
 /// Cooperative native cancellation handle for an [`ExecutionPolicy`].
 #[derive(Clone, Debug, Default)]
@@ -39,6 +42,8 @@ impl CancellationToken {
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionPolicy {
     pub cancellation_token: Option<CancellationToken>,
+    #[cfg(test)]
+    pub(crate) cancel_at_work_item: Option<(CancellationToken, usize)>,
     pub max_input_line_strings: Option<usize>,
     pub max_input_segments: Option<usize>,
     pub max_input_coordinates: Option<usize>,
@@ -112,8 +117,22 @@ impl ExecutionPolicy {
     }
 
     pub(crate) fn check_cancelled_every(&self, stage: &str, work_items: usize) -> Result<()> {
+        #[cfg(test)]
+        if let Some((token, cancel_at)) = &self.cancel_at_work_item {
+            if work_items == *cancel_at {
+                token.cancel();
+            }
+        }
         if work_items.is_multiple_of(CANCELLATION_CHECK_INTERVAL) {
             self.check_cancelled(stage)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_uncancellable_sort(&self, stage: &str, items: usize) -> Result<()> {
+        self.check_cancelled(stage)?;
+        if self.has_cancellation() {
+            self.check(stage, Some(MAX_UNCANCELLABLE_SORT_ITEMS), items)?;
         }
         Ok(())
     }
@@ -644,5 +663,27 @@ mod tests {
         .is_err());
 
         assert!(PolygonizerOptions::default().validate().is_ok());
+    }
+
+    #[test]
+    fn cancellation_enabled_sorts_have_a_fixed_item_ceiling() {
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(policy
+            .check_uncancellable_sort("test_sort", MAX_UNCANCELLABLE_SORT_ITEMS)
+            .is_ok());
+        assert!(matches!(
+            policy.check_uncancellable_sort(
+                "test_sort",
+                MAX_UNCANCELLABLE_SORT_ITEMS + 1
+            ),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: MAX_UNCANCELLABLE_SORT_ITEMS,
+                observed,
+            }) if stage == "test_sort" && observed == MAX_UNCANCELLABLE_SORT_ITEMS + 1
+        ));
     }
 }
