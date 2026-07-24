@@ -280,6 +280,9 @@ impl PlanarGraph {
         let mut entries: Vec<NodeEntry> = par_flat_map(&lines, to_entries);
 
         // 2. Sort using precomputed Z-order
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("graph_node_sort", entries.len())?;
+        }
         par_sort_unstable(&mut entries);
 
         // Dedup using exact equality on X,Y. Z is ignored for dedup key but carried.
@@ -364,6 +367,9 @@ impl PlanarGraph {
             }
         }
 
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("graph_edge_sort", valid_edges.len())?;
+        }
         valid_edges.sort_unstable_by(|(u1, v1, l1), (u2, v2, l2)| {
             let key1 = ((*u1).min(*v1), (*u1).max(*v1));
             let key2 = ((*u2).min(*v2), (*u2).max(*v2));
@@ -665,6 +671,7 @@ impl PlanarGraph {
         for (src_idx, adj) in self.nodes_outgoing.iter_mut().enumerate() {
             execution_policy.check_cancelled_every("graph_construction", src_idx)?;
             adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+            execution_policy.check_uncancellable_sort("graph_node_star_sort", adj.len())?;
 
             let center = Coord {
                 x: nodes_x[src_idx],

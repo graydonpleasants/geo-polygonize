@@ -243,26 +243,25 @@ cancelled workspace run is reusable after resetting its token. Python releases
 the GIL for owned Rust work and polls signals every 10 ms before cancelling the
 worker token. Wasm has cancellable GeoJSON and report calls in disposable
 browser workers; aborting terminates the worker rather than claiming that a
-synchronous main-thread Wasm export can yield. SIMD and hot-pixel split scans
-poll every 256 work items; grid polls between cells. Later core phases still
-need equivalent bounded checkpoints. Graph dangle pruning also polls node
+synchronous main-thread Wasm export can yield. SIMD, grid, and hot-pixel split
+scans poll every 256 work items. Uniform-grid bounds, counting, and population
+passes also poll every 256 input segments. Graph dangle pruning also polls node
 discovery and its mutable work stack every 256 items; token-aware containment
 polls every 256 hole assignments while token-free runs retain the parallel path.
 Cut-edge removal and minimal-ring extraction also poll every 256 graph-traversal
 work items. Ring classification and invalid-ring filtering poll every 256
 ring, coordinate, and containment-comparison work items.
 Final polygon assembly and deterministic-ordering preprocessing also poll every
-256 items; their standard-library sort calls remain phase-boundary-only.
+256 items. Standard-library sorts cannot be interrupted, so cancellation-enabled
+runs reject every audited sort above 1,000,000 items before sorting begins.
 Token-aware graph bulk loading and node-star preparation also poll every 256
-nodes or edges; their internal sorting remains phase-boundary-only.
-Input validation and Z-conflict reconciliation also poll every 256 lines or
-endpoints; Z reconciliation sorting remains phase-boundary-only.
+nodes or edges. Input validation and Z-conflict reconciliation also poll every
+256 lines or endpoints.
 Line-string conversion and fixed-grid snapping also poll every 256 input
 coordinates or segments.
 GeoCompat coordinate restoration also polls every 256 snapped coordinates or
 noded segments.
-Token-aware noding validation also polls every 256 segments or candidate pairs;
-candidate sorting remains phase-boundary-only.
+Token-aware noding validation also polls every 256 segments or candidate pairs.
 
 - [x] Add cancellation checkpoints at ingest, candidate enumeration, split
   application, graph construction, ring extraction, containment, canonicalization,

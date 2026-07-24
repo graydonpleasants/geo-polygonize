@@ -361,7 +361,8 @@ impl Polygonizer {
                     &all_segments,
                     self.options.pre_snap_tolerance,
                     self.options.z.policy,
-                );
+                    &self.execution_policy,
+                )?;
                 all_segments = snapped;
                 pre_snap_vertex_candidates = candidates;
             }
@@ -831,7 +832,12 @@ fn reconcile_segment_z(
         return Ok(ZConflictStats::default());
     }
 
-    let mut endpoints = Vec::with_capacity(segments.len() * 2);
+    let endpoint_capacity = segments.len().checked_mul(2).ok_or_else(|| {
+        PolygonizeError::InternalInvariantViolation {
+            reason: "Z-reconciliation endpoint count overflow".to_string(),
+        }
+    })?;
+    let mut endpoints = Vec::with_capacity(endpoint_capacity);
     for (segment, line) in segments.iter().enumerate() {
         execution_policy.check_cancelled_every("graph_construction", segment)?;
         endpoints.push(SegmentEndpoint {
@@ -847,6 +853,7 @@ fn reconcile_segment_z(
             line_id: line.line_id,
         });
     }
+    execution_policy.check_uncancellable_sort("z_reconciliation_sort", endpoints.len())?;
     endpoints.sort_unstable_by(|a, b| {
         a.coordinate
             .x
@@ -1249,6 +1256,8 @@ pub(crate) fn construct_final_polygons(
                 .collect();
 
             let use_stable_tie_breaks = options.determinism.stable_tie_breaks;
+            execution_policy
+                .check_uncancellable_sort("canonical_hole_sort", combined_holes.len())?;
             if use_stable_tie_breaks {
                 let mut combined_holes_with_bbox: Vec<_> = combined_holes
                     .into_iter()
@@ -1545,6 +1554,7 @@ pub(crate) fn apply_determinism(
                 sort_keys.push((index, area, bbox, polygon.interiors.len()));
             }
 
+            execution_policy.check_uncancellable_sort("canonical_polygon_sort", sort_keys.len())?;
             sort_keys.sort_unstable_by(|(_, area1, b1, holes1), (_, area2, b2, holes2)| {
                 area2.total_cmp(area1).then_with(|| {
                     b1.min()
@@ -1566,6 +1576,7 @@ pub(crate) fn apply_determinism(
                 sort_keys.push((index, polygon.exterior_unsigned_area_2d()));
             }
 
+            execution_policy.check_uncancellable_sort("canonical_polygon_sort", sort_keys.len())?;
             sort_keys.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
 
             reorder_polygons(&mut result, sort_keys.into_iter().map(|(index, _)| index));
@@ -1600,6 +1611,8 @@ pub(crate) fn apply_determinism(
                 dangles_with_cache.push((std::mem::take(line), bbox));
             }
 
+            execution_policy
+                .check_uncancellable_sort("canonical_line_sort", dangles_with_cache.len())?;
             dangles_with_cache.sort_unstable_by(|(l1, b1), (l2, b2)| {
                 b1.min()
                     .x
@@ -1612,6 +1625,7 @@ pub(crate) fn apply_determinism(
                 execution_policy.check_cancelled_every("canonicalization", i)?;
                 dangles[i] = l;
             }
+            execution_policy.check_uncancellable_sort("canonical_line_sort", cut_edges.len())?;
             sort_open_lines(cut_edges);
         }
 
@@ -1633,6 +1647,8 @@ pub(crate) fn apply_determinism(
                 invalid_with_bbox.push((ring, area, bbox));
             }
 
+            execution_policy
+                .check_uncancellable_sort("canonical_invalid_ring_sort", invalid_with_bbox.len())?;
             invalid_with_bbox.sort_unstable_by(|(r1, area1, b1), (r2, area2, b2)| {
                 area2.total_cmp(area1).then_with(|| {
                     b1.min()
@@ -1647,6 +1663,8 @@ pub(crate) fn apply_determinism(
                 invalid_rings.push(ring);
             }
         } else {
+            execution_policy
+                .check_uncancellable_sort("canonical_invalid_ring_sort", combined_invalid.len())?;
             combined_invalid.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
             for (index, (ring, _)) in combined_invalid.into_iter().enumerate() {
                 execution_policy.check_cancelled_every("canonicalization", index)?;

@@ -212,7 +212,11 @@ impl SnapNoder {
                 }
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
-                let grid = UniformGrid::new(&lines);
+                let grid = if let Some(execution_policy) = execution_policy {
+                    UniformGrid::new_with_execution_policy(&lines, execution_policy)?
+                } else {
+                    UniformGrid::new(&lines)
+                };
                 if execution_policy.is_some() || work_stats.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
@@ -234,6 +238,9 @@ impl SnapNoder {
             }
 
             // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_uncancellable_sort("noding_candidate_sort", events.len())?;
+            }
             events.sort_unstable_by(|a, b| {
                 a.0.cmp(&b.0)
                     .then(a.1.x.total_cmp(&b.1.x))
@@ -319,6 +326,10 @@ impl SnapNoder {
                 let len_sq = dx * dx + dy * dy;
 
                 if len_sq > 0.0 {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy
+                            .check_uncancellable_sort("split_point_sort", points.len())?;
+                    }
                     points.sort_unstable_by(|a, b| {
                         let ta = ((a.x - start.x) * dx + (a.y - start.y) * dy) / len_sq;
                         let tb = ((b.x - start.x) * dx + (b.y - start.y) * dy) / len_sq;
@@ -326,6 +337,10 @@ impl SnapNoder {
                     });
                 } else {
                     // Fallback to sort by X, then Y if segment is a zero-length point
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy
+                            .check_uncancellable_sort("split_point_sort", points.len())?;
+                    }
                     points.sort_unstable_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
                 }
 
@@ -425,15 +440,18 @@ impl SnapNoder {
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
-        Self::pre_snap_impl(lines, tolerance, true, ZPolicy::InterpolateAlongEdge).0
+        Self::pre_snap_impl(lines, tolerance, true, ZPolicy::InterpolateAlongEdge, None)
+            .expect("unlimited pre-snap cannot fail")
+            .0
     }
 
     pub(crate) fn pre_snap_to_reference_vertices_with_stats(
         lines: &[Line3D],
         tolerance: f64,
         z_policy: ZPolicy,
-    ) -> (Vec<Line3D>, usize) {
-        Self::pre_snap_impl(lines, tolerance, true, z_policy)
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<(Vec<Line3D>, usize)> {
+        Self::pre_snap_impl(lines, tolerance, true, z_policy, Some(execution_policy))
     }
 
     fn pre_snap_impl(
@@ -441,17 +459,31 @@ impl SnapNoder {
         tolerance: f64,
         use_index: bool,
         z_policy: ZPolicy,
-    ) -> (Vec<Line3D>, usize) {
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<(Vec<Line3D>, usize)> {
+        if let Some(policy) = execution_policy {
+            policy.check_cancelled("pre_snap")?;
+        }
         if lines.is_empty() || tolerance <= 0.0 {
-            return (lines.to_vec(), 0);
+            return Ok((lines.to_vec(), 0));
         }
 
-        let mut reference_vertices: Vec<Coord3D> = SnapNoder::new(0.0)
-            .node(lines.to_vec())
-            .into_iter()
-            .flat_map(|line| [line.start, line.end])
-            .collect();
+        let exact_noded = if let Some(policy) = execution_policy {
+            SnapNoder::new(0.0).node_with_execution_policy(lines.to_vec(), policy)?
+        } else {
+            SnapNoder::new(0.0).node(lines.to_vec())
+        };
+        let mut reference_vertices = Vec::with_capacity(exact_noded.len().saturating_mul(2));
+        for (index, line) in exact_noded.into_iter().enumerate() {
+            if let Some(policy) = execution_policy {
+                policy.check_cancelled_every("pre_snap", index)?;
+            }
+            reference_vertices.extend([line.start, line.end]);
+        }
 
+        if let Some(policy) = execution_policy {
+            policy.check_cancelled("pre_snap")?;
+        }
         reference_vertices.sort_unstable_by(|a, b| {
             a.x.total_cmp(&b.x)
                 .then(a.y.total_cmp(&b.y))
@@ -459,18 +491,21 @@ impl SnapNoder {
         });
         reference_vertices.dedup_by(|a, b| a.x == b.x && a.y == b.y);
 
-        let vertex_index = use_index.then(|| {
-            RStarBackend::new(
-                reference_vertices
-                    .iter()
-                    .enumerate()
-                    .map(|(index, vertex)| IndexedEnvelope {
-                        aabb: AABB::from_corners([vertex.x, vertex.y], [vertex.x, vertex.y]),
-                        index,
-                    })
-                    .collect(),
-            )
-        });
+        let vertex_index = if use_index {
+            let mut entries = Vec::with_capacity(reference_vertices.len());
+            for (index, vertex) in reference_vertices.iter().enumerate() {
+                if let Some(policy) = execution_policy {
+                    policy.check_cancelled_every("pre_snap", index)?;
+                }
+                entries.push(IndexedEnvelope {
+                    aabb: AABB::from_corners([vertex.x, vertex.y], [vertex.x, vertex.y]),
+                    index,
+                });
+            }
+            Some(RStarBackend::new(entries))
+        } else {
+            None
+        };
 
         let tolerance_sq = tolerance * tolerance;
         let mut snapped = Vec::with_capacity(lines.len());
@@ -478,7 +513,10 @@ impl SnapNoder {
         let mut vertex_candidates = 0;
         let z_resolver = SnapNoder::new(0.0).with_z_policy(z_policy);
 
-        for &line in lines {
+        for (line_index, &line) in lines.iter().enumerate() {
+            if let Some(policy) = execution_policy {
+                policy.check_cancelled_every("pre_snap", line_index)?;
+            }
             let (mut start, start_candidates) = if let Some(index) = vertex_index.as_ref() {
                 nearest_reference_vertex_indexed(line.start, &reference_vertices, index, tolerance)
             } else {
@@ -518,13 +556,20 @@ impl SnapNoder {
             points.push((1.0, end));
 
             {
-                let mut consider_vertex = |vertex: Coord3D| {
-                    vertex_candidates += 1;
+                let mut consider_vertex = |vertex: Coord3D| -> crate::Result<()> {
+                    vertex_candidates = vertex_candidates.checked_add(1).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "pre-snap candidate counter overflow".to_string(),
+                        }
+                    })?;
+                    if let Some(policy) = execution_policy {
+                        policy.check_cancelled_every("pre_snap", vertex_candidates)?;
+                    }
                     let vx = vertex.x - start.x;
                     let vy = vertex.y - start.y;
                     let t = (vx * dx + vy * dy) / len_sq;
                     if !(0.0..=1.0).contains(&t) {
-                        return;
+                        return Ok(());
                     }
 
                     let nearest_x = start.x + t * dx;
@@ -541,6 +586,7 @@ impl SnapNoder {
                             ),
                         ));
                     }
+                    Ok(())
                 };
 
                 if let Some(index) = vertex_index.as_ref().filter(|_| {
@@ -561,11 +607,11 @@ impl SnapNoder {
                         ],
                     );
                     for idx in index.locate_in_envelope_intersecting(&query) {
-                        consider_vertex(reference_vertices[idx]);
+                        consider_vertex(reference_vertices[idx])?;
                     }
                 } else {
                     for &vertex in &reference_vertices {
-                        consider_vertex(vertex);
+                        consider_vertex(vertex)?;
                     }
                 }
             }
@@ -590,7 +636,10 @@ impl SnapNoder {
             }
         }
 
-        (snapped, vertex_candidates)
+        if let Some(policy) = execution_policy {
+            policy.check_cancelled("pre_snap")?;
+        }
+        Ok((snapped, vertex_candidates))
     }
 
     pub(crate) fn normalize_and_dedup(&self, lines: &mut Vec<Line3D>) {
@@ -1258,9 +1307,11 @@ mod tests {
             .collect();
 
         let (linear, linear_candidates) =
-            SnapNoder::pre_snap_impl(&lines, 0.5, false, ZPolicy::InterpolateAlongEdge);
+            SnapNoder::pre_snap_impl(&lines, 0.5, false, ZPolicy::InterpolateAlongEdge, None)
+                .unwrap();
         let (indexed, indexed_candidates) =
-            SnapNoder::pre_snap_impl(&lines, 0.5, true, ZPolicy::InterpolateAlongEdge);
+            SnapNoder::pre_snap_impl(&lines, 0.5, true, ZPolicy::InterpolateAlongEdge, None)
+                .unwrap();
 
         assert_eq!(indexed.len(), linear.len());
         for (actual, expected) in indexed.iter().zip(linear) {
@@ -1270,6 +1321,31 @@ mod tests {
         }
         assert_eq!(linear_candidates, 240_000);
         assert_eq!(indexed_candidates, 1_100);
+    }
+
+    #[test]
+    fn pre_snap_reference_work_observes_cancellation() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        let lines = vec![
+            make_line(0.0, 0.0, 10.0, 0.0),
+            make_line(5.0, 0.1, 5.0, 1.0),
+        ];
+
+        assert!(matches!(
+            SnapNoder::pre_snap_impl(
+                &lines,
+                0.5,
+                true,
+                ZPolicy::InterpolateAlongEdge,
+                Some(&policy),
+            ),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "pre_snap"
+        ));
     }
 
     #[test]
