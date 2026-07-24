@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/tests/workloads/manifest-v1.schema.json",
+  "title": "geo-polygonize public workload manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workloads"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "workloads": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/workload" }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "clip_path": { "type": "string", "minLength": 1 },
+        "download_url": { "type": "string", "format": "uri" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "oneOf": [
+        { "required": ["clip_path"], "not": { "required": ["download_url"] } },
+        { "required": ["download_url"], "not": { "required": ["clip_path"] } }
+      ]
+    },
+    "size": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_strings", "segments", "coordinates"],
+      "properties": {
+        "line_strings": { "type": "integer", "minimum": 0 },
+        "segments": { "type": "integer", "minimum": 0 },
+        "coordinates": { "type": "integer", "minimum": 0 },
+        "expected_candidate_class": {
+          "enum": ["sparse", "moderate", "dense", "pathological"]
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "description", "domain", "source_url", "license", "attribution",
+        "artifact", "coordinate_reference", "units", "compatibility_class",
+        "permitted_profiles", "retained_result_families", "size"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "description": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string", "minLength": 1 },
+        "source_url": { "type": "string", "format": "uri" },
+        "license": { "type": "string", "minLength": 1 },
+        "attribution": { "type": "string", "minLength": 1 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "coordinate_reference": { "type": "string", "minLength": 1 },
+        "units": { "type": "string", "minLength": 1 },
+        "compatibility_class": {
+          "enum": ["parity", "expected-divergence", "invalid", "ambiguous"]
+        },
+        "permitted_profiles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["already-noded", "floating", "iterative-grid", "certified-fixed"]
+          }
+        },
+        "retained_result_families": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["polygons", "dangles", "cut-edges", "invalid-rings", "provenance", "diagnostics"]
+          }
+        },
+        "size": { "$ref": "#/$defs/size" }
+      }
+    }
+  }
+}
