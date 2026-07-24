@@ -1,4 +1,4 @@
-use crate::error::{PolygonizeError, Result};
+use crate::error::{NodingValidationKind, PolygonizeError, Result};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::ExecutionPolicy;
 use crate::types::Line3D;
@@ -55,6 +55,7 @@ impl ValidatingNoder {
                 return failure(
                     first_index,
                     first_index,
+                    NodingValidationKind::ZeroLengthSegment,
                     "zero-length segment is not normalized".to_string(),
                 );
             }
@@ -87,6 +88,7 @@ impl ValidatingNoder {
                         return failure(
                             first_index,
                             second_index,
+                            NodingValidationKind::InteriorIntersection,
                             format!(
                                 "intersection ({}, {}) is not an endpoint of both segments",
                                 intersection.x, intersection.y
@@ -97,6 +99,7 @@ impl ValidatingNoder {
                         return failure(
                             first_index,
                             second_index,
+                            NodingValidationKind::CollinearOverlap,
                             format!(
                                 "collinear overlap from ({}, {}) to ({}, {}) is not normalized",
                                 intersection.start.x,
@@ -134,10 +137,16 @@ fn is_endpoint(line: &Line3D, point: Coord<f64>) -> bool {
         || (line.end.x == point.x && line.end.y == point.y)
 }
 
-fn failure(first_segment: usize, second_segment: usize, reason: String) -> Result<()> {
+fn failure(
+    first_segment: usize,
+    second_segment: usize,
+    kind: NodingValidationKind,
+    reason: String,
+) -> Result<()> {
     Err(PolygonizeError::NodingValidationFailure {
         first_segment,
         second_segment,
+        kind,
         reason,
     })
 }

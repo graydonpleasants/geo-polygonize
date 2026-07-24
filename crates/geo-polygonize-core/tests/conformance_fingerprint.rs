@@ -1,8 +1,8 @@
 use geo_polygonize_core::{
     normalize_polygonize_error, polygonize, polygonize_line_strings, polygonize_with_workspace,
     Coord3D, DeterminismOptions, DiagnosticsOptions, Line3D, NodingGuarantee, NodingOptions,
-    Polygon3D, PolygonizerOptions, PolygonizerResult, PolygonizerWorkspace, ProvenanceOptions,
-    TopologyFingerprintV1,
+    NodingValidationKind, Polygon3D, PolygonizeError, PolygonizerOptions, PolygonizerResult,
+    PolygonizerWorkspace, ProvenanceOptions, TopologyFingerprintV1,
 };
 use geo_types::LineString;
 use serde::Deserialize;
@@ -400,6 +400,28 @@ fn validation_and_option_failures_normalize_deterministically() {
         normalize_polygonize_error(&polygonize(Vec::<Line3D>::new(), &options).unwrap_err());
     assert_eq!(first, second);
     assert_eq!(first.field.as_deref(), Some("pre_snap_tolerance"));
+}
+
+#[test]
+fn normalized_codes_do_not_depend_on_message_wording() {
+    let validation = PolygonizeError::NodingValidationFailure {
+        first_segment: 1,
+        second_segment: 2,
+        kind: NodingValidationKind::CollinearOverlap,
+        reason: "wording may change freely".to_string(),
+    };
+    assert_eq!(
+        normalize_polygonize_error(&validation).code,
+        "collinear_overlap"
+    );
+
+    let non_finite = PolygonizeError::NonFiniteCoordinate {
+        reason: "localized message".to_string(),
+    };
+    assert_eq!(
+        normalize_polygonize_error(&non_finite).code,
+        "non_finite_coordinate"
+    );
 }
 
 #[test]

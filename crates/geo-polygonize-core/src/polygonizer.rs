@@ -798,7 +798,7 @@ fn validate_lines(lines: &[Line3D], execution_policy: &ExecutionPolicy) -> Resul
             line.end.z,
         ] {
             if !value.is_finite() {
-                return Err(PolygonizeError::InvalidGeometry {
+                return Err(PolygonizeError::NonFiniteCoordinate {
                     reason: "line coordinates must be finite".to_string(),
                 });
             }
@@ -2258,10 +2258,15 @@ mod tests {
             Coord3D::new(1.0, 0.0, 0.0),
             1,
         );
-        assert!(matches!(
-            polygonize([line], &PolygonizerOptions::default()),
-            Err(PolygonizeError::InvalidGeometry { .. })
-        ));
+        let error = polygonize([line], &PolygonizerOptions::default()).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            crate::error::PolygonizeErrorKind::InvalidGeometry
+        );
+        assert_eq!(
+            crate::normalize_polygonize_error(&error).code,
+            "non_finite_coordinate"
+        );
     }
 
     #[test]
