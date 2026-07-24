@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":"z-policy"},"geometry":{"type":"MultiLineString","coordinates":[[[0,0,0],[2,0,2]],[[2,0,5],[2,2,7]],[[2,2,7],[0,2,9]],[[0,2,9],[0,0,1]],[[0,0,3],[2,2,11]]]}}]}

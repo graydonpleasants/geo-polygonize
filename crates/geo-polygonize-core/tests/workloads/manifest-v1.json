@@ -1,4 +1,190 @@
 {
   "schema_version": 1,
-  "workloads": [ ]
+  "workloads": [
+    {
+      "id": "already-noded-coverage-v1",
+      "description": "Synthetic already-noded coverage with four adjacent faces.",
+      "domain": "coverage",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/already-noded-coverage.geojson",
+        "sha256": "bc8a7f64903c50fd6da5619926e80f23c5672b945dedf63db1ac8f330a72a89e"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded"],
+      "options": [{"node_input": false}],
+      "retained_result_families": ["polygons", "provenance", "diagnostics"],
+      "size": {"line_strings": 6, "segments": 6, "coordinates": 12, "expected_candidate_class": "sparse"}
+    },
+    {
+      "id": "network-linework-v1",
+      "description": "Synthetic noded road-network junctions and diagonals.",
+      "domain": "network",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/network-linework.geojson",
+        "sha256": "93d10a61d937c2fd2ff4cdc2a584589050de946b4f53a29b136a8a18ff9515fb"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded", "floating"],
+      "options": [{"node_input": false}, {"node_input": true}],
+      "retained_result_families": ["dangles", "cut-edges", "diagnostics"],
+      "size": {"line_strings": 6, "segments": 6, "coordinates": 12, "expected_candidate_class": "moderate"}
+    },
+    {
+      "id": "dirty-cad-v1",
+      "description": "Synthetic CAD-like gaps, overshoots, and crossing linework.",
+      "domain": "cad",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/dirty-cad.geojson",
+        "sha256": "3dcf44e4a4bf9b5b6b52aee5973ff1e108d7f4f7788305db35b542dd9c992932"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "expected-divergence",
+      "permitted_profiles": ["floating", "iterative-grid"],
+      "options": [
+        {"node_input": true},
+        {"node_input": true, "pre_snap_tolerance": 0.001, "precision_model": {"type": "fixed_grid", "grid_size": 0.001}, "snap_strategy": "Grid"}
+      ],
+      "retained_result_families": ["polygons", "dangles", "cut-edges", "diagnostics"],
+      "size": {"line_strings": 6, "segments": 6, "coordinates": 12, "expected_candidate_class": "moderate"}
+    },
+    {
+      "id": "long-sparse-v1",
+      "description": "One long sparse polyline spanning a wide envelope.",
+      "domain": "hydrographic-like",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/long-sparse.geojson",
+        "sha256": "e2fb0e10aaab9dd4113fc869f7380f0536b5ccc5b015218e87e3c48422e79efc"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded", "floating"],
+      "options": [{"node_input": false}, {"node_input": true}],
+      "retained_result_families": ["dangles", "diagnostics"],
+      "size": {"line_strings": 1, "segments": 10, "coordinates": 11, "expected_candidate_class": "sparse"}
+    },
+    {
+      "id": "dense-crossings-v1",
+      "description": "Dense crossing-heavy linework concentrated around one origin.",
+      "domain": "stress",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/dense-crossings.geojson",
+        "sha256": "fda31e86d7f2fb16f63778803142be4e2160f31051fea70cf23356042b9f875f"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["floating", "certified-fixed"],
+      "options": [
+        {"node_input": true},
+        {"node_input": true, "precision_model": {"type": "fixed_grid", "grid_size": 0.001}, "noding": {"guarantee": "CertifiedFixedPrecision"}}
+      ],
+      "retained_result_families": ["polygons", "dangles", "diagnostics"],
+      "size": {"line_strings": 8, "segments": 8, "coordinates": 16, "expected_candidate_class": "dense"}
+    },
+    {
+      "id": "overlaps-duplicates-v1",
+      "description": "Coincident, duplicate, and partially overlapping boundaries.",
+      "domain": "boundary-cleaning",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/overlaps-duplicates.geojson",
+        "sha256": "f42e17ac3f299391963fd7ff2f53939ab8d7e26d05b752777595abfa98f93679"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["floating", "certified-fixed"],
+      "options": [
+        {"node_input": true},
+        {"node_input": true, "precision_model": {"type": "fixed_grid", "grid_size": 0.001}, "noding": {"guarantee": "CertifiedFixedPrecision"}}
+      ],
+      "retained_result_families": ["polygons", "provenance", "diagnostics"],
+      "size": {"line_strings": 6, "segments": 6, "coordinates": 12, "expected_candidate_class": "dense"}
+    },
+    {
+      "id": "disconnected-nested-rings-v1",
+      "description": "Three disconnected but spatially nested closed rings.",
+      "domain": "containment",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/disconnected-nested-rings.geojson",
+        "sha256": "7b8663339764a61832f9b9ad3215d073fff94e64e047d42656fcbabbfb711b7f"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded"],
+      "options": [{"node_input": false}],
+      "retained_result_families": ["polygons", "provenance", "diagnostics"],
+      "size": {"line_strings": 3, "segments": 12, "coordinates": 15, "expected_candidate_class": "sparse"}
+    },
+    {
+      "id": "extreme-scale-v1",
+      "description": "Large translation and tiny-scale rings in one workload.",
+      "domain": "numeric-robustness",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/extreme-scale.geojson",
+        "sha256": "d6e87ecd473d1952c5730082f4831248e6e53d7bee9a199200bce1a9fb8d48bd"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "mixed synthetic units",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded", "floating"],
+      "options": [{"node_input": false}, {"node_input": true}],
+      "retained_result_families": ["polygons", "diagnostics"],
+      "size": {"line_strings": 2, "segments": 8, "coordinates": 10, "expected_candidate_class": "sparse"}
+    },
+    {
+      "id": "z-policy-cases-v1",
+      "description": "2.5D boundaries with conflicting Z values at shared XY coordinates.",
+      "domain": "z-semantics",
+      "source_url": "https://github.com/graydonpleasants/geo-polygonize",
+      "license": "MIT",
+      "attribution": "geo-polygonize contributors; synthetic fixture",
+      "artifact": {
+        "clip_path": "clips/z-policy-cases.geojson",
+        "sha256": "e55914d9d69c37ba96989e2738d9a1d5fb3dd3e15cbcc78e3dfac23f172a7b21"
+      },
+      "coordinate_reference": "local Cartesian",
+      "units": "units",
+      "compatibility_class": "expected-divergence",
+      "permitted_profiles": ["floating"],
+      "options": [
+        {"node_input": true, "z": {"policy": "Ignore"}},
+        {"node_input": true, "z": {"policy": "InterpolateAlongEdge"}},
+        {"node_input": true, "z": {"policy": "PreferNearestEndpoint"}},
+        {"node_input": true, "z": {"policy": "ErrorOnConflict"}}
+      ],
+      "retained_result_families": ["polygons", "provenance", "diagnostics"],
+      "size": {"line_strings": 5, "segments": 5, "coordinates": 10, "expected_candidate_class": "moderate"}
+    }
+  ]
 }

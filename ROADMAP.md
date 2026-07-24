@@ -286,16 +286,16 @@ interval and the same workspace can subsequently execute a valid fixture.
 Create a redistributable corpus with small checked-in clips and optional larger
 checksum-pinned downloads covering:
 
-- [ ] already-noded cadastral or coverage boundaries;
-- [ ] OSM/network linework;
-- [ ] CAD/CFB dirty linework;
+- [x] already-noded cadastral or coverage boundaries;
+- [x] OSM/network linework;
+- [x] CAD/CFB dirty linework;
 - [ ] contour or hydrographic boundaries;
-- [ ] long sparse polylines;
-- [ ] dense crossing-heavy linework;
-- [ ] collinear overlaps and duplicate boundaries;
-- [ ] disconnected but spatially nested rings;
-- [ ] extreme translations, coordinate spans, and grid sizes;
-- [ ] 2.5D inputs exercising every Z policy.
+- [x] long sparse polylines;
+- [x] dense crossing-heavy linework;
+- [x] collinear overlaps and duplicate boundaries;
+- [x] disconnected but spatially nested rings;
+- [x] extreme translations, coordinate spans, and grid sizes;
+- [x] 2.5D inputs exercising every Z policy.
 
 Every workload must include provenance/license metadata, expected contract class,
 and the precision/noding policy being tested.

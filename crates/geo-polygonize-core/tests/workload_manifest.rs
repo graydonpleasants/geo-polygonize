@@ -1,3 +1,4 @@
+use geo_polygonize_core::PolygonizerOptions;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -24,6 +25,7 @@ struct Workload {
     units: String,
     compatibility_class: CompatibilityClass,
     permitted_profiles: Vec<Profile>,
+    options: Vec<PolygonizerOptions>,
     retained_result_families: Vec<ResultFamily>,
     size: Size,
 }
@@ -112,8 +114,16 @@ fn validate(manifest: &Manifest) -> Result<(), String> {
         if !workload.source_url.starts_with("https://") {
             return Err(format!("{} source URL must use HTTPS", workload.id));
         }
-        if workload.permitted_profiles.is_empty() || workload.retained_result_families.is_empty() {
+        if workload.permitted_profiles.is_empty()
+            || workload.options.is_empty()
+            || workload.retained_result_families.is_empty()
+        {
             return Err(format!("{} has an empty contract list", workload.id));
+        }
+        for options in &workload.options {
+            options
+                .validate()
+                .map_err(|error| format!("{} options: {error}", workload.id))?;
         }
         let _ = (
             &workload.compatibility_class,
@@ -170,7 +180,7 @@ fn public_workload_manifest_is_valid() {
 fn validator_rejects_duplicate_ids_missing_licenses_bad_checksums_and_profiles() {
     let workload = |id: &str, license: &str, sha256: &str, profile: &str| {
         format!(
-            r#"{{"id":"{id}","description":"clip","domain":"test","source_url":"https://example.com","license":"{license}","attribution":"test","artifact":{{"download_url":"https://example.com/clip","sha256":"{sha256}"}},"coordinate_reference":"EPSG:4326","units":"degrees","compatibility_class":"parity","permitted_profiles":["{profile}"],"retained_result_families":["polygons"],"size":{{"line_strings":1,"segments":1,"coordinates":2}}}}"#
+            r#"{{"id":"{id}","description":"clip","domain":"test","source_url":"https://example.com","license":"{license}","attribution":"test","artifact":{{"download_url":"https://example.com/clip","sha256":"{sha256}"}},"coordinate_reference":"EPSG:4326","units":"degrees","compatibility_class":"parity","permitted_profiles":["{profile}"],"options":[{{}}],"retained_result_families":["polygons"],"size":{{"line_strings":1,"segments":1,"coordinates":2}}}}"#
         )
     };
     let hash = "0".repeat(64);
