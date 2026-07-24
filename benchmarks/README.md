@@ -16,3 +16,21 @@ Records pin the commit, compiler, operating system, architecture, implementation
 features, and dependency versions. Phase names and throughput units are explicit
 strings so different runners can report their native phases without pretending
 unlike pipelines are equivalent.
+
+The already-noded runner requires an externally established fingerprint and
+reference dependency version, validates that the input is fully noded before
+timing, and rejects any timed sample whose fingerprint changes:
+
+```bash
+cargo run -p geo-polygonize-core --release --example benchmark_record -- \
+  --workload already-noded-coverage-v1 \
+  --samples 30 \
+  --expected-fingerprint-sha256 <64-lowercase-hex-digits> \
+  --peak-rss-bytes <externally-measured-peak> \
+  --reference-dependency geos=3.13.1 \
+  --output target/benchmark-record.json
+```
+
+Peak RSS remains an explicit harness input because the Rust standard library
+does not expose a portable process peak. The runner measures allocations with
+the repository's existing `dhat` allocator.

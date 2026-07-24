@@ -1,4 +1,5 @@
-use geo_polygonize_core::PolygonizerOptions;
+use geo_polygonize_core::{polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions};
+use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -174,6 +175,67 @@ fn public_workload_manifest_is_valid() {
     let manifest: Manifest =
         serde_json::from_slice(&std::fs::read(root.join("manifest-v1.json")).unwrap()).unwrap();
     validate(&manifest).unwrap();
+}
+
+#[test]
+fn already_noded_workloads_pass_full_noding_validation() {
+    let root = workload_root();
+    let manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(root.join("manifest-v1.json")).unwrap()).unwrap();
+    for workload in manifest.workloads.iter().filter(|workload| {
+        workload
+            .permitted_profiles
+            .iter()
+            .any(|profile| matches!(profile, Profile::AlreadyNoded))
+    }) {
+        let path = workload.artifact.clip_path.as_ref().unwrap();
+        let mut options = workload
+            .options
+            .iter()
+            .find(|options| !options.node_input)
+            .unwrap()
+            .clone();
+        options.noding.guarantee = NodingGuarantee::Validate;
+        polygonize(load_segments(&root.join(path)), &options)
+            .unwrap_or_else(|error| panic!("{} is not fully noded: {error}", workload.id));
+    }
+}
+
+fn load_segments(path: &Path) -> Vec<Line3D> {
+    let geojson: GeoJson = std::fs::read_to_string(path).unwrap().parse().unwrap();
+    let GeoJson::FeatureCollection(collection) = geojson else {
+        panic!("workload must be a FeatureCollection");
+    };
+    let mut lines = Vec::new();
+    for feature in collection.features {
+        match feature.geometry.unwrap().value {
+            GeoJsonValue::LineString(line) => lines.push(line),
+            GeoJsonValue::MultiLineString(feature_lines) => lines.extend(feature_lines),
+            _ => panic!("workload must contain line strings"),
+        }
+    }
+    lines
+        .into_iter()
+        .enumerate()
+        .flat_map(|(index, line)| {
+            line.windows(2)
+                .map(move |pair| {
+                    let coordinate = |position: &[f64]| {
+                        Coord3D::new(
+                            position[0],
+                            position[1],
+                            position.get(2).copied().unwrap_or_default(),
+                        )
+                    };
+                    Line3D::new(
+                        coordinate(&pair[0]),
+                        coordinate(&pair[1]),
+                        u32::try_from(index + 1).unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 #[test]
