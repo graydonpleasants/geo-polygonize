@@ -301,6 +301,48 @@ def test_polygonize_with_options():
 
     print("polygonize_with_options API test passed!")
 
+def test_output_modes_and_execution_limits():
+    from geo_polygonize import polygonize_with_options
+
+    coords = np.array([
+        0.0, 0.0, 1.0, 0.0,
+        1.0, 0.0, 1.0, 1.0,
+        1.0, 1.0, 0.0, 1.0,
+        0.0, 1.0, 0.0, 0.0,
+    ], dtype=np.float64)
+    offsets = np.array([0, 2, 4, 6, 8], dtype=np.uint32)
+
+    buffers = polygonize_with_options(coords=coords, offsets=offsets, output="buffers")
+    assert "flat_coords" in buffers
+    assert "polygons" not in buffers
+    assert "topology_fingerprint" not in buffers
+
+    objects = polygonize_with_options(coords=coords, offsets=offsets, output="objects")
+    assert len(objects["polygons"]) == 1
+    assert "flat_coords" not in objects
+    assert "topology_fingerprint" not in objects
+
+    report = polygonize_with_options(coords=coords, offsets=offsets)
+    assert "flat_coords" in report
+    assert len(report["polygons"]) == 1
+    assert report["topology_fingerprint"]["schema_version"] == 1
+    assert set(report["binding_timings"]) == {
+        "thread_spawn_ms",
+        "buffer_conversion_ms",
+        "fingerprint_ms",
+        "python_objects_ms",
+    }
+
+    with pytest.raises(RuntimeError, match="input_segments"):
+        polygonize_with_options(
+            coords=coords,
+            offsets=offsets,
+            execution_limits={"max_input_segments": 3},
+        )
+
+    with pytest.raises(Exception, match="output must be"):
+        polygonize_with_options(coords=coords, offsets=offsets, output="unknown")
+
 def test_3d_to_2d_slicing():
     print("\nTesting 3D to 2D slicing (stride=2, shape=(N, 3))...")
     # 2D array with 3 columns, but we want 2D polygonization (XY)
