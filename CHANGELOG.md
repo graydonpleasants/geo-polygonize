@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.76.2](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.76.1...geo-polygonize-v0.76.2) (2026-07-24)
+
+
+### Bug Fixes
+
+* **core:** bound cancellation across preprocessing and grid construction ([#990](https://github.com/graydonpleasants/geo-polygonize/issues/990)) ([8820023](https://github.com/graydonpleasants/geo-polygonize/commit/88200231d4ba4f5451df347f35a08a79e937095d))
+* **core:** enforce execution limits before allocation growth ([#989](https://github.com/graydonpleasants/geo-polygonize/issues/989)) ([30d16cc](https://github.com/graydonpleasants/geo-polygonize/commit/30d16cca4804c8658960a0adac3965277d0c9676))
+* **core:** expose resource and cancellation FFI statuses ([#992](https://github.com/graydonpleasants/geo-polygonize/issues/992)) ([0b31ce8](https://github.com/graydonpleasants/geo-polygonize/commit/0b31ce87b40dc6982675a80b25894f1eb98c0507))
+* **wasm:** preserve runtime selection in cancellable workers ([#998](https://github.com/graydonpleasants/geo-polygonize/issues/998)) ([924d9df](https://github.com/graydonpleasants/geo-polygonize/commit/924d9df064da9675146b4665df9a9b67c2d60602))
+
 ## [0.76.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.76.0...geo-polygonize-v0.76.1) (2026-07-24)
 
 
