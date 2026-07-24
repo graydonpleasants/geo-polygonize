@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.76.1](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.76.0...geo-polygonize-v0.76.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **core:** enforce noding limits inside candidate scans ([75aedde](https://github.com/graydonpleasants/geo-polygonize/commit/75aeddec627c7829635a7f321ae5676674f81889))
+* **core:** enforce noding limits inside candidate scans ([#988](https://github.com/graydonpleasants/geo-polygonize/issues/988)) ([d214134](https://github.com/graydonpleasants/geo-polygonize/commit/d21413494feaba5a7b9d68d610672ab64b566709))
+* **core:** preserve edge identity in topology fingerprints ([#986](https://github.com/graydonpleasants/geo-polygonize/issues/986)) ([7256ffe](https://github.com/graydonpleasants/geo-polygonize/commit/7256ffefef6615d77b6be938ece836bd9cf87fa9))
+
 ## [0.76.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.75.0...geo-polygonize-v0.76.0) (2026-07-23)
 
 
