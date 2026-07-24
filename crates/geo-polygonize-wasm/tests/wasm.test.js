@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import init, { polygonize, cfbRobustOptions } from '../../../dist/standard/es/index.js';
+import { selectRuntime } from '../../../pkg-wrapper/runtime.ts';
 
 describe('WASM Polygonizer', () => {
     it('should publish declaration paths referenced by wrapper types', () => {
@@ -16,6 +17,22 @@ describe('WASM Polygonizer', () => {
             await import('../../../dist/standard/es/index.js');
         expect(polygonizeWithOptionsAsync).toBeTypeOf('function');
         expect(polygonizeReportWithOptionsAsync).toBeTypeOf('function');
+    });
+
+    it('should select the same scalar and SIMD variants for direct and worker runtimes', () => {
+        expect(selectRuntime('scalar', 'simd', false)).toEqual({
+            variant: 'scalar',
+            module: 'scalar',
+        });
+        expect(selectRuntime('scalar', 'simd', true)).toEqual({
+            variant: 'simd',
+            module: 'simd',
+        });
+
+        const worker = readFileSync(resolve('dist/standard/es/polygonize_worker.js'), 'utf8');
+        for (const wasm of ['dist/geo_polygonize.wasm', 'dist/geo_polygonize_simd.wasm']) {
+            expect(worker).toContain(readFileSync(resolve(wasm)).toString('base64'));
+        }
     });
 
     it('should initialize slim with module alias options', async () => {
