@@ -100,7 +100,9 @@ fn set_polygonize_error(error: &PolygonizeError) -> i32 {
         PolygonizeError::ResourceLimitExceeded { .. } => PolygonizeFfiStatus::Unknown,
         PolygonizeError::Cancelled { .. } => PolygonizeFfiStatus::Unknown,
         PolygonizeError::InvalidArgumentType { .. } => PolygonizeFfiStatus::InvalidOption,
-        PolygonizeError::InvalidGeometry { .. } => PolygonizeFfiStatus::InvalidGeometry,
+        PolygonizeError::InvalidGeometry { .. } | PolygonizeError::NonFiniteCoordinate { .. } => {
+            PolygonizeFfiStatus::InvalidGeometry
+        }
         PolygonizeError::TopologyFailure { .. }
         | PolygonizeError::ZConflict { .. }
         | PolygonizeError::NodingValidationFailure { .. } => PolygonizeFfiStatus::Topology,
@@ -567,6 +569,7 @@ mod tests {
         set_polygonize_error(&PolygonizeError::NodingValidationFailure {
             first_segment: 3,
             second_segment: 8,
+            kind: geo_polygonize_core::NodingValidationKind::InteriorIntersection,
             reason: "intersection".to_string(),
         });
 

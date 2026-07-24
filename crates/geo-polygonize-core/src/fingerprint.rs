@@ -3,7 +3,9 @@
 //! This is intentionally `#[doc(hidden)]`: it is a shared contract for the
 //! repository's adapters, not an additional stable polygonization entrypoint.
 
-use crate::{Coord3D, PolygonizeError, PolygonizerOptions, PolygonizerResult};
+use crate::{
+    Coord3D, NodingValidationKind, PolygonizeError, PolygonizerOptions, PolygonizerResult,
+};
 use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -227,13 +229,12 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             actual: Some(actual.clone()),
             ..base("invalid_argument", "invalid_argument_type", "options")
         },
-        PolygonizeError::InvalidGeometry { reason } => base(
+        PolygonizeError::InvalidGeometry { .. } => {
+            base("invalid_geometry", "invalid_geometry", "input_validation")
+        }
+        PolygonizeError::NonFiniteCoordinate { .. } => base(
             "invalid_geometry",
-            if reason == "line coordinates must be finite" {
-                "non_finite_coordinate"
-            } else {
-                "invalid_geometry"
-            },
+            "non_finite_coordinate",
             "input_validation",
         ),
         PolygonizeError::InvalidBufferShape { .. } => base(
@@ -276,7 +277,8 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
         PolygonizeError::NodingValidationFailure {
             first_segment,
             second_segment,
-            reason,
+            kind,
+            ..
         } => NormalizedPolygonizeErrorV1 {
             witness: Some(ErrorWitnessV1 {
                 ids: vec![id_usize(*first_segment), id_usize(*second_segment)],
@@ -284,14 +286,10 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             }),
             ..base(
                 "topology",
-                if reason.starts_with("zero-length") {
-                    "zero_length_segment"
-                } else if reason.starts_with("collinear overlap") {
-                    "collinear_overlap"
-                } else if reason.starts_with("intersection") {
-                    "interior_intersection"
-                } else {
-                    "noding_validation_failure"
+                match kind {
+                    NodingValidationKind::ZeroLengthSegment => "zero_length_segment",
+                    NodingValidationKind::CollinearOverlap => "collinear_overlap",
+                    NodingValidationKind::InteriorIntersection => "interior_intersection",
                 },
                 "noding_validation",
             )

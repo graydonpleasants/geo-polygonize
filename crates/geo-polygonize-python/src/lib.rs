@@ -47,6 +47,7 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
             "Invalid argument type for {field}: expected {expected}, got {actual}"
         )),
         PolygonizeError::InvalidGeometry { reason } => PolygonizeGeometryError::new_err(reason),
+        PolygonizeError::NonFiniteCoordinate { reason } => PolygonizeGeometryError::new_err(reason),
         PolygonizeError::InvalidBufferShape { reason } => PolygonizeTypeError::new_err(reason),
         PolygonizeError::ResourceLimitExceeded { .. } => PyRuntimeError::new_err(err.to_string()),
         PolygonizeError::Cancelled { .. } => PyRuntimeError::new_err(err.to_string()),

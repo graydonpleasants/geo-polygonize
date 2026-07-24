@@ -38,7 +38,9 @@ impl PolygonizerWasmError {
 pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
     let name = match &e {
         PolygonizeError::InvalidArgumentType { .. } => "InvalidArgumentType".to_string(),
-        PolygonizeError::InvalidGeometry { .. } => "InvalidGeometry".to_string(),
+        PolygonizeError::InvalidGeometry { .. } | PolygonizeError::NonFiniteCoordinate { .. } => {
+            "InvalidGeometry".to_string()
+        }
         PolygonizeError::InvalidBufferShape { .. } => "InvalidBufferShape".to_string(),
         PolygonizeError::ResourceLimitExceeded { .. } => "ResourceLimitExceeded".to_string(),
         PolygonizeError::Cancelled { .. } => "Cancelled".to_string(),

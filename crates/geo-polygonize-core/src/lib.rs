@@ -38,7 +38,7 @@ pub use diagnostics::{
     PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
     POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION,
 };
-pub use error::{PolygonizeError, Result};
+pub use error::{NodingValidationKind, PolygonizeError, PolygonizeErrorKind, Result};
 #[doc(hidden)]
 pub use fingerprint::{
     normalize_polygonize_error, CoordinateFingerprintV1, ErrorWitnessV1, FingerprintDiffV1,
