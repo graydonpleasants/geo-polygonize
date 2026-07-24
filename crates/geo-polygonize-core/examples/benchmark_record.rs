@@ -7,7 +7,7 @@ use geo_polygonize_core::{
     PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,11 +25,9 @@ struct Args {
     #[arg(long)]
     samples: usize,
     #[arg(long)]
-    expected_fingerprint_sha256: String,
-    #[arg(long)]
     peak_rss_bytes: u64,
-    #[arg(long = "reference-dependency", required = true)]
-    reference_dependencies: Vec<String>,
+    #[arg(long)]
+    reference_result: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -110,6 +108,48 @@ struct WorkloadSize {
     coordinates: usize,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReferenceResult {
+    schema_version: u32,
+    workload_id: String,
+    lane: String,
+    implementation: ReferenceImplementation,
+    fingerprint_sha256: String,
+    topology: BenchmarkTopologyFingerprintV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReferenceImplementation {
+    name: String,
+    version: String,
+    dependencies: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BenchmarkTopologyFingerprintV1 {
+    polygons: Vec<BenchmarkPolygonV1>,
+    dangles: Vec<Vec<BenchmarkCoordinateV1>>,
+    cut_edges: Vec<Vec<BenchmarkCoordinateV1>>,
+    invalid_rings: Vec<Vec<BenchmarkCoordinateV1>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BenchmarkCoordinateV1 {
+    x: String,
+    y: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BenchmarkPolygonV1 {
+    exterior: Vec<BenchmarkCoordinateV1>,
+    interiors: Vec<Vec<BenchmarkCoordinateV1>>,
+}
+
 #[derive(Default)]
 struct Samples {
     elapsed: Vec<Duration>,
@@ -175,13 +215,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut correctness_options = options.clone();
     correctness_options.diagnostics.enabled = true;
     let correctness = polygonize(lines.clone(), &correctness_options)?;
-    let expected = parse_sha256(&args.expected_fingerprint_sha256)?;
-    let actual = fingerprint_sha256(&correctness, &options)?;
-    if actual != expected {
+    let reference: ReferenceResult =
+        serde_json::from_slice(&std::fs::read(&args.reference_result)?)?;
+    validate_reference(&reference, &workload.id, args.lane)?;
+    let expected = parse_sha256(&reference.fingerprint_sha256)?;
+    let reference_hash = benchmark_fingerprint_sha256(&reference.topology);
+    if reference_hash != expected {
+        return Err("reference result fingerprint does not match its topology payload".into());
+    }
+    let actual_topology = benchmark_topology(&correctness, &options)?;
+    let actual = benchmark_fingerprint_sha256(&actual_topology);
+    if actual_topology != reference.topology {
         return Err(format!(
             "correctness gate failed: expected {}, observed {}",
             hex(&expected),
-            hex(&actual)
+            hex(&actual),
         )
         .into());
     }
@@ -202,7 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let after = dhat::HeapStats::get();
         samples.allocations += after.total_blocks - before.total_blocks;
         samples.allocated_bytes += after.total_bytes - before.total_bytes;
-        if fingerprint_sha256(&result, &options)? != expected {
+        if benchmark_fingerprint_sha256(&benchmark_topology(&result, &options)?) != expected {
             return Err("timed sample fingerprint diverged after correctness gate".into());
         }
         let phase = &result
@@ -223,7 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("correctness run omitted diagnostics")?;
     let p50 = percentile(&samples.elapsed, 50);
     let p95 = percentile(&samples.elapsed, 95);
-    let dependencies = dependencies(&args.reference_dependencies)?;
+    let dependencies = dependencies(&reference)?;
     let commit = command("git", &["rev-parse", "HEAD"])?;
     let output_coordinates = output_coordinates(&correctness);
     let record = json!({
@@ -353,12 +401,95 @@ fn coordinate(position: &[f64]) -> Result<Coord3D, Box<dyn std::error::Error>> {
     ))
 }
 
-fn fingerprint_sha256(
+fn benchmark_topology(
     result: &PolygonizerResult,
     options: &PolygonizerOptions,
-) -> geo_polygonize_core::Result<[u8; 32]> {
+) -> geo_polygonize_core::Result<BenchmarkTopologyFingerprintV1> {
     let fingerprint = TopologyFingerprintV1::try_from_result(result, options)?;
-    Ok(Sha256::digest(serde_json::to_vec(&fingerprint).expect("fingerprint serializes")).into())
+    let mut polygons: Vec<_> = fingerprint
+        .polygons
+        .into_iter()
+        .map(|polygon| {
+            let mut interiors: Vec<_> = polygon
+                .interiors
+                .into_iter()
+                .map(|ring| canonical_benchmark_ring(xy(ring.coordinates)))
+                .collect();
+            interiors.sort();
+            BenchmarkPolygonV1 {
+                exterior: canonical_benchmark_ring(xy(polygon.exterior)),
+                interiors,
+            }
+        })
+        .collect();
+    polygons.sort();
+    Ok(BenchmarkTopologyFingerprintV1 {
+        polygons,
+        dangles: fingerprint.dangles.into_iter().map(xy).collect(),
+        cut_edges: fingerprint.cut_edges.into_iter().map(xy).collect(),
+        invalid_rings: fingerprint.invalid_rings.into_iter().map(xy).collect(),
+    })
+}
+
+fn xy(
+    coordinates: Vec<geo_polygonize_core::CoordinateFingerprintV1>,
+) -> Vec<BenchmarkCoordinateV1> {
+    coordinates
+        .into_iter()
+        .map(|coordinate| BenchmarkCoordinateV1 {
+            x: coordinate.x,
+            y: coordinate.y,
+        })
+        .collect()
+}
+
+fn canonical_benchmark_ring(mut ring: Vec<BenchmarkCoordinateV1>) -> Vec<BenchmarkCoordinateV1> {
+    if ring.len() > 1 && ring.first() == ring.last() {
+        ring.pop();
+    }
+    if ring.is_empty() {
+        return ring;
+    }
+    let forward = rotate_benchmark_ring(&ring);
+    ring.reverse();
+    let backward = rotate_benchmark_ring(&ring);
+    let mut result = forward.min(backward);
+    result.push(result[0].clone());
+    result
+}
+
+fn rotate_benchmark_ring(ring: &[BenchmarkCoordinateV1]) -> Vec<BenchmarkCoordinateV1> {
+    let size = ring.len();
+    let (mut left, mut right, mut offset) = (0, 1, 0);
+    while left < size && right < size && offset < size {
+        match ring[(left + offset) % size].cmp(&ring[(right + offset) % size]) {
+            std::cmp::Ordering::Equal => offset += 1,
+            std::cmp::Ordering::Less => {
+                right += offset + 1;
+                if right == left {
+                    right += 1;
+                }
+                offset = 0;
+            }
+            std::cmp::Ordering::Greater => {
+                left += offset + 1;
+                if left == right {
+                    left += 1;
+                }
+                offset = 0;
+            }
+        }
+    }
+    let start = left.min(right);
+    ring[start..]
+        .iter()
+        .chain(&ring[..start])
+        .cloned()
+        .collect()
+}
+
+fn benchmark_fingerprint_sha256(topology: &BenchmarkTopologyFingerprintV1) -> [u8; 32] {
+    Sha256::digest(serde_json::to_vec(topology).expect("benchmark topology serializes")).into()
 }
 
 fn parse_sha256(value: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
@@ -412,24 +543,66 @@ fn output_coordinates(result: &PolygonizerResult) -> usize {
 }
 
 fn dependencies(
-    reference_dependencies: &[String],
+    reference: &ReferenceResult,
 ) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
     let mut dependencies = BTreeMap::from([(
         "geo-polygonize-core".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
     )]);
-    for dependency in reference_dependencies {
-        let (name, version) = dependency
-            .split_once('=')
-            .ok_or("reference dependencies must use name=version")?;
+    if dependencies
+        .insert(
+            reference.implementation.name.clone(),
+            reference.implementation.version.clone(),
+        )
+        .is_some()
+    {
+        return Err("reference implementation duplicates a dependency name".into());
+    }
+    if reference.implementation.dependencies.is_empty() {
+        return Err("reference dependencies are required".into());
+    }
+    for (name, version) in &reference.implementation.dependencies {
         if name.is_empty()
             || version.is_empty()
-            || dependencies.insert(name.into(), version.into()).is_some()
+            || dependencies.insert(name.clone(), version.clone()).is_some()
         {
-            return Err(format!("invalid or duplicate reference dependency {dependency}").into());
+            return Err(format!("invalid or duplicate reference dependency {name}").into());
         }
     }
     Ok(dependencies)
+}
+
+fn validate_reference(
+    reference: &ReferenceResult,
+    workload_id: &str,
+    lane: Lane,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if reference.schema_version != 1 {
+        return Err(format!(
+            "unsupported reference result schema {}",
+            reference.schema_version
+        )
+        .into());
+    }
+    if reference.workload_id != workload_id {
+        return Err(format!(
+            "reference workload {} does not match {workload_id}",
+            reference.workload_id
+        )
+        .into());
+    }
+    if reference.lane != lane.record_name() {
+        return Err(format!(
+            "reference lane {} does not match {}",
+            reference.lane,
+            lane.record_name()
+        )
+        .into());
+    }
+    if reference.implementation.name.is_empty() || reference.implementation.version.is_empty() {
+        return Err("reference implementation name and version are required".into());
+    }
+    Ok(())
 }
 
 fn command(program: &str, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
@@ -461,6 +634,35 @@ mod tests {
         let hash = "00".repeat(32);
         assert_eq!(parse_sha256(&hash).unwrap(), [0; 32]);
         assert!(parse_sha256(&"AA".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn benchmark_fingerprint_omits_rust_only_edge_identity() {
+        let mut options = PolygonizerOptions::default();
+        options.provenance.enabled = true;
+        options.provenance.include_boundary_line_ids = true;
+        let first = polygonize(
+            [
+                Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 1),
+                Line3D::new(Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(0.0, 1.0, 0.0), 2),
+                Line3D::new(Coord3D::new(0.0, 1.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 3),
+            ],
+            &options,
+        )
+        .unwrap();
+        let second = polygonize(
+            [
+                Line3D::new(Coord3D::new(0.0, 0.0, 9.0), Coord3D::new(1.0, 0.0, 9.0), 10),
+                Line3D::new(Coord3D::new(1.0, 0.0, 9.0), Coord3D::new(0.0, 1.0, 9.0), 20),
+                Line3D::new(Coord3D::new(0.0, 1.0, 9.0), Coord3D::new(0.0, 0.0, 9.0), 30),
+            ],
+            &options,
+        )
+        .unwrap();
+        assert_eq!(
+            benchmark_topology(&first, &options).unwrap(),
+            benchmark_topology(&second, &options).unwrap()
+        );
     }
 
     #[test]

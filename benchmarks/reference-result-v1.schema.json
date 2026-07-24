@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/reference-result-v1.schema.json",
+  "title": "geo-polygonize external topology reference V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workload_id",
+    "lane",
+    "implementation",
+    "fingerprint_sha256",
+    "topology"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workload_id": {"type": "string", "minLength": 1},
+    "lane": {
+      "enum": [
+        "already-noded-polygonization",
+        "floating-noding-plus-polygonization",
+        "certified-fixed-precision-noding-plus-polygonization"
+      ]
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "dependencies"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "dependencies": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "fingerprint_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "topology": {"$ref": "#/$defs/topology"}
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"},
+        "y": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"}
+      }
+    },
+    "line": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/coordinate"}
+    },
+    "polygon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exterior", "interiors"],
+      "properties": {
+        "exterior": {"$ref": "#/$defs/line"},
+        "interiors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["polygons", "dangles", "cut_edges", "invalid_rings"],
+      "properties": {
+        "polygons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/polygon"}
+        },
+        "dangles": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        },
+        "cut_edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        },
+        "invalid_rings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        }
+      }
+    }
+  }
+}
