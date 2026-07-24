@@ -2,16 +2,6 @@ name: Maintenance
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - develop
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'scripts/**'
-      - '.github/workflows/maintenance.yml'
   pull_request:
     branches:
       - main
@@ -24,16 +14,15 @@ on:
       - '.github/workflows/maintenance.yml'
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
-  group: "${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release') && 'release' || 'code' }}"
+  group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
 jobs:
   maintenance:
-    if: "${{ github.event_name != 'push' || (!startsWith(github.event.head_commit.message, 'chore(github): update benchmarks') && !startsWith(github.event.head_commit.message, 'chore(main): release')) }}"
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -75,28 +64,15 @@ jobs:
             bash crates/geo-polygonize-core/benches/run_comparison.sh
           fi
 
-      - name: Update BENCHMARKS.md
-        if: github.event_name == 'push'
-        run: python3 crates/geo-polygonize-core/benches/compare_results.py --update
-
-      - name: Create Pull Request
-        if: github.event_name == 'push'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GH_PAT }}
-          commit-message: "chore(github): update benchmarks"
-          title: "chore(github): update benchmarks"
-          body: "Automated benchmark updates."
-          branch: update-benchmarks
-          base: ${{ github.ref_name }}
-          add-paths: BENCHMARKS.md
-
       - name: Generate Benchmark Report
-        if: github.event_name == 'pull_request'
         run: python3 crates/geo-polygonize-core/benches/compare_results.py > benchmark_report.md
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && hashFiles('benchmark_report.md') != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr comment ${{ github.event.pull_request.number }} --body-file benchmark_report.md
+        run: gh pr comment ${{ github.event.pull_request.number }} --edit-last --create-if-none --body-file benchmark_report.md
+
+      - name: Add report to workflow summary
+        if: github.event_name == 'workflow_dispatch'
+        run: cat benchmark_report.md >> "$GITHUB_STEP_SUMMARY"

@@ -2,6 +2,10 @@ name: Cross-architecture benchmarks
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+      - "geo-polygonize-v*"
   schedule:
     - cron: "0 6 * * 1"
   pull_request:
@@ -114,3 +118,53 @@ jobs:
           name: wasm-crossover-benchmarks
           path: wasm-*.json
           retention-days: 30
+
+  attach-to-release:
+    name: Attach results to release
+    if: always() && startsWith(github.ref, 'refs/tags/')
+    needs: [native, wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download benchmark results
+        if: needs.native.result == 'success' && needs.wasm.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-benchmarks"
+          path: benchmark-results
+
+      - name: Attach benchmark results
+        if: needs.native.result == 'success' && needs.wasm.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          zip -qr "benchmark-results-${TAG}.zip" benchmark-results
+          gh release upload "$TAG" "benchmark-results-${TAG}.zip" --clobber
+
+      - name: Add package and benchmark links
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#geo-polygonize-v}"
+          version="${version#v}"
+          gh release view "$TAG" --json body --jq .body > release-body.md
+          sed '/<!-- release-links:start -->/,/<!-- release-links:end -->/d' release-body.md > release-body.next.md
+          {
+            cat release-body.next.md
+            printf '\n<!-- release-links:start -->\n## Packages\n\n'
+            printf '| Package | Release |\n|---|---|\n'
+            printf '| npm | [geo-polygonize %s](https://www.npmjs.com/package/geo-polygonize/v/%s) |\n' "$version" "$version"
+            printf '| PyPI | [geo-polygonize-py %s](https://pypi.org/project/geo-polygonize-py/%s/) |\n' "$version" "$version"
+            for package in geo-polygonize-core geo-polygonize-arrow geo-polygonize-flatgeobuf geo-polygonize-wasm; do
+              printf '| crates.io | [%s %s](https://crates.io/crates/%s/%s) |\n' "$package" "$version" "$package" "$version"
+            done
+            if [ -f "benchmark-results-${TAG}.zip" ]; then
+              printf '| Benchmarks | [Cross-architecture results](https://github.com/%s/releases/download/%s/benchmark-results-%s.zip) |\n' "$REPOSITORY" "$TAG" "$TAG"
+            fi
+            printf '<!-- release-links:end -->\n'
+          } > release-body.updated.md
+          gh release edit "$TAG" --notes-file release-body.updated.md
