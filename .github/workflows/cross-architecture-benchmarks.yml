@@ -56,9 +56,9 @@ jobs:
           BENCH_FAST_CI: "1"
         run: |
           set -o pipefail
-          cargo bench -p geo-polygonize-core --bench polygonize_bench -- 'polygonize/(grid/100|random/(100|200))' --noplot | tee native-${{ matrix.arch }}.txt
-          cargo bench -p geo-polygonize-core --bench polygonize_bench -- noding_workloads --noplot | tee native-${{ matrix.arch }}-noding.txt
-          cargo bench -p geo-polygonize-core --bench hole_sort_bench -- point_in_ring_crossover --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-${{ matrix.arch }}-point-in-ring.txt
+          cargo bench --locked -p geo-polygonize-core --bench polygonize_bench -- 'polygonize/(grid/100|random/(100|200))' --noplot | tee native-${{ matrix.arch }}.txt
+          cargo bench --locked -p geo-polygonize-core --bench polygonize_bench -- noding_workloads --noplot | tee native-${{ matrix.arch }}-noding.txt
+          cargo bench --locked -p geo-polygonize-core --bench hole_sort_bench -- point_in_ring_crossover --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-${{ matrix.arch }}-point-in-ring.txt
 
       - uses: actions/upload-artifact@v4
         with:

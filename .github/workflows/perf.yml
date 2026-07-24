@@ -34,4 +34,4 @@ jobs:
         run: cargo install iai-callgrind-runner --version 0.16.1
 
       - name: Run IAI Callgrind Benchmarks
-        run: cargo bench --bench iai_bench -p geo-polygonize-core
+        run: cargo bench --locked --bench iai_bench -p geo-polygonize-core

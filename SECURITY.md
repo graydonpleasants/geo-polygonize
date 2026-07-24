@@ -22,7 +22,14 @@ The following vectors are considered within the scope of our threat model:
 
 ## Panic Safety
 
-We use `std::panic::catch_unwind` at language and memory boundaries (FFI, PyO3, wasm-bindgen). Expected invariants are that any internal logic bug resulting in a panic will yield a safe `Err` type to the caller rather than aborting the process.
+Native FFI and Python boundaries use `std::panic::catch_unwind` to translate
+unwinding panics into structured errors. This cannot catch panics when the final
+artifact uses `panic=abort`.
+
+The `wasm32-unknown-unknown` target uses `panic=abort`, so an unexpected panic
+traps after the console panic hook reports it. Callers must treat the Wasm
+instance as unusable after a trap and create a new instance if they want to
+continue.
 
 ## Unsafe Code
 

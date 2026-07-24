@@ -1,0 +1,32 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/geo-polygonize-core/fuzz -> target
+
+      - uses: taiki-e/install-action@cargo-fuzz
+
+      - name: Run fuzz targets
+        working-directory: crates/geo-polygonize-core
+        run: |
+          cargo fetch --locked --manifest-path fuzz/Cargo.toml
+          for target in core_pipeline wasm_typed_buffer_ingestion arrow_ffi_ingestion tile_ownership_dedup provenance_report_mode; do
+            cargo fuzz run "$target" -- -max_total_time=60
+          done
