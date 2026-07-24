@@ -27,6 +27,8 @@ pub enum PolygonizeFfiStatus {
     InternalInvariant = 10,
     Arrow = 11,
     Unknown = 12,
+    ResourceLimitExceeded = 13,
+    Cancelled = 14,
     Panic = 99,
 }
 
@@ -97,8 +99,8 @@ fn set_polygonize_error(error: &PolygonizeError) -> i32 {
     let normalized = normalize_polygonize_error(error);
     let status = match error {
         PolygonizeError::InvalidBufferShape { .. } => PolygonizeFfiStatus::InvalidBufferShape,
-        PolygonizeError::ResourceLimitExceeded { .. } => PolygonizeFfiStatus::Unknown,
-        PolygonizeError::Cancelled { .. } => PolygonizeFfiStatus::Unknown,
+        PolygonizeError::ResourceLimitExceeded { .. } => PolygonizeFfiStatus::ResourceLimitExceeded,
+        PolygonizeError::Cancelled { .. } => PolygonizeFfiStatus::Cancelled,
         PolygonizeError::InvalidArgumentType { .. } => PolygonizeFfiStatus::InvalidOption,
         PolygonizeError::InvalidGeometry { .. } | PolygonizeError::NonFiniteCoordinate { .. } => {
             PolygonizeFfiStatus::InvalidGeometry
@@ -583,5 +585,41 @@ mod tests {
             unsafe { CStr::from_ptr(error.witness) }.to_str().unwrap(),
             r#"{"ids":["0x0000000000000003","0x0000000000000008"],"coordinate":null}"#
         );
+    }
+
+    #[test]
+    fn test_ffi_execution_errors_have_explicit_statuses() {
+        for (error, expected_status, expected_family, expected_stage) in [
+            (
+                PolygonizeError::ResourceLimitExceeded {
+                    stage: "candidate_pairs".to_string(),
+                    limit: 10,
+                    observed: 11,
+                },
+                PolygonizeFfiStatus::ResourceLimitExceeded,
+                "resource_limit",
+                "candidate_pairs",
+            ),
+            (
+                PolygonizeError::Cancelled {
+                    stage: "containment".to_string(),
+                },
+                PolygonizeFfiStatus::Cancelled,
+                "cancelled",
+                "containment",
+            ),
+        ] {
+            assert_eq!(set_polygonize_error(&error), expected_status as i32);
+            let stored = unsafe { &*polygonize_ffi_last_error() };
+            assert_eq!(stored.status, expected_status as i32);
+            assert_eq!(
+                unsafe { CStr::from_ptr(stored.family) }.to_str().unwrap(),
+                expected_family
+            );
+            assert_eq!(
+                unsafe { CStr::from_ptr(stored.stage) }.to_str().unwrap(),
+                expected_stage
+            );
+        }
     }
 }

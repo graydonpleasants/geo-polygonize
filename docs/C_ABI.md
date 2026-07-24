@@ -27,7 +27,12 @@ The returned `int32_t` values are ABI-stable: `0` success, `1` invalid
 argument, `2` invalid Arrow C input, `4` output schema export failure, `5`
 invalid buffer shape, `6` invalid option, `7` invalid geometry, `8` topology
 failure, `9` unsupported option combination, `10` internal invariant failure,
-`11` Arrow adapter failure, `12` unknown failure, and `99` contained panic.
+`11` Arrow adapter failure, `12` unknown failure, `13` resource limit exceeded,
+`14` cancellation, and `99` contained panic.
+
+Statuses `13` and `14` are additive ABI v1 behavior: existing numeric values and
+request layouts are unchanged, so consumers may handle unknown future nonzero
+statuses conservatively without requiring an ABI v2 request.
 
 On a nonzero result, `polygonize_ffi_last_error()` returns a thread-local
 `PolygonizeFfiLastError` with the matching status plus NUL-terminated `family`,
