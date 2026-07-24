@@ -160,8 +160,21 @@ coords = np.array([
 # The final closing offset is computed implicitly.
 offsets = np.array([0, 5], dtype=np.uint32)
 
-# Returns a stable dictionary with 'polygons', diagnostics, and provenance.
+# `report` preserves the compatibility result with objects, buffers, fingerprint,
+# diagnostics, and per-binding phase timings.
 result_dict = polygonize(coords=coords, offsets=offsets)
+
+# Request only the representation you need.
+buffers = polygonize(coords=coords, offsets=offsets, output="buffers")
+objects = polygonize(coords=coords, offsets=offsets, output="objects")
+
+# Execution budgets are non-semantic and stay separate from topology options.
+bounded = polygonize(
+    coords=coords,
+    offsets=offsets,
+    output="buffers",
+    execution_limits={"max_output_coordinates": 1_000_000},
+)
 
 # Native-extension probes are cheap and safe for optional integrations.
 ok, error = import_probe()
@@ -181,9 +194,10 @@ result = polygonize_with_options(
 )
 ```
 
-The default return shape is a stable dictionary with `polygons` as
-`SimplePolygon` values. Use `return_polygons=True` only when you want Shapely
-`Polygon` objects.
+The default `report` return shape remains a stable dictionary with `polygons`
+as `SimplePolygon` values. `buffers` omits Python geometry objects and the
+fingerprint; `objects` omits flattened arrays and the fingerprint. Use
+`return_polygons=True` only when you want Shapely `Polygon` objects.
 
 When provenance is enabled, coincident and partially overlapping input lines
 are dissolved into one topology edge while every contributing nonzero

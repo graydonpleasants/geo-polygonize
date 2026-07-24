@@ -45,7 +45,17 @@ def is_available():
     """Return True when a geo_polygonize runtime backend is importable."""
     return import_probe()[0]
 
-def polygonize_with_options(lines=None, coords=None, offsets=None, options=None, stride=None, line_ids=None, return_polygons=False):
+def polygonize_with_options(
+    lines=None,
+    coords=None,
+    offsets=None,
+    options=None,
+    stride=None,
+    line_ids=None,
+    return_polygons=False,
+    output="report",
+    execution_limits=None,
+):
     """
     Polygonize a set of lines with full canonical options.
 
@@ -57,6 +67,8 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
         stride: stride of coordinates (2 or 3). If None, defaults to 2 unless coords is (N, 3).
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
+        output: one of "buffers", "objects", or "report". "report" preserves the legacy result.
+        execution_limits: optional non-semantic execution budget dictionary.
     """
     if lines is not None:
         flat_coords = []
@@ -114,9 +126,21 @@ def polygonize_with_options(lines=None, coords=None, offsets=None, options=None,
     if line_ids is not None:
         line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
 
+    if return_polygons and output == "buffers":
+        raise ValueError("return_polygons=True requires output='objects' or output='report'")
+
     options_json = None if options is None else json.dumps(options)
 
-    result = _polygonize_with_options_impl(coords, offsets, stride=stride, options_json=options_json, line_ids=line_ids)
+    execution_json = None if execution_limits is None else json.dumps(execution_limits)
+    result = _polygonize_with_options_impl(
+        coords,
+        offsets,
+        stride=stride,
+        options_json=options_json,
+        line_ids=line_ids,
+        output=output,
+        execution_json=execution_json,
+    )
 
     if return_polygons:
         try:
@@ -229,7 +253,19 @@ def explain_mismatch(result_a, result_b, tolerance=1e-5):
         "mismatches": mismatches
     }
 
-def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, extract_only_polygonal=False, stride=None, line_ids=None, return_polygons=False):
+def polygonize(
+    coords=None,
+    offsets=None,
+    lines=None,
+    node=False,
+    snap=1e-10,
+    extract_only_polygonal=False,
+    stride=None,
+    line_ids=None,
+    return_polygons=False,
+    output="report",
+    execution_limits=None,
+):
     """
     Polygonize a set of lines.
 
@@ -243,6 +279,8 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
         stride: stride of coordinates (2 or 3). If None, defaults to 2 unless coords is (N, 3).
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
+        output: one of "buffers", "objects", or "report". "report" preserves the legacy result.
+        execution_limits: optional non-semantic execution budget dictionary.
 
     Returns:
         Dict with keys 'polygons' (List[SimplePolygon]), 'dangles', 'invalid_rings', and 'flat_line_ids'.
@@ -349,7 +387,15 @@ def polygonize(coords=None, offsets=None, lines=None, node=False, snap=1e-10, ex
         "input_profile_id": None
     }
 
-    result = polygonize_with_options(coords=coords, offsets=offsets, options=options, stride=stride, line_ids=line_ids)
+    result = polygonize_with_options(
+        coords=coords,
+        offsets=offsets,
+        options=options,
+        stride=stride,
+        line_ids=line_ids,
+        output=output,
+        execution_limits=execution_limits,
+    )
 
     if return_polygons:
         try:
