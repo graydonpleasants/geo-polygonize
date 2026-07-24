@@ -38,6 +38,7 @@ struct Args {
 enum Lane {
     AlreadyNoded,
     Floating,
+    CertifiedFixed,
 }
 
 impl Lane {
@@ -45,6 +46,7 @@ impl Lane {
         match self {
             Self::AlreadyNoded => "already-noded",
             Self::Floating => "floating",
+            Self::CertifiedFixed => "certified-fixed",
         }
     }
 
@@ -52,6 +54,7 @@ impl Lane {
         match self {
             Self::AlreadyNoded => "already-noded-polygonization",
             Self::Floating => "floating-noding-plus-polygonization",
+            Self::CertifiedFixed => "certified-fixed-precision-noding-plus-polygonization",
         }
     }
 
@@ -61,6 +64,21 @@ impl Lane {
             Self::Floating => {
                 options.node_input && matches!(options.precision_model, PrecisionModel::Floating)
             }
+            Self::CertifiedFixed => {
+                options.node_input
+                    && matches!(options.precision_model, PrecisionModel::FixedGrid { .. })
+                    && matches!(
+                        options.noding.guarantee,
+                        NodingGuarantee::CertifiedFixedPrecision
+                    )
+            }
+        }
+    }
+
+    fn validation_guarantee(self) -> NodingGuarantee {
+        match self {
+            Self::CertifiedFixed => NodingGuarantee::CertifiedFixedPrecision,
+            Self::AlreadyNoded | Self::Floating => NodingGuarantee::Validate,
         }
     }
 }
@@ -151,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.provenance.include_boundary_line_ids = true;
 
     let mut validation_options = options.clone();
-    validation_options.noding.guarantee = NodingGuarantee::Validate;
+    validation_options.noding.guarantee = args.lane.validation_guarantee();
     polygonize(lines.clone(), &validation_options)?;
 
     let mut correctness_options = options.clone();
@@ -455,5 +473,12 @@ mod tests {
         assert!(Lane::Floating.accepts(&options));
         options.precision_model = PrecisionModel::FixedGrid { grid_size: 1.0 };
         assert!(!Lane::Floating.accepts(&options));
+        assert!(!Lane::CertifiedFixed.accepts(&options));
+        options.noding.guarantee = NodingGuarantee::CertifiedFixedPrecision;
+        assert!(Lane::CertifiedFixed.accepts(&options));
+        assert!(matches!(
+            Lane::CertifiedFixed.validation_guarantee(),
+            NodingGuarantee::CertifiedFixedPrecision
+        ));
     }
 }

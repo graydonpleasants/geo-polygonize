@@ -316,14 +316,16 @@ Do not mix integrated noding on one side with a bare polygonizer on the other.
 
 Before recording time, require:
 
-- [ ] full-noding validation where the policy claims it;
-- [ ] expected compatibility classification;
-- [ ] canonical topology fingerprint or documented divergence;
-- [ ] polygon, ring, dangle, cut-edge, invalid-ring, and provenance metrics.
+- [x] full-noding validation where the policy claims it;
+- [x] expected compatibility classification;
+- [x] canonical topology fingerprint or documented divergence;
+- [x] polygon, ring, dangle, cut-edge, invalid-ring, and provenance metrics.
 
 Progress: Benchmark record V1 now encodes these gates and all three lanes as a
-strict machine-readable schema. No benchmark result is published by the schema
-change itself.
+strict machine-readable schema. The native runner now enforces them for
+already-noded, floating, and certified fixed-precision workloads before timing,
+and requires external reference and peak-RSS evidence. Cross-implementation
+reference execution and result publication remain separate work.
 
 Record:
 
