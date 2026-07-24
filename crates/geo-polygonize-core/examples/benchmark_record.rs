@@ -22,12 +22,14 @@ struct Args {
     lane: Lane,
     #[arg(long)]
     workload: String,
-    #[arg(long)]
+    #[arg(long, default_value_t = 30)]
     samples: usize,
     #[arg(long)]
-    peak_rss_bytes: u64,
+    peak_rss_bytes: Option<u64>,
     #[arg(long)]
     reference_result: PathBuf,
+    #[arg(long)]
+    check_only: bool,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -164,8 +166,11 @@ struct Samples {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    if args.samples == 0 {
+    if !args.check_only && args.samples == 0 {
         return Err("samples must be greater than zero".into());
+    }
+    if !args.check_only && args.peak_rss_bytes.is_none() {
+        return Err("peak RSS is required when recording timings".into());
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let manifest_dir = root.join("tests/workloads");
@@ -232,6 +237,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             hex(&actual),
         )
         .into());
+    }
+    if args.check_only {
+        return Ok(());
     }
 
     let profile_path = std::env::temp_dir().join(format!(
@@ -321,7 +329,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "count": samples.allocations / args.samples as u64,
                 "bytes": samples.allocated_bytes / args.samples as u64,
             },
-            "peak_rss_bytes": args.peak_rss_bytes,
+            "peak_rss_bytes": args.peak_rss_bytes.expect("required before timing"),
         },
         "work": {
             "input_line_strings": workload.size.line_strings,

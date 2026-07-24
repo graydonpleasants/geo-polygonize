@@ -349,6 +349,11 @@ Record:
 - [ ] Keep rejected experiments and crossover measurements linked from the
   relevant decision record.
 
+Progress: The GEOS reference correctness job pins Rust, Python, Shapely, and
+therefore its bundled GEOS version. JTS and Node remain to be pinned when their
+comparison jobs exist; no timing artifact is published by this correctness-only
+job.
+
 ### P1.4 Differential minimization
 
 - [ ] Build a line-set delta debugger that minimizes failures while preserving

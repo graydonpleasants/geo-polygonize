@@ -46,6 +46,10 @@ cargo run -p geo-polygonize-core --release --example benchmark_record -- \
   --output target/benchmark-record.json
 ```
 
+Use `--check-only` to run the complete external correctness gate without
+collecting timings or requiring a peak-RSS measurement. CI runs this mode for
+every GEOS-comparable parity workload using `reference-requirements.txt`.
+
 Peak RSS remains an explicit harness input because the Rust standard library
 does not expose a portable process peak. The runner measures allocations with
 the repository's existing `dhat` allocator.

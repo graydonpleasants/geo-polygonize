@@ -1,0 +1,3 @@
+jsonschema==4.26.0
+pytest==9.1.1
+Shapely==2.1.2
