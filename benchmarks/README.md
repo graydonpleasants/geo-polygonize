@@ -39,3 +39,8 @@ the repository's existing `dhat` allocator.
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
 untimed full-noding validation of that pipeline before collecting samples.
+
+Use `--lane certified-fixed` only with a parity-class `certified-fixed`
+workload. Its untimed gate and timed samples both retain
+`CertifiedFixedPrecision`, so the lane measures hot-pixel snap rounding and
+never substitutes the floating or iterative snap backend.
