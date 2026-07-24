@@ -778,6 +778,63 @@ mod tests {
     }
 
     #[test]
+    fn dense_cell_stops_at_the_first_pair_over_budget() {
+        let lines = (0..40)
+            .map(|index| make_line(-1.0, index as f64 / 100.0, 1.0, 1.0 - index as f64 / 100.0))
+            .collect::<Vec<_>>();
+        let grid = UniformGrid::new(&lines);
+        let policy = ExecutionPolicy {
+            max_candidate_pairs: Some(256),
+            ..Default::default()
+        };
+        let mut stats = crate::NodingWorkStats::default();
+        let result = grid.find_splits_tracked(
+            &lines,
+            &SnapNoder::new(0.0),
+            &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats)),
+        );
+
+        assert!(matches!(
+            result,
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 256,
+                observed: 257,
+            }) if stage == "candidate_pairs"
+        ));
+        assert_eq!(stats.candidate_pairs, 257);
+    }
+
+    #[test]
+    fn dense_cell_cancellation_latency_is_bounded_in_work_items() {
+        let lines = (0..40)
+            .map(|index| make_line(-1.0, index as f64 / 100.0, 1.0, 1.0 - index as f64 / 100.0))
+            .collect::<Vec<_>>();
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            ..Default::default()
+        };
+        let mut stats = crate::NodingWorkStats::default();
+        let result = UniformGrid::new(&lines).find_splits_tracked(
+            &lines,
+            &SnapNoder::new(0.0),
+            &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats))
+                .cancel_at_candidate(token, 17),
+        );
+
+        assert!(matches!(
+            result,
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
+        assert_eq!(
+            stats.candidate_pairs,
+            crate::options::CANCELLATION_CHECK_INTERVAL
+        );
+        assert!(stats.candidate_pairs < lines.len() * (lines.len() - 1) / 2);
+    }
+
+    #[test]
     fn test_new_with_empty_lines() {
         let lines: Vec<Line3D> = Vec::new();
         let grid = UniformGrid::new(&lines);

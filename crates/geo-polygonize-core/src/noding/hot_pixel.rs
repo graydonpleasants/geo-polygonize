@@ -104,13 +104,22 @@ impl HotPixelNoder {
                 .collect();
             candidates.sort_unstable();
             for second_index in candidates {
-                work.candidate_pairs += 1;
+                work.candidate_pairs = work.candidate_pairs.checked_add(1).ok_or_else(|| {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: "candidate-pair counter overflow".to_string(),
+                    }
+                })?;
                 if let Some(execution_policy) = execution_policy {
                     execution_policy.check_cancelled("candidate_enumeration")?;
                     execution_policy
                         .check_noding_work(work.candidate_pairs, work.exact_intersection_calls)?;
                 }
-                work.exact_intersection_calls += 1;
+                work.exact_intersection_calls = work
+                    .exact_intersection_calls
+                    .checked_add(1)
+                    .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                        reason: "exact-intersection counter overflow".to_string(),
+                    })?;
                 if let Some(execution_policy) = execution_policy {
                     execution_policy
                         .check_noding_work(work.candidate_pairs, work.exact_intersection_calls)?;
@@ -195,17 +204,24 @@ impl HotPixelNoder {
                 projection(left_grid).cmp(&projection(right_grid))
             });
             points.dedup_by(|left, right| left.x == right.x && left.y == right.y);
-            work.split_events += points.len().saturating_sub(2);
+            work.split_events = work
+                .split_events
+                .checked_add(points.len().saturating_sub(2))
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "split-event counter overflow".to_string(),
+                })?;
             if let Some(execution_policy) = execution_policy {
                 execution_policy.check_split_events(work.split_events)?;
             }
-            output.extend(points.windows(2).filter_map(|pair| {
-                (pair[0].x != pair[1].x || pair[0].y != pair[1].y).then_some(Line3D::new(
-                    pair[0],
-                    pair[1],
-                    line.line_id,
-                ))
-            }));
+            for (replacement_index, pair) in points.windows(2).enumerate() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy
+                        .check_cancelled_every("split_application", replacement_index)?;
+                }
+                if pair[0].x != pair[1].x || pair[0].y != pair[1].y {
+                    output.push(Line3D::new(pair[0], pair[1], line.line_id));
+                }
+            }
         }
 
         snapper.normalize_and_dedup(&mut output);

@@ -91,6 +91,8 @@ pub(crate) struct ExecutionWorkTracker<'a> {
     stats: Option<&'a mut NodingWorkStats>,
     candidate_pairs: usize,
     exact_intersection_calls: usize,
+    #[cfg(test)]
+    cancel_at_candidate: Option<(crate::CancellationToken, usize)>,
 }
 
 impl<'a> ExecutionWorkTracker<'a> {
@@ -107,7 +109,19 @@ impl<'a> ExecutionWorkTracker<'a> {
             stats,
             candidate_pairs,
             exact_intersection_calls,
+            #[cfg(test)]
+            cancel_at_candidate: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cancel_at_candidate(
+        mut self,
+        token: crate::CancellationToken,
+        candidate: usize,
+    ) -> Self {
+        self.cancel_at_candidate = Some((token, candidate));
+        self
     }
 
     pub(crate) fn grid(&mut self, cells: usize, entries: usize, globals: usize) {
@@ -145,6 +159,12 @@ impl<'a> ExecutionWorkTracker<'a> {
                 stats.exact_intersection_calls = stats.exact_intersection_calls.saturating_add(1);
             } else {
                 stats.aabb_rejections = stats.aabb_rejections.saturating_add(1);
+            }
+        }
+        #[cfg(test)]
+        if let Some((token, candidate)) = &self.cancel_at_candidate {
+            if self.candidate_pairs == *candidate {
+                token.cancel();
             }
         }
         if let Some(policy) = self.policy {

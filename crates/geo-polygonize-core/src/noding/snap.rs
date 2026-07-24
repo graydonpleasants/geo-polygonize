@@ -311,7 +311,11 @@ impl SnapNoder {
                 points.dedup_by(|a, b| a.x == b.x && a.y == b.y);
 
                 // Create replacement segments for the split line.
-                for w in points.windows(2) {
+                for (replacement_index, w) in points.windows(2).enumerate() {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy
+                            .check_cancelled_every("split_application", replacement_index)?;
+                    }
                     let p0 = w[0];
                     let p1 = w[1];
                     // Check 2D equality
@@ -987,6 +991,34 @@ mod tests {
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));
+    }
+
+    #[test]
+    fn simd_midflight_cancellation_latency_is_bounded_in_work_items() {
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            ..Default::default()
+        };
+        let lines = (0..300)
+            .map(|y| make_line(0.0, y as f64, 1.0, y as f64))
+            .collect::<Vec<_>>();
+        let mut stats = NodingWorkStats::default();
+        let result = SnapNoder::new(1.0).find_splits_simd_tracked(
+            &lines,
+            &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats))
+                .cancel_at_candidate(token, 17),
+        );
+
+        assert!(matches!(
+            result,
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
+        assert_eq!(
+            stats.candidate_pairs,
+            crate::options::CANCELLATION_CHECK_INTERVAL
+        );
+        assert!(stats.candidate_pairs < lines.len() * (lines.len() - 1) / 2);
     }
 
     #[test]
