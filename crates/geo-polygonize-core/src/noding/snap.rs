@@ -1,4 +1,4 @@
-use crate::diagnostics::{NodingIterationStats, NodingWorkStats};
+use crate::diagnostics::{ExecutionWorkTracker, NodingIterationStats, NodingWorkStats};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::UniformGrid;
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
@@ -184,7 +184,6 @@ impl SnapNoder {
         let auto_prefers_simd =
             self.strategy == NodingStrategy::Auto && self.auto_prefers_simd(&lines);
         let mut new_lines = Vec::new();
-        let mut total_work = NodingWorkStats::default();
         let mut split_events = 0;
         for iteration_index in 0..self.max_iter {
             if let Some(execution_policy) = execution_policy {
@@ -203,44 +202,20 @@ impl SnapNoder {
 
             let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
-                let measured_work = (work_stats.is_some() || execution_policy.is_some())
-                    .then(|| Self::measure_simd_work(&lines));
-                if let Some(measured_work) = measured_work {
-                    if let Some(execution_policy) = execution_policy {
-                        total_work.merge(measured_work.clone());
-                        execution_policy.check_noding_work(
-                            total_work.candidate_pairs,
-                            total_work.exact_intersection_calls,
-                        )?;
-                    }
-                    if let Some(work_stats) = work_stats.as_deref_mut() {
-                        work_stats.merge(measured_work);
-                    }
-                }
-                if let Some(execution_policy) = execution_policy {
-                    self.find_splits_simd_with_execution_policy(&lines, execution_policy)?
+                if execution_policy.is_some() || work_stats.is_some() {
+                    let mut tracker =
+                        ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
+                    self.find_splits_simd_tracked(&lines, &mut tracker)?
                 } else {
                     self.find_splits_simd(&lines)
                 }
             } else {
                 // STRATEGY B: Large Input -> Uniform Grid
                 let grid = UniformGrid::new(&lines);
-                let measured_work = (work_stats.is_some() || execution_policy.is_some())
-                    .then(|| grid.measure_work(&lines));
-                if let Some(measured_work) = measured_work {
-                    if let Some(execution_policy) = execution_policy {
-                        total_work.merge(measured_work.clone());
-                        execution_policy.check_noding_work(
-                            total_work.candidate_pairs,
-                            total_work.exact_intersection_calls,
-                        )?;
-                    }
-                    if let Some(work_stats) = work_stats.as_deref_mut() {
-                        work_stats.merge(measured_work);
-                    }
-                }
-                if let Some(execution_policy) = execution_policy {
-                    grid.find_splits_with_execution_policy(&lines, self, execution_policy)?
+                if execution_policy.is_some() || work_stats.is_some() {
+                    let mut tracker =
+                        ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
+                    grid.find_splits_tracked(&lines, self, &mut tracker)?
                 } else {
                     grid.find_splits(&lines, self)
                 }
@@ -398,25 +373,6 @@ impl SnapNoder {
         }
 
         split_pairs * 4 >= pairs
-    }
-
-    fn measure_simd_work(lines: &[Line3D]) -> NodingWorkStats {
-        let mut stats = NodingWorkStats::default();
-        for (i, left) in lines.iter().enumerate() {
-            for right in &lines[i + 1..] {
-                stats.candidate_pairs += 1;
-                let overlaps = left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
-                    && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
-                    && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
-                    && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y);
-                if overlaps {
-                    stats.exact_intersection_calls += 1;
-                } else {
-                    stats.aabb_rejections += 1;
-                }
-            }
-        }
-        stats
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
@@ -808,22 +764,24 @@ impl SnapNoder {
         }
     }
 
-    fn find_splits_simd_with_execution_policy(
+    fn find_splits_simd_tracked(
         &self,
         lines: &[Line3D],
-        execution_policy: &ExecutionPolicy,
+        tracker: &mut ExecutionWorkTracker<'_>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
+        tracker.check_cancelled()?;
         for (i, &query_line) in lines.iter().enumerate() {
             splits.extend(self.check_intersection_simd(
                 query_line,
                 i,
                 lines,
                 &soa,
-                Some(execution_policy),
+                Some(tracker),
             )?);
         }
+        tracker.check_cancelled()?;
         Ok(splits)
     }
 
@@ -855,10 +813,9 @@ impl SnapNoder {
         i: usize,
         lines: &[Line3D],
         soa: &SoALines,
-        execution_policy: Option<&ExecutionPolicy>,
+        mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
-        let mut checked = 0;
         // Start block to avoid duplicate checks (j > i)
         // We start checking at index i+1.
         // The SoA batching index `j` steps by 4.
@@ -870,10 +827,6 @@ impl SnapNoder {
         // Handling unaligned start to be absolutely safe and avoid self-check artifacts
         #[allow(clippy::needless_range_loop)]
         for j in (i + 1)..start_block.min(lines.len()) {
-            checked += 1;
-            if let Some(execution_policy) = execution_policy {
-                execution_policy.check_cancelled_every("candidate_enumeration", checked)?;
-            }
             let target_line = lines[j];
             // Standard BBox check
             let q_min_x = query_line.start.x.min(query_line.end.x);
@@ -886,8 +839,14 @@ impl SnapNoder {
             let t_min_y = target_line.start.y.min(target_line.end.y);
             let t_max_y = target_line.start.y.max(target_line.end.y);
 
-            if q_max_x >= t_min_x && q_min_x <= t_max_x && q_max_y >= t_min_y && q_min_y <= t_max_y
-            {
+            let overlaps = q_max_x >= t_min_x
+                && q_min_x <= t_max_x
+                && q_max_y >= t_min_y
+                && q_min_y <= t_max_y;
+            if let Some(tracker) = tracker.as_deref_mut() {
+                tracker.candidate(overlaps)?;
+            }
+            if overlaps {
                 self.process_intersection(query_line, target_line, i, j, |idx, pt| {
                     events.push((idx, pt))
                 });
@@ -901,32 +860,22 @@ impl SnapNoder {
         let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
 
         for j in (start_block..soa.len()).step_by(4) {
-            checked += 4;
-            if let Some(execution_policy) = execution_policy {
-                execution_policy.check_cancelled_every("candidate_enumeration", checked)?;
-            }
             let mask = soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, j);
 
-            if mask != 0 {
-                for k in 0..4 {
-                    if (mask & (1 << k)) != 0 {
-                        let target_idx = j + k;
-                        if target_idx >= lines.len() {
-                            continue;
-                        }
-                        if target_idx <= i {
-                            continue;
-                        } // Enforce i < j
-
-                        let target_line = lines[target_idx];
-                        self.process_intersection(
-                            query_line,
-                            target_line,
-                            i,
-                            target_idx,
-                            |idx, pt| events.push((idx, pt)),
-                        );
-                    }
+            for k in 0..4 {
+                let target_idx = j + k;
+                if target_idx >= lines.len() || target_idx <= i {
+                    continue;
+                }
+                let overlaps = (mask & (1 << k)) != 0;
+                if let Some(tracker) = tracker.as_deref_mut() {
+                    tracker.candidate(overlaps)?;
+                }
+                if overlaps {
+                    let target_line = lines[target_idx];
+                    self.process_intersection(query_line, target_line, i, target_idx, |idx, pt| {
+                        events.push((idx, pt))
+                    });
                 }
             }
         }
@@ -1032,9 +981,41 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(matches!(
-            SnapNoder::new(1.0).find_splits_simd_with_execution_policy(&lines, &policy),
+            SnapNoder::new(1.0).find_splits_simd_tracked(
+                &lines,
+                &mut ExecutionWorkTracker::new(Some(&policy), None),
+            ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));
+    }
+
+    #[test]
+    fn live_scan_supplies_diagnostics_and_budget_enforcement() {
+        let lines = vec![
+            make_line(0.0, 0.0, 2.0, 2.0),
+            make_line(0.0, 2.0, 2.0, 0.0),
+            make_line(1.0, -1.0, 1.0, 3.0),
+        ];
+        let policy = ExecutionPolicy {
+            max_candidate_pairs: Some(1),
+            ..Default::default()
+        };
+        let mut stats = NodingWorkStats::default();
+        let result = SnapNoder::new(0.0).find_splits_simd_tracked(
+            &lines,
+            &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats)),
+        );
+
+        assert!(matches!(
+            result,
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 1,
+                observed: 2,
+            }) if stage == "candidate_pairs"
+        ));
+        assert_eq!(stats.candidate_pairs, 2);
+        assert_eq!(stats.exact_intersection_calls, 2);
     }
 
     #[test]

@@ -1,6 +1,5 @@
-use crate::diagnostics::NodingWorkStats;
+use crate::diagnostics::ExecutionWorkTracker;
 use crate::noding::snap::SnapNoder;
-use crate::options::ExecutionPolicy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -387,7 +386,17 @@ impl UniformGrid {
                     if cell_indices.len() >= 2 {
                         let r = idx / self.cols;
                         let c = idx % self.cols;
-                        self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut acc);
+                        self.process_cell(
+                            r,
+                            c,
+                            cell_indices,
+                            lines,
+                            snap_noder,
+                            &soa,
+                            &mut acc,
+                            None,
+                        )
+                        .expect("unlimited noding cannot fail");
                     }
                     acc
                 })
@@ -410,7 +419,17 @@ impl UniformGrid {
                     let end = self.cell_offsets[idx + 1];
                     let cell_indices = &self.cell_items[start..end];
 
-                    self.process_cell(r, c, cell_indices, lines, snap_noder, &soa, &mut splits);
+                    self.process_cell(
+                        r,
+                        c,
+                        cell_indices,
+                        lines,
+                        snap_noder,
+                        &soa,
+                        &mut splits,
+                        None,
+                    )
+                    .expect("unlimited noding cannot fail");
                 }
             }
             splits
@@ -425,16 +444,21 @@ impl UniformGrid {
         splits
     }
 
-    pub(crate) fn find_splits_with_execution_policy(
+    pub(crate) fn find_splits_tracked(
         &self,
         lines: &[Line3D],
         snap_noder: &SnapNoder,
-        execution_policy: &ExecutionPolicy,
+        tracker: &mut ExecutionWorkTracker<'_>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
+        tracker.check_cancelled()?;
+        tracker.grid(
+            self.rows.saturating_mul(self.cols),
+            self.cell_items.len(),
+            self.global_lines.len(),
+        );
         for idx in 0..self.rows * self.cols {
-            execution_policy.check_cancelled_every("candidate_enumeration", idx)?;
             let start = self.cell_offsets[idx];
             let end = self.cell_offsets[idx + 1];
             self.process_cell(
@@ -445,60 +469,14 @@ impl UniformGrid {
                 snap_noder,
                 &soa,
                 &mut splits,
-            );
+                Some(tracker),
+            )?;
         }
-        execution_policy.check_cancelled("candidate_enumeration")?;
         if !self.global_lines.is_empty() {
-            splits.extend(self.process_global_lines(lines, snap_noder, &soa));
+            splits.extend(self.process_global_lines_tracked(lines, snap_noder, tracker)?);
         }
+        tracker.check_cancelled()?;
         Ok(splits)
-    }
-
-    pub(crate) fn measure_work(&self, lines: &[Line3D]) -> NodingWorkStats {
-        let mut stats = NodingWorkStats {
-            grid_cells: self.rows * self.cols,
-            grid_cell_entries: self.cell_items.len(),
-            global_lines: self.global_lines.len(),
-            ..Default::default()
-        };
-        let overlaps = |left: &Line3D, right: &Line3D| {
-            left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
-                && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
-                && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
-                && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y)
-        };
-
-        for cell in self.cell_offsets.windows(2) {
-            let indices = &self.cell_items[cell[0]..cell[1]];
-            for (i, &left_idx) in indices.iter().enumerate() {
-                for &right_idx in &indices[i + 1..] {
-                    stats.candidate_pairs += 1;
-                    if overlaps(&lines[left_idx as usize], &lines[right_idx as usize]) {
-                        stats.exact_intersection_calls += 1;
-                    } else {
-                        stats.aabb_rejections += 1;
-                    }
-                }
-            }
-        }
-
-        for &left_idx in &self.global_lines {
-            for (right_idx, right) in lines.iter().enumerate() {
-                if right_idx == left_idx
-                    || (right_idx < left_idx && self.global_lines.binary_search(&right_idx).is_ok())
-                {
-                    continue;
-                }
-                stats.candidate_pairs += 1;
-                if overlaps(&lines[left_idx], right) {
-                    stats.exact_intersection_calls += 1;
-                } else {
-                    stats.aabb_rejections += 1;
-                }
-            }
-        }
-
-        stats
     }
 
     fn process_global_lines(
@@ -581,6 +559,40 @@ impl UniformGrid {
         }
     }
 
+    fn process_global_lines_tracked(
+        &self,
+        lines: &[Line3D],
+        snap_noder: &SnapNoder,
+        tracker: &mut ExecutionWorkTracker<'_>,
+    ) -> crate::Result<Vec<(usize, Coord3D)>> {
+        let mut events = Vec::new();
+        for &left_idx in &self.global_lines {
+            for (right_idx, right) in lines.iter().enumerate() {
+                if right_idx == left_idx
+                    || (right_idx < left_idx && self.global_lines.binary_search(&right_idx).is_ok())
+                {
+                    continue;
+                }
+                let left = &lines[left_idx];
+                let overlaps = left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
+                    && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
+                    && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
+                    && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y);
+                tracker.candidate(overlaps)?;
+                if overlaps {
+                    snap_noder.process_intersection(
+                        *left,
+                        *right,
+                        left_idx,
+                        right_idx,
+                        |idx, point| events.push((idx, point)),
+                    );
+                }
+            }
+        }
+        Ok(events)
+    }
+
     #[inline]
     #[allow(clippy::too_many_arguments)]
     fn handle_collinear(
@@ -627,9 +639,10 @@ impl UniformGrid {
         snap_noder: &SnapNoder,
         soa: &SoALines,
         splits: &mut Vec<(usize, Coord3D)>,
-    ) {
+        mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+    ) -> crate::Result<()> {
         if cell_indices.len() < 2 {
-            return;
+            return Ok(());
         }
 
         // Define current cell bounds
@@ -660,7 +673,12 @@ impl UniformGrid {
                 let max_y2 = soa.max_y[idx2];
 
                 // Scalar overlap check
-                if max_x1 >= min_x2 && min_x1 <= max_x2 && max_y1 >= min_y2 && min_y1 <= max_y2 {
+                let overlaps =
+                    max_x1 >= min_x2 && min_x1 <= max_x2 && max_y1 >= min_y2 && min_y1 <= max_y2;
+                if let Some(tracker) = tracker.as_deref_mut() {
+                    tracker.candidate(overlaps)?;
+                }
+                if overlaps {
                     let l1 = lines[idx1];
                     let l2 = lines[idx2];
 
@@ -707,6 +725,7 @@ impl UniformGrid {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -749,10 +768,10 @@ mod tests {
         };
 
         assert!(matches!(
-            UniformGrid::new(&[]).find_splits_with_execution_policy(
+            UniformGrid::new(&[]).find_splits_tracked(
                 &[],
                 &SnapNoder::new(1.0),
-                &policy,
+                &mut ExecutionWorkTracker::new(Some(&policy), None),
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));

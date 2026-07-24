@@ -70,7 +70,7 @@ fn input_limits_stop_before_polygonization() {
     let segment = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);
     assert_limit(
         polygonize_with_execution_policy(
-            [segment.clone(), segment],
+            [segment, segment],
             &options,
             &ExecutionPolicy {
                 max_input_segments: Some(1),
@@ -334,7 +334,7 @@ fn adversarial_inputs_hit_their_declared_budget() {
             &ExecutionPolicy { max_candidate_pairs: Some(0), ..Default::default() },
         ),
         Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
-            if stage == "candidate_pairs" && observed >= 45
+            if stage == "candidate_pairs" && observed == 1
     ));
 
     let overlaps = (0..8)
@@ -353,7 +353,7 @@ fn adversarial_inputs_hit_their_declared_budget() {
             &ExecutionPolicy { max_exact_intersection_calls: Some(0), ..Default::default() },
         ),
         Err(PolygonizeError::ResourceLimitExceeded { stage, observed, .. })
-            if stage == "exact_intersection_calls" && observed >= 28
+            if stage == "exact_intersection_calls" && observed == 1
     ));
 
     let duplicate = Line3D::new(Coord3D::new(0., 0., 0.), Coord3D::new(1., 0., 0.), 0);

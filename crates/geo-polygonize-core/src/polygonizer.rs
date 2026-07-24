@@ -318,7 +318,8 @@ impl Polygonizer {
         self.graph.clear();
         let grid_size = self.options.precision_model.grid_size();
         let mut segments;
-        let has_noding_work_limits = self.execution_policy.has_noding_work_limits();
+        let has_execution_controls = self.execution_policy.has_noding_work_budgets()
+            || self.execution_policy.has_cancellation();
 
         if self.options.node_input {
             let mut pre_snap_vertex_candidates = 0;
@@ -371,7 +372,7 @@ impl Polygonizer {
                         let noder =
                             HotPixelNoder::new(grid_size)?.with_z_policy(self.options.z.policy);
                         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                            let (noded, intersections, mut work_stats) = if has_noding_work_limits {
+                            let (noded, intersections, mut work_stats) = if has_execution_controls {
                                 noder.node_with_stats_and_execution_policy(
                                     all_segments,
                                     &self.execution_policy,
@@ -392,7 +393,7 @@ impl Polygonizer {
                             diagnostics.noding_work_stats = work_stats;
                             segments = noded;
                         } else {
-                            segments = if has_noding_work_limits {
+                            segments = if has_execution_controls {
                                 noder.node_with_execution_policy(
                                     all_segments,
                                     &self.execution_policy,
@@ -418,7 +419,7 @@ impl Polygonizer {
                                 None
                             };
                         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                            let (noded, stats, mut work_stats) = if has_noding_work_limits {
+                            let (noded, stats, mut work_stats) = if has_execution_controls {
                                 noder.node_with_stats_and_execution_policy(
                                     all_segments,
                                     &self.execution_policy,
@@ -437,7 +438,7 @@ impl Polygonizer {
                             diagnostics.noding_work_stats = work_stats;
                             segments = noded;
                         } else {
-                            segments = if has_noding_work_limits {
+                            segments = if has_execution_controls {
                                 noder.node_with_execution_policy(
                                     all_segments,
                                     &self.execution_policy,
@@ -459,7 +460,7 @@ impl Polygonizer {
                     let noder = AdvancedNoder::new().with_z_policy(self.options.z.policy);
                     if let Some(diagnostics) = diagnostics.as_deref_mut() {
                         let noder = SnapNoder::new(0.0).with_z_policy(self.options.z.policy);
-                        let (noded, stats, mut work_stats) = if has_noding_work_limits {
+                        let (noded, stats, mut work_stats) = if has_execution_controls {
                             noder.node_with_stats_and_execution_policy(
                                 all_segments,
                                 &self.execution_policy,
@@ -478,7 +479,7 @@ impl Polygonizer {
                         diagnostics.noding_work_stats = work_stats;
                         segments = noded;
                     } else {
-                        segments = if has_noding_work_limits {
+                        segments = if has_execution_controls {
                             SnapNoder::new(0.0)
                                 .with_z_policy(self.options.z.policy)
                                 .node_with_execution_policy(all_segments, &self.execution_policy)?
