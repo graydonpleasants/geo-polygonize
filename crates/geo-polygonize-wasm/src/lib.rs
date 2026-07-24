@@ -1,11 +1,12 @@
+mod buffer;
 mod error;
 
 use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
+pub use buffer::parse_buffer_lines;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
 use geo_polygonize_core::{
-    polygonize as polygonize_lines, Coord3D, Line3D, Polygonizer, PolygonizerResult,
-    TopologyFingerprintV1,
+    polygonize as polygonize_lines, Line3D, Polygonizer, PolygonizerResult, TopologyFingerprintV1,
 };
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
@@ -334,72 +335,8 @@ pub fn polygonize_with_options_buffer_js(
             )
         })?;
 
-    if stride != 2 && stride != 3 {
-        return Err(to_js_error("InvalidArgumentType", "stride must be 2 or 3"));
-    }
-
-    if let Some(ref ids) = line_ids {
-        if !offsets.is_empty() && ids.len() != offsets.len() {
-            return Err(to_js_error(
-                "InvalidBufferShape",
-                format!(
-                    "line_ids length {} does not match line count {}",
-                    ids.len(),
-                    offsets.len()
-                ),
-            ));
-        }
-    }
-
-    let mut lines = Vec::new();
-
-    for i in 0..offsets.len() {
-        let start = offsets[i] as usize;
-        let end = if i + 1 < offsets.len() {
-            offsets[i + 1] as usize
-        } else {
-            coords.len() / stride as usize
-        };
-
-        if start > end {
-            return Err(to_js_error(
-                "InvalidInput",
-                format!(
-                "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
-                start, end, i
-            ),
-            ));
-        }
-
-        let line_id = if let Some(ref ids) = line_ids {
-            if i < ids.len() {
-                ids[i]
-            } else {
-                0
-            }
-        } else {
-            0
-        };
-        if end * stride as usize > coords.len() {
-            return Err(to_js_error("InvalidArgumentType", format!(
-                "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
-                end * stride as usize, coords.len(), stride
-            )));
-        }
-
-        for j in start..end.saturating_sub(1) {
-            let idx = j * stride as usize;
-            let jdx = (j + 1) * stride as usize;
-            let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
-            let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
-
-            lines.push(Line3D::new(
-                Coord3D::new(coords[idx], coords[idx + 1], z1),
-                Coord3D::new(coords[jdx], coords[jdx + 1], z2),
-                line_id,
-            ));
-        }
-    }
+    let lines = parse_buffer_lines(coords, offsets, stride, line_ids.as_deref())
+        .map_err(|error| to_js_error(error.name, error.message))?;
 
     polygonize_and_flatten(lines, options, stride)
 }
@@ -416,10 +353,6 @@ pub fn polygonize_buffers(
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 
-    if stride != 2 && stride != 3 {
-        return Err(to_js_error("InvalidArgumentType", "stride must be 2 or 3"));
-    }
-
     let options = geo_polygonize_core::PolygonizerOptions {
         node_input,
         precision_model: if node_input {
@@ -429,68 +362,8 @@ pub fn polygonize_buffers(
         },
         ..Default::default()
     };
-    if let Some(ref ids) = line_ids {
-        if !offsets.is_empty() && ids.len() != offsets.len() {
-            return Err(to_js_error(
-                "InvalidBufferShape",
-                format!(
-                    "line_ids length {} does not match line count {}",
-                    ids.len(),
-                    offsets.len()
-                ),
-            ));
-        }
-    }
-
-    let mut lines = Vec::new();
-
-    for i in 0..offsets.len() {
-        let start = offsets[i] as usize;
-        let end = if i + 1 < offsets.len() {
-            offsets[i + 1] as usize
-        } else {
-            coords.len() / stride as usize
-        };
-
-        if start > end {
-            return Err(to_js_error(
-                "InvalidInput",
-                format!(
-                "Invalid offsets: start offset ({}) is greater than end offset ({}) at index {}",
-                start, end, i
-            ),
-            ));
-        }
-
-        let line_id = if let Some(ref ids) = line_ids {
-            if i < ids.len() {
-                ids[i]
-            } else {
-                0
-            }
-        } else {
-            0
-        };
-        if end * stride as usize > coords.len() {
-            return Err(to_js_error("InvalidArgumentType", format!(
-                "Invalid offsets: calculated end offset {} exceeds coordinate capacity {} for stride {}",
-                end * stride as usize, coords.len(), stride
-            )));
-        }
-
-        for j in start..end.saturating_sub(1) {
-            let idx = j * stride as usize;
-            let jdx = (j + 1) * stride as usize;
-            let z1 = if stride == 3 { coords[idx + 2] } else { 0.0 };
-            let z2 = if stride == 3 { coords[jdx + 2] } else { 0.0 };
-
-            lines.push(Line3D::new(
-                Coord3D::new(coords[idx], coords[idx + 1], z1),
-                Coord3D::new(coords[jdx], coords[jdx + 1], z2),
-                line_id,
-            ));
-        }
-    }
+    let lines = parse_buffer_lines(coords, offsets, stride, line_ids.as_deref())
+        .map_err(|error| to_js_error(error.name, error.message))?;
 
     polygonize_and_flatten(lines, options, stride)
 }

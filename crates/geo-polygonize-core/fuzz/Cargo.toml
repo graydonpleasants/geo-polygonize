@@ -10,9 +10,19 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
+arrow = { version = "57", features = ["ffi"] }
+geo = "0.32"
+geoarrow = "0.7"
 
 [dependencies.geo-polygonize-core]
 path = ".."
+
+[dependencies.geo-polygonize-arrow]
+path = "../../geo-polygonize-arrow"
+
+[dependencies.geo-polygonize-wasm]
+path = "../../geo-polygonize-wasm"
+default-features = false
 
 [[bin]]
 name = "core_pipeline"
