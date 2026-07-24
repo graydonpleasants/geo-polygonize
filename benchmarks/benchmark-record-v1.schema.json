@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-record-v1.schema.json",
+  "title": "geo-polygonize correctness-gated benchmark record V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_id",
+    "workload_id",
+    "lane",
+    "implementation",
+    "correctness_gate",
+    "topology",
+    "measurement",
+    "work",
+    "environment"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_id": {"type": "string", "minLength": 1},
+    "workload_id": {"type": "string", "minLength": 1},
+    "lane": {
+      "enum": [
+        "already-noded-polygonization",
+        "floating-noding-plus-polygonization",
+        "certified-fixed-precision-noding-plus-polygonization"
+      ]
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "features"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "features": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "correctness_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "validation", "compatibility", "fingerprint"],
+      "properties": {
+        "status": {"const": "passed"},
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["promised", "result"],
+          "properties": {
+            "promised": {"type": "boolean"},
+            "result": {"enum": ["passed", "not-promised"]}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"promised": {"const": true}}},
+              "then": {"properties": {"result": {"const": "passed"}}},
+              "else": {"properties": {"result": {"const": "not-promised"}}}
+            }
+          ]
+        },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected", "observed"],
+          "properties": {
+            "expected": {"enum": ["parity", "expected-divergence"]},
+            "observed": {"enum": ["equal", "expected-divergence"]}
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"expected": {"const": "parity"}}},
+              "then": {"properties": {"observed": {"const": "equal"}}},
+              "else": {
+                "properties": {"observed": {"const": "expected-divergence"}}
+              }
+            }
+          ]
+        },
+        "fingerprint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "actual_sha256"],
+          "properties": {
+            "outcome": {"enum": ["equal", "expected-divergence"]},
+            "actual_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "reference_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "divergence_reason": {"type": "string", "minLength": 1}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"outcome": {"const": "expected-divergence"}}
+              },
+              "then": {"required": ["divergence_reason"]},
+              "else": {"required": ["reference_sha256"]}
+            }
+          ]
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "polygons",
+        "rings",
+        "dangles",
+        "cut_edges",
+        "invalid_rings",
+        "provenance_sources"
+      ],
+      "properties": {
+        "polygons": {"type": "integer", "minimum": 0},
+        "rings": {"type": "integer", "minimum": 0},
+        "dangles": {"type": "integer", "minimum": 0},
+        "cut_edges": {"type": "integer", "minimum": 0},
+        "invalid_rings": {"type": "integer", "minimum": 0},
+        "provenance_sources": {"type": "integer", "minimum": 0}
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p50_ms",
+        "p95_ms",
+        "throughput",
+        "samples",
+        "phase_times_ms",
+        "allocations",
+        "peak_rss_bytes"
+      ],
+      "properties": {
+        "p50_ms": {"type": "number", "minimum": 0},
+        "p95_ms": {"type": "number", "minimum": 0},
+        "throughput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "unit"],
+          "properties": {
+            "value": {"type": "number", "minimum": 0},
+            "unit": {"type": "string", "minLength": 1}
+          }
+        },
+        "samples": {"type": "integer", "minimum": 1},
+        "phase_times_ms": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "number", "minimum": 0}
+        },
+        "allocations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "bytes"],
+          "properties": {
+            "count": {"type": "integer", "minimum": 0},
+            "bytes": {"type": "integer", "minimum": 0}
+          }
+        },
+        "peak_rss_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_line_strings",
+        "input_segments",
+        "input_coordinates",
+        "output_polygons",
+        "output_coordinates",
+        "candidate_pairs",
+        "exact_predicate_calls",
+        "split_events",
+        "segment_expansion"
+      ],
+      "properties": {
+        "input_line_strings": {"type": "integer", "minimum": 0},
+        "input_segments": {"type": "integer", "minimum": 0},
+        "input_coordinates": {"type": "integer", "minimum": 0},
+        "output_polygons": {"type": "integer", "minimum": 0},
+        "output_coordinates": {"type": "integer", "minimum": 0},
+        "candidate_pairs": {"type": "integer", "minimum": 0},
+        "exact_predicate_calls": {"type": "integer", "minimum": 0},
+        "split_events": {"type": "integer", "minimum": 0},
+        "segment_expansion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input_segments", "noded_segments", "ratio"],
+          "properties": {
+            "input_segments": {"type": "integer", "minimum": 0},
+            "noded_segments": {"type": "integer", "minimum": 0},
+            "ratio": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "architecture",
+        "os",
+        "compiler",
+        "dependencies",
+        "commit_sha"
+      ],
+      "properties": {
+        "architecture": {"type": "string", "minLength": 1},
+        "os": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1}
+          }
+        },
+        "compiler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1}
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "commit_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    }
+  }
+}

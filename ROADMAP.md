@@ -321,6 +321,10 @@ Before recording time, require:
 - [ ] canonical topology fingerprint or documented divergence;
 - [ ] polygon, ring, dangle, cut-edge, invalid-ring, and provenance metrics.
 
+Progress: Benchmark record V1 now encodes these gates and all three lanes as a
+strict machine-readable schema. No benchmark result is published by the schema
+change itself.
+
 Record:
 
 - p50, p95, throughput, and sample count;
