@@ -66,12 +66,15 @@ impl ExecutionPolicy {
         Ok(())
     }
 
-    pub(crate) fn has_noding_work_limits(&self) -> bool {
-        self.cancellation_token.is_some()
-            || self.max_candidate_pairs.is_some()
+    pub(crate) fn has_noding_work_budgets(&self) -> bool {
+        self.max_candidate_pairs.is_some()
             || self.max_exact_intersection_calls.is_some()
             || self.max_split_events.is_some()
             || self.max_noding_iterations.is_some()
+    }
+
+    pub(crate) fn has_cancellation(&self) -> bool {
+        self.cancellation_token.is_some()
     }
 
     pub(crate) fn check_noding_work(

@@ -86,16 +86,72 @@ pub struct NodingWorkStats {
     pub pre_snap_vertex_candidates: usize,
 }
 
-impl NodingWorkStats {
-    pub(crate) fn merge(&mut self, other: Self) {
-        self.grid_cells += other.grid_cells;
-        self.grid_cell_entries += other.grid_cell_entries;
-        self.global_lines += other.global_lines;
-        self.candidate_pairs += other.candidate_pairs;
-        self.aabb_rejections += other.aabb_rejections;
-        self.exact_intersection_calls += other.exact_intersection_calls;
-        self.split_events += other.split_events;
-        self.pre_snap_vertex_candidates += other.pre_snap_vertex_candidates;
+pub(crate) struct ExecutionWorkTracker<'a> {
+    policy: Option<&'a crate::ExecutionPolicy>,
+    stats: Option<&'a mut NodingWorkStats>,
+    candidate_pairs: usize,
+    exact_intersection_calls: usize,
+}
+
+impl<'a> ExecutionWorkTracker<'a> {
+    pub(crate) fn new(
+        policy: Option<&'a crate::ExecutionPolicy>,
+        stats: Option<&'a mut NodingWorkStats>,
+    ) -> Self {
+        let candidate_pairs = stats.as_deref().map_or(0, |stats| stats.candidate_pairs);
+        let exact_intersection_calls = stats
+            .as_deref()
+            .map_or(0, |stats| stats.exact_intersection_calls);
+        Self {
+            policy,
+            stats,
+            candidate_pairs,
+            exact_intersection_calls,
+        }
+    }
+
+    pub(crate) fn grid(&mut self, cells: usize, entries: usize, globals: usize) {
+        if let Some(stats) = self.stats.as_deref_mut() {
+            stats.grid_cells = stats.grid_cells.saturating_add(cells);
+            stats.grid_cell_entries = stats.grid_cell_entries.saturating_add(entries);
+            stats.global_lines = stats.global_lines.saturating_add(globals);
+        }
+    }
+
+    pub(crate) fn check_cancelled(&self) -> crate::Result<()> {
+        if let Some(policy) = self.policy {
+            policy.check_cancelled("candidate_enumeration")?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn candidate(&mut self, overlaps: bool) -> crate::Result<()> {
+        self.candidate_pairs = self.candidate_pairs.checked_add(1).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "candidate-pair counter overflow".to_string(),
+            }
+        })?;
+        if overlaps {
+            self.exact_intersection_calls = self
+                .exact_intersection_calls
+                .checked_add(1)
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "exact-intersection counter overflow".to_string(),
+                })?;
+        }
+        if let Some(stats) = self.stats.as_deref_mut() {
+            stats.candidate_pairs = stats.candidate_pairs.saturating_add(1);
+            if overlaps {
+                stats.exact_intersection_calls = stats.exact_intersection_calls.saturating_add(1);
+            } else {
+                stats.aabb_rejections = stats.aabb_rejections.saturating_add(1);
+            }
+        }
+        if let Some(policy) = self.policy {
+            policy.check_cancelled_every("candidate_enumeration", self.candidate_pairs)?;
+            policy.check_noding_work(self.candidate_pairs, self.exact_intersection_calls)?;
+        }
+        Ok(())
     }
 }
 
