@@ -26,7 +26,7 @@ jobs:
         pip install pytest shapely numpy
 
     - name: Build Rust CLI for Differential Fuzzer
-      run: cargo build --release -p geo-polygonize-core --example polygonize
+      run: cargo build --release --locked -p geo-polygonize-core --example polygonize
 
     - name: Run Pytest Differential Harness
       run: pytest tests/differential_shapely.py -v

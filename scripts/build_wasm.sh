@@ -67,7 +67,7 @@ build_variant() {
     local flags=$2
 
     echo "Building $variant version..."
-    RUSTFLAGS="$flags" cargo build -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
+    RUSTFLAGS="$flags" cargo build --locked -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
 
     echo "Running wasm-bindgen for $variant..."
     local wasm_path="target/$TARGET/release/geo_polygonize_wasm.wasm"
@@ -105,6 +105,7 @@ build_variant_threads() {
     rustup component add rust-src --toolchain nightly
 
     RUSTFLAGS="$flags" cargo +nightly build -p geo-polygonize-wasm \
+        --locked \
         --target $TARGET \
         --release \
         --features "console_error_panic_hook threads" \
@@ -194,7 +195,7 @@ patch_vite_urls() {
 export_bindings() {
     echo "Exporting our TS-RS bindings into wasm-bindgen definitions..."
     export TS_RS_EXPORT_DIR="crates/geo-polygonize-core/bindings"
-    cargo run -p geo-polygonize-core --bin export_bindings
+    cargo run --locked -p geo-polygonize-core --bin export_bindings
     mkdir -p pkg-wrapper/bindings
     cp crates/geo-polygonize-core/bindings/* pkg-wrapper/bindings/
 

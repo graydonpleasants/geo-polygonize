@@ -75,6 +75,25 @@ jobs:
       - name: Run tests
         run: cargo test --locked --verbose
 
+  release-tests:
+    name: Release Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-release
+
+      - name: Run release tests
+        run: |
+          cargo test --release --locked -p geo-polygonize-core --test robustness --test regression_nan_panic
+          cargo test --release --locked -p geo-polygonize-arrow --test test_ffi_errors
+
   release-contract:
     name: Release Contract
     runs-on: ubuntu-latest
@@ -136,6 +155,9 @@ jobs:
         with:
           components: rust-src
           targets: wasm32-unknown-unknown
+
+      - name: Verify WASM panic strategy
+        run: rustc --print cfg --target wasm32-unknown-unknown | grep -Fx 'panic="abort"'
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
@@ -220,7 +242,7 @@ jobs:
 
   test:
     name: CI Required
-    needs: [changes, rust, release-contract, supply-chain, wasm-build, js]
+    needs: [changes, rust, release-tests, release-contract, supply-chain, wasm-build, js]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -229,6 +251,7 @@ jobs:
         run: |
           [ "${{ needs.changes.result }}" = "success" ]
           [ "${{ needs.rust.result }}" = "success" ]
+          [ "${{ needs.release-tests.result }}" = "success" ]
           [ "${{ needs.release-contract.result }}" = "success" ]
           [ "${{ needs.supply-chain.result }}" = "success" ]
           [[ "${{ needs.wasm-build.result }}" =~ ^(success|skipped)$ ]]
