@@ -1,4 +1,5 @@
 use crate::diagnostics::{ExecutionWorkTracker, NodingIterationStats, NodingWorkStats};
+use crate::error::PolygonizeError;
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::UniformGrid;
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
@@ -259,7 +260,16 @@ impl SnapNoder {
 
             // Apply splits. Copy untouched line ranges in bulk and only rebuild lines with split events.
             new_lines.clear();
-            new_lines.reserve(lines.len() + events.len());
+            let estimated_len = lines.len().checked_add(events.len()).ok_or_else(|| {
+                PolygonizeError::InternalInvariantViolation {
+                    reason: "noded segment capacity overflow".to_string(),
+                }
+            })?;
+            new_lines.reserve(
+                execution_policy
+                    .and_then(|policy| policy.max_noded_segments)
+                    .map_or(estimated_len, |limit| estimated_len.min(limit)),
+            );
 
             let mut event_idx = 0;
             let mut src_idx = 0;
@@ -271,6 +281,18 @@ impl SnapNoder {
 
                 // Copy untouched lines directly.
                 if src_idx < line_idx {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check(
+                            "noded_segments",
+                            execution_policy.max_noded_segments,
+                            new_lines
+                                .len()
+                                .checked_add(line_idx - src_idx)
+                                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                                    reason: "noded segment count overflow".to_string(),
+                                })?,
+                        )?;
+                    }
                     new_lines.extend_from_slice(&lines[src_idx..line_idx]);
                 }
 
@@ -320,6 +342,17 @@ impl SnapNoder {
                     let p1 = w[1];
                     // Check 2D equality
                     if p0.x != p1.x || p0.y != p1.y {
+                        if let Some(execution_policy) = execution_policy {
+                            execution_policy.check(
+                                "noded_segments",
+                                execution_policy.max_noded_segments,
+                                new_lines.len().checked_add(1).ok_or_else(|| {
+                                    PolygonizeError::InternalInvariantViolation {
+                                        reason: "noded segment count overflow".to_string(),
+                                    }
+                                })?,
+                            )?;
+                        }
                         new_lines.push(Line3D::new(p0, p1, line.line_id));
                     }
                 }
@@ -329,6 +362,18 @@ impl SnapNoder {
 
             // Copy any untouched trailing lines.
             if src_idx < lines.len() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check(
+                        "noded_segments",
+                        execution_policy.max_noded_segments,
+                        new_lines
+                            .len()
+                            .checked_add(lines.len() - src_idx)
+                            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                                reason: "noded segment count overflow".to_string(),
+                            })?,
+                    )?;
+                }
                 new_lines.extend_from_slice(&lines[src_idx..]);
             }
 
