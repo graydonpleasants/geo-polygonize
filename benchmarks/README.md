@@ -17,6 +17,18 @@ features, and dependency versions. Phase names and throughput units are explicit
 strings so different runners can report their native phases without pretending
 unlike pipelines are equivalent.
 
+`benchmark-decision-policy-v1.json` separates diagnostic runs from evidence
+that can support a performance decision. Shared or smoke-test measurements are
+diagnostic and nonpublishable. Decision-quality measurements require a
+dedicated runner, five independent processes with at least 30 samples each,
+warmup, no more than 3% relative median absolute deviation, a passed correctness
+gate, a pinned environment, and the same commit.
+
+Before an experiment starts, its primary claim must meet the policy's 5%
+minimum effect size while every secondary metric stays within the 2% regression
+budget. The current hosted correctness jobs collect no timings and therefore
+remain diagnostic.
+
 `reference-result-v1.schema.json` defines the external correctness evidence.
 Its topology fingerprint compares only fields both implementations can produce:
 canonical XY polygon rings, dangles, cut edges, and invalid rings. Rust-only

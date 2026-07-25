@@ -38,6 +38,10 @@ jobs:
 
       - run: python -m pip install -r benchmarks/reference-requirements.txt
 
+      - name: Validate benchmark decision policy
+        run: |
+          python -c 'import json; from jsonschema import validate; validate(json.load(open("benchmarks/benchmark-decision-policy-v1.json")), json.load(open("benchmarks/benchmark-decision-policy-v1.schema.json")))'
+
       - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
 
       - run: pytest -q tests/test_reference_geos.py

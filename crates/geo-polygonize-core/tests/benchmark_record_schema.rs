@@ -8,6 +8,13 @@ fn schema() -> Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
+fn benchmark_file(name: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks")
+        .join(name);
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
 fn required(value: &Value) -> HashSet<&str> {
     value["required"]
         .as_array()
@@ -100,5 +107,56 @@ fn benchmark_schema_requires_measurement_work_and_environment_evidence() {
             "dependencies",
             "commit_sha",
         ]))
+    );
+}
+
+#[test]
+fn decision_policy_separates_diagnostics_from_publishable_evidence() {
+    let policy = benchmark_file("benchmark-decision-policy-v1.json");
+    let classes = &policy["measurement_classes"];
+    assert_eq!(policy["schema_version"], 1);
+    assert_eq!(classes["diagnostic"]["publishable"], false);
+    assert_eq!(classes["decision_quality"]["publishable"], true);
+    assert_eq!(
+        classes["decision_quality"]["allowed_runner_classes"],
+        serde_json::json!(["dedicated"])
+    );
+    assert!(
+        classes["decision_quality"]["minimum_samples_per_process"]
+            .as_u64()
+            .unwrap()
+            > classes["diagnostic"]["minimum_samples"].as_u64().unwrap()
+    );
+    assert!(
+        classes["decision_quality"]["minimum_process_repetitions"]
+            .as_u64()
+            .unwrap()
+            > 1
+    );
+
+    let promotion = &policy["promotion"];
+    assert!(
+        promotion["minimum_effect_size_percent"].as_f64().unwrap()
+            > promotion["regression_budget_percent"].as_f64().unwrap()
+    );
+    for requirement in [
+        "require_correctness_gate",
+        "require_pinned_environment",
+        "require_same_commit",
+    ] {
+        assert_eq!(classes["decision_quality"][requirement], true);
+    }
+
+    let policy_schema = benchmark_file("benchmark-decision-policy-v1.schema.json");
+    assert_eq!(policy_schema["properties"]["schema_version"]["const"], 1);
+    assert_eq!(
+        policy_schema["properties"]["measurement_classes"]["properties"]["diagnostic"]
+            ["properties"]["publishable"]["const"],
+        false
+    );
+    assert_eq!(
+        policy_schema["properties"]["measurement_classes"]["properties"]["decision_quality"]
+            ["properties"]["publishable"]["const"],
+        true
     );
 }
