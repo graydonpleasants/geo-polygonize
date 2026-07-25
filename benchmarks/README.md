@@ -63,5 +63,21 @@ Use `--lane certified-fixed` only with a parity-class `certified-fixed`
 workload. Its untimed gate and timed samples both retain
 `CertifiedFixedPrecision`, so the lane measures hot-pixel snap rounding and
 never substitutes the floating or iterative snap backend. GEOS/Shapely does not
-provide the equivalent certified JTS pipeline, so the GEOS reference generator
+provide the equivalent certified pipeline, so the GEOS reference generator
 deliberately rejects that lane.
+
+The certified reference uses pinned JTS `1.20.0`
+`GeometryNoder` snap rounding with validation, deduplicates the resulting
+segments, and feeds them to JTS `Polygonizer`:
+
+```bash
+mvn -q -f benchmarks/jts-reference/pom.xml package
+java -jar benchmarks/jts-reference/target/geo-polygonize-jts-reference-1.0.0.jar \
+  --root "$PWD" \
+  --workload dense-crossings-v1 \
+  --output target/jts-reference.json
+```
+
+Pass that result to `benchmark_record --lane certified-fixed
+--reference-result target/jts-reference.json`. CI runs this correctness-only
+gate for every certified-fixed parity workload before any timings are allowed.

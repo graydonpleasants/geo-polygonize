@@ -327,8 +327,10 @@ already-noded, floating, and certified fixed-precision workloads before timing,
 and requires external reference and peak-RSS evidence. A versioned
 cross-implementation topology fingerprint and GEOS/Shapely reference runner now
 cover the already-noded and floating lanes without pretending Rust-only
-provenance or diagnostics are external equality evidence. Equivalent JTS
-certified-fixed reference execution and result publication remain separate work.
+provenance or diagnostics are external equality evidence. A pinned JTS
+snap-rounding, validation, deduplication, and polygonization reference now
+covers every certified-fixed parity workload. Result publication remains
+separate work.
 
 Record:
 
@@ -349,10 +351,10 @@ Record:
 - [ ] Keep rejected experiments and crossover measurements linked from the
   relevant decision record.
 
-Progress: The GEOS reference correctness job pins Rust, Python, Shapely, and
-therefore its bundled GEOS version. JTS and Node remain to be pinned when their
-comparison jobs exist; no timing artifact is published by this correctness-only
-job.
+Progress: The correctness jobs pin Rust, Python, Shapely and its bundled GEOS,
+plus the Maven/Java image, JTS, and JSON adapter used by the certified lane.
+Node remains to be pinned when a Node comparison job exists; neither correctness
+job publishes timing artifacts.
 
 ### P1.4 Differential minimization
 
