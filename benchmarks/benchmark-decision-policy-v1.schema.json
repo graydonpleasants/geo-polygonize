@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-decision-policy-v1.schema.json",
+  "title": "geo-polygonize benchmark decision policy V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "measurement_classes",
+    "promotion"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_id": {"type": "string", "minLength": 1},
+    "measurement_classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostic", "decision_quality"],
+      "properties": {
+        "diagnostic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["publishable", "purpose", "minimum_samples"],
+          "properties": {
+            "publishable": {"const": false},
+            "purpose": {"type": "string", "minLength": 1},
+            "minimum_samples": {"type": "integer", "minimum": 1}
+          }
+        },
+        "decision_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "publishable",
+            "allowed_runner_classes",
+            "minimum_samples_per_process",
+            "minimum_process_repetitions",
+            "warmup_iterations",
+            "maximum_relative_mad_percent",
+            "require_correctness_gate",
+            "require_pinned_environment",
+            "require_same_commit"
+          ],
+          "properties": {
+            "publishable": {"const": true},
+            "allowed_runner_classes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"enum": ["dedicated"]}
+            },
+            "minimum_samples_per_process": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "minimum_process_repetitions": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "warmup_iterations": {"type": "integer", "minimum": 1},
+            "maximum_relative_mad_percent": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "require_correctness_gate": {"const": true},
+            "require_pinned_environment": {"const": true},
+            "require_same_commit": {"const": true}
+          }
+        }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_metric",
+        "minimum_effect_size_percent",
+        "regression_budget_percent",
+        "secondary_metrics",
+        "require_no_secondary_regression_over_budget",
+        "require_predeclared_experiment"
+      ],
+      "properties": {
+        "primary_metric": {"const": "p50_ms"},
+        "minimum_effect_size_percent": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "regression_budget_percent": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "secondary_metrics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["p95_ms", "allocated_bytes", "peak_rss_bytes"]
+          }
+        },
+        "require_no_secondary_regression_over_budget": {"const": true},
+        "require_predeclared_experiment": {"const": true}
+      }
+    }
+  }
+}

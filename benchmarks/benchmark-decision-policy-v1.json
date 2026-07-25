@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "policy_id": "benchmark-decision-v1",
+  "measurement_classes": {
+    "diagnostic": {
+      "publishable": false,
+      "purpose": "correctness and benchmark-harness smoke checks",
+      "minimum_samples": 1
+    },
+    "decision_quality": {
+      "publishable": true,
+      "allowed_runner_classes": ["dedicated"],
+      "minimum_samples_per_process": 30,
+      "minimum_process_repetitions": 5,
+      "warmup_iterations": 5,
+      "maximum_relative_mad_percent": 3.0,
+      "require_correctness_gate": true,
+      "require_pinned_environment": true,
+      "require_same_commit": true
+    }
+  },
+  "promotion": {
+    "primary_metric": "p50_ms",
+    "minimum_effect_size_percent": 5.0,
+    "regression_budget_percent": 2.0,
+    "secondary_metrics": [
+      "p95_ms",
+      "allocated_bytes",
+      "peak_rss_bytes"
+    ],
+    "require_no_secondary_regression_over_budget": true,
+    "require_predeclared_experiment": true
+  }
+}
