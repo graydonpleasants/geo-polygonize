@@ -24,6 +24,10 @@ struct Args {
     workload: String,
     #[arg(long, default_value_t = 30)]
     samples: usize,
+    #[arg(long, default_value_t = 5)]
+    warmup_iterations: usize,
+    #[arg(long)]
+    repetition: Option<usize>,
     #[arg(long)]
     peak_rss_bytes: Option<u64>,
     #[arg(long)]
@@ -169,6 +173,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !args.check_only && args.samples == 0 {
         return Err("samples must be greater than zero".into());
     }
+    if args.repetition == Some(0) {
+        return Err("repetition must be greater than zero".into());
+    }
     if !args.check_only && args.peak_rss_bytes.is_none() {
         return Err("peak RSS is required when recording timings".into());
     }
@@ -242,13 +249,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let mut timed_options = options.clone();
+    timed_options.diagnostics.timings = true;
+    for _ in 0..args.warmup_iterations {
+        polygonize(lines.clone(), &timed_options)?;
+    }
     let profile_path = std::env::temp_dir().join(format!(
         "geo-polygonize-benchmark-{}.json",
         std::process::id()
     ));
     let _profiler = dhat::Profiler::builder().file_name(profile_path).build();
-    let mut timed_options = options.clone();
-    timed_options.diagnostics.timings = true;
     let mut samples = Samples::default();
     for _ in 0..args.samples {
         let before = dhat::HeapStats::get();
@@ -282,9 +292,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dependencies = dependencies(&reference)?;
     let commit = command("git", &["rev-parse", "HEAD"])?;
     let output_coordinates = output_coordinates(&correctness);
+    let record_id = format!("{}-{}-{}", workload.id, &commit[..12], args.lane.profile());
     let record = json!({
         "schema_version": 1,
-        "record_id": format!("{}-{}-{}", workload.id, &commit[..12], args.lane.profile()),
+        "record_id": args.repetition.map_or(record_id.clone(), |repetition| format!("{record_id}-r{repetition}")),
         "workload_id": workload.id,
         "lane": args.lane.record_name(),
         "implementation": {

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-publication-v1.schema.json",
+  "title": "geo-polygonize benchmark publication V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "publication_id",
+    "policy_id",
+    "measurement_class",
+    "runner_class",
+    "warmup_iterations",
+    "process_repetitions",
+    "p50_relative_mad_percent",
+    "records"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "publication_id": {"type": "string", "minLength": 1},
+    "policy_id": {"const": "benchmark-decision-v1"},
+    "measurement_class": {"const": "decision-quality"},
+    "runner_class": {"const": "dedicated"},
+    "warmup_iterations": {"type": "integer", "minimum": 5},
+    "process_repetitions": {"type": "integer", "minimum": 5},
+    "p50_relative_mad_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "records": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "$ref": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-record-v1.schema.json"
+      }
+    }
+  }
+}

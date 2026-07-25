@@ -9,6 +9,7 @@ on:
       - "crates/geo-polygonize-core/examples/benchmark_record.rs"
       - "crates/geo-polygonize-core/tests/workloads/**"
       - "tests/test_reference_geos.py"
+      - "tests/test_publish_benchmark.py"
   push:
     branches: [main]
     paths:
@@ -16,6 +17,7 @@ on:
       - "crates/geo-polygonize-core/examples/benchmark_record.rs"
       - "crates/geo-polygonize-core/tests/workloads/**"
       - "tests/test_reference_geos.py"
+      - "tests/test_publish_benchmark.py"
 
 permissions:
   contents: read
@@ -44,7 +46,7 @@ jobs:
 
       - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
 
-      - run: pytest -q tests/test_reference_geos.py
+      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py
 
       - run: python benchmarks/check_geos_references.py
 
