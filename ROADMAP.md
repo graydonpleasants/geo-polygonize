@@ -344,7 +344,7 @@ Record:
 ### P1.3 Durable benchmark reporting
 
 - [ ] Publish machine-readable artifacts and a human-readable trend dashboard.
-- [ ] Separate noisy runner samples from decision-quality measurements.
+- [x] Separate noisy runner samples from decision-quality measurements.
 - [ ] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
 - [x] Define the minimum effect size and regression budget before each backend or
   dispatch experiment.
@@ -358,8 +358,10 @@ job publishes timing artifacts. Benchmark decision policy V1 now classifies
 diagnostic results as nonpublishable and requires dedicated-runner repetitions,
 warmup, dispersion, correctness, environment, and commit gates for
 decision-quality evidence. It also predeclares a 5% minimum effect size and 2%
-secondary-metric regression budget. Publication enforcement and durable
-decision records remain separate work.
+secondary-metric regression budget. Publication V1 now bundles only records
+that pass the policy's runner, warmup, repetition, sample, identity, schema, and
+dispersion gates; diagnostic and noisy records cannot enter that artifact.
+A durable trend view and decision records remain separate work.
 
 ### P1.4 Differential minimization
 

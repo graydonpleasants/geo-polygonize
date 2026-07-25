@@ -46,13 +46,15 @@ python3 benchmarks/reference_geos.py \
 
 The benchmark runner validates that the reference workload, lane, dependency
 versions, payload hash, and topology all match before timing. It also rejects
-any timed sample whose fingerprint changes:
+any timed sample whose fingerprint changes and performs five untimed warmups by
+default:
 
 ```bash
 cargo run -p geo-polygonize-core --release --example benchmark_record -- \
   --lane already-noded \
   --workload already-noded-coverage-v1 \
   --samples 30 \
+  --repetition 1 \
   --peak-rss-bytes <externally-measured-peak> \
   --reference-result target/reference-result.json \
   --output target/benchmark-record.json
@@ -65,6 +67,25 @@ every GEOS-comparable parity workload using `reference-requirements.txt`.
 Peak RSS remains an explicit harness input because the Rust standard library
 does not expose a portable process peak. The runner measures allocations with
 the repository's existing `dhat` allocator.
+
+Run the benchmark in five separate processes with unique `--repetition` values,
+then gate the records before publication:
+
+```bash
+python3 benchmarks/publish_benchmark.py \
+  --runner-class dedicated \
+  --warmup-iterations 5 \
+  --record target/benchmark-record-1.json \
+  --record target/benchmark-record-2.json \
+  --record target/benchmark-record-3.json \
+  --record target/benchmark-record-4.json \
+  --record target/benchmark-record-5.json \
+  --output target/benchmark-publication.json
+```
+
+The publisher rejects shared runners, too few warmups, process repetitions or
+samples, duplicate record IDs, mixed commits/environments/workloads, schema
+failures, and p50 relative median absolute deviation above 3%.
 
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
