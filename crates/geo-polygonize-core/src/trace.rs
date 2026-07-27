@@ -44,6 +44,14 @@ pub struct InputSegmentTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HotPixelTraceV1 {
+    pub index: usize,
+    pub grid_x: i64,
+    pub grid_y: i64,
+    pub coordinate: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct GraphNodeTraceV1 {
     pub node_id: usize,
     pub coordinate: CoordinateFingerprintV1,
@@ -223,6 +231,33 @@ impl TraceRecorderV1 {
             })
             .expect("input trace event serializes");
             if !self.record(TraceStageV1::Noding, kind, payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_hot_pixels(
+        &mut self,
+        hot_pixels: &[crate::types::IPoint],
+        grid_size: f64,
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, point) in hot_pixels.iter().enumerate() {
+            let payload = serde_json::to_value(HotPixelTraceV1 {
+                index,
+                grid_x: point.x,
+                grid_y: point.y,
+                coordinate: coordinate_fingerprint(crate::Coord3D::new(
+                    point.x as f64 * grid_size,
+                    point.y as f64 * grid_size,
+                    0.0,
+                ))?,
+            })
+            .expect("hot-pixel trace event serializes");
+            if !self.record(TraceStageV1::Noding, "certified_hot_pixel", payload) {
                 break;
             }
         }
@@ -513,7 +548,6 @@ impl TraceLevelV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::polygonizer::{apply_determinism, construct_final_polygons};
     use crate::{
         polygonize, polygonize_with_trace, Coord3D, ExecutionPolicy, TopologyFingerprintV1,
     };
@@ -720,5 +754,43 @@ mod tests {
             format!("0x{:016x}", (3.0f64 * 0.1).to_bits())
         );
         assert_eq!(snapped.payload["source_ids"], json!(["0x00000007"]));
+    }
+
+    #[test]
+    fn noding_trace_records_certified_hot_pixel_grid_cells() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 1),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 2),
+        ];
+        let mut options = PolygonizerOptions {
+            node_input: true,
+            precision_model: crate::PrecisionModel::FixedGrid { grid_size: 1.0 },
+            ..Default::default()
+        };
+        options.noding.guarantee = crate::NodingGuarantee::CertifiedFixedPrecision;
+        let traced = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+        let hot_pixels: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "certified_hot_pixel")
+            .collect();
+
+        assert_eq!(hot_pixels.len(), 5);
+        let intersection = hot_pixels
+            .iter()
+            .find(|event| event.payload["grid_x"] == 1 && event.payload["grid_y"] == 1)
+            .unwrap();
+        assert_eq!(
+            intersection.payload["coordinate"]["x"],
+            format!("0x{:016x}", 1.0f64.to_bits())
+        );
     }
 }

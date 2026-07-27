@@ -423,7 +423,9 @@ source ID, and both directed halfedges before pruning mutates graph state.
 Dangle and cut-edge events then capture the exact linework returned by their
 classification passes before canonical output sorting. Noding traces also
 record the physical post-pre-snap and post-noding segment coordinates, including
-fixed-grid output. Integer grid cells and certified hot pixels remain open.
+fixed-grid output. Certified noding now records the exact sorted hot-pixel set
+with integer grid coordinates from the physical snap-rounding pass. Candidate
+grid-cell events remain open.
 
 ### P1.6 Turn the playground into a topology debugger
 

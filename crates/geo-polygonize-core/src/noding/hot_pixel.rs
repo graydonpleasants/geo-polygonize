@@ -38,7 +38,7 @@ impl HotPixelNoder {
 
     pub fn node(&self, lines: Vec<Line3D>) -> Result<Vec<Line3D>> {
         self.node_with_stats_impl(lines, None)
-            .map(|(lines, _, _)| lines)
+            .map(|(lines, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats(
@@ -46,6 +46,7 @@ impl HotPixelNoder {
         lines: Vec<Line3D>,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
         self.node_with_stats_impl(lines, None)
+            .map(|(lines, intersections, work, _)| (lines, intersections, work))
     }
 
     pub(crate) fn node_with_execution_policy(
@@ -54,7 +55,7 @@ impl HotPixelNoder {
         execution_policy: &ExecutionPolicy,
     ) -> Result<Vec<Line3D>> {
         self.node_with_stats_impl(lines, Some(execution_policy))
-            .map(|(lines, _, _)| lines)
+            .map(|(lines, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats_and_execution_policy(
@@ -63,13 +64,22 @@ impl HotPixelNoder {
         execution_policy: &ExecutionPolicy,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
         self.node_with_stats_impl(lines, Some(execution_policy))
+            .map(|(lines, intersections, work, _)| (lines, intersections, work))
+    }
+
+    pub(crate) fn node_with_hot_pixels(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> Result<(Vec<Line3D>, usize, NodingWorkStats, Vec<IPoint>)> {
+        self.node_with_stats_impl(lines, execution_policy)
     }
 
     fn node_with_stats_impl(
         &self,
         mut lines: Vec<Line3D>,
         execution_policy: Option<&ExecutionPolicy>,
-    ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
+    ) -> Result<(Vec<Line3D>, usize, NodingWorkStats, Vec<IPoint>)> {
         for line in &mut lines {
             line.start = self.snap(line.start)?;
             line.end = self.snap(line.end)?;
@@ -256,7 +266,7 @@ impl HotPixelNoder {
 
         snapper.normalize_and_dedup(&mut output);
         ValidatingNoder::new().validate(&output)?;
-        Ok((output, intersections, work))
+        Ok((output, intersections, work, hot_pixels))
     }
 
     fn grid_point(&self, coordinate: Coord3D) -> Result<IPoint> {
