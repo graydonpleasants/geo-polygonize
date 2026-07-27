@@ -404,9 +404,9 @@ Candidate events and snapshots:
 - [x] noded and dissolved edges with complete source sets;
 - [x] graph nodes and directed halfedges;
 - [x] dangle pruning and cut-edge classification;
-- [ ] maximal rings, minimal rings, and invalid-ring reasons;
-- [ ] shell/hole classification and containment candidates;
-- [ ] canonical ordering decisions;
+- [x] maximal rings, minimal rings, and invalid-ring reasons;
+- [x] shell/hole classification and containment candidates;
+- [x] canonical ordering decisions;
 - [ ] tile ownership, deduplication, retries, and fallback decisions.
 
 Trace output must include byte limits, truncation metadata, schema version,

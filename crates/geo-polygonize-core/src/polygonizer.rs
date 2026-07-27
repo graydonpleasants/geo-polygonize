@@ -714,14 +714,32 @@ impl Polygonizer {
         }
 
         // 4. Find rings (3D)
-        let rings_with_ids = self
-            .graph
-            .get_edge_rings_with_graph_ids_and_execution_policy(
-                self.options.node_input,
-                self.options.provenance.enabled
-                    && self.options.provenance.include_boundary_line_ids,
-                &self.execution_policy,
-            )?;
+        let include_source_ids =
+            self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids;
+        let trace_rings = self
+            .trace
+            .as_ref()
+            .is_some_and(|trace| trace.records_stage(crate::trace::TraceStageV1::Rings));
+        let rings_with_ids = if trace_rings {
+            let (maximal, minimal) = self
+                .graph
+                .get_edge_rings_with_maximal_and_execution_policy(
+                    self.options.node_input,
+                    include_source_ids,
+                    &self.execution_policy,
+                )?;
+            let trace = self.trace.as_mut().unwrap();
+            trace.record_extracted_rings("maximal_ring", &maximal)?;
+            trace.record_extracted_rings("minimal_ring", &minimal)?;
+            minimal
+        } else {
+            self.graph
+                .get_edge_rings_with_graph_ids_and_execution_policy(
+                    self.options.node_input,
+                    include_source_ids,
+                    &self.execution_policy,
+                )?
+        };
         self.execution_policy.check(
             "rings",
             self.execution_policy.max_rings,
@@ -742,6 +760,17 @@ impl Polygonizer {
             self.options.node_input,
             &self.execution_policy,
         )?;
+        if let Some(trace) = self.trace.as_mut() {
+            for (index, (ring, _)) in shells.iter().enumerate() {
+                trace.record_classified_ring("classified_shell", index, ring)?;
+            }
+            for (index, (ring, _)) in holes.iter().enumerate() {
+                trace.record_classified_ring("classified_hole", index, ring)?;
+            }
+            for (index, ring) in invalid_rings_candidates.iter().enumerate() {
+                trace.record_invalid_ring(index, ring, invalid_ring_reason(ring))?;
+            }
+        }
 
         if let Some(ref mut d) = diag {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
@@ -760,7 +789,13 @@ impl Polygonizer {
             containment_stats,
         ) = {
             self.execution_policy.check_cancelled("containment")?;
-            establish_topology(shells, holes, &self.options, Some(&self.execution_policy))?
+            establish_topology(
+                shells,
+                holes,
+                &self.options,
+                Some(&self.execution_policy),
+                self.trace.as_mut(),
+            )?
         };
 
         // 6. Construct Final Polygons
@@ -778,6 +813,7 @@ impl Polygonizer {
             shell_holes_ids,
             &self.options,
             &self.execution_policy,
+            self.trace.as_mut(),
         )?;
 
         result = apply_determinism(
@@ -787,6 +823,7 @@ impl Polygonizer {
             &mut invalid_rings,
             &self.options,
             &self.execution_policy,
+            self.trace.as_mut(),
         )?;
         self.execution_policy.check(
             "output_polygons",
@@ -1050,9 +1087,9 @@ fn restore_noded_coordinates(
     Ok(())
 }
 
-pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Vec<u32>>) {
+pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Vec<u32>>) -> usize {
     if ring.is_empty() {
-        return;
+        return 0;
     }
     let n = if ring.len() > 1 && ring.first() == ring.last() {
         ring.len() - 1
@@ -1087,6 +1124,7 @@ pub(crate) fn canonicalize_ring(ring: &mut Vec<Coord3D>, mut ids: Option<&mut Ve
             }
         }
     }
+    min_idx
 }
 
 pub(crate) fn canonicalize_open_line(line: &mut [Coord3D]) {
@@ -1147,6 +1185,7 @@ fn establish_topology(
     holes: Vec<ClassifiedRing>,
     options: &PolygonizerOptions,
     execution_policy: Option<&ExecutionPolicy>,
+    mut trace: Option<&mut TraceRecorderV1>,
 ) -> Result<(
     Vec<Polygon3D>,
     Vec<Vec<Vec<Coord3D>>>,
@@ -1197,31 +1236,49 @@ fn establish_topology(
         }
     }
 
-    let process_hole_assignment = |(hole_3d, graph_ids): (
+    if let Some(trace) = trace.as_deref_mut() {
+        for (index, shell) in shells.iter().enumerate() {
+            trace.record_classified_ring("containment_shell", index, shell)?;
+        }
+    }
+    let trace_containment = trace.is_some();
+    let process_hole_assignment = |(hole_3d, graph_ids): (Polygon3D, Option<RingGraphIdentity>)| -> (
+        Option<usize>,
         Polygon3D,
-        Option<RingGraphIdentity>,
-    )|
-     -> (Option<usize>, Polygon3D, ContainmentStats) {
-            let (best_shell_idx, stats) = if collect_stats {
-                forest.assign_hole_with_graph_ids_and_stats(
+        ContainmentStats,
+        Option<Vec<usize>>,
+    ) {
+        let (best_shell_idx, stats, candidates) = if trace_containment {
+            let (best_shell_idx, stats, candidates) = forest.assign_hole_with_graph_ids_and_trace(
+                &hole_3d,
+                graph_ids.as_ref(),
+                &shells,
+                &options.containment.touch_policy,
+                collect_stats,
+            );
+            (best_shell_idx, stats, Some(candidates))
+        } else if collect_stats {
+            let (best_shell_idx, stats) = forest.assign_hole_with_graph_ids_and_stats(
+                &hole_3d,
+                graph_ids.as_ref(),
+                &shells,
+                &options.containment.touch_policy,
+            );
+            (best_shell_idx, stats, None)
+        } else {
+            (
+                forest.assign_hole_with_graph_ids(
                     &hole_3d,
                     graph_ids.as_ref(),
                     &shells,
                     &options.containment.touch_policy,
-                )
-            } else {
-                (
-                    forest.assign_hole_with_graph_ids(
-                        &hole_3d,
-                        graph_ids.as_ref(),
-                        &shells,
-                        &options.containment.touch_policy,
-                    ),
-                    ContainmentStats::default(),
-                )
-            };
-            (best_shell_idx, hole_3d, stats)
+                ),
+                ContainmentStats::default(),
+                None,
+            )
         };
+        (best_shell_idx, hole_3d, stats, candidates)
+    };
 
     let assignments: Vec<_>;
     if let Some(execution_policy) = execution_policy {
@@ -1247,8 +1304,11 @@ fn establish_topology(
     let mut unassigned_hole_count = 0;
     let mut unassigned_hole_area = 0.0;
 
-    for (idx, hole, stats) in assignments {
+    for (hole_index, (idx, hole, stats, candidates)) in assignments.into_iter().enumerate() {
         containment_stats.merge(stats);
+        if let (Some(trace), Some(candidates)) = (trace.as_deref_mut(), candidates) {
+            trace.record_containment_candidates(hole_index, candidates, idx);
+        }
         if let Some(idx) = idx {
             shells[idx]
                 .boundary_source_line_ids
@@ -1280,6 +1340,7 @@ pub(crate) fn construct_final_polygons(
     shell_holes_ids: Vec<Vec<Vec<u32>>>,
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
+    mut trace: Option<&mut TraceRecorderV1>,
 ) -> Result<Vec<Polygon3D>> {
     execution_policy.check_cancelled("canonicalization")?;
     let capacity = execution_policy
@@ -1299,10 +1360,26 @@ pub(crate) fn construct_final_polygons(
         let mut exterior_ids = shell.exterior_ids;
 
         if options.determinism.canonical_ring_rotation {
-            canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
+            let original_start_index = canonicalize_ring(&mut exterior, Some(&mut exterior_ids));
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.record_ring_rotation(
+                    "polygon_exterior",
+                    shell_index,
+                    None,
+                    original_start_index,
+                );
+            }
             for (hole_index, (h, h_ids)) in holes.iter_mut().zip(holes_ids.iter_mut()).enumerate() {
                 execution_policy.check_cancelled_every("canonicalization", hole_index)?;
-                canonicalize_ring(h, Some(h_ids));
+                let original_start_index = canonicalize_ring(h, Some(h_ids));
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.record_ring_rotation(
+                        "polygon_interior",
+                        shell_index,
+                        Some(hole_index),
+                        original_start_index,
+                    );
+                }
             }
         }
 
@@ -1310,9 +1387,10 @@ pub(crate) fn construct_final_polygons(
             let mut combined_holes: Vec<_> = holes
                 .into_iter()
                 .zip(holes_ids)
-                .map(|(h, hi)| {
+                .enumerate()
+                .map(|(original_index, (h, hi))| {
                     let area = Polygon3D::ring_signed_area_2d(&h).abs();
-                    (h, hi, area)
+                    (original_index, h, hi, area)
                 })
                 .collect();
 
@@ -1322,16 +1400,16 @@ pub(crate) fn construct_final_polygons(
             if use_stable_tie_breaks {
                 let mut combined_holes_with_bbox: Vec<_> = combined_holes
                     .into_iter()
-                    .map(|(h, hi, area)| {
+                    .map(|(original_index, h, hi, area)| {
                         let b = bounding_rect_3d(&h).unwrap_or(geo::Rect::new(
                             geo::Coord { x: 0.0, y: 0.0 },
                             geo::Coord { x: 0.0, y: 0.0 },
                         ));
-                        (h, hi, area, b)
+                        (original_index, h, hi, area, b)
                     })
                     .collect();
                 combined_holes_with_bbox.sort_unstable_by(
-                    |(h1, _, area1, b1), (h2, _, area2, b2)| {
+                    |(_, h1, _, area1, b1), (_, h2, _, area2, b2)| {
                         area2.total_cmp(area1).then_with(|| {
                             b1.min()
                                 .x
@@ -1341,10 +1419,20 @@ pub(crate) fn construct_final_polygons(
                         })
                     },
                 );
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.record_canonical_order(
+                        "polygon_interiors",
+                        Some(shell_index),
+                        combined_holes_with_bbox
+                            .iter()
+                            .map(|(original_index, ..)| *original_index)
+                            .collect(),
+                    );
+                }
 
                 let mut h = Vec::with_capacity(combined_holes_with_bbox.len());
                 let mut hi = Vec::with_capacity(combined_holes_with_bbox.len());
-                for (hole, ids, _, _) in combined_holes_with_bbox {
+                for (_, hole, ids, _, _) in combined_holes_with_bbox {
                     h.push(hole);
                     hi.push(ids);
                 }
@@ -1352,11 +1440,21 @@ pub(crate) fn construct_final_polygons(
                 holes_ids = hi;
             } else {
                 combined_holes
-                    .sort_unstable_by(|(_, _, area1), (_, _, area2)| area2.total_cmp(area1));
+                    .sort_unstable_by(|(_, _, _, area1), (_, _, _, area2)| area2.total_cmp(area1));
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.record_canonical_order(
+                        "polygon_interiors",
+                        Some(shell_index),
+                        combined_holes
+                            .iter()
+                            .map(|(original_index, ..)| *original_index)
+                            .collect(),
+                    );
+                }
 
                 let mut h = Vec::with_capacity(combined_holes.len());
                 let mut hi = Vec::with_capacity(combined_holes.len());
-                for (hole, ids, _) in combined_holes {
+                for (_, hole, ids, _) in combined_holes {
                     h.push(hole);
                     hi.push(ids);
                 }
@@ -1441,6 +1539,16 @@ fn has_three_distinct_xy(coords: &[Coord3D]) -> bool {
     false
 }
 
+fn invalid_ring_reason(ring: &Polygon3D) -> &'static str {
+    if !has_three_distinct_xy(&ring.exterior) {
+        "fewer_than_three_distinct_xy"
+    } else if !ring.signed_area_2d().is_finite() {
+        "non_finite_area"
+    } else {
+        "zero_area"
+    }
+}
+
 #[cfg(test)]
 mod topology_tests {
     use super::*;
@@ -1465,6 +1573,7 @@ mod topology_tests {
             vec![],
             vec![(hole, None)],
             &PolygonizerOptions::default(),
+            None,
             None,
         )
         .unwrap();
@@ -1502,6 +1611,7 @@ mod topology_tests {
                 )],
                 &PolygonizerOptions::default(),
                 Some(&policy),
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "containment"
         ));
@@ -1525,7 +1635,14 @@ mod topology_tests {
             Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
         ));
         assert!(matches!(
-            construct_final_polygons(vec![], vec![], vec![], &PolygonizerOptions::default(), &policy),
+            construct_final_polygons(
+                vec![],
+                vec![],
+                vec![],
+                &PolygonizerOptions::default(),
+                &policy,
+                None,
+            ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
         ));
         let mut dangles = vec![];
@@ -1539,6 +1656,7 @@ mod topology_tests {
                 &mut invalid_rings,
                 &PolygonizerOptions::default(),
                 &policy,
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "canonicalization"
         ));
@@ -1599,6 +1717,7 @@ pub(crate) fn apply_determinism(
     invalid_rings: &mut Vec<Vec<Coord3D>>,
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
+    trace: Option<&mut TraceRecorderV1>,
 ) -> Result<Vec<Polygon3D>> {
     execution_policy.check_cancelled("canonicalization")?;
     if options.determinism.canonical_sort {
@@ -1625,6 +1744,13 @@ pub(crate) fn apply_determinism(
                         .then(holes1.cmp(holes2))
                 })
             });
+            if let Some(trace) = trace {
+                trace.record_canonical_order(
+                    "polygons",
+                    None,
+                    sort_keys.iter().map(|(index, ..)| *index).collect(),
+                );
+            }
 
             reorder_polygons(
                 &mut result,
@@ -1639,6 +1765,13 @@ pub(crate) fn apply_determinism(
 
             execution_policy.check_uncancellable_sort("canonical_polygon_sort", sort_keys.len())?;
             sort_keys.sort_unstable_by(|(_, area1), (_, area2)| area2.total_cmp(area1));
+            if let Some(trace) = trace {
+                trace.record_canonical_order(
+                    "polygons",
+                    None,
+                    sort_keys.iter().map(|(index, _)| *index).collect(),
+                );
+            }
 
             reorder_polygons(&mut result, sort_keys.into_iter().map(|(index, _)| index));
         }

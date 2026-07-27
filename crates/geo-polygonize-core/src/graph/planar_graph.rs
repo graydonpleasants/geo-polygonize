@@ -20,6 +20,7 @@ pub type EdgeId = usize;
 /// Index of a directed half-edge in the graph.
 pub type DirEdgeId = usize;
 
+#[derive(Clone)]
 pub(crate) struct ExtractedRing {
     pub coords: Vec<Coord3D>,
     pub line_ids: Vec<u32>,
@@ -835,7 +836,7 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
     ) -> Vec<ExtractedRing> {
-        self.get_edge_rings_with_graph_ids_impl(include_graph_ids, include_source_ids, None)
+        self.get_edge_rings_with_graph_ids_impl(include_graph_ids, include_source_ids, None, None)
             .expect("unlimited ring extraction cannot fail")
     }
 
@@ -849,7 +850,24 @@ impl PlanarGraph {
             include_graph_ids,
             include_source_ids,
             Some(execution_policy),
+            None,
         )
+    }
+
+    pub(crate) fn get_edge_rings_with_maximal_and_execution_policy(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>)> {
+        let mut maximal = Vec::new();
+        let minimal = self.get_edge_rings_with_graph_ids_impl(
+            include_graph_ids,
+            include_source_ids,
+            Some(execution_policy),
+            Some(&mut maximal),
+        )?;
+        Ok((maximal, minimal))
     }
 
     fn get_edge_rings_with_graph_ids_impl(
@@ -857,6 +875,7 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: Option<&ExecutionPolicy>,
+        maximal_trace: Option<&mut Vec<ExtractedRing>>,
     ) -> crate::Result<Vec<ExtractedRing>> {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
@@ -874,6 +893,15 @@ impl PlanarGraph {
             // Step 2: find and label maximal rings.
             let maximal_ring_starts =
                 self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
+            if let Some(maximal_trace) = maximal_trace {
+                *maximal_trace = self.extract_rings_from_starts(
+                    &maximal_ring_starts,
+                    &next_pointers,
+                    include_graph_ids,
+                    include_source_ids,
+                    execution_policy,
+                )?;
+            }
 
             // Step 3: convert maximal to minimal rings by relinking intersection nodes.
             self.convert_maximal_to_minimal_rings(
@@ -890,6 +918,125 @@ impl PlanarGraph {
                 include_source_ids,
                 execution_policy,
             )
+        })
+    }
+
+    fn extract_rings_from_starts(
+        &self,
+        starts: &[DirEdgeId],
+        next_pointers: &[usize],
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<ExtractedRing>> {
+        let mut rings = Vec::with_capacity(starts.len());
+        let mut ring_edges = Vec::new();
+        let mut work_items = 0;
+        for &start in starts {
+            ring_edges.clear();
+            let mut current = start;
+            let mut valid = true;
+            loop {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
+                let directed = &self.directed_edges[current];
+                if directed.is_marked || self.edges[directed.edge_idx].deleted {
+                    valid = false;
+                    break;
+                }
+                ring_edges.push(current);
+                let next = next_pointers[directed.sym_idx];
+                if next == usize::MAX {
+                    valid = false;
+                    break;
+                }
+                if next == start {
+                    break;
+                }
+                if ring_edges.len() > self.directed_edges.len() {
+                    valid = false;
+                    break;
+                }
+                current = next;
+            }
+            if valid && !ring_edges.is_empty() {
+                rings.push(self.materialize_ring(
+                    &ring_edges,
+                    include_graph_ids,
+                    include_source_ids,
+                    execution_policy,
+                    &mut work_items,
+                )?);
+            }
+        }
+        Ok(rings)
+    }
+
+    fn materialize_ring(
+        &self,
+        ring_edges: &[DirEdgeId],
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: Option<&ExecutionPolicy>,
+        work_items: &mut usize,
+    ) -> crate::Result<ExtractedRing> {
+        let mut coords = Vec::with_capacity(ring_edges.len() + 1);
+        let mut ids = Vec::with_capacity(ring_edges.len());
+        let mut source_ids = Vec::new();
+        let mut edge_keys = if include_graph_ids {
+            Vec::with_capacity(ring_edges.len())
+        } else {
+            Vec::new()
+        };
+        let mut node_ids = if include_graph_ids {
+            Vec::with_capacity(ring_edges.len())
+        } else {
+            Vec::new()
+        };
+        let start_node_idx = self.directed_edges[ring_edges[0]].src;
+        coords.push(Coord3D {
+            x: self.nodes_x[start_node_idx],
+            y: self.nodes_y[start_node_idx],
+            z: self.nodes_z[start_node_idx],
+        });
+
+        for &de_idx in ring_edges {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", *work_items)?;
+            }
+            *work_items += 1;
+            let de = &self.directed_edges[de_idx];
+            let edge_idx = de.edge_idx;
+            ids.push(self.edges[edge_idx].line.line_id);
+            if include_source_ids {
+                source_ids.extend_from_slice(&self.edges[edge_idx].sources.line_ids);
+            }
+            if include_graph_ids {
+                edge_keys.push(if de.src < de.dst {
+                    (de.src, de.dst)
+                } else {
+                    (de.dst, de.src)
+                });
+                node_ids.push(de.src);
+            }
+
+            coords.push(Coord3D {
+                x: self.nodes_x[de.dst],
+                y: self.nodes_y[de.dst],
+                z: self.nodes_z[de.dst],
+            });
+        }
+
+        source_ids.sort_unstable();
+        source_ids.dedup();
+        Ok(ExtractedRing {
+            coords,
+            line_ids: ids,
+            source_line_ids: source_ids,
+            edge_keys,
+            node_ids,
         })
     }
 
@@ -1138,63 +1285,13 @@ impl PlanarGraph {
             }
 
             if is_valid_ring && !ring_edges.is_empty() {
-                let mut coords = Vec::with_capacity(ring_edges.len() + 1);
-                let mut ids = Vec::with_capacity(ring_edges.len());
-                let mut source_ids = Vec::new();
-                let mut edge_keys = if include_graph_ids {
-                    Vec::with_capacity(ring_edges.len())
-                } else {
-                    Vec::new()
-                };
-                let mut node_ids = if include_graph_ids {
-                    Vec::with_capacity(ring_edges.len())
-                } else {
-                    Vec::new()
-                };
-                let start_node_idx = self.directed_edges[ring_edges[0]].src;
-                coords.push(Coord3D {
-                    x: self.nodes_x[start_node_idx],
-                    y: self.nodes_y[start_node_idx],
-                    z: self.nodes_z[start_node_idx],
-                });
-
-                for &de_idx in &ring_edges {
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy.check_cancelled_every("ring_extraction", work_items)?;
-                    }
-                    work_items += 1;
-                    let de = &self.directed_edges[de_idx];
-                    let edge_idx = de.edge_idx;
-                    ids.push(self.edges[edge_idx].line.line_id);
-                    if include_source_ids {
-                        source_ids.extend_from_slice(&self.edges[edge_idx].sources.line_ids);
-                    }
-                    if include_graph_ids {
-                        edge_keys.push(if de.src < de.dst {
-                            (de.src, de.dst)
-                        } else {
-                            (de.dst, de.src)
-                        });
-                        node_ids.push(de.src);
-                    }
-
-                    let dst_idx = de.dst;
-                    coords.push(Coord3D {
-                        x: self.nodes_x[dst_idx],
-                        y: self.nodes_y[dst_idx],
-                        z: self.nodes_z[dst_idx],
-                    });
-                }
-
-                source_ids.sort_unstable();
-                source_ids.dedup();
-                rings.push(ExtractedRing {
-                    coords,
-                    line_ids: ids,
-                    source_line_ids: source_ids,
-                    edge_keys,
-                    node_ids,
-                });
+                rings.push(self.materialize_ring(
+                    &ring_edges,
+                    include_graph_ids,
+                    include_source_ids,
+                    execution_policy,
+                    &mut work_items,
+                )?);
             }
         }
         Ok(rings)

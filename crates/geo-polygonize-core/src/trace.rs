@@ -1,8 +1,8 @@
 //! Internal bounded topology trace schema.
 
 use crate::fingerprint::coordinate_fingerprint;
-use crate::graph::PlanarGraph;
-use crate::{CoordinateFingerprintV1, Line3D, PolygonizerOptions, PolygonizerResult};
+use crate::graph::{ExtractedRing, PlanarGraph};
+use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
 pub const TOPOLOGY_TRACE_V1_SCHEMA_VERSION: u32 = 1;
@@ -71,6 +71,37 @@ pub struct DirectedHalfedgeTraceV1 {
 pub struct ClassifiedLineTraceV1 {
     pub index: usize,
     pub coordinates: Vec<CoordinateFingerprintV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RingTraceV1 {
+    pub index: usize,
+    pub coordinates: Vec<CoordinateFingerprintV1>,
+    pub edge_ids: Vec<String>,
+    pub source_ids: Vec<String>,
+    pub invalid_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ContainmentCandidateTraceV1 {
+    pub hole_index: usize,
+    pub candidate_shell_indices: Vec<usize>,
+    pub selected_shell_index: Option<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CanonicalOrderTraceV1 {
+    pub family: String,
+    pub owner_index: Option<usize>,
+    pub ordered_original_indices: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RingRotationTraceV1 {
+    pub family: String,
+    pub owner_index: usize,
+    pub ring_index: Option<usize>,
+    pub original_start_index: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -151,6 +182,10 @@ impl TraceRecorderV1 {
 
     pub fn finish(self) -> TopologyTraceV1 {
         self.trace
+    }
+
+    pub(crate) fn records_stage(&self, stage: TraceStageV1) -> bool {
+        self.trace.level.allows(stage) && !self.trace.truncated
     }
 
     pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
@@ -256,6 +291,163 @@ impl TraceRecorderV1 {
         }
         Ok(())
     }
+
+    pub(crate) fn record_extracted_rings(
+        &mut self,
+        kind: &'static str,
+        rings: &[ExtractedRing],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Rings) {
+            return Ok(());
+        }
+        for (index, ring) in rings.iter().enumerate() {
+            if !self.record_ring(
+                kind,
+                RingTraceV1 {
+                    index,
+                    coordinates: exact_coordinates(&ring.coords)?,
+                    edge_ids: ring
+                        .line_ids
+                        .iter()
+                        .map(|id| format!("0x{id:08x}"))
+                        .collect(),
+                    source_ids: ring
+                        .source_line_ids
+                        .iter()
+                        .map(|id| format!("0x{id:08x}"))
+                        .collect(),
+                    invalid_reason: None,
+                },
+            ) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_invalid_ring(
+        &mut self,
+        index: usize,
+        ring: &Polygon3D,
+        reason: &'static str,
+    ) -> crate::Result<()> {
+        let payload = RingTraceV1 {
+            index,
+            coordinates: exact_coordinates(&ring.exterior)?,
+            edge_ids: ring
+                .exterior_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            source_ids: ring
+                .boundary_source_line_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            invalid_reason: Some(reason.to_string()),
+        };
+        self.record_ring("invalid_ring", payload);
+        Ok(())
+    }
+
+    pub(crate) fn record_classified_ring(
+        &mut self,
+        kind: &'static str,
+        index: usize,
+        ring: &Polygon3D,
+    ) -> crate::Result<()> {
+        let payload = RingTraceV1 {
+            index,
+            coordinates: exact_coordinates(&ring.exterior)?,
+            edge_ids: ring
+                .exterior_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            source_ids: ring
+                .boundary_source_line_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            invalid_reason: None,
+        };
+        self.record_ring(kind, payload);
+        Ok(())
+    }
+
+    pub(crate) fn record_containment_candidates(
+        &mut self,
+        hole_index: usize,
+        candidate_shell_indices: Vec<usize>,
+        selected_shell_index: Option<usize>,
+    ) {
+        self.record(
+            TraceStageV1::Rings,
+            "containment_candidates",
+            serde_json::to_value(ContainmentCandidateTraceV1 {
+                hole_index,
+                candidate_shell_indices,
+                selected_shell_index,
+            })
+            .expect("containment trace event serializes"),
+        );
+    }
+
+    pub(crate) fn record_canonical_order(
+        &mut self,
+        family: &'static str,
+        owner_index: Option<usize>,
+        ordered_original_indices: Vec<usize>,
+    ) {
+        self.record(
+            TraceStageV1::Output,
+            "canonical_order",
+            serde_json::to_value(CanonicalOrderTraceV1 {
+                family: family.to_string(),
+                owner_index,
+                ordered_original_indices,
+            })
+            .expect("canonical order trace event serializes"),
+        );
+    }
+
+    pub(crate) fn record_ring_rotation(
+        &mut self,
+        family: &'static str,
+        owner_index: usize,
+        ring_index: Option<usize>,
+        original_start_index: usize,
+    ) {
+        self.record(
+            TraceStageV1::Output,
+            "canonical_ring_rotation",
+            serde_json::to_value(RingRotationTraceV1 {
+                family: family.to_string(),
+                owner_index,
+                ring_index,
+                original_start_index,
+            })
+            .expect("ring rotation trace event serializes"),
+        );
+    }
+
+    fn record_ring(&mut self, kind: &'static str, ring: RingTraceV1) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            kind,
+            serde_json::to_value(ring).expect("ring trace event serializes"),
+        )
+    }
+}
+
+fn exact_coordinates(
+    coordinates: &[crate::Coord3D],
+) -> crate::Result<Vec<CoordinateFingerprintV1>> {
+    coordinates
+        .iter()
+        .copied()
+        .map(coordinate_fingerprint)
+        .collect()
 }
 
 impl TraceLevelV1 {
@@ -274,6 +466,7 @@ impl TraceLevelV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::polygonizer::{apply_determinism, construct_final_polygons};
     use crate::{
         polygonize, polygonize_with_trace, Coord3D, ExecutionPolicy, TopologyFingerprintV1,
     };
