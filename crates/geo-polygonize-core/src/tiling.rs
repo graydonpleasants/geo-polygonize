@@ -281,6 +281,7 @@ impl<'a> TiledPolygonizer<'a> {
             &mut invalid_rings,
             &self.options,
             &ExecutionPolicy::default(),
+            None,
         )
         .expect("default execution policy cannot cancel");
         let output_polygon_count = polygons.len();
