@@ -87,6 +87,13 @@ The publisher rejects shared runners, too few warmups, process repetitions or
 samples, duplicate record IDs, mixed commits/environments/workloads, schema
 failures, and p50 relative median absolute deviation above 3%.
 
+`benchmark-decision-v1.schema.json` defines the durable decision record for an
+experiment. Store records under `benchmarks/decisions/` when real evidence
+exists. Each record preserves the predeclared policy thresholds and links
+checksum-pinned baseline and candidate publications. Rejected experiments
+require their own publication links; measured crossovers require both linked
+publications and an explicit descriptor, range, and unit.
+
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
 untimed full-noding validation of that pipeline before collecting samples.
