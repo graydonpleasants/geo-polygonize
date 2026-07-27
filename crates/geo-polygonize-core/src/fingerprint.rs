@@ -424,19 +424,18 @@ fn minimum_rotation_index<T: Ord>(ring: &[T]) -> usize {
 }
 
 fn coordinates(points: &[Coord3D]) -> crate::Result<Vec<CoordinateFingerprintV1>> {
-    points
-        .iter()
-        .map(|point| {
-            Ok(CoordinateFingerprintV1 {
-                x: float_bits(point.x)?,
-                y: float_bits(point.y)?,
-                z: float_bits(point.z)?,
-            })
-        })
-        .collect()
+    points.iter().copied().map(coordinate_fingerprint).collect()
 }
 
-fn float_bits(value: f64) -> crate::Result<String> {
+pub(crate) fn coordinate_fingerprint(point: Coord3D) -> crate::Result<CoordinateFingerprintV1> {
+    Ok(CoordinateFingerprintV1 {
+        x: float_bits(point.x)?,
+        y: float_bits(point.y)?,
+        z: float_bits(point.z)?,
+    })
+}
+
+pub(crate) fn float_bits(value: f64) -> crate::Result<String> {
     if !value.is_finite() {
         return Err(PolygonizeError::InvalidGeometry {
             reason: "fingerprint coordinates must be finite".to_string(),

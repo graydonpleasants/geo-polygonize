@@ -11,6 +11,7 @@ use crate::noding::validate::ValidatingNoder;
 use crate::options::{
     ExecutionPolicy, NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy,
 };
+use crate::trace::{TraceLevelV1, TraceRecorderV1, TracedPolygonizerResultV1};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -42,6 +43,7 @@ pub struct Polygonizer {
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
     input_lines: Vec<Line3D>,
+    trace: Option<TraceRecorderV1>,
 }
 
 /// Reusable allocation storage for stateless polygonization calls.
@@ -99,6 +101,36 @@ pub fn polygonize_with_execution_policy(
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
 ) -> Result<PolygonizerResult> {
+    let collected = collect_owned_lines(lines, execution_policy)?;
+    Polygonizer::with_options(options.clone())
+        .with_execution_policy(execution_policy.clone())
+        .polygonize_owned(collected)
+}
+
+/// Polygonize an owned stream while recording a bounded topology trace.
+#[doc(hidden)]
+pub fn polygonize_with_trace(
+    lines: impl IntoIterator<Item = Line3D>,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+    level: TraceLevelV1,
+    byte_limit: usize,
+) -> Result<TracedPolygonizerResultV1> {
+    let collected = collect_owned_lines(lines, execution_policy)?;
+    let mut runner = Polygonizer::with_options(options.clone())
+        .with_execution_policy(execution_policy.clone())
+        .with_trace(TraceRecorderV1::new(Some(level), byte_limit, options).unwrap());
+    let result = runner.polygonize_owned(collected)?;
+    Ok(TracedPolygonizerResultV1 {
+        result,
+        trace: runner.trace.take().unwrap().finish(),
+    })
+}
+
+fn collect_owned_lines(
+    lines: impl IntoIterator<Item = Line3D>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<Line3D>> {
     execution_policy.check_cancelled("ingest")?;
     let mut collected = Vec::new();
     for line in lines {
@@ -126,9 +158,7 @@ pub fn polygonize_with_execution_policy(
         execution_policy.check_cancelled_every("ingest", observed)?;
         collected.push(line);
     }
-    Polygonizer::with_options(options.clone())
-        .with_execution_policy(execution_policy.clone())
-        .polygonize_owned(collected)
+    Ok(collected)
 }
 
 /// Polygonize borrowed or owned GeoRust line strings without first building [`Line3D`] values.
@@ -269,6 +299,7 @@ pub fn polygonize_with_workspace_and_execution_policy(
         options: options.clone(),
         execution_policy: execution_policy.clone(),
         input_lines: Vec::new(),
+        trace: None,
     };
     let result = runner.polygonize_owned(lines.to_vec());
     runner.graph.clear();
@@ -284,6 +315,7 @@ impl Polygonizer {
             options: PolygonizerOptions::default(),
             execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
+            trace: None,
         }
     }
     /// Creates a new `Polygonizer` with specific options.
@@ -293,6 +325,7 @@ impl Polygonizer {
             options,
             execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
+            trace: None,
         }
     }
 
@@ -323,6 +356,11 @@ impl Polygonizer {
     /// Sets non-semantic limits for this polygonizer instance.
     pub fn with_execution_policy(mut self, execution_policy: ExecutionPolicy) -> Self {
         self.execution_policy = execution_policy;
+        self
+    }
+
+    fn with_trace(mut self, trace: TraceRecorderV1) -> Self {
+        self.trace = Some(trace);
         self
     }
 
@@ -605,6 +643,9 @@ impl Polygonizer {
             input_lines.len(),
         )?;
         validate_lines(&input_lines, &self.execution_policy)?;
+        if let Some(trace) = self.trace.as_mut() {
+            trace.record_input_segments(&input_lines)?;
+        }
 
         let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {
             let d = PolygonizerDiagnostics {

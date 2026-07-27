@@ -1,6 +1,7 @@
 //! Internal bounded topology trace schema.
 
-use crate::PolygonizerOptions;
+use crate::fingerprint::coordinate_fingerprint;
+use crate::{CoordinateFingerprintV1, Line3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
 pub const TOPOLOGY_TRACE_V1_SCHEMA_VERSION: u32 = 1;
@@ -33,6 +34,14 @@ pub struct TraceEventV1 {
     pub payload: serde_json::Value,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InputSegmentTraceV1 {
+    pub index: usize,
+    pub start: CoordinateFingerprintV1,
+    pub end: CoordinateFingerprintV1,
+    pub source_ids: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TopologyTraceV1 {
     pub schema_version: u32,
@@ -50,6 +59,11 @@ pub struct TopologyTraceV1 {
 /// Callers hold this as an `Option`; `None` is the disabled fast path.
 pub struct TraceRecorderV1 {
     trace: TopologyTraceV1,
+}
+
+pub struct TracedPolygonizerResultV1 {
+    pub result: PolygonizerResult,
+    pub trace: TopologyTraceV1,
 }
 
 impl TraceRecorderV1 {
@@ -107,6 +121,25 @@ impl TraceRecorderV1 {
     pub fn finish(self) -> TopologyTraceV1 {
         self.trace
     }
+
+    pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
+        if !self.trace.level.allows(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, line) in lines.iter().enumerate() {
+            let payload = serde_json::to_value(InputSegmentTraceV1 {
+                index,
+                start: coordinate_fingerprint(line.start)?,
+                end: coordinate_fingerprint(line.end)?,
+                source_ids: vec![format!("0x{:08x}", line.line_id)],
+            })
+            .expect("input trace event serializes");
+            if !self.record(TraceStageV1::Noding, "normalized_input_segment", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TraceLevelV1 {
@@ -125,6 +158,9 @@ impl TraceLevelV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        polygonize, polygonize_with_trace, Coord3D, ExecutionPolicy, TopologyFingerprintV1,
+    };
     use serde_json::json;
 
     #[test]
@@ -152,5 +188,45 @@ mod tests {
         assert!(trace.bytes_used <= trace.byte_limit);
         assert!(trace.truncated);
         assert!(trace.options.is_object());
+    }
+
+    #[test]
+    fn traced_entrypoint_records_exact_input_without_changing_results() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(-0.0, 0.0, 10.0),
+                Coord3D::new(1.0, 0.0, 20.0),
+                7,
+            ),
+            Line3D::new(
+                Coord3D::new(1.0, 0.0, 30.0),
+                Coord3D::new(0.0, 1.0, 40.0),
+                9,
+            ),
+        ];
+        let options = PolygonizerOptions::default();
+        let expected = polygonize(lines.iter().copied(), &options).unwrap();
+        let traced = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+
+        assert_eq!(traced.trace.events.len(), 2);
+        assert_eq!(
+            traced.trace.events[0].payload["start"]["x"],
+            "0x0000000000000000"
+        );
+        assert_eq!(
+            traced.trace.events[0].payload["source_ids"],
+            json!(["0x00000007"])
+        );
+        assert_eq!(
+            TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
+            TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
+        );
     }
 }

@@ -398,7 +398,7 @@ the entire pipeline.
 
 Candidate events and snapshots:
 
-- [ ] normalized input segments and source IDs;
+- [x] normalized input segments and source IDs;
 - [ ] snapped coordinates, fixed-grid cells, and certified hot pixels;
 - [ ] candidate pairs and exact intersection/split witnesses;
 - [ ] noded and dissolved edges with complete source sets;
@@ -416,7 +416,8 @@ Progress: Trace V1 now has explicit summary, noding, graph, ring, and full
 levels plus deterministic event sequencing. Its recorder bounds serialized
 event bytes, reports truncation, includes version/options metadata, and is not
 constructed when tracing is disabled. Pipeline event wiring remains incremental
-work and no event-family checkbox is complete yet.
+work. The owned traced entrypoint now records the validated canonical `Line3D`
+input representation with exact coordinates and source IDs before noding.
 
 ### P1.6 Turn the playground into a topology debugger
 
