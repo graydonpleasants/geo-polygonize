@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-decision-v1.schema.json",
+  "title": "geo-polygonize benchmark decision V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "title",
+    "policy_id",
+    "hypothesis",
+    "target_workloads",
+    "non_targets",
+    "semantic_invariants",
+    "predeclared_thresholds",
+    "outcome",
+    "rationale",
+    "baseline_publications",
+    "candidate_publications",
+    "rejected_experiments",
+    "crossover"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "decision_id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "policy_id": {"const": "benchmark-decision-v1"},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "target_workloads": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "non_targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "semantic_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "predeclared_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_metric",
+        "minimum_effect_size_percent",
+        "regression_budget_percent"
+      ],
+      "properties": {
+        "primary_metric": {"const": "p50_ms"},
+        "minimum_effect_size_percent": {"const": 5.0},
+        "regression_budget_percent": {"const": 2.0}
+      }
+    },
+    "outcome": {"enum": ["promoted", "rejected", "retained-research"]},
+    "rationale": {"type": "string", "minLength": 1},
+    "baseline_publications": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "candidate_publications": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "rejected_experiments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason", "publications"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1},
+          "publications": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"$ref": "#/$defs/artifact"}
+          }
+        }
+      }
+    },
+    "crossover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["measured", "not-applicable"]},
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptor", "lower_bound", "upper_bound", "unit"],
+          "properties": {
+            "descriptor": {"type": "string", "minLength": 1},
+            "lower_bound": {"type": "number", "minimum": 0},
+            "upper_bound": {"type": "number", "minimum": 0},
+            "unit": {"type": "string", "minLength": 1}
+          }
+        },
+        "publications": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/artifact"}
+        },
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "measured"}}},
+          "then": {
+            "required": ["range", "publications"],
+            "not": {"required": ["reason"]}
+          },
+          "else": {
+            "required": ["reason"],
+            "not": {"anyOf": [{"required": ["range"]}, {"required": ["publications"]}]}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator, ValidationError
 
 PATH = Path(__file__).resolve().parents[1] / "benchmarks/publish_benchmark.py"
 SPEC = importlib.util.spec_from_file_location("publish_benchmark", PATH)
@@ -112,3 +113,61 @@ def test_publication_enforces_decision_quality_policy(tmp_path):
     )
     with pytest.raises(ValueError, match="dispersion"):
         PUBLISHER.publish(noisy, "dedicated", 5)
+
+
+def test_decision_schema_keeps_rejections_and_crossovers_linked():
+    schema = json.loads(
+        (PATH.parent / "benchmark-decision-v1.schema.json").read_text()
+    )
+    Draft202012Validator.check_schema(schema)
+    artifact = {"uri": "artifacts/candidate.json", "sha256": "a" * 64}
+    decision = {
+        "schema_version": 1,
+        "decision_id": "candidate-layout-v1",
+        "title": "Candidate layout experiment",
+        "policy_id": "benchmark-decision-v1",
+        "hypothesis": "The candidate reduces end-to-end p50.",
+        "target_workloads": ["dense-crossings-v1"],
+        "non_targets": ["small sparse inputs"],
+        "semantic_invariants": ["canonical topology remains equal"],
+        "predeclared_thresholds": {
+            "primary_metric": "p50_ms",
+            "minimum_effect_size_percent": 5.0,
+            "regression_budget_percent": 2.0,
+        },
+        "outcome": "rejected",
+        "rationale": "The candidate missed the effect-size threshold.",
+        "baseline_publications": [
+            {"uri": "artifacts/baseline.json", "sha256": "b" * 64}
+        ],
+        "candidate_publications": [artifact],
+        "rejected_experiments": [
+            {
+                "name": "candidate layout",
+                "reason": "End-to-end p50 improved by less than 5%.",
+                "publications": [artifact],
+            }
+        ],
+        "crossover": {
+            "status": "measured",
+            "range": {
+                "descriptor": "input segments",
+                "lower_bound": 1000,
+                "upper_bound": 2000,
+                "unit": "segments",
+            },
+            "publications": [artifact],
+        },
+    }
+    validator = Draft202012Validator(schema)
+    validator.validate(decision)
+    for path in (PATH.parent / "decisions").glob("*.json"):
+        validator.validate(json.loads(path.read_text()))
+
+    decision["rejected_experiments"][0]["publications"] = []
+    with pytest.raises(ValidationError):
+        validator.validate(decision)
+    decision["rejected_experiments"][0]["publications"] = [artifact]
+    decision["crossover"].pop("publications")
+    with pytest.raises(ValidationError):
+        validator.validate(decision)

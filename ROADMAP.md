@@ -348,7 +348,7 @@ Record:
 - [ ] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
 - [x] Define the minimum effect size and regression budget before each backend or
   dispatch experiment.
-- [ ] Keep rejected experiments and crossover measurements linked from the
+- [x] Keep rejected experiments and crossover measurements linked from the
   relevant decision record.
 
 Progress: The correctness jobs pin Rust, Python, Shapely and its bundled GEOS,
@@ -361,7 +361,9 @@ decision-quality evidence. It also predeclares a 5% minimum effect size and 2%
 secondary-metric regression budget. Publication V1 now bundles only records
 that pass the policy's runner, warmup, repetition, sample, identity, schema, and
 dispersion gates; diagnostic and noisy records cannot enter that artifact.
-A durable trend view and decision records remain separate work.
+Decision record V1 now requires checksum-pinned baseline and candidate evidence,
+preserves the predeclared thresholds, and refuses unlinked rejected experiments
+or measured crossovers. A durable trend view remains separate work.
 
 ### P1.4 Differential minimization
 
