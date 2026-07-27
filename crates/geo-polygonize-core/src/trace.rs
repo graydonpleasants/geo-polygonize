@@ -89,6 +89,21 @@ pub struct ContainmentCandidateTraceV1 {
     pub selected_shell_index: Option<usize>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CanonicalOrderTraceV1 {
+    pub family: String,
+    pub owner_index: Option<usize>,
+    pub ordered_original_indices: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RingRotationTraceV1 {
+    pub family: String,
+    pub owner_index: usize,
+    pub ring_index: Option<usize>,
+    pub original_start_index: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TopologyTraceV1 {
     pub schema_version: u32,
@@ -370,6 +385,44 @@ impl TraceRecorderV1 {
         );
     }
 
+    pub(crate) fn record_canonical_order(
+        &mut self,
+        family: &'static str,
+        owner_index: Option<usize>,
+        ordered_original_indices: Vec<usize>,
+    ) {
+        self.record(
+            TraceStageV1::Output,
+            "canonical_order",
+            serde_json::to_value(CanonicalOrderTraceV1 {
+                family: family.to_string(),
+                owner_index,
+                ordered_original_indices,
+            })
+            .expect("canonical order trace event serializes"),
+        );
+    }
+
+    pub(crate) fn record_ring_rotation(
+        &mut self,
+        family: &'static str,
+        owner_index: usize,
+        ring_index: Option<usize>,
+        original_start_index: usize,
+    ) {
+        self.record(
+            TraceStageV1::Output,
+            "canonical_ring_rotation",
+            serde_json::to_value(RingRotationTraceV1 {
+                family: family.to_string(),
+                owner_index,
+                ring_index,
+                original_start_index,
+            })
+            .expect("ring rotation trace event serializes"),
+        );
+    }
+
     fn record_ring(&mut self, kind: &'static str, ring: RingTraceV1) -> bool {
         self.record(
             TraceStageV1::Rings,
@@ -405,6 +458,7 @@ impl TraceLevelV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::polygonizer::{apply_determinism, construct_final_polygons};
     use crate::{
         polygonize, polygonize_with_trace, Coord3D, ExecutionPolicy, TopologyFingerprintV1,
     };
@@ -697,5 +751,86 @@ mod tests {
             })
             .unwrap();
         assert_eq!(assigned.payload["candidate_shell_indices"], json!([0, 1]));
+    }
+
+    #[test]
+    fn full_trace_records_ring_rotation_and_sort_permutations() {
+        let ring = |min: f64, max: f64| {
+            vec![
+                Coord3D::new(max, max, 0.0),
+                Coord3D::new(min, max, 0.0),
+                Coord3D::new(min, min, 0.0),
+                Coord3D::new(max, min, 0.0),
+                Coord3D::new(max, max, 0.0),
+            ]
+        };
+        let shells = vec![
+            Polygon3D::new(ring(20.0, 22.0), vec![], vec![], vec![]),
+            Polygon3D::new(ring(0.0, 10.0), vec![], vec![], vec![]),
+        ];
+        let holes = vec![vec![], vec![ring(2.0, 3.0), ring(5.0, 7.0)]];
+        let hole_ids = vec![vec![], vec![vec![], vec![]]];
+        let options = PolygonizerOptions::default();
+        let policy = ExecutionPolicy::default();
+        let mut recorder =
+            TraceRecorderV1::new(Some(TraceLevelV1::Full), usize::MAX, &options).unwrap();
+
+        let polygons = construct_final_polygons(
+            shells,
+            holes,
+            hole_ids,
+            &options,
+            &policy,
+            Some(&mut recorder),
+        )
+        .unwrap();
+        let mut dangles = Vec::new();
+        let mut cut_edges = Vec::new();
+        let mut invalid_rings = Vec::new();
+        let polygons = apply_determinism(
+            polygons,
+            &mut dangles,
+            &mut cut_edges,
+            &mut invalid_rings,
+            &options,
+            &policy,
+            Some(&mut recorder),
+        )
+        .unwrap();
+        assert!(polygons[0].exterior_unsigned_area_2d() > polygons[1].exterior_unsigned_area_2d());
+
+        let trace = recorder.finish();
+        let exterior_rotation = trace
+            .events
+            .iter()
+            .find(|event| {
+                event.kind == "canonical_ring_rotation"
+                    && event.payload["family"] == "polygon_exterior"
+                    && event.payload["owner_index"] == 1
+            })
+            .unwrap();
+        assert_eq!(exterior_rotation.payload["original_start_index"], 2);
+        let hole_order = trace
+            .events
+            .iter()
+            .find(|event| {
+                event.kind == "canonical_order"
+                    && event.payload["family"] == "polygon_interiors"
+                    && event.payload["owner_index"] == 1
+            })
+            .unwrap();
+        assert_eq!(
+            hole_order.payload["ordered_original_indices"],
+            json!([1, 0])
+        );
+        let polygon_order = trace
+            .events
+            .iter()
+            .find(|event| event.kind == "canonical_order" && event.payload["family"] == "polygons")
+            .unwrap();
+        assert_eq!(
+            polygon_order.payload["ordered_original_indices"],
+            json!([1, 0])
+        );
     }
 }

@@ -406,7 +406,7 @@ Candidate events and snapshots:
 - [x] dangle pruning and cut-edge classification;
 - [x] maximal rings, minimal rings, and invalid-ring reasons;
 - [x] shell/hole classification and containment candidates;
-- [ ] canonical ordering decisions;
+- [x] canonical ordering decisions;
 - [ ] tile ownership, deduplication, retries, and fallback decisions.
 
 Trace output must include byte limits, truncation metadata, schema version,
@@ -425,7 +425,9 @@ classification passes before canonical output sorting. Ring-level traces retain
 both the pre-relink maximal cycles and post-relink minimal cycles, plus explicit
 reasons for invalid minimal rings. Classification events preserve exact shell
 and hole coordinates, while containment events record the actual indexed shell
-candidates and selected parent from the physical assignment pass.
+candidates and selected parent from the physical assignment pass. Full traces
+also record ring rotation offsets and the original-index permutations selected
+for hole and polygon canonical ordering.
 
 ### P1.6 Turn the playground into a topology debugger
 
