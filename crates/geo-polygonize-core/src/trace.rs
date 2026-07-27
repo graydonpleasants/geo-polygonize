@@ -154,6 +154,14 @@ impl TraceRecorderV1 {
     }
 
     pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
+        self.record_noding_segments("normalized_input_segment", lines)
+    }
+
+    pub(crate) fn record_noding_segments(
+        &mut self,
+        kind: &'static str,
+        lines: &[Line3D],
+    ) -> crate::Result<()> {
         if !self.trace.level.allows(TraceStageV1::Noding) {
             return Ok(());
         }
@@ -165,7 +173,7 @@ impl TraceRecorderV1 {
                 source_ids: vec![format!("0x{:08x}", line.line_id)],
             })
             .expect("input trace event serializes");
-            if !self.record(TraceStageV1::Noding, "normalized_input_segment", payload) {
+            if !self.record(TraceStageV1::Noding, kind, payload) {
                 break;
             }
         }
@@ -435,5 +443,42 @@ mod tests {
         assert_eq!(dangles, traced.result.dangles.len());
         assert_eq!(cut_edges, traced.result.cut_edges.len());
         assert_eq!((dangles, cut_edges), (1, 1));
+    }
+
+    #[test]
+    fn noding_trace_records_the_physical_fixed_grid_output() {
+        let lines = vec![Line3D::new(
+            Coord3D::new(0.14, 0.26, 3.0),
+            Coord3D::new(1.04, 0.26, 4.0),
+            7,
+        )];
+        let options = PolygonizerOptions {
+            precision_model: crate::PrecisionModel::FixedGrid { grid_size: 0.1 },
+            ..Default::default()
+        };
+        let traced = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+        let snapped = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "fixed_grid_segment")
+            .unwrap();
+
+        assert_eq!(
+            snapped.payload["start"]["x"],
+            format!("0x{:016x}", 0.1f64.to_bits())
+        );
+        assert_eq!(
+            snapped.payload["start"]["y"],
+            format!("0x{:016x}", (3.0f64 * 0.1).to_bits())
+        );
+        assert_eq!(snapped.payload["source_ids"], json!(["0x00000007"]));
     }
 }
