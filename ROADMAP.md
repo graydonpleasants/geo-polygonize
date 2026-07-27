@@ -363,7 +363,10 @@ that pass the policy's runner, warmup, repetition, sample, identity, schema, and
 dispersion gates; diagnostic and noisy records cannot enter that artifact.
 Decision record V1 now requires checksum-pinned baseline and candidate evidence,
 preserves the predeclared thresholds, and refuses unlinked rejected experiments
-or measured crossovers. A durable trend view remains separate work.
+or measured crossovers. A deterministic Markdown renderer now turns valid
+publication and decision artifacts into a human-readable trend view. Durable
+artifact upload and retention remain separate work; no timing rows are
+fabricated in their absence.
 
 ### P1.4 Differential minimization
 
