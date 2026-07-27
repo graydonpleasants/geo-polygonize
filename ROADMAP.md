@@ -412,6 +412,12 @@ Candidate events and snapshots:
 Trace output must include byte limits, truncation metadata, schema version,
 library version, and canonical options.
 
+Progress: Trace V1 now has explicit summary, noding, graph, ring, and full
+levels plus deterministic event sequencing. Its recorder bounds serialized
+event bytes, reports truncation, includes version/options metadata, and is not
+constructed when tracing is disabled. Pipeline event wiring remains incremental
+work and no event-family checkbox is complete yet.
+
 ### P1.6 Turn the playground into a topology debugger
 
 - [ ] Add the playground prominently to the docs navigation.
