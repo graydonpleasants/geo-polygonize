@@ -748,6 +748,12 @@ impl Polygonizer {
             &self.execution_policy,
         )?;
         if let Some(trace) = self.trace.as_mut() {
+            for (index, (ring, _)) in shells.iter().enumerate() {
+                trace.record_classified_ring("classified_shell", index, ring)?;
+            }
+            for (index, (ring, _)) in holes.iter().enumerate() {
+                trace.record_classified_ring("classified_hole", index, ring)?;
+            }
             for (index, ring) in invalid_rings_candidates.iter().enumerate() {
                 trace.record_invalid_ring(index, ring, invalid_ring_reason(ring))?;
             }
@@ -770,7 +776,13 @@ impl Polygonizer {
             containment_stats,
         ) = {
             self.execution_policy.check_cancelled("containment")?;
-            establish_topology(shells, holes, &self.options, Some(&self.execution_policy))?
+            establish_topology(
+                shells,
+                holes,
+                &self.options,
+                Some(&self.execution_policy),
+                self.trace.as_mut(),
+            )?
         };
 
         // 6. Construct Final Polygons
@@ -1157,6 +1169,7 @@ fn establish_topology(
     holes: Vec<ClassifiedRing>,
     options: &PolygonizerOptions,
     execution_policy: Option<&ExecutionPolicy>,
+    mut trace: Option<&mut TraceRecorderV1>,
 ) -> Result<(
     Vec<Polygon3D>,
     Vec<Vec<Vec<Coord3D>>>,
@@ -1207,31 +1220,49 @@ fn establish_topology(
         }
     }
 
-    let process_hole_assignment = |(hole_3d, graph_ids): (
+    if let Some(trace) = trace.as_deref_mut() {
+        for (index, shell) in shells.iter().enumerate() {
+            trace.record_classified_ring("containment_shell", index, shell)?;
+        }
+    }
+    let trace_containment = trace.is_some();
+    let process_hole_assignment = |(hole_3d, graph_ids): (Polygon3D, Option<RingGraphIdentity>)| -> (
+        Option<usize>,
         Polygon3D,
-        Option<RingGraphIdentity>,
-    )|
-     -> (Option<usize>, Polygon3D, ContainmentStats) {
-            let (best_shell_idx, stats) = if collect_stats {
-                forest.assign_hole_with_graph_ids_and_stats(
+        ContainmentStats,
+        Option<Vec<usize>>,
+    ) {
+        let (best_shell_idx, stats, candidates) = if trace_containment {
+            let (best_shell_idx, stats, candidates) = forest.assign_hole_with_graph_ids_and_trace(
+                &hole_3d,
+                graph_ids.as_ref(),
+                &shells,
+                &options.containment.touch_policy,
+                collect_stats,
+            );
+            (best_shell_idx, stats, Some(candidates))
+        } else if collect_stats {
+            let (best_shell_idx, stats) = forest.assign_hole_with_graph_ids_and_stats(
+                &hole_3d,
+                graph_ids.as_ref(),
+                &shells,
+                &options.containment.touch_policy,
+            );
+            (best_shell_idx, stats, None)
+        } else {
+            (
+                forest.assign_hole_with_graph_ids(
                     &hole_3d,
                     graph_ids.as_ref(),
                     &shells,
                     &options.containment.touch_policy,
-                )
-            } else {
-                (
-                    forest.assign_hole_with_graph_ids(
-                        &hole_3d,
-                        graph_ids.as_ref(),
-                        &shells,
-                        &options.containment.touch_policy,
-                    ),
-                    ContainmentStats::default(),
-                )
-            };
-            (best_shell_idx, hole_3d, stats)
+                ),
+                ContainmentStats::default(),
+                None,
+            )
         };
+        (best_shell_idx, hole_3d, stats, candidates)
+    };
 
     let assignments: Vec<_>;
     if let Some(execution_policy) = execution_policy {
@@ -1257,8 +1288,11 @@ fn establish_topology(
     let mut unassigned_hole_count = 0;
     let mut unassigned_hole_area = 0.0;
 
-    for (idx, hole, stats) in assignments {
+    for (hole_index, (idx, hole, stats, candidates)) in assignments.into_iter().enumerate() {
         containment_stats.merge(stats);
+        if let (Some(trace), Some(candidates)) = (trace.as_deref_mut(), candidates) {
+            trace.record_containment_candidates(hole_index, candidates, idx);
+        }
         if let Some(idx) = idx {
             shells[idx]
                 .boundary_source_line_ids
@@ -1486,6 +1520,7 @@ mod topology_tests {
             vec![(hole, None)],
             &PolygonizerOptions::default(),
             None,
+            None,
         )
         .unwrap();
 
@@ -1522,6 +1557,7 @@ mod topology_tests {
                 )],
                 &PolygonizerOptions::default(),
                 Some(&policy),
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "containment"
         ));

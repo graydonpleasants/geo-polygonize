@@ -347,7 +347,7 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
     ) -> Option<usize> {
-        self.assign_hole_impl(hole_3d, None, shells, touch_policy, None)
+        self.assign_hole_impl(hole_3d, None, shells, touch_policy, None, None)
     }
 
     pub(crate) fn assign_hole_with_graph_ids(
@@ -357,7 +357,7 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
     ) -> Option<usize> {
-        self.assign_hole_impl(hole_3d, hole_graph_ids, shells, touch_policy, None)
+        self.assign_hole_impl(hole_3d, hole_graph_ids, shells, touch_policy, None, None)
     }
 
     pub(crate) fn assign_hole_with_graph_ids_and_stats(
@@ -374,8 +374,31 @@ impl ContainmentForest {
             shells,
             touch_policy,
             Some(&mut stats),
+            None,
         );
         (best_shell_idx, stats)
+    }
+
+    pub(crate) fn assign_hole_with_graph_ids_and_trace(
+        &self,
+        hole_3d: &Polygon3D,
+        hole_graph_ids: Option<&RingGraphIdentity>,
+        shells: &[Polygon3D],
+        touch_policy: &TouchPolicy,
+        collect_stats: bool,
+    ) -> (Option<usize>, ContainmentStats, Vec<usize>) {
+        let mut stats = ContainmentStats::default();
+        let mut candidates = Vec::new();
+        let best_shell_idx = self.assign_hole_impl(
+            hole_3d,
+            hole_graph_ids,
+            shells,
+            touch_policy,
+            collect_stats.then_some(&mut stats),
+            Some(&mut candidates),
+        );
+        candidates.sort_unstable();
+        (best_shell_idx, stats, candidates)
     }
 
     fn assign_hole_impl(
@@ -385,6 +408,7 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
+        mut traced_candidates: Option<&mut Vec<usize>>,
     ) -> Option<usize> {
         let track_queries = stats.is_some();
         let hole_locator = SimdRing::new_3d(&hole_3d.exterior);
@@ -400,6 +424,9 @@ impl ContainmentForest {
         let hole_area = prepared_hole.signed_area.abs();
 
         for idx in candidates {
+            if let Some(traced_candidates) = traced_candidates.as_deref_mut() {
+                traced_candidates.push(idx);
+            }
             if let Some(stats) = stats.as_deref_mut() {
                 stats.envelope_candidates += 1;
             }
