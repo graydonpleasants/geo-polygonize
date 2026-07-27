@@ -82,6 +82,13 @@ pub struct RingTraceV1 {
     pub invalid_reason: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ContainmentCandidateTraceV1 {
+    pub hole_index: usize,
+    pub candidate_shell_indices: Vec<usize>,
+    pub selected_shell_index: Option<usize>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TopologyTraceV1 {
     pub schema_version: u32,
@@ -318,6 +325,49 @@ impl TraceRecorderV1 {
         };
         self.record_ring("invalid_ring", payload);
         Ok(())
+    }
+
+    pub(crate) fn record_classified_ring(
+        &mut self,
+        kind: &'static str,
+        index: usize,
+        ring: &Polygon3D,
+    ) -> crate::Result<()> {
+        let payload = RingTraceV1 {
+            index,
+            coordinates: exact_coordinates(&ring.exterior)?,
+            edge_ids: ring
+                .exterior_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            source_ids: ring
+                .boundary_source_line_ids
+                .iter()
+                .map(|id| format!("0x{id:08x}"))
+                .collect(),
+            invalid_reason: None,
+        };
+        self.record_ring(kind, payload);
+        Ok(())
+    }
+
+    pub(crate) fn record_containment_candidates(
+        &mut self,
+        hole_index: usize,
+        candidate_shell_indices: Vec<usize>,
+        selected_shell_index: Option<usize>,
+    ) {
+        self.record(
+            TraceStageV1::Rings,
+            "containment_candidates",
+            serde_json::to_value(ContainmentCandidateTraceV1 {
+                hole_index,
+                candidate_shell_indices,
+                selected_shell_index,
+            })
+            .expect("containment trace event serializes"),
+        );
     }
 
     fn record_ring(&mut self, kind: &'static str, ring: RingTraceV1) -> bool {
@@ -591,5 +641,61 @@ mod tests {
             .find(|event| event.kind == "invalid_ring")
             .unwrap();
         assert_eq!(invalid_ring.payload["invalid_reason"], "zero_area");
+    }
+
+    #[test]
+    fn ring_trace_records_classification_and_physical_containment_candidates() {
+        let mut lines = Vec::new();
+        for (first_id, points) in [
+            (0, [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+            (4, [(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)]),
+        ] {
+            for index in 0..points.len() {
+                let start = points[index];
+                let end = points[(index + 1) % points.len()];
+                lines.push(Line3D::new(
+                    Coord3D::new(start.0, start.1, 0.0),
+                    Coord3D::new(end.0, end.1, 0.0),
+                    first_id + index as u32,
+                ));
+            }
+        }
+
+        let traced = polygonize_with_trace(
+            lines,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Rings,
+            usize::MAX,
+        )
+        .unwrap();
+
+        assert_eq!(
+            traced
+                .trace
+                .events
+                .iter()
+                .filter(|event| event.kind == "classified_shell")
+                .count(),
+            2
+        );
+        assert_eq!(
+            traced
+                .trace
+                .events
+                .iter()
+                .filter(|event| event.kind == "classified_hole")
+                .count(),
+            2
+        );
+        let assigned = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| {
+                event.kind == "containment_candidates" && event.payload["selected_shell_index"] == 0
+            })
+            .unwrap();
+        assert_eq!(assigned.payload["candidate_shell_indices"], json!([0, 1]));
     }
 }

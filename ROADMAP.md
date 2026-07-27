@@ -405,7 +405,7 @@ Candidate events and snapshots:
 - [x] graph nodes and directed halfedges;
 - [x] dangle pruning and cut-edge classification;
 - [x] maximal rings, minimal rings, and invalid-ring reasons;
-- [ ] shell/hole classification and containment candidates;
+- [x] shell/hole classification and containment candidates;
 - [ ] canonical ordering decisions;
 - [ ] tile ownership, deduplication, retries, and fallback decisions.
 
@@ -423,7 +423,9 @@ source ID, and both directed halfedges before pruning mutates graph state.
 Dangle and cut-edge events then capture the exact linework returned by their
 classification passes before canonical output sorting. Ring-level traces retain
 both the pre-relink maximal cycles and post-relink minimal cycles, plus explicit
-reasons for invalid minimal rings.
+reasons for invalid minimal rings. Classification events preserve exact shell
+and hole coordinates, while containment events record the actual indexed shell
+candidates and selected parent from the physical assignment pass.
 
 ### P1.6 Turn the playground into a topology debugger
 
