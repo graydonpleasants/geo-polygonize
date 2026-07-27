@@ -701,14 +701,32 @@ impl Polygonizer {
         }
 
         // 4. Find rings (3D)
-        let rings_with_ids = self
-            .graph
-            .get_edge_rings_with_graph_ids_and_execution_policy(
-                self.options.node_input,
-                self.options.provenance.enabled
-                    && self.options.provenance.include_boundary_line_ids,
-                &self.execution_policy,
-            )?;
+        let include_source_ids =
+            self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids;
+        let trace_rings = self
+            .trace
+            .as_ref()
+            .is_some_and(|trace| trace.records_stage(crate::trace::TraceStageV1::Rings));
+        let rings_with_ids = if trace_rings {
+            let (maximal, minimal) = self
+                .graph
+                .get_edge_rings_with_maximal_and_execution_policy(
+                    self.options.node_input,
+                    include_source_ids,
+                    &self.execution_policy,
+                )?;
+            let trace = self.trace.as_mut().unwrap();
+            trace.record_extracted_rings("maximal_ring", &maximal)?;
+            trace.record_extracted_rings("minimal_ring", &minimal)?;
+            minimal
+        } else {
+            self.graph
+                .get_edge_rings_with_graph_ids_and_execution_policy(
+                    self.options.node_input,
+                    include_source_ids,
+                    &self.execution_policy,
+                )?
+        };
         self.execution_policy.check(
             "rings",
             self.execution_policy.max_rings,
@@ -729,6 +747,11 @@ impl Polygonizer {
             self.options.node_input,
             &self.execution_policy,
         )?;
+        if let Some(trace) = self.trace.as_mut() {
+            for (index, ring) in invalid_rings_candidates.iter().enumerate() {
+                trace.record_invalid_ring(index, ring, invalid_ring_reason(ring))?;
+            }
+        }
 
         if let Some(ref mut d) = diag {
             d.phase_times.ring_extraction = get_elapsed(t_ring_extraction_start);
@@ -1426,6 +1449,16 @@ fn has_three_distinct_xy(coords: &[Coord3D]) -> bool {
         }
     }
     false
+}
+
+fn invalid_ring_reason(ring: &Polygon3D) -> &'static str {
+    if !has_three_distinct_xy(&ring.exterior) {
+        "fewer_than_three_distinct_xy"
+    } else if !ring.signed_area_2d().is_finite() {
+        "non_finite_area"
+    } else {
+        "zero_area"
+    }
 }
 
 #[cfg(test)]
