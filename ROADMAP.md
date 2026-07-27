@@ -376,7 +376,7 @@ fabricated in their absence.
 - [x] Preserve source IDs and Z conflicts during minimization.
 - [ ] Persist every minimized novel failure as a strict golden and compatibility
   classification.
-- [ ] Export a standalone repro bundle containing input, options, versions,
+- [x] Export a standalone repro bundle containing input, options, versions,
   fingerprint, reference metrics, and witness.
 
 **Done when:** a fuzz or production mismatch can become a checked-in, human-sized
@@ -387,7 +387,8 @@ caller's exact mismatch predicate, allowing each adapter to retain its selected
 options and recompute both sides for every candidate. Retained segments are
 copied unchanged. Shared X/Y values can then be simplified atomically while
 source IDs and Z conflicts remain untouched; persisted fixtures and standalone
-repro bundles remain separate work.
+repro bundles use an exact, versioned JSON representation. Persisting novel
+minimized failures as strict golden/compatibility cases remains separate work.
 
 ### P1.5 Trace schema
 

@@ -1,6 +1,119 @@
 //! Internal differential-test minimization helpers.
 
-use crate::Line3D;
+use crate::{
+    CoordinateFingerprintV1, FingerprintDiffV1, Line3D, PolygonizeError, PolygonizerOptions,
+    TopologyFingerprintV1,
+};
+use serde::Serialize;
+use std::collections::BTreeMap;
+
+/// The standalone differential reproduction bundle schema version.
+pub const REPRO_BUNDLE_V1_SCHEMA_VERSION: u32 = 1;
+
+/// Exact, portable input segment for a differential reproduction bundle.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReproLineV1 {
+    pub start: CoordinateFingerprintV1,
+    pub end: CoordinateFingerprintV1,
+    pub line_id: String,
+}
+
+/// Reference topology metrics recorded with a differential mismatch.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReferenceMetricsV1 {
+    pub polygon_count: usize,
+    pub dangle_count: usize,
+    pub cut_edge_count: usize,
+    pub invalid_ring_count: usize,
+    pub total_area: String,
+}
+
+impl ReferenceMetricsV1 {
+    pub fn new(
+        polygon_count: usize,
+        dangle_count: usize,
+        cut_edge_count: usize,
+        invalid_ring_count: usize,
+        total_area: f64,
+    ) -> crate::Result<Self> {
+        Ok(Self {
+            polygon_count,
+            dangle_count,
+            cut_edge_count,
+            invalid_ring_count,
+            total_area: exact_float(total_area)?,
+        })
+    }
+}
+
+/// Versioned, standalone evidence needed to reproduce a differential mismatch.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ReproBundleV1 {
+    pub schema_version: u32,
+    pub input: Vec<ReproLineV1>,
+    pub options: serde_json::Value,
+    pub versions: BTreeMap<String, String>,
+    pub fingerprint: TopologyFingerprintV1,
+    pub reference_metrics: ReferenceMetricsV1,
+    pub witness: FingerprintDiffV1,
+}
+
+impl ReproBundleV1 {
+    pub fn new(
+        input: &[Line3D],
+        options: &PolygonizerOptions,
+        mut versions: BTreeMap<String, String>,
+        fingerprint: TopologyFingerprintV1,
+        reference_metrics: ReferenceMetricsV1,
+        witness: FingerprintDiffV1,
+    ) -> crate::Result<Self> {
+        versions
+            .entry("geo-polygonize-core".to_string())
+            .or_insert_with(|| env!("CARGO_PKG_VERSION").to_string());
+        Ok(Self {
+            schema_version: REPRO_BUNDLE_V1_SCHEMA_VERSION,
+            input: input
+                .iter()
+                .map(|line| {
+                    Ok(ReproLineV1 {
+                        start: exact_coordinate(line.start)?,
+                        end: exact_coordinate(line.end)?,
+                        line_id: format!("0x{:08x}", line.line_id),
+                    })
+                })
+                .collect::<crate::Result<_>>()?,
+            options: serde_json::to_value(options).expect("validated options serialize"),
+            versions,
+            fingerprint,
+            reference_metrics,
+            witness,
+        })
+    }
+
+    pub fn to_pretty_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
+}
+
+fn exact_coordinate(coord: crate::Coord3D) -> crate::Result<CoordinateFingerprintV1> {
+    Ok(CoordinateFingerprintV1 {
+        x: exact_float(coord.x)?,
+        y: exact_float(coord.y)?,
+        z: exact_float(coord.z)?,
+    })
+}
+
+fn exact_float(value: f64) -> crate::Result<String> {
+    if !value.is_finite() {
+        return Err(PolygonizeError::InvalidGeometry {
+            reason: "repro bundle values must be finite".to_string(),
+        });
+    }
+    Ok(format!(
+        "0x{:016x}",
+        if value == 0.0 { 0 } else { value.to_bits() }
+    ))
+}
 
 /// Delta-debug a line set while the caller's exact mismatch predicate holds.
 ///
@@ -118,7 +231,8 @@ impl Axis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Coord3D, PolygonizerOptions};
+    use crate::{polygonize, Coord3D};
+    use serde_json::json;
 
     fn line(id: u32, z: f64) -> Line3D {
         Line3D::new(
@@ -208,5 +322,56 @@ mod tests {
                 .collect::<Vec<_>>(),
             original_z
         );
+    }
+
+    #[test]
+    fn exports_an_exact_standalone_repro_bundle() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(-0.0, 0.0, 10.0),
+                Coord3D::new(1.0, 0.0, 20.0),
+                7,
+            ),
+            Line3D::new(
+                Coord3D::new(1.0, 0.0, 30.0),
+                Coord3D::new(0.0, 1.0, 40.0),
+                9,
+            ),
+        ];
+        let options = PolygonizerOptions::default();
+        let result = polygonize(lines.iter().copied(), &options).unwrap();
+        let fingerprint = TopologyFingerprintV1::try_from_result(&result, &options).unwrap();
+        let witness = FingerprintDiffV1 {
+            path: "$.polygons".to_string(),
+            expected: json!(1),
+            actual: json!(0),
+        };
+        let bundle = ReproBundleV1::new(
+            &lines,
+            &options,
+            BTreeMap::from([("reference".to_string(), "GEOS 3.13.1".to_string())]),
+            fingerprint,
+            ReferenceMetricsV1::new(1, 0, 0, 0, 0.5).unwrap(),
+            witness,
+        )
+        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&bundle.to_pretty_json().unwrap()).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(
+            json["versions"]["geo-polygonize-core"],
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(json["versions"]["reference"], "GEOS 3.13.1");
+        assert_eq!(json["input"][0]["start"]["x"], "0x0000000000000000");
+        assert_eq!(json["input"][0]["line_id"], "0x00000007");
+        assert_eq!(
+            json["reference_metrics"]["total_area"],
+            "0x3fe0000000000000"
+        );
+        assert_eq!(json["witness"]["path"], "$.polygons");
+        assert!(json["options"].is_object());
+        assert!(json["fingerprint"].is_object());
     }
 }
