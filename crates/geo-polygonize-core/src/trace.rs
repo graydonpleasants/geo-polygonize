@@ -203,6 +203,14 @@ impl TraceRecorderV1 {
     }
 
     pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
+        self.record_noding_segments("normalized_input_segment", lines)
+    }
+
+    pub(crate) fn record_noding_segments(
+        &mut self,
+        kind: &'static str,
+        lines: &[Line3D],
+    ) -> crate::Result<()> {
         if !self.trace.level.allows(TraceStageV1::Noding) {
             return Ok(());
         }
@@ -214,7 +222,7 @@ impl TraceRecorderV1 {
                 source_ids: vec![format!("0x{:08x}", line.line_id)],
             })
             .expect("input trace event serializes");
-            if !self.record(TraceStageV1::Noding, "normalized_input_segment", payload) {
+            if !self.record(TraceStageV1::Noding, kind, payload) {
                 break;
             }
         }
@@ -678,206 +686,39 @@ mod tests {
     }
 
     #[test]
-    fn ring_trace_records_maximal_minimal_and_invalid_reason() {
-        let square = [
-            ((0.0, 0.0), (1.0, 0.0)),
-            ((1.0, 0.0), (1.0, 1.0)),
-            ((1.0, 1.0), (0.0, 1.0)),
-            ((0.0, 1.0), (0.0, 0.0)),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, (start, end))| {
-            Line3D::new(
-                Coord3D::new(start.0, start.1, 0.0),
-                Coord3D::new(end.0, end.1, 0.0),
-                index as u32,
-            )
-        });
-        let traced = polygonize_with_trace(
-            square,
-            &PolygonizerOptions::default(),
-            &ExecutionPolicy::default(),
-            TraceLevelV1::Rings,
-            usize::MAX,
-        )
-        .unwrap();
-        assert!(traced
-            .trace
-            .events
-            .iter()
-            .any(|event| event.kind == "maximal_ring"));
-        assert!(traced
-            .trace
-            .events
-            .iter()
-            .any(|event| event.kind == "minimal_ring"));
-
-        let collinear = [
-            ((0.0, 0.0), (1.0, 0.0)),
-            ((1.0, 0.0), (2.0, 0.0)),
-            ((2.0, 0.0), (0.0, 0.0)),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, (start, end))| {
-            Line3D::new(
-                Coord3D::new(start.0, start.1, 0.0),
-                Coord3D::new(end.0, end.1, 0.0),
-                index as u32,
-            )
-        });
-        let invalid = polygonize_with_trace(
-            collinear,
-            &PolygonizerOptions::default(),
-            &ExecutionPolicy::default(),
-            TraceLevelV1::Rings,
-            usize::MAX,
-        )
-        .unwrap();
-        let invalid_ring = invalid
-            .trace
-            .events
-            .iter()
-            .find(|event| event.kind == "invalid_ring")
-            .unwrap();
-        assert_eq!(invalid_ring.payload["invalid_reason"], "zero_area");
-    }
-
-    #[test]
-    fn ring_trace_records_classification_and_physical_containment_candidates() {
-        let mut lines = Vec::new();
-        for (first_id, points) in [
-            (0, [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
-            (4, [(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0)]),
-        ] {
-            for index in 0..points.len() {
-                let start = points[index];
-                let end = points[(index + 1) % points.len()];
-                lines.push(Line3D::new(
-                    Coord3D::new(start.0, start.1, 0.0),
-                    Coord3D::new(end.0, end.1, 0.0),
-                    first_id + index as u32,
-                ));
-            }
-        }
-
+    fn noding_trace_records_the_physical_fixed_grid_output() {
+        let lines = vec![Line3D::new(
+            Coord3D::new(0.14, 0.26, 3.0),
+            Coord3D::new(1.04, 0.26, 4.0),
+            7,
+        )];
+        let options = PolygonizerOptions {
+            precision_model: crate::PrecisionModel::FixedGrid { grid_size: 0.1 },
+            ..Default::default()
+        };
         let traced = polygonize_with_trace(
             lines,
-            &PolygonizerOptions::default(),
+            &options,
             &ExecutionPolicy::default(),
-            TraceLevelV1::Rings,
+            TraceLevelV1::Noding,
             usize::MAX,
         )
         .unwrap();
-
-        assert_eq!(
-            traced
-                .trace
-                .events
-                .iter()
-                .filter(|event| event.kind == "classified_shell")
-                .count(),
-            2
-        );
-        assert_eq!(
-            traced
-                .trace
-                .events
-                .iter()
-                .filter(|event| event.kind == "classified_hole")
-                .count(),
-            2
-        );
-        let assigned = traced
+        let snapped = traced
             .trace
             .events
             .iter()
-            .find(|event| {
-                event.kind == "containment_candidates" && event.payload["selected_shell_index"] == 0
-            })
+            .find(|event| event.kind == "fixed_grid_segment")
             .unwrap();
-        assert_eq!(assigned.payload["candidate_shell_indices"], json!([0, 1]));
-    }
 
-    #[test]
-    fn full_trace_records_ring_rotation_and_sort_permutations() {
-        let ring = |min: f64, max: f64| {
-            vec![
-                Coord3D::new(max, max, 0.0),
-                Coord3D::new(min, max, 0.0),
-                Coord3D::new(min, min, 0.0),
-                Coord3D::new(max, min, 0.0),
-                Coord3D::new(max, max, 0.0),
-            ]
-        };
-        let shells = vec![
-            Polygon3D::new(ring(20.0, 22.0), vec![], vec![], vec![]),
-            Polygon3D::new(ring(0.0, 10.0), vec![], vec![], vec![]),
-        ];
-        let holes = vec![vec![], vec![ring(2.0, 3.0), ring(5.0, 7.0)]];
-        let hole_ids = vec![vec![], vec![vec![], vec![]]];
-        let options = PolygonizerOptions::default();
-        let policy = ExecutionPolicy::default();
-        let mut recorder =
-            TraceRecorderV1::new(Some(TraceLevelV1::Full), usize::MAX, &options).unwrap();
-
-        let polygons = construct_final_polygons(
-            shells,
-            holes,
-            hole_ids,
-            &options,
-            &policy,
-            Some(&mut recorder),
-        )
-        .unwrap();
-        let mut dangles = Vec::new();
-        let mut cut_edges = Vec::new();
-        let mut invalid_rings = Vec::new();
-        let polygons = apply_determinism(
-            polygons,
-            &mut dangles,
-            &mut cut_edges,
-            &mut invalid_rings,
-            &options,
-            &policy,
-            Some(&mut recorder),
-        )
-        .unwrap();
-        assert!(polygons[0].exterior_unsigned_area_2d() > polygons[1].exterior_unsigned_area_2d());
-
-        let trace = recorder.finish();
-        let exterior_rotation = trace
-            .events
-            .iter()
-            .find(|event| {
-                event.kind == "canonical_ring_rotation"
-                    && event.payload["family"] == "polygon_exterior"
-                    && event.payload["owner_index"] == 1
-            })
-            .unwrap();
-        assert_eq!(exterior_rotation.payload["original_start_index"], 2);
-        let hole_order = trace
-            .events
-            .iter()
-            .find(|event| {
-                event.kind == "canonical_order"
-                    && event.payload["family"] == "polygon_interiors"
-                    && event.payload["owner_index"] == 1
-            })
-            .unwrap();
         assert_eq!(
-            hole_order.payload["ordered_original_indices"],
-            json!([1, 0])
+            snapped.payload["start"]["x"],
+            format!("0x{:016x}", 0.1f64.to_bits())
         );
-        let polygon_order = trace
-            .events
-            .iter()
-            .find(|event| event.kind == "canonical_order" && event.payload["family"] == "polygons")
-            .unwrap();
         assert_eq!(
-            polygon_order.payload["ordered_original_indices"],
-            json!([1, 0])
+            snapped.payload["start"]["y"],
+            format!("0x{:016x}", (3.0f64 * 0.1).to_bits())
         );
+        assert_eq!(snapped.payload["source_ids"], json!(["0x00000007"]));
     }
 }

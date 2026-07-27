@@ -403,6 +403,9 @@ impl Polygonizer {
                 )?;
                 all_segments = snapped;
                 pre_snap_vertex_candidates = candidates;
+                if let Some(trace) = self.trace.as_mut() {
+                    trace.record_noding_segments("pre_snapped_segment", &all_segments)?;
+                }
             }
 
             // Sort by 2D coordinates
@@ -576,6 +579,16 @@ impl Polygonizer {
             segments = all_segments;
         }
 
+        if self.options.node_input || grid_size > 0.0 {
+            if let Some(trace) = self.trace.as_mut() {
+                let kind = if grid_size > 0.0 {
+                    "fixed_grid_segment"
+                } else {
+                    "noded_segment"
+                };
+                trace.record_noding_segments(kind, &segments)?;
+            }
+        }
         self.execution_policy.check(
             "noded_segments",
             self.execution_policy.max_noded_segments,
