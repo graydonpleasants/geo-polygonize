@@ -64,5 +64,8 @@ pub use polygonizer::{
     PolygonizerWorkspace,
 };
 #[doc(hidden)]
-pub use tiling::{StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer};
+pub use tiling::{
+    StitchingReport, TileReport, TiledPolygonizeResult, TiledPolygonizer,
+    TracedTiledPolygonizeResultV1,
+};
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};

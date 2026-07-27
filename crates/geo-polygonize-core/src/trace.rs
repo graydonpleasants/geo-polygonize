@@ -104,6 +104,20 @@ pub struct RingRotationTraceV1 {
     pub original_start_index: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileOwnershipTraceV1 {
+    pub tile_index: usize,
+    pub polygon_index: usize,
+    pub ownership_point: Option<CoordinateFingerprintV1>,
+    pub owned: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileDedupTraceV1 {
+    pub polygon_index: usize,
+    pub retained: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TopologyTraceV1 {
     pub schema_version: u32,
@@ -428,6 +442,39 @@ impl TraceRecorderV1 {
                 original_start_index,
             })
             .expect("ring rotation trace event serializes"),
+        );
+    }
+
+    pub(crate) fn record_tile_ownership(
+        &mut self,
+        tile_index: usize,
+        polygon_index: usize,
+        ownership_point: Option<crate::Coord3D>,
+        owned: bool,
+    ) -> crate::Result<()> {
+        self.record(
+            TraceStageV1::Output,
+            "tile_ownership",
+            serde_json::to_value(TileOwnershipTraceV1 {
+                tile_index,
+                polygon_index,
+                ownership_point: ownership_point.map(coordinate_fingerprint).transpose()?,
+                owned,
+            })
+            .expect("tile ownership trace event serializes"),
+        );
+        Ok(())
+    }
+
+    pub(crate) fn record_tile_dedup(&mut self, polygon_index: usize, retained: bool) {
+        self.record(
+            TraceStageV1::Output,
+            "tile_deduplication",
+            serde_json::to_value(TileDedupTraceV1 {
+                polygon_index,
+                retained,
+            })
+            .expect("tile deduplication trace event serializes"),
         );
     }
 
