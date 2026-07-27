@@ -1,8 +1,8 @@
 //! Internal differential-test minimization helpers.
 
+use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::{
-    CoordinateFingerprintV1, FingerprintDiffV1, Line3D, PolygonizeError, PolygonizerOptions,
-    TopologyFingerprintV1,
+    CoordinateFingerprintV1, FingerprintDiffV1, Line3D, PolygonizerOptions, TopologyFingerprintV1,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -41,7 +41,7 @@ impl ReferenceMetricsV1 {
             dangle_count,
             cut_edge_count,
             invalid_ring_count,
-            total_area: exact_float(total_area)?,
+            total_area: float_bits(total_area)?,
         })
     }
 }
@@ -76,8 +76,8 @@ impl ReproBundleV1 {
                 .iter()
                 .map(|line| {
                     Ok(ReproLineV1 {
-                        start: exact_coordinate(line.start)?,
-                        end: exact_coordinate(line.end)?,
+                        start: coordinate_fingerprint(line.start)?,
+                        end: coordinate_fingerprint(line.end)?,
                         line_id: format!("0x{:08x}", line.line_id),
                     })
                 })
@@ -93,26 +93,6 @@ impl ReproBundleV1 {
     pub fn to_pretty_json(&self) -> serde_json::Result<String> {
         serde_json::to_string_pretty(self)
     }
-}
-
-fn exact_coordinate(coord: crate::Coord3D) -> crate::Result<CoordinateFingerprintV1> {
-    Ok(CoordinateFingerprintV1 {
-        x: exact_float(coord.x)?,
-        y: exact_float(coord.y)?,
-        z: exact_float(coord.z)?,
-    })
-}
-
-fn exact_float(value: f64) -> crate::Result<String> {
-    if !value.is_finite() {
-        return Err(PolygonizeError::InvalidGeometry {
-            reason: "repro bundle values must be finite".to_string(),
-        });
-    }
-    Ok(format!(
-        "0x{:016x}",
-        if value == 0.0 { 0 } else { value.to_bits() }
-    ))
 }
 
 /// Delta-debug a line set while the caller's exact mismatch predicate holds.
