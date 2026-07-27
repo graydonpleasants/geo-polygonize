@@ -67,6 +67,12 @@ pub struct DirectedHalfedgeTraceV1 {
     pub symmetric_edge_id: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ClassifiedLineTraceV1 {
+    pub index: usize,
+    pub coordinates: Vec<CoordinateFingerprintV1>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TopologyTraceV1 {
     pub schema_version: u32,
@@ -217,6 +223,31 @@ impl TraceRecorderV1 {
         }
         Ok(())
     }
+
+    pub(crate) fn record_classified_lines(
+        &mut self,
+        kind: &'static str,
+        lines: &[Vec<crate::Coord3D>],
+    ) -> crate::Result<()> {
+        if !self.trace.level.allows(TraceStageV1::Graph) {
+            return Ok(());
+        }
+        for (index, line) in lines.iter().enumerate() {
+            let payload = serde_json::to_value(ClassifiedLineTraceV1 {
+                index,
+                coordinates: line
+                    .iter()
+                    .copied()
+                    .map(coordinate_fingerprint)
+                    .collect::<crate::Result<_>>()?,
+            })
+            .expect("classified line trace event serializes");
+            if !self.record(TraceStageV1::Graph, kind, payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TraceLevelV1 {
@@ -350,5 +381,59 @@ mod tests {
         assert_eq!(halfedges.len(), 2);
         assert_eq!(halfedges[0].payload["symmetric_edge_id"], 1);
         assert_eq!(halfedges[1].payload["symmetric_edge_id"], 0);
+    }
+
+    #[test]
+    fn graph_trace_records_dangle_and_cut_edge_classification() {
+        let mut lines = Vec::new();
+        let mut add_ring = |x: f64, first_id: u32| {
+            let points = [(x, 0.0), (x + 1.0, 0.0), (x + 1.0, 1.0), (x, 1.0)];
+            for index in 0..4 {
+                let start = points[index];
+                let end = points[(index + 1) % points.len()];
+                lines.push(Line3D::new(
+                    Coord3D::new(start.0, start.1, 0.0),
+                    Coord3D::new(end.0, end.1, 0.0),
+                    first_id + index as u32,
+                ));
+            }
+        };
+        add_ring(0.0, 1);
+        add_ring(2.0, 5);
+        lines.push(Line3D::new(
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+            9,
+        ));
+        lines.push(Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(-1.0, 0.0, 0.0),
+            10,
+        ));
+
+        let traced = polygonize_with_trace(
+            lines,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Graph,
+            usize::MAX,
+        )
+        .unwrap();
+        let dangles = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "dangle")
+            .count();
+        let cut_edges = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "cut_edge")
+            .count();
+
+        assert_eq!(dangles, traced.result.dangles.len());
+        assert_eq!(cut_edges, traced.result.cut_edges.len());
+        assert_eq!((dangles, cut_edges), (1, 1));
     }
 }

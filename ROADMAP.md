@@ -403,7 +403,7 @@ Candidate events and snapshots:
 - [ ] candidate pairs and exact intersection/split witnesses;
 - [x] noded and dissolved edges with complete source sets;
 - [x] graph nodes and directed halfedges;
-- [ ] dangle pruning and cut-edge classification;
+- [x] dangle pruning and cut-edge classification;
 - [ ] maximal rings, minimal rings, and invalid-ring reasons;
 - [ ] shell/hole classification and containment candidates;
 - [ ] canonical ordering decisions;
@@ -420,6 +420,8 @@ work. The owned traced entrypoint now records the validated canonical `Line3D`
 input representation with exact coordinates and source IDs before noding. The
 post-build graph snapshot records exact nodes, noded/dissolved edges with every
 source ID, and both directed halfedges before pruning mutates graph state.
+Dangle and cut-edge events then capture the exact linework returned by their
+classification passes before canonical output sorting.
 
 ### P1.6 Turn the playground into a topology debugger
 
