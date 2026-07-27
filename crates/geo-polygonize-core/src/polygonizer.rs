@@ -695,6 +695,10 @@ impl Polygonizer {
         let mut cut_edges = self
             .graph
             .delete_cut_edges_with_execution_policy(&self.execution_policy)?;
+        if let Some(trace) = self.trace.as_mut() {
+            trace.record_classified_lines("dangle", &dangles)?;
+            trace.record_classified_lines("cut_edge", &cut_edges)?;
+        }
 
         // 4. Find rings (3D)
         let rings_with_ids = self
