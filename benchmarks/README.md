@@ -94,6 +94,19 @@ checksum-pinned baseline and candidate publications. Rejected experiments
 require their own publication links; measured crossovers require both linked
 publications and an explicit descriptor, range, and unit.
 
+Render schema-valid publications and decisions as a deterministic Markdown
+trend view:
+
+```bash
+python3 benchmarks/render_benchmark_trends.py \
+  --publication artifacts/benchmark-publication.json \
+  --decision benchmarks/decisions/candidate-layout-v1.json \
+  --output artifacts/benchmark-trends.md
+```
+
+The renderer refuses invalid or diagnostic artifacts and emits no fabricated
+rows when one evidence class is absent.
+
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
 untimed full-noding validation of that pipeline before collecting samples.

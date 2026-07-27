@@ -9,6 +9,12 @@ PATH = Path(__file__).resolve().parents[1] / "benchmarks/publish_benchmark.py"
 SPEC = importlib.util.spec_from_file_location("publish_benchmark", PATH)
 PUBLISHER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PUBLISHER)
+TREND_PATH = PATH.parent / "render_benchmark_trends.py"
+TREND_SPEC = importlib.util.spec_from_file_location(
+    "render_benchmark_trends", TREND_PATH
+)
+TREND_RENDERER = importlib.util.module_from_spec(TREND_SPEC)
+TREND_SPEC.loader.exec_module(TREND_RENDERER)
 
 
 def record(index, p50=100.0):
@@ -80,6 +86,48 @@ def write_records(tmp_path, records):
     return paths
 
 
+def decision_record():
+    artifact = {"uri": "artifacts/candidate.json", "sha256": "a" * 64}
+    return {
+        "schema_version": 1,
+        "decision_id": "candidate-layout-v1",
+        "title": "Candidate layout experiment",
+        "policy_id": "benchmark-decision-v1",
+        "hypothesis": "The candidate reduces end-to-end p50.",
+        "target_workloads": ["dense-crossings-v1"],
+        "non_targets": ["small sparse inputs"],
+        "semantic_invariants": ["canonical topology remains equal"],
+        "predeclared_thresholds": {
+            "primary_metric": "p50_ms",
+            "minimum_effect_size_percent": 5.0,
+            "regression_budget_percent": 2.0,
+        },
+        "outcome": "rejected",
+        "rationale": "The candidate missed the effect-size threshold.",
+        "baseline_publications": [
+            {"uri": "artifacts/baseline.json", "sha256": "b" * 64}
+        ],
+        "candidate_publications": [artifact],
+        "rejected_experiments": [
+            {
+                "name": "candidate layout",
+                "reason": "End-to-end p50 improved by less than 5%.",
+                "publications": [artifact],
+            }
+        ],
+        "crossover": {
+            "status": "measured",
+            "range": {
+                "descriptor": "input segments",
+                "lower_bound": 1000,
+                "upper_bound": 2000,
+                "unit": "segments",
+            },
+            "publications": [artifact],
+        },
+    }
+
+
 def test_publication_enforces_decision_quality_policy(tmp_path):
     paths = write_records(
         tmp_path,
@@ -120,45 +168,7 @@ def test_decision_schema_keeps_rejections_and_crossovers_linked():
         (PATH.parent / "benchmark-decision-v1.schema.json").read_text()
     )
     Draft202012Validator.check_schema(schema)
-    artifact = {"uri": "artifacts/candidate.json", "sha256": "a" * 64}
-    decision = {
-        "schema_version": 1,
-        "decision_id": "candidate-layout-v1",
-        "title": "Candidate layout experiment",
-        "policy_id": "benchmark-decision-v1",
-        "hypothesis": "The candidate reduces end-to-end p50.",
-        "target_workloads": ["dense-crossings-v1"],
-        "non_targets": ["small sparse inputs"],
-        "semantic_invariants": ["canonical topology remains equal"],
-        "predeclared_thresholds": {
-            "primary_metric": "p50_ms",
-            "minimum_effect_size_percent": 5.0,
-            "regression_budget_percent": 2.0,
-        },
-        "outcome": "rejected",
-        "rationale": "The candidate missed the effect-size threshold.",
-        "baseline_publications": [
-            {"uri": "artifacts/baseline.json", "sha256": "b" * 64}
-        ],
-        "candidate_publications": [artifact],
-        "rejected_experiments": [
-            {
-                "name": "candidate layout",
-                "reason": "End-to-end p50 improved by less than 5%.",
-                "publications": [artifact],
-            }
-        ],
-        "crossover": {
-            "status": "measured",
-            "range": {
-                "descriptor": "input segments",
-                "lower_bound": 1000,
-                "upper_bound": 2000,
-                "unit": "segments",
-            },
-            "publications": [artifact],
-        },
-    }
+    decision = decision_record()
     validator = Draft202012Validator(schema)
     validator.validate(decision)
     for path in (PATH.parent / "decisions").glob("*.json"):
@@ -167,7 +177,43 @@ def test_decision_schema_keeps_rejections_and_crossovers_linked():
     decision["rejected_experiments"][0]["publications"] = []
     with pytest.raises(ValidationError):
         validator.validate(decision)
-    decision["rejected_experiments"][0]["publications"] = [artifact]
+    decision["rejected_experiments"][0]["publications"] = decision[
+        "candidate_publications"
+    ]
     decision["crossover"].pop("publications")
     with pytest.raises(ValidationError):
         validator.validate(decision)
+
+
+def test_trend_renderer_uses_only_schema_valid_evidence(tmp_path):
+    record_paths = write_records(
+        tmp_path / "records",
+        [
+            record(index, p50)
+            for index, p50 in enumerate([100, 101, 99, 100.5, 99.5], 1)
+        ],
+    )
+    publication_path = tmp_path / "publication.json"
+    publication_path.write_text(
+        json.dumps(PUBLISHER.publish(record_paths, "dedicated", 5))
+    )
+    decision = decision_record()
+    decision["target_workloads"] = ["dense|crossings"]
+    decision_path = tmp_path / "decision.json"
+    decision_path.write_text(json.dumps(decision))
+
+    dashboard = TREND_RENDERER.render([publication_path], [decision_path])
+    assert "| coverage | already-noded-polygonization | x86_64 |" in dashboard
+    assert "| candidate-layout-v1 | rejected | dense\\|crossings |" in dashboard
+    assert "1000–2000 segments (input segments)" in dashboard
+
+    publication = json.loads(publication_path.read_text())
+    publication["measurement_class"] = "diagnostic"
+    publication_path.write_text(json.dumps(publication))
+    with pytest.raises(ValidationError):
+        TREND_RENDERER.render([publication_path], [decision_path])
+    publication["measurement_class"] = "decision-quality"
+    publication["records"][-1]["measurement"]["throughput"]["unit"] = "items/second"
+    publication_path.write_text(json.dumps(publication))
+    with pytest.raises(ValueError, match="throughput units"):
+        TREND_RENDERER.render([publication_path], [decision_path])
