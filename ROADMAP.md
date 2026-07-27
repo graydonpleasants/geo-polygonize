@@ -425,7 +425,10 @@ classification passes before canonical output sorting. Noding traces also
 record the physical post-pre-snap and post-noding segment coordinates, including
 fixed-grid output. Certified noding now records the exact sorted hot-pixel set
 with integer grid coordinates from the physical snap-rounding pass. Candidate
-grid-cell events remain open.
+grid-cell events remain open. The same certified pass also records every
+candidate segment pair with source IDs and its exact point, collinear, or empty
+intersection witness; floating SIMD and uniform-grid candidate events remain
+open.
 
 ### P1.6 Turn the playground into a topology debugger
 
