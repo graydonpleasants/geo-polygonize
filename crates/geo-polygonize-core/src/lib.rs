@@ -27,6 +27,8 @@ mod options;
 mod polygonizer;
 #[doc(hidden)]
 pub mod tiling;
+#[doc(hidden)]
+pub mod trace;
 mod types;
 // Kept compiler-public for the repository's microbenchmarks; not a supported API.
 #[doc(hidden)]
