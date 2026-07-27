@@ -11,6 +11,8 @@
 #[doc(hidden)]
 pub mod containment;
 mod diagnostics;
+#[doc(hidden)]
+pub mod differential;
 mod error;
 #[doc(hidden)]
 pub mod fingerprint;
