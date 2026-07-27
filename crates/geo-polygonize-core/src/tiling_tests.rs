@@ -1,7 +1,10 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use crate::{Coord3D, PolygonizeError, PolygonizerOptions, TiledPolygonizer};
+    use crate::{
+        trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, PolygonizerOptions,
+        TiledPolygonizer,
+    };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
     #[test]
@@ -322,6 +325,43 @@ mod tests {
         assert_eq!(result.stitching_report.merged_polygon_count, 1);
         assert_eq!(result.stitching_report.duplicate_polygon_count, 0);
         assert_eq!(result.stitching_report.output_polygon_count, 1);
+    }
+
+    #[test]
+    fn trace_records_physical_tile_ownership_and_dedup_decisions() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 8.0, y: 1.0 },
+            Coord { x: 12.0, y: 1.0 },
+            Coord { x: 12.0, y: 9.0 },
+            Coord { x: 8.0, y: 9.0 },
+            Coord { x: 8.0, y: 1.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(5.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+        tiler.add_geometry(&square);
+
+        let traced = tiler
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let ownership: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_ownership")
+            .collect();
+        assert_eq!(ownership.len(), 2);
+        assert_eq!(ownership[0].payload["owned"], false);
+        assert_eq!(ownership[1].payload["owned"], true);
+        let dedup = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tile_deduplication")
+            .unwrap();
+        assert_eq!(dedup.payload["retained"], true);
+        assert_eq!(traced.result.polygons.len(), 1);
     }
 }
 

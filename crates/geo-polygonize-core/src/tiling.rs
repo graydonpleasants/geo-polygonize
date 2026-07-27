@@ -1,5 +1,6 @@
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
+use crate::trace::{TopologyTraceV1, TraceLevelV1, TraceRecorderV1, TraceStageV1};
 use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
@@ -62,6 +63,16 @@ pub struct TiledPolygonizeResult {
     pub stitching_report: StitchingReport,
 }
 
+/// Experimental tiled output paired with a bounded topology trace.
+#[derive(Debug)]
+pub struct TracedTiledPolygonizeResultV1 {
+    pub result: TiledPolygonizeResult,
+    pub trace: TopologyTraceV1,
+}
+
+type TileOwnershipDecision = (usize, Option<Coord3D>, bool);
+type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>);
+
 /// Experimental tiled polygonization.
 ///
 /// Equivalence with untiled output is not guaranteed.
@@ -117,7 +128,11 @@ impl<'a> TiledPolygonizer<'a> {
         self.geometries.push((geom, bbox));
     }
 
-    fn process_tile(&self, tile_bbox: Rect<f64>) -> Result<(Vec<Polygon3D>, TileReport)> {
+    fn process_tile(
+        &self,
+        tile_bbox: Rect<f64>,
+        trace_ownership: bool,
+    ) -> Result<TileProcessResult> {
         let mut local_poly = Polygonizer::with_options(self.options.clone());
 
         // Define buffered bbox
@@ -151,7 +166,7 @@ impl<'a> TiledPolygonizer<'a> {
             invalid_ring_count: 0,
         };
         if relevant_lines == 0 {
-            return Ok((Vec::new(), report));
+            return Ok((Vec::new(), report, Vec::new()));
         }
 
         // Run polygonization
@@ -162,10 +177,10 @@ impl<'a> TiledPolygonizer<'a> {
         report.invalid_ring_count = result.invalid_rings.len();
         // Ownership check:
         let mut valid_polys = Vec::new();
-        for poly in result.polygons {
-            if let Some(pt) = self.ownership_point(&poly) {
-                let c = pt;
-
+        let mut ownership_decisions = trace_ownership.then(Vec::new).unwrap_or_default();
+        for (polygon_index, poly) in result.polygons.into_iter().enumerate() {
+            let ownership_point = self.ownership_point(&poly);
+            let owned = ownership_point.is_some_and(|c| {
                 // Check inclusion [min, max)
                 // For the last tile in a row/col, we include the max boundary to cover the full bbox.
                 let max_x_inclusive = tile_bbox.max().x >= self.bbox.max().x;
@@ -182,14 +197,21 @@ impl<'a> TiledPolygonizer<'a> {
                 } else {
                     c.y() >= tile_bbox.min().y && c.y() < tile_bbox.max().y
                 };
-
-                if in_x && in_y {
-                    valid_polys.push(poly);
-                }
+                in_x && in_y
+            });
+            if trace_ownership {
+                ownership_decisions.push((
+                    polygon_index,
+                    ownership_point.map(|point| Coord3D::new(point.x(), point.y(), 0.0)),
+                    owned,
+                ));
+            }
+            if owned {
+                valid_polys.push(poly);
             }
         }
         report.owned_polygon_count = valid_polys.len();
-        Ok((valid_polys, report))
+        Ok((valid_polys, report, ownership_decisions))
     }
 
     fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
@@ -229,41 +251,90 @@ impl<'a> TiledPolygonizer<'a> {
     }
 
     pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
+        self.polygonize_impl(None)
+    }
+
+    pub fn polygonize_with_trace(
+        &self,
+        level: TraceLevelV1,
+        byte_limit: usize,
+    ) -> Result<TracedTiledPolygonizeResultV1> {
+        let mut trace =
+            TraceRecorderV1::new(Some(level), byte_limit, &self.options).expect("trace enabled");
+        let result = self.polygonize_impl(Some(&mut trace))?;
+        Ok(TracedTiledPolygonizeResultV1 {
+            result,
+            trace: trace.finish(),
+        })
+    }
+
+    fn polygonize_impl(
+        &self,
+        mut trace: Option<&mut TraceRecorderV1>,
+    ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
+        let trace_ownership = trace
+            .as_ref()
+            .is_some_and(|trace| trace.records_stage(TraceStageV1::Output));
 
         // Process tiles in parallel or sequential
-        let tile_results: Vec<Result<(Vec<Polygon3D>, TileReport)>>;
+        let tile_results: Vec<Result<TileProcessResult>>;
         #[cfg(feature = "parallel")]
         {
             tile_results = tiles
                 .into_par_iter()
-                .map(|tile| self.process_tile(tile))
+                .map(|tile| self.process_tile(tile, trace_ownership))
                 .collect();
         }
         #[cfg(not(feature = "parallel"))]
         {
             tile_results = tiles
                 .into_iter()
-                .map(|tile| self.process_tile(tile))
+                .map(|tile| self.process_tile(tile, trace_ownership))
                 .collect();
         }
-        let (tile_polygons, tile_reports): (Vec<_>, Vec<_>) = tile_results
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .unzip();
+        let tile_results = tile_results.into_iter().collect::<Result<Vec<_>>>()?;
+        let mut tile_polygons = Vec::with_capacity(tile_results.len());
+        let mut tile_reports = Vec::with_capacity(tile_results.len());
+        for (tile_index, (polygons, report, ownership_decisions)) in
+            tile_results.into_iter().enumerate()
+        {
+            if let Some(trace) = trace.as_deref_mut() {
+                for (polygon_index, ownership_point, owned) in ownership_decisions {
+                    trace.record_tile_ownership(
+                        tile_index,
+                        polygon_index,
+                        ownership_point,
+                        owned,
+                    )?;
+                }
+            }
+            tile_polygons.push(polygons);
+            tile_reports.push(report);
+        }
         let result_polygons: Vec<Polygon3D> = tile_polygons.into_iter().flatten().collect();
         let merged_polygon_count = result_polygons.len();
 
         let polygons = match self.dedup_policy {
-            DedupPolicy::KeepAll => result_polygons,
+            DedupPolicy::KeepAll => {
+                if let Some(trace) = trace.as_deref_mut() {
+                    for polygon_index in 0..result_polygons.len() {
+                        trace.record_tile_dedup(polygon_index, true);
+                    }
+                }
+                result_polygons
+            }
             DedupPolicy::CanonicalRingHash => {
                 let mut unique_polygons = Vec::new();
                 let mut seen = HashSet::new();
 
-                for poly in result_polygons {
-                    if seen.insert(canonical_polygon_key(&poly)) {
+                for (polygon_index, poly) in result_polygons.into_iter().enumerate() {
+                    let retained = seen.insert(canonical_polygon_key(&poly));
+                    if let Some(trace) = trace.as_deref_mut() {
+                        trace.record_tile_dedup(polygon_index, retained);
+                    }
+                    if retained {
                         unique_polygons.push(poly);
                     }
                 }

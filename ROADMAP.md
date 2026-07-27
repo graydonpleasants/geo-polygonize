@@ -427,7 +427,9 @@ reasons for invalid minimal rings. Classification events preserve exact shell
 and hole coordinates, while containment events record the actual indexed shell
 candidates and selected parent from the physical assignment pass. Full traces
 also record ring rotation offsets and the original-index permutations selected
-for hole and polygon canonical ordering.
+for hole and polygon canonical ordering. The experimental tiled entrypoint can
+record its physical ownership and deduplication decisions. Retry and fallback
+events remain open because those recovery paths are not implemented yet.
 
 ### P1.6 Turn the playground into a topology debugger
 
