@@ -446,7 +446,33 @@ impl Polygonizer {
                         let input_segment_count = all_segments.len();
                         let noder =
                             HotPixelNoder::new(grid_size)?.with_z_policy(self.options.z.policy);
-                        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        let trace_hot_pixels = self.trace.as_ref().is_some_and(|trace| {
+                            trace.records_stage(crate::trace::TraceStageV1::Noding)
+                        });
+                        if trace_hot_pixels {
+                            let (noded, intersections, mut work_stats, hot_pixels) = noder
+                                .node_with_hot_pixels(
+                                    all_segments,
+                                    has_execution_controls.then_some(&self.execution_policy),
+                                )?;
+                            work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
+                            if let Some(trace) = self.trace.as_mut() {
+                                trace.record_hot_pixels(&hot_pixels, grid_size)?;
+                            }
+                            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                                diagnostics.intersection_stats.interpolated_intersections =
+                                    work_stats.split_events;
+                                diagnostics.intersection_stats.exact_intersections =
+                                    work_stats.exact_intersection_calls;
+                                diagnostics.noding_iterations = vec![NodingIterationStats {
+                                    iteration_index: 0,
+                                    intersections_found: intersections,
+                                    nodes_added: noded.len().saturating_sub(input_segment_count),
+                                }];
+                                diagnostics.noding_work_stats = work_stats;
+                            }
+                            segments = noded;
+                        } else if let Some(diagnostics) = diagnostics.as_deref_mut() {
                             let (noded, intersections, mut work_stats) = if has_execution_controls {
                                 noder.node_with_stats_and_execution_policy(
                                     all_segments,
