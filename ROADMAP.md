@@ -428,7 +428,8 @@ with integer grid coordinates from the physical snap-rounding pass. Candidate
 grid-cell events remain open. The same certified pass also records every
 candidate segment pair with source IDs and its exact point, collinear, or empty
 intersection witness; floating SIMD and uniform-grid candidate events remain
-open.
+open. Certified replacement segments additionally retain their source segment,
+source ID, and exact emitted endpoints from the physical split loop.
 
 ### P1.6 Turn the playground into a topology debugger
 
