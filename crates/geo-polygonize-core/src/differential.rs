@@ -46,6 +46,75 @@ where
     Some(current)
 }
 
+/// Simplify shared X/Y values while the caller's exact mismatch predicate holds.
+///
+/// Every occurrence of a coordinate value is replaced together so connected
+/// endpoints stay connected. Source IDs and Z values are never changed.
+#[doc(hidden)]
+pub fn minimize_xy_coordinates<F>(lines: Vec<Line3D>, mut reproduces: F) -> Option<Vec<Line3D>>
+where
+    F: FnMut(&[Line3D]) -> bool,
+{
+    if !reproduces(&lines) {
+        return None;
+    }
+
+    let mut current = lines;
+    for axis in [Axis::X, Axis::Y] {
+        let mut values = Vec::new();
+        for line in &current {
+            values.push(axis.get(line.start).to_bits());
+            values.push(axis.get(line.end).to_bits());
+        }
+        values.sort_unstable();
+        values.dedup();
+
+        for bits in values {
+            let value = f64::from_bits(bits);
+            for replacement in [0.0, value.signum(), value.trunc()] {
+                if !replacement.is_finite() || replacement.to_bits() == bits {
+                    continue;
+                }
+                let mut candidate = current.clone();
+                for line in &mut candidate {
+                    axis.replace(&mut line.start, bits, replacement);
+                    axis.replace(&mut line.end, bits, replacement);
+                }
+                if reproduces(&candidate) {
+                    current = candidate;
+                    break;
+                }
+            }
+        }
+    }
+    Some(current)
+}
+
+#[derive(Clone, Copy)]
+enum Axis {
+    X,
+    Y,
+}
+
+impl Axis {
+    fn get(self, coord: crate::Coord3D) -> f64 {
+        match self {
+            Self::X => coord.x,
+            Self::Y => coord.y,
+        }
+    }
+
+    fn replace(self, coord: &mut crate::Coord3D, expected: u64, replacement: f64) {
+        let value = match self {
+            Self::X => &mut coord.x,
+            Self::Y => &mut coord.y,
+        };
+        if value.to_bits() == expected {
+            *value = replacement;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +162,51 @@ mod tests {
         assert_eq!(
             minimize_line_set(lines, |_| true).unwrap(),
             Vec::<Line3D>::new()
+        );
+    }
+
+    #[test]
+    fn simplifies_shared_xy_without_changing_ids_or_z_conflicts() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(123.5, 456.75, 10.0),
+                Coord3D::new(789.25, 456.75, 20.0),
+                7,
+            ),
+            Line3D::new(
+                Coord3D::new(789.25, 456.75, 30.0),
+                Coord3D::new(789.25, 999.5, 40.0),
+                9,
+            ),
+        ];
+        let original_z: Vec<_> = lines
+            .iter()
+            .flat_map(|line| [line.start.z, line.end.z])
+            .collect();
+
+        let minimized = minimize_xy_coordinates(lines, |candidate| {
+            candidate.len() == 2
+                && candidate[0].line_id == 7
+                && candidate[1].line_id == 9
+                && candidate[0].end.x == candidate[1].start.x
+                && candidate[0].end.y == candidate[1].start.y
+                && candidate
+                    .iter()
+                    .all(|line| line.start.to_coord_2d() != line.end.to_coord_2d())
+                && candidate[0].end.z != candidate[1].start.z
+        })
+        .unwrap();
+
+        assert_eq!(minimized[0].start.to_coord_2d(), (0.0, 0.0).into());
+        assert_eq!(minimized[0].end.to_coord_2d(), (1.0, 0.0).into());
+        assert_eq!(minimized[1].start.to_coord_2d(), (1.0, 0.0).into());
+        assert_eq!(minimized[1].end.to_coord_2d(), (1.0, 1.0).into());
+        assert_eq!(
+            minimized
+                .iter()
+                .flat_map(|line| [line.start.z, line.end.z])
+                .collect::<Vec<_>>(),
+            original_z
         );
     }
 }

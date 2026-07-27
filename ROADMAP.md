@@ -372,8 +372,8 @@ fabricated in their absence.
 
 - [x] Build a line-set delta debugger that minimizes failures while preserving
   the selected options and observed mismatch.
-- [ ] Minimize coordinate complexity after feature/segment minimization.
-- [ ] Preserve source IDs and Z conflicts during minimization.
+- [x] Minimize coordinate complexity after feature/segment minimization.
+- [x] Preserve source IDs and Z conflicts during minimization.
 - [ ] Persist every minimized novel failure as a strict golden and compatibility
   classification.
 - [ ] Export a standalone repro bundle containing input, options, versions,
@@ -385,7 +385,8 @@ fixture without manually rewriting the geometry.
 Progress: A deterministic, doc-hidden line-set ddmin kernel now accepts the
 caller's exact mismatch predicate, allowing each adapter to retain its selected
 options and recompute both sides for every candidate. Retained segments are
-copied unchanged; coordinate minimization, persisted fixtures, and standalone
+copied unchanged. Shared X/Y values can then be simplified atomically while
+source IDs and Z conflicts remain untouched; persisted fixtures and standalone
 repro bundles remain separate work.
 
 ### P1.5 Trace schema
