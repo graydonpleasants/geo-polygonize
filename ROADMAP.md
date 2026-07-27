@@ -401,8 +401,8 @@ Candidate events and snapshots:
 - [x] normalized input segments and source IDs;
 - [ ] snapped coordinates, fixed-grid cells, and certified hot pixels;
 - [ ] candidate pairs and exact intersection/split witnesses;
-- [ ] noded and dissolved edges with complete source sets;
-- [ ] graph nodes and directed halfedges;
+- [x] noded and dissolved edges with complete source sets;
+- [x] graph nodes and directed halfedges;
 - [ ] dangle pruning and cut-edge classification;
 - [ ] maximal rings, minimal rings, and invalid-ring reasons;
 - [ ] shell/hole classification and containment candidates;
@@ -417,7 +417,9 @@ levels plus deterministic event sequencing. Its recorder bounds serialized
 event bytes, reports truncation, includes version/options metadata, and is not
 constructed when tracing is disabled. Pipeline event wiring remains incremental
 work. The owned traced entrypoint now records the validated canonical `Line3D`
-input representation with exact coordinates and source IDs before noding.
+input representation with exact coordinates and source IDs before noding. The
+post-build graph snapshot records exact nodes, noded/dissolved edges with every
+source ID, and both directed halfedges before pruning mutates graph state.
 
 ### P1.6 Turn the playground into a topology debugger
 

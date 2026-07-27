@@ -666,6 +666,9 @@ impl Polygonizer {
                 None
             },
         )?;
+        if let Some(trace) = self.trace.as_mut() {
+            trace.record_graph(&self.graph)?;
+        }
         if let Some(ref mut d) = diag {
             d.phase_times.ingest_and_node = get_elapsed(t_ingest_start);
             d.noded_segment_count = self.graph.edges.len();

@@ -1,6 +1,7 @@
 //! Internal bounded topology trace schema.
 
 use crate::fingerprint::coordinate_fingerprint;
+use crate::graph::PlanarGraph;
 use crate::{CoordinateFingerprintV1, Line3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
@@ -40,6 +41,30 @@ pub struct InputSegmentTraceV1 {
     pub start: CoordinateFingerprintV1,
     pub end: CoordinateFingerprintV1,
     pub source_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct GraphNodeTraceV1 {
+    pub node_id: usize,
+    pub coordinate: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct GraphEdgeTraceV1 {
+    pub edge_id: usize,
+    pub start: CoordinateFingerprintV1,
+    pub end: CoordinateFingerprintV1,
+    pub source_ids: Vec<String>,
+    pub directed_edge_ids: [usize; 2],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DirectedHalfedgeTraceV1 {
+    pub directed_edge_id: usize,
+    pub source_node_id: usize,
+    pub destination_node_id: usize,
+    pub edge_id: usize,
+    pub symmetric_edge_id: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -140,6 +165,58 @@ impl TraceRecorderV1 {
         }
         Ok(())
     }
+
+    pub(crate) fn record_graph(&mut self, graph: &PlanarGraph) -> crate::Result<()> {
+        if !self.trace.level.allows(TraceStageV1::Graph) {
+            return Ok(());
+        }
+        for node_id in 0..graph.nodes_x.len() {
+            let payload = serde_json::to_value(GraphNodeTraceV1 {
+                node_id,
+                coordinate: coordinate_fingerprint(crate::Coord3D::new(
+                    graph.nodes_x[node_id],
+                    graph.nodes_y[node_id],
+                    graph.nodes_z[node_id],
+                ))?,
+            })
+            .expect("graph node trace event serializes");
+            if !self.record(TraceStageV1::Graph, "graph_node", payload) {
+                return Ok(());
+            }
+        }
+        for (edge_id, edge) in graph.edges.iter().enumerate() {
+            let payload = serde_json::to_value(GraphEdgeTraceV1 {
+                edge_id,
+                start: coordinate_fingerprint(edge.line.start)?,
+                end: coordinate_fingerprint(edge.line.end)?,
+                source_ids: edge
+                    .sources
+                    .line_ids
+                    .iter()
+                    .map(|source_id| format!("0x{source_id:08x}"))
+                    .collect(),
+                directed_edge_ids: edge.dir_edges,
+            })
+            .expect("graph edge trace event serializes");
+            if !self.record(TraceStageV1::Graph, "dissolved_edge", payload) {
+                return Ok(());
+            }
+        }
+        for (directed_edge_id, edge) in graph.directed_edges.iter().enumerate() {
+            let payload = serde_json::to_value(DirectedHalfedgeTraceV1 {
+                directed_edge_id,
+                source_node_id: edge.src,
+                destination_node_id: edge.dst,
+                edge_id: edge.edge_idx,
+                symmetric_edge_id: edge.sym_idx,
+            })
+            .expect("directed halfedge trace event serializes");
+            if !self.record(TraceStageV1::Graph, "directed_halfedge", payload) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TraceLevelV1 {
@@ -228,5 +305,50 @@ mod tests {
             TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
             TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
         );
+    }
+
+    #[test]
+    fn graph_trace_retains_dissolved_sources_and_halfedge_links() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 7),
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 9),
+        ];
+        let traced = polygonize_with_trace(
+            lines,
+            &PolygonizerOptions::default(),
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Graph,
+            usize::MAX,
+        )
+        .unwrap();
+
+        assert_eq!(
+            traced
+                .trace
+                .events
+                .iter()
+                .filter(|event| event.kind == "graph_node")
+                .count(),
+            2
+        );
+        let edge = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "dissolved_edge")
+            .unwrap();
+        assert_eq!(
+            edge.payload["source_ids"],
+            json!(["0x00000007", "0x00000009"])
+        );
+        let halfedges: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "directed_halfedge")
+            .collect();
+        assert_eq!(halfedges.len(), 2);
+        assert_eq!(halfedges[0].payload["symmetric_edge_id"], 1);
+        assert_eq!(halfedges[1].payload["symmetric_edge_id"], 0);
     }
 }
