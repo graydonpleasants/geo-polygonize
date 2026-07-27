@@ -370,7 +370,7 @@ fabricated in their absence.
 
 ### P1.4 Differential minimization
 
-- [ ] Build a line-set delta debugger that minimizes failures while preserving
+- [x] Build a line-set delta debugger that minimizes failures while preserving
   the selected options and observed mismatch.
 - [ ] Minimize coordinate complexity after feature/segment minimization.
 - [ ] Preserve source IDs and Z conflicts during minimization.
@@ -381,6 +381,12 @@ fabricated in their absence.
 
 **Done when:** a fuzz or production mismatch can become a checked-in, human-sized
 fixture without manually rewriting the geometry.
+
+Progress: A deterministic, doc-hidden line-set ddmin kernel now accepts the
+caller's exact mismatch predicate, allowing each adapter to retain its selected
+options and recompute both sides for every candidate. Retained segments are
+copied unchanged; coordinate minimization, persisted fixtures, and standalone
+repro bundles remain separate work.
 
 ### P1.5 Trace schema
 
