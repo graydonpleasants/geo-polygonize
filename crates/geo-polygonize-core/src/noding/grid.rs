@@ -213,6 +213,22 @@ pub struct UniformGrid {
     bounds_min: Coord<f64>,
 }
 
+pub(crate) struct UniformGridCellTrace {
+    pub(crate) iteration_index: usize,
+    pub(crate) row: usize,
+    pub(crate) column: usize,
+    pub(crate) min: Coord3D,
+    pub(crate) max: Coord3D,
+    pub(crate) segment_indices: Vec<usize>,
+    pub(crate) source_ids: Vec<u32>,
+}
+
+pub(crate) struct UniformGridGlobalLineTrace {
+    pub(crate) iteration_index: usize,
+    pub(crate) segment_index: usize,
+    pub(crate) source_id: u32,
+}
+
 impl UniformGrid {
     pub fn new(lines: &[Line3D]) -> Self {
         Self::new_impl(lines, None).expect("unlimited grid construction cannot fail")
@@ -463,6 +479,57 @@ impl UniformGrid {
             rows: 0,
             bounds_min: Coord::zero(),
         }
+    }
+
+    pub(crate) fn trace_structure(
+        &self,
+        lines: &[Line3D],
+        iteration_index: usize,
+    ) -> (Vec<UniformGridCellTrace>, Vec<UniformGridGlobalLineTrace>) {
+        let mut cells = Vec::new();
+        for index in 0..self.rows * self.cols {
+            let start = self.cell_offsets[index];
+            let end = self.cell_offsets[index + 1];
+            if end - start < 2 {
+                continue;
+            }
+            let row = index / self.cols;
+            let column = index % self.cols;
+            let segment_indices: Vec<_> = self.cell_items[start..end]
+                .iter()
+                .map(|&segment| segment as usize)
+                .collect();
+            cells.push(UniformGridCellTrace {
+                iteration_index,
+                row,
+                column,
+                min: Coord3D::new(
+                    self.bounds_min.x + column as f64 * self.cell_size,
+                    self.bounds_min.y + row as f64 * self.cell_size,
+                    0.0,
+                ),
+                max: Coord3D::new(
+                    self.bounds_min.x + (column + 1) as f64 * self.cell_size,
+                    self.bounds_min.y + (row + 1) as f64 * self.cell_size,
+                    0.0,
+                ),
+                source_ids: segment_indices
+                    .iter()
+                    .map(|&segment| lines[segment].line_id)
+                    .collect(),
+                segment_indices,
+            });
+        }
+        let global_lines = self
+            .global_lines
+            .iter()
+            .map(|&segment_index| UniformGridGlobalLineTrace {
+                iteration_index,
+                segment_index,
+                source_id: lines[segment_index].line_id,
+            })
+            .collect();
+        (cells, global_lines)
     }
 
     /// Finds all intersections. Uses "Intersection Ownership" to deduplicate checks.

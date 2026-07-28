@@ -2,6 +2,7 @@
 
 use crate::fingerprint::coordinate_fingerprint;
 use crate::graph::{ExtractedRing, PlanarGraph};
+use crate::noding::grid::{UniformGridCellTrace, UniformGridGlobalLineTrace};
 use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
@@ -86,6 +87,26 @@ pub struct SplitEventTraceV1 {
     pub source_id: String,
     pub start: CoordinateFingerprintV1,
     pub end: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct UniformGridCellTraceV1 {
+    pub index: usize,
+    pub iteration_index: usize,
+    pub row: usize,
+    pub column: usize,
+    pub min: CoordinateFingerprintV1,
+    pub max: CoordinateFingerprintV1,
+    pub segment_indices: Vec<usize>,
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct UniformGridGlobalLineTraceV1 {
+    pub index: usize,
+    pub iteration_index: usize,
+    pub segment_index: usize,
+    pub source_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -373,6 +394,49 @@ impl TraceRecorderV1 {
             })
             .expect("candidate-pair trace event serializes");
             if !self.record(TraceStageV1::Noding, "floating_candidate_pair", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_uniform_grid(
+        &mut self,
+        cells: &[UniformGridCellTrace],
+        global_lines: &[UniformGridGlobalLineTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, cell) in cells.iter().enumerate() {
+            let payload = serde_json::to_value(UniformGridCellTraceV1 {
+                index,
+                iteration_index: cell.iteration_index,
+                row: cell.row,
+                column: cell.column,
+                min: coordinate_fingerprint(cell.min)?,
+                max: coordinate_fingerprint(cell.max)?,
+                segment_indices: cell.segment_indices.clone(),
+                source_ids: cell
+                    .source_ids
+                    .iter()
+                    .map(|source_id| format!("0x{source_id:08x}"))
+                    .collect(),
+            })
+            .expect("uniform-grid cell trace event serializes");
+            if !self.record(TraceStageV1::Noding, "uniform_grid_cell", payload) {
+                return Ok(());
+            }
+        }
+        for (index, line) in global_lines.iter().enumerate() {
+            let payload = serde_json::to_value(UniformGridGlobalLineTraceV1 {
+                index,
+                iteration_index: line.iteration_index,
+                segment_index: line.segment_index,
+                source_id: format!("0x{:08x}", line.source_id),
+            })
+            .expect("uniform-grid global-line trace event serializes");
+            if !self.record(TraceStageV1::Noding, "uniform_grid_global_line", payload) {
                 break;
             }
         }
@@ -997,6 +1061,55 @@ mod tests {
         assert_eq!(
             candidates[0].payload["witness"]["coordinate"]["x"],
             format!("0x{:016x}", 1.0f64.to_bits())
+        );
+    }
+
+    #[test]
+    fn noding_trace_records_uniform_grid_cells() {
+        let lines: Vec<_> = (0..256)
+            .map(|index| {
+                let y = index as f64;
+                Line3D::new(
+                    Coord3D::new(0.0, y, 0.0),
+                    Coord3D::new(10.0, y, 0.0),
+                    index as u32,
+                )
+            })
+            .collect();
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let traced = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+        let cells: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "uniform_grid_cell")
+            .collect();
+
+        assert!(!cells.is_empty());
+        assert_eq!(cells[0].payload["iteration_index"], 0);
+        assert!(
+            cells[0].payload["segment_indices"]
+                .as_array()
+                .unwrap()
+                .len()
+                >= 2
+        );
+        assert_eq!(
+            cells[0].payload["segment_indices"]
+                .as_array()
+                .unwrap()
+                .len(),
+            cells[0].payload["source_ids"].as_array().unwrap().len()
         );
     }
 }
