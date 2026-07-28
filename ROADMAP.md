@@ -430,9 +430,10 @@ membership, and global-line fallback membership. The same certified pass also
 records every candidate segment pair with source IDs and its exact point,
 collinear, or empty intersection witness. Floating SIMD candidate scans now emit
 the same evidence from their physical exact-predicate calls; uniform-grid
-candidate events remain open. Certified replacement segments additionally
-retain their source segment, source ID, and exact emitted endpoints from the
-physical split loop.
+cell-pair scans now record exact witnesses and whether the cell owned the
+result. Global-line candidate events remain open. Certified replacement
+segments additionally retain their source segment, source ID, and exact emitted
+endpoints from the physical split loop.
 
 ### P1.6 Turn the playground into a topology debugger
 

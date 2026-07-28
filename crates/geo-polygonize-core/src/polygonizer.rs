@@ -538,6 +538,7 @@ impl Polygonizer {
                                 candidates,
                                 grid_cells,
                                 global_lines,
+                                grid_candidates,
                             ) = noder.node_with_trace(
                                 all_segments,
                                 has_execution_controls.then_some(&self.execution_policy),
@@ -546,6 +547,7 @@ impl Polygonizer {
                             if let Some(trace) = self.trace.as_mut() {
                                 trace.record_floating_candidates(&candidates)?;
                                 trace.record_uniform_grid(&grid_cells, &global_lines)?;
+                                trace.record_uniform_grid_candidates(&grid_candidates)?;
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
                                 diagnostics.intersection_stats.interpolated_intersections = stats
