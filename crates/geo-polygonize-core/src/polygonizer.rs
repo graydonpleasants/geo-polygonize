@@ -450,15 +450,22 @@ impl Polygonizer {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
                         });
                         if trace_hot_pixels {
-                            let (noded, intersections, mut work_stats, hot_pixels, candidates) =
-                                noder.node_with_hot_pixels(
-                                    all_segments,
-                                    has_execution_controls.then_some(&self.execution_policy),
-                                )?;
+                            let (
+                                noded,
+                                intersections,
+                                mut work_stats,
+                                hot_pixels,
+                                candidates,
+                                split_events,
+                            ) = noder.node_with_hot_pixels(
+                                all_segments,
+                                has_execution_controls.then_some(&self.execution_policy),
+                            )?;
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             if let Some(trace) = self.trace.as_mut() {
                                 trace.record_hot_pixels(&hot_pixels, grid_size)?;
                                 trace.record_certified_candidates(&candidates)?;
+                                trace.record_certified_splits(&split_events)?;
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
                                 diagnostics.intersection_stats.interpolated_intersections =

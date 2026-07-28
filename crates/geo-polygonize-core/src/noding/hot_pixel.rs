@@ -24,12 +24,20 @@ pub(crate) enum HotPixelIntersectionTrace {
     Collinear(Coord3D, Coord3D),
 }
 
+pub(crate) struct HotPixelSplitTrace {
+    pub source_segment: usize,
+    pub source_id: u32,
+    pub start: Coord3D,
+    pub end: Coord3D,
+}
+
 type HotPixelNodingResult = (
     Vec<Line3D>,
     usize,
     NodingWorkStats,
     Vec<IPoint>,
     Vec<HotPixelCandidateTrace>,
+    Vec<HotPixelSplitTrace>,
 );
 
 /// Fixed-precision hot-pixel snap-rounding noder.
@@ -60,7 +68,7 @@ impl HotPixelNoder {
 
     pub fn node(&self, lines: Vec<Line3D>) -> Result<Vec<Line3D>> {
         self.node_with_stats_impl(lines, None, false)
-            .map(|(lines, _, _, _, _)| lines)
+            .map(|(lines, _, _, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats(
@@ -68,7 +76,7 @@ impl HotPixelNoder {
         lines: Vec<Line3D>,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
         self.node_with_stats_impl(lines, None, false)
-            .map(|(lines, intersections, work, _, _)| (lines, intersections, work))
+            .map(|(lines, intersections, work, _, _, _)| (lines, intersections, work))
     }
 
     pub(crate) fn node_with_execution_policy(
@@ -77,7 +85,7 @@ impl HotPixelNoder {
         execution_policy: &ExecutionPolicy,
     ) -> Result<Vec<Line3D>> {
         self.node_with_stats_impl(lines, Some(execution_policy), false)
-            .map(|(lines, _, _, _, _)| lines)
+            .map(|(lines, _, _, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats_and_execution_policy(
@@ -86,7 +94,7 @@ impl HotPixelNoder {
         execution_policy: &ExecutionPolicy,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
         self.node_with_stats_impl(lines, Some(execution_policy), false)
-            .map(|(lines, intersections, work, _, _)| (lines, intersections, work))
+            .map(|(lines, intersections, work, _, _, _)| (lines, intersections, work))
     }
 
     pub(crate) fn node_with_hot_pixels(
@@ -136,6 +144,7 @@ impl HotPixelNoder {
         let mut intersections = 0;
         let mut work = NodingWorkStats::default();
         let mut candidate_trace = Vec::new();
+        let mut split_trace = Vec::new();
         for (first_index, first) in lines.iter().enumerate() {
             let mut candidates: Vec<_> = segment_index
                 .locate_in_envelope_intersecting(&line_envelope(first))
@@ -220,7 +229,7 @@ impl HotPixelNoder {
                 .collect(),
         );
         let mut output = Vec::new();
-        for line in lines {
+        for (source_segment, line) in lines.into_iter().enumerate() {
             if let Some(execution_policy) = execution_policy {
                 execution_policy.check_cancelled("split_application")?;
             }
@@ -306,13 +315,28 @@ impl HotPixelNoder {
                         )?;
                     }
                     output.push(Line3D::new(pair[0], pair[1], line.line_id));
+                    if capture_trace {
+                        split_trace.push(HotPixelSplitTrace {
+                            source_segment,
+                            source_id: line.line_id,
+                            start: pair[0],
+                            end: pair[1],
+                        });
+                    }
                 }
             }
         }
 
         snapper.normalize_and_dedup(&mut output);
         ValidatingNoder::new().validate(&output)?;
-        Ok((output, intersections, work, hot_pixels, candidate_trace))
+        Ok((
+            output,
+            intersections,
+            work,
+            hot_pixels,
+            candidate_trace,
+            split_trace,
+        ))
     }
 
     fn grid_point(&self, coordinate: Coord3D) -> Result<IPoint> {

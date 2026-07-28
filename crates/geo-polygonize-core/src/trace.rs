@@ -2,7 +2,9 @@
 
 use crate::fingerprint::coordinate_fingerprint;
 use crate::graph::{ExtractedRing, PlanarGraph};
-use crate::noding::hot_pixel::{HotPixelCandidateTrace, HotPixelIntersectionTrace};
+use crate::noding::hot_pixel::{
+    HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
+};
 use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
@@ -72,6 +74,15 @@ pub struct CandidatePairTraceV1 {
     pub first_source_id: String,
     pub second_source_id: String,
     pub witness: Option<IntersectionWitnessTraceV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SplitEventTraceV1 {
+    pub index: usize,
+    pub source_segment: usize,
+    pub source_id: String,
+    pub start: CoordinateFingerprintV1,
+    pub end: CoordinateFingerprintV1,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -319,6 +330,29 @@ impl TraceRecorderV1 {
             })
             .expect("candidate-pair trace event serializes");
             if !self.record(TraceStageV1::Noding, "certified_candidate_pair", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_certified_splits(
+        &mut self,
+        splits: &[HotPixelSplitTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, split) in splits.iter().enumerate() {
+            let payload = serde_json::to_value(SplitEventTraceV1 {
+                index,
+                source_segment: split.source_segment,
+                source_id: format!("0x{:08x}", split.source_id),
+                start: coordinate_fingerprint(split.start)?,
+                end: coordinate_fingerprint(split.end)?,
+            })
+            .expect("split-event trace serializes");
+            if !self.record(TraceStageV1::Noding, "certified_split_segment", payload) {
                 break;
             }
         }
@@ -867,5 +901,23 @@ mod tests {
             candidates[0].payload["witness"]["coordinate"]["x"],
             format!("0x{:016x}", 1.0f64.to_bits())
         );
+        let splits: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "certified_split_segment")
+            .collect();
+        assert_eq!(splits.len(), 4);
+        assert_eq!(
+            splits
+                .iter()
+                .filter(|event| event.payload["source_id"] == "0x00000001")
+                .count(),
+            2
+        );
+        assert!(splits.iter().any(|event| {
+            event.payload["end"]["x"] == format!("0x{:016x}", 1.0f64.to_bits())
+                && event.payload["end"]["y"] == format!("0x{:016x}", 1.0f64.to_bits())
+        }));
     }
 }
