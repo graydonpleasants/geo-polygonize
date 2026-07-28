@@ -400,7 +400,7 @@ Candidate events and snapshots:
 
 - [x] normalized input segments and source IDs;
 - [x] snapped coordinates, fixed-grid cells, and certified hot pixels;
-- [ ] candidate pairs and exact intersection/split witnesses;
+- [x] candidate pairs and exact intersection/split witnesses;
 - [x] noded and dissolved edges with complete source sets;
 - [x] graph nodes and directed halfedges;
 - [x] dangle pruning and cut-edge classification;
@@ -434,7 +434,8 @@ cell-pair scans now record exact witnesses and whether the cell owned the
 result. Global-line fallback scans emit the same exact candidate evidence with
 an explicit scan origin. Certified replacement segments additionally retain
 their source segment, source ID, and exact emitted endpoints from the physical
-split loop. Floating split-emission evidence remains open.
+split loop. Floating SIMD and uniform-grid noding now record the same replacement
+evidence from their shared physical split loop.
 
 ### P1.6 Turn the playground into a topology debugger
 

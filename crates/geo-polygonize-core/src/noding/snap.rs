@@ -95,6 +95,15 @@ pub(crate) struct FloatingCandidateTrace {
     pub(crate) witness: Option<FloatingIntersectionTrace>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FloatingSplitTrace {
+    pub(crate) iteration_index: usize,
+    pub(crate) source_segment: usize,
+    pub(crate) source_id: u32,
+    pub(crate) start: Coord3D,
+    pub(crate) end: Coord3D,
+}
+
 type FloatingNodingTraceResult = (
     Vec<Line3D>,
     Vec<NodingIterationStats>,
@@ -103,6 +112,7 @@ type FloatingNodingTraceResult = (
     Vec<UniformGridCellTrace>,
     Vec<UniformGridGlobalLineTrace>,
     Vec<UniformGridCandidateTrace>,
+    Vec<FloatingSplitTrace>,
 );
 
 #[derive(Default)]
@@ -111,6 +121,7 @@ struct FloatingTraceCapture {
     grid_cells: Vec<UniformGridCellTrace>,
     global_lines: Vec<UniformGridGlobalLineTrace>,
     grid_candidates: Vec<UniformGridCandidateTrace>,
+    splits: Vec<FloatingSplitTrace>,
 }
 
 const AUTO_SIMD_LIMIT: usize = 1024;
@@ -214,6 +225,7 @@ impl SnapNoder {
             trace.grid_cells,
             trace.global_lines,
             trace.grid_candidates,
+            trace.splits,
         ))
     }
 
@@ -455,6 +467,15 @@ impl SnapNoder {
                             )?;
                         }
                         new_lines.push(Line3D::new(p0, p1, line.line_id));
+                        if let Some(trace) = trace.as_deref_mut() {
+                            trace.splits.push(FloatingSplitTrace {
+                                iteration_index,
+                                source_segment: line_idx,
+                                source_id: line.line_id,
+                                start: p0,
+                                end: p1,
+                            });
+                        }
                     }
                 }
 
@@ -1210,6 +1231,18 @@ mod tests {
             assert_eq!(e_g.0, e_s.0, "Index mismatch");
             assert!((e_g.1.x - e_s.1.x).abs() < 1e-10 && (e_g.1.y - e_s.1.y).abs() < 1e-10);
         }
+    }
+
+    #[test]
+    fn grid_trace_records_shared_replacement_loop() {
+        let lines = vec![make_line(0.0, 0.0, 2.0, 2.0), make_line(0.0, 2.0, 2.0, 0.0)];
+        let (_, _, _, _, _, _, _, splits) = SnapNoder::new(0.0)
+            .with_strategy(NodingStrategy::Grid)
+            .node_with_trace(lines, None)
+            .unwrap();
+
+        assert_eq!(splits.len(), 4);
+        assert!(splits.iter().all(|split| split.iteration_index == 0));
     }
 
     #[test]

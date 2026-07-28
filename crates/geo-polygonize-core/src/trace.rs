@@ -8,7 +8,7 @@ use crate::noding::grid::{
 use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
-use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace};
+use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
 use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
@@ -85,6 +85,8 @@ pub struct CandidatePairTraceV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct SplitEventTraceV1 {
     pub index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iteration_index: Option<usize>,
     pub source_segment: usize,
     pub source_id: String,
     pub start: CoordinateFingerprintV1,
@@ -516,6 +518,7 @@ impl TraceRecorderV1 {
         for (index, split) in splits.iter().enumerate() {
             let payload = serde_json::to_value(SplitEventTraceV1 {
                 index,
+                iteration_index: None,
                 source_segment: split.source_segment,
                 source_id: format!("0x{:08x}", split.source_id),
                 start: coordinate_fingerprint(split.start)?,
@@ -523,6 +526,30 @@ impl TraceRecorderV1 {
             })
             .expect("split-event trace serializes");
             if !self.record(TraceStageV1::Noding, "certified_split_segment", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_floating_splits(
+        &mut self,
+        splits: &[FloatingSplitTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, split) in splits.iter().enumerate() {
+            let payload = serde_json::to_value(SplitEventTraceV1 {
+                index,
+                iteration_index: Some(split.iteration_index),
+                source_segment: split.source_segment,
+                source_id: format!("0x{:08x}", split.source_id),
+                start: coordinate_fingerprint(split.start)?,
+                end: coordinate_fingerprint(split.end)?,
+            })
+            .expect("split-event trace serializes");
+            if !self.record(TraceStageV1::Noding, "floating_split_segment", payload) {
                 break;
             }
         }
@@ -1124,6 +1151,23 @@ mod tests {
         assert_eq!(
             candidates[0].payload["witness"]["coordinate"]["x"],
             format!("0x{:016x}", 1.0f64.to_bits())
+        );
+        let splits: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "floating_split_segment")
+            .collect();
+        assert_eq!(splits.len(), 4);
+        assert!(splits
+            .iter()
+            .all(|event| event.payload["iteration_index"] == 0));
+        assert_eq!(
+            splits
+                .iter()
+                .filter(|event| event.payload["source_id"] == "0x00000001")
+                .count(),
+            2
         );
     }
 
