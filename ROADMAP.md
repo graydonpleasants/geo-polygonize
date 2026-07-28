@@ -431,9 +431,10 @@ records every candidate segment pair with source IDs and its exact point,
 collinear, or empty intersection witness. Floating SIMD candidate scans now emit
 the same evidence from their physical exact-predicate calls; uniform-grid
 cell-pair scans now record exact witnesses and whether the cell owned the
-result. Global-line candidate events remain open. Certified replacement
-segments additionally retain their source segment, source ID, and exact emitted
-endpoints from the physical split loop.
+result. Global-line fallback scans emit the same exact candidate evidence with
+an explicit scan origin. Certified replacement segments additionally retain
+their source segment, source ID, and exact emitted endpoints from the physical
+split loop. Floating split-emission evidence remains open.
 
 ### P1.6 Turn the playground into a topology debugger
 

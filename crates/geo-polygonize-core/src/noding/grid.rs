@@ -231,14 +231,15 @@ pub(crate) struct UniformGridGlobalLineTrace {
 
 pub(crate) struct UniformGridCandidateTrace {
     pub(crate) iteration_index: usize,
-    pub(crate) row: usize,
-    pub(crate) column: usize,
+    pub(crate) scan: &'static str,
+    pub(crate) row: Option<usize>,
+    pub(crate) column: Option<usize>,
     pub(crate) first_segment: usize,
     pub(crate) second_segment: usize,
     pub(crate) first_source_id: u32,
     pub(crate) second_source_id: u32,
     pub(crate) witness: Option<FloatingIntersectionTrace>,
-    pub(crate) owned_by_cell: bool,
+    pub(crate) owned_by_cell: Option<bool>,
 }
 
 impl UniformGrid {
@@ -658,7 +659,13 @@ impl UniformGrid {
             )?;
         }
         if !self.global_lines.is_empty() {
-            splits.extend(self.process_global_lines_tracked(lines, snap_noder, tracker)?);
+            splits.extend(self.process_global_lines_tracked(
+                lines,
+                snap_noder,
+                tracker,
+                iteration_index,
+                trace_candidates,
+            )?);
         }
         tracker.check_cancelled()?;
         Ok(splits)
@@ -749,6 +756,8 @@ impl UniformGrid {
         lines: &[Line3D],
         snap_noder: &SnapNoder,
         tracker: &mut ExecutionWorkTracker<'_>,
+        iteration_index: usize,
+        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
         for &left_idx in &self.global_lines {
@@ -765,13 +774,46 @@ impl UniformGrid {
                     && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y);
                 tracker.candidate(overlaps)?;
                 if overlaps {
-                    snap_noder.process_intersection(
-                        *left,
-                        *right,
-                        left_idx,
-                        right_idx,
-                        |idx, point| events.push((idx, point)),
-                    );
+                    let intersection = line_intersection(left.to_line_2d(), right.to_line_2d());
+                    let witness = intersection.map(|intersection| match intersection {
+                        LineIntersection::SinglePoint { intersection, .. } => {
+                            FloatingIntersectionTrace::Point(Coord3D::new(
+                                intersection.x,
+                                intersection.y,
+                                0.0,
+                            ))
+                        }
+                        LineIntersection::Collinear { intersection } => {
+                            FloatingIntersectionTrace::Collinear(
+                                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
+                                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
+                            )
+                        }
+                    });
+                    if let Some(intersection) = intersection {
+                        snap_noder.handle_intersection(
+                            intersection,
+                            left_idx,
+                            right_idx,
+                            *left,
+                            *right,
+                            |idx, point| events.push((idx, point)),
+                        );
+                    }
+                    if let Some(trace_candidates) = trace_candidates.as_deref_mut() {
+                        trace_candidates.push(UniformGridCandidateTrace {
+                            iteration_index,
+                            scan: "global_line",
+                            row: None,
+                            column: None,
+                            first_segment: left_idx,
+                            second_segment: right_idx,
+                            first_source_id: left.line_id,
+                            second_source_id: right.line_id,
+                            witness,
+                            owned_by_cell: None,
+                        });
+                    }
                 }
             }
         }
@@ -935,14 +977,15 @@ impl UniformGrid {
                     if let Some(trace_candidates) = trace_candidates.as_deref_mut() {
                         trace_candidates.push(UniformGridCandidateTrace {
                             iteration_index,
-                            row: r,
-                            column: c,
+                            scan: "cell",
+                            row: Some(r),
+                            column: Some(c),
                             first_segment: idx1,
                             second_segment: idx2,
                             first_source_id: l1.line_id,
                             second_source_id: l2.line_id,
                             witness,
-                            owned_by_cell,
+                            owned_by_cell: Some(owned_by_cell),
                         });
                     }
                 }
@@ -999,6 +1042,36 @@ mod tests {
                 None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
+    }
+
+    #[test]
+    fn global_line_trace_reuses_the_physical_intersection() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 1),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 2),
+        ];
+        let mut grid = UniformGrid::empty();
+        grid.global_lines.push(0);
+        let mut candidates = Vec::new();
+        let splits = grid
+            .find_splits_tracked(
+                &lines,
+                &SnapNoder::new(0.0),
+                &mut ExecutionWorkTracker::new(None, None),
+                0,
+                Some(&mut candidates),
+            )
+            .unwrap();
+
+        assert_eq!(splits.len(), 2);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].scan, "global_line");
+        assert_eq!(candidates[0].first_source_id, 1);
+        assert_eq!(candidates[0].second_source_id, 2);
+        assert!(matches!(
+            candidates[0].witness,
+            Some(FloatingIntersectionTrace::Point(point)) if point.x == 1.0 && point.y == 1.0
         ));
     }
 

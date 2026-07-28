@@ -115,14 +115,18 @@ pub struct UniformGridGlobalLineTraceV1 {
 pub struct UniformGridCandidateTraceV1 {
     pub index: usize,
     pub iteration_index: usize,
-    pub row: usize,
-    pub column: usize,
+    pub scan: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
     pub first_segment: usize,
     pub second_segment: usize,
     pub first_source_id: String,
     pub second_source_id: String,
     pub witness: Option<IntersectionWitnessTraceV1>,
-    pub owned_by_cell: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owned_by_cell: Option<bool>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -484,6 +488,7 @@ impl TraceRecorderV1 {
             let payload = serde_json::to_value(UniformGridCandidateTraceV1 {
                 index,
                 iteration_index: candidate.iteration_index,
+                scan: candidate.scan.to_string(),
                 row: candidate.row,
                 column: candidate.column,
                 first_segment: candidate.first_segment,
@@ -1177,6 +1182,7 @@ mod tests {
             .collect();
         assert!(!candidates.is_empty());
         assert_eq!(candidates[0].payload["iteration_index"], 0);
+        assert_eq!(candidates[0].payload["scan"], "cell");
         assert!(candidates[0].payload["witness"].is_null());
         assert_eq!(candidates[0].payload["owned_by_cell"], false);
     }
