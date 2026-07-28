@@ -2,6 +2,7 @@
 
 use crate::fingerprint::coordinate_fingerprint;
 use crate::graph::{ExtractedRing, PlanarGraph};
+use crate::noding::hot_pixel::{HotPixelCandidateTrace, HotPixelIntersectionTrace};
 use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
@@ -49,6 +50,28 @@ pub struct HotPixelTraceV1 {
     pub grid_x: i64,
     pub grid_y: i64,
     pub coordinate: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IntersectionWitnessTraceV1 {
+    Point {
+        coordinate: CoordinateFingerprintV1,
+    },
+    Collinear {
+        start: CoordinateFingerprintV1,
+        end: CoordinateFingerprintV1,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CandidatePairTraceV1 {
+    pub index: usize,
+    pub first_segment: usize,
+    pub second_segment: usize,
+    pub first_source_id: String,
+    pub second_source_id: String,
+    pub witness: Option<IntersectionWitnessTraceV1>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -258,6 +281,44 @@ impl TraceRecorderV1 {
             })
             .expect("hot-pixel trace event serializes");
             if !self.record(TraceStageV1::Noding, "certified_hot_pixel", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_certified_candidates(
+        &mut self,
+        candidates: &[HotPixelCandidateTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, candidate) in candidates.iter().enumerate() {
+            let witness = match candidate.witness {
+                Some(HotPixelIntersectionTrace::Point(coordinate)) => {
+                    Some(IntersectionWitnessTraceV1::Point {
+                        coordinate: coordinate_fingerprint(coordinate)?,
+                    })
+                }
+                Some(HotPixelIntersectionTrace::Collinear(start, end)) => {
+                    Some(IntersectionWitnessTraceV1::Collinear {
+                        start: coordinate_fingerprint(start)?,
+                        end: coordinate_fingerprint(end)?,
+                    })
+                }
+                None => None,
+            };
+            let payload = serde_json::to_value(CandidatePairTraceV1 {
+                index,
+                first_segment: candidate.first_segment,
+                second_segment: candidate.second_segment,
+                first_source_id: format!("0x{:08x}", candidate.first_source_id),
+                second_source_id: format!("0x{:08x}", candidate.second_source_id),
+                witness,
+            })
+            .expect("candidate-pair trace event serializes");
+            if !self.record(TraceStageV1::Noding, "certified_candidate_pair", payload) {
                 break;
             }
         }
@@ -790,6 +851,20 @@ mod tests {
             .unwrap();
         assert_eq!(
             intersection.payload["coordinate"]["x"],
+            format!("0x{:016x}", 1.0f64.to_bits())
+        );
+        let candidates: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "certified_candidate_pair")
+            .collect();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].payload["first_source_id"], "0x00000001");
+        assert_eq!(candidates[0].payload["second_source_id"], "0x00000002");
+        assert_eq!(candidates[0].payload["witness"]["kind"], "point");
+        assert_eq!(
+            candidates[0].payload["witness"]["coordinate"]["x"],
             format!("0x{:016x}", 1.0f64.to_bits())
         );
     }
