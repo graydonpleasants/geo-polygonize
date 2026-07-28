@@ -5,6 +5,7 @@ use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
+use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace};
 use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
 use serde::Serialize;
 
@@ -69,6 +70,8 @@ pub enum IntersectionWitnessTraceV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CandidatePairTraceV1 {
     pub index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iteration_index: Option<usize>,
     pub first_segment: usize,
     pub second_segment: usize,
     pub first_source_id: String,
@@ -322,6 +325,7 @@ impl TraceRecorderV1 {
             };
             let payload = serde_json::to_value(CandidatePairTraceV1 {
                 index,
+                iteration_index: None,
                 first_segment: candidate.first_segment,
                 second_segment: candidate.second_segment,
                 first_source_id: format!("0x{:08x}", candidate.first_source_id),
@@ -330,6 +334,45 @@ impl TraceRecorderV1 {
             })
             .expect("candidate-pair trace event serializes");
             if !self.record(TraceStageV1::Noding, "certified_candidate_pair", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_floating_candidates(
+        &mut self,
+        candidates: &[FloatingCandidateTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, candidate) in candidates.iter().enumerate() {
+            let witness = match candidate.witness {
+                Some(FloatingIntersectionTrace::Point(coordinate)) => {
+                    Some(IntersectionWitnessTraceV1::Point {
+                        coordinate: coordinate_fingerprint(coordinate)?,
+                    })
+                }
+                Some(FloatingIntersectionTrace::Collinear(start, end)) => {
+                    Some(IntersectionWitnessTraceV1::Collinear {
+                        start: coordinate_fingerprint(start)?,
+                        end: coordinate_fingerprint(end)?,
+                    })
+                }
+                None => None,
+            };
+            let payload = serde_json::to_value(CandidatePairTraceV1 {
+                index,
+                iteration_index: Some(candidate.iteration_index),
+                first_segment: candidate.first_segment,
+                second_segment: candidate.second_segment,
+                first_source_id: format!("0x{:08x}", candidate.first_source_id),
+                second_source_id: format!("0x{:08x}", candidate.second_source_id),
+                witness,
+            })
+            .expect("candidate-pair trace event serializes");
+            if !self.record(TraceStageV1::Noding, "floating_candidate_pair", payload) {
                 break;
             }
         }
@@ -919,5 +962,41 @@ mod tests {
             event.payload["end"]["x"] == format!("0x{:016x}", 1.0f64.to_bits())
                 && event.payload["end"]["y"] == format!("0x{:016x}", 1.0f64.to_bits())
         }));
+    }
+
+    #[test]
+    fn noding_trace_records_floating_simd_candidates() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 1),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 2),
+        ];
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let traced = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+        let candidates: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "floating_candidate_pair")
+            .collect();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].payload["iteration_index"], 0);
+        assert_eq!(candidates[0].payload["first_source_id"], "0x00000001");
+        assert_eq!(candidates[0].payload["second_source_id"], "0x00000002");
+        assert_eq!(candidates[0].payload["witness"]["kind"], "point");
+        assert_eq!(
+            candidates[0].payload["witness"]["coordinate"]["x"],
+            format!("0x{:016x}", 1.0f64.to_bits())
+        );
     }
 }

@@ -527,7 +527,31 @@ impl Polygonizer {
                             } else {
                                 None
                             };
-                        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        let trace_candidates = self.trace.as_ref().is_some_and(|trace| {
+                            trace.records_stage(crate::trace::TraceStageV1::Noding)
+                        });
+                        if trace_candidates {
+                            let (noded, stats, mut work_stats, candidates) = noder
+                                .node_with_trace(
+                                    all_segments,
+                                    has_execution_controls.then_some(&self.execution_policy),
+                                )?;
+                            work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
+                            if let Some(trace) = self.trace.as_mut() {
+                                trace.record_floating_candidates(&candidates)?;
+                            }
+                            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                                diagnostics.intersection_stats.interpolated_intersections = stats
+                                    .iter()
+                                    .map(|iteration| iteration.intersections_found)
+                                    .sum();
+                                diagnostics.noding_iterations = stats;
+                                diagnostics.intersection_stats.exact_intersections =
+                                    work_stats.exact_intersection_calls;
+                                diagnostics.noding_work_stats = work_stats;
+                            }
+                            segments = noded;
+                        } else if let Some(diagnostics) = diagnostics.as_deref_mut() {
                             let (noded, stats, mut work_stats) = if has_execution_controls {
                                 noder.node_with_stats_and_execution_policy(
                                     all_segments,
