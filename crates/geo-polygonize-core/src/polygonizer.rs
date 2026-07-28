@@ -531,14 +531,21 @@ impl Polygonizer {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
                         });
                         if trace_candidates {
-                            let (noded, stats, mut work_stats, candidates) = noder
-                                .node_with_trace(
-                                    all_segments,
-                                    has_execution_controls.then_some(&self.execution_policy),
-                                )?;
+                            let (
+                                noded,
+                                stats,
+                                mut work_stats,
+                                candidates,
+                                grid_cells,
+                                global_lines,
+                            ) = noder.node_with_trace(
+                                all_segments,
+                                has_execution_controls.then_some(&self.execution_policy),
+                            )?;
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             if let Some(trace) = self.trace.as_mut() {
                                 trace.record_floating_candidates(&candidates)?;
+                                trace.record_uniform_grid(&grid_cells, &global_lines)?;
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
                                 diagnostics.intersection_stats.interpolated_intersections = stats

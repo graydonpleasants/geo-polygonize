@@ -1,7 +1,7 @@
 use crate::diagnostics::{ExecutionWorkTracker, NodingIterationStats, NodingWorkStats};
 use crate::error::PolygonizeError;
 use crate::index::{IndexedEnvelope, RStarBackend};
-use crate::noding::grid::UniformGrid;
+use crate::noding::grid::{UniformGrid, UniformGridCellTrace, UniformGridGlobalLineTrace};
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
@@ -98,7 +98,16 @@ type FloatingNodingTraceResult = (
     Vec<NodingIterationStats>,
     NodingWorkStats,
     Vec<FloatingCandidateTrace>,
+    Vec<UniformGridCellTrace>,
+    Vec<UniformGridGlobalLineTrace>,
 );
+
+#[derive(Default)]
+struct FloatingTraceCapture {
+    candidates: Vec<FloatingCandidateTrace>,
+    grid_cells: Vec<UniformGridCellTrace>,
+    global_lines: Vec<UniformGridGlobalLineTrace>,
+}
 
 const AUTO_SIMD_LIMIT: usize = 1024;
 
@@ -185,15 +194,22 @@ impl SnapNoder {
     ) -> crate::Result<FloatingNodingTraceResult> {
         let mut stats = Vec::new();
         let mut work_stats = NodingWorkStats::default();
-        let mut candidates = Vec::new();
+        let mut trace = FloatingTraceCapture::default();
         let lines = self.node_impl(
             lines,
             Some(&mut stats),
             Some(&mut work_stats),
             execution_policy,
-            Some(&mut candidates),
+            Some(&mut trace),
         )?;
-        Ok((lines, stats, work_stats, candidates))
+        Ok((
+            lines,
+            stats,
+            work_stats,
+            trace.candidates,
+            trace.grid_cells,
+            trace.global_lines,
+        ))
     }
 
     fn node_impl(
@@ -202,7 +218,7 @@ impl SnapNoder {
         mut stats: Option<&mut Vec<NodingIterationStats>>,
         mut work_stats: Option<&mut NodingWorkStats>,
         execution_policy: Option<&ExecutionPolicy>,
-        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
+        mut trace: Option<&mut FloatingTraceCapture>,
     ) -> crate::Result<Vec<Line3D>> {
         // 1. Initial Snap of endpoints
         for line in &mut lines {
@@ -246,10 +262,10 @@ impl SnapNoder {
 
             let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
-                if trace_candidates.is_some() {
+                if trace.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
-                    let candidates = trace_candidates.as_deref_mut().unwrap();
+                    let candidates = &mut trace.as_deref_mut().unwrap().candidates;
                     let first_candidate = candidates.len();
                     let events =
                         self.find_splits_simd_tracked(&lines, &mut tracker, Some(candidates))?;
@@ -271,6 +287,11 @@ impl SnapNoder {
                 } else {
                     UniformGrid::new(&lines)
                 };
+                if let Some(trace) = trace.as_deref_mut() {
+                    let (cells, global_lines) = grid.trace_structure(&lines, iteration_index);
+                    trace.grid_cells.extend(cells);
+                    trace.global_lines.extend(global_lines);
+                }
                 if execution_policy.is_some() || work_stats.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());

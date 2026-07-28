@@ -399,7 +399,7 @@ the entire pipeline.
 Candidate events and snapshots:
 
 - [x] normalized input segments and source IDs;
-- [ ] snapped coordinates, fixed-grid cells, and certified hot pixels;
+- [x] snapped coordinates, fixed-grid cells, and certified hot pixels;
 - [ ] candidate pairs and exact intersection/split witnesses;
 - [x] noded and dissolved edges with complete source sets;
 - [x] graph nodes and directed halfedges;
@@ -424,13 +424,15 @@ Dangle and cut-edge events then capture the exact linework returned by their
 classification passes before canonical output sorting. Noding traces also
 record the physical post-pre-snap and post-noding segment coordinates, including
 fixed-grid output. Certified noding now records the exact sorted hot-pixel set
-with integer grid coordinates from the physical snap-rounding pass. Candidate
-grid-cell events remain open. The same certified pass also records every
-candidate segment pair with source IDs and its exact point, collinear, or empty
-intersection witness. Floating SIMD candidate scans now emit the same evidence
-from their physical exact-predicate calls; uniform-grid cell and candidate events
-remain open. Certified replacement segments additionally retain their source
-segment, source ID, and exact emitted endpoints from the physical split loop.
+with integer grid coordinates from the physical snap-rounding pass. Uniform-grid
+candidate cells now retain their exact bounds, iteration, segment/source
+membership, and global-line fallback membership. The same certified pass also
+records every candidate segment pair with source IDs and its exact point,
+collinear, or empty intersection witness. Floating SIMD candidate scans now emit
+the same evidence from their physical exact-predicate calls; uniform-grid
+candidate events remain open. Certified replacement segments additionally
+retain their source segment, source ID, and exact emitted endpoints from the
+physical split loop.
 
 ### P1.6 Turn the playground into a topology debugger
 
