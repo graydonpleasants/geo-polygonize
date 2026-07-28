@@ -1,7 +1,9 @@
 use crate::diagnostics::{ExecutionWorkTracker, NodingIterationStats, NodingWorkStats};
 use crate::error::PolygonizeError;
 use crate::index::{IndexedEnvelope, RStarBackend};
-use crate::noding::grid::{UniformGrid, UniformGridCellTrace, UniformGridGlobalLineTrace};
+use crate::noding::grid::{
+    UniformGrid, UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
+};
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
@@ -100,6 +102,7 @@ type FloatingNodingTraceResult = (
     Vec<FloatingCandidateTrace>,
     Vec<UniformGridCellTrace>,
     Vec<UniformGridGlobalLineTrace>,
+    Vec<UniformGridCandidateTrace>,
 );
 
 #[derive(Default)]
@@ -107,6 +110,7 @@ struct FloatingTraceCapture {
     candidates: Vec<FloatingCandidateTrace>,
     grid_cells: Vec<UniformGridCellTrace>,
     global_lines: Vec<UniformGridGlobalLineTrace>,
+    grid_candidates: Vec<UniformGridCandidateTrace>,
 }
 
 const AUTO_SIMD_LIMIT: usize = 1024;
@@ -209,6 +213,7 @@ impl SnapNoder {
             trace.candidates,
             trace.grid_cells,
             trace.global_lines,
+            trace.grid_candidates,
         ))
     }
 
@@ -295,7 +300,13 @@ impl SnapNoder {
                 if execution_policy.is_some() || work_stats.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
-                    grid.find_splits_tracked(&lines, self, &mut tracker)?
+                    grid.find_splits_tracked(
+                        &lines,
+                        self,
+                        &mut tracker,
+                        iteration_index,
+                        trace.as_deref_mut().map(|trace| &mut trace.grid_candidates),
+                    )?
                 } else {
                     grid.find_splits(&lines, self)
                 }

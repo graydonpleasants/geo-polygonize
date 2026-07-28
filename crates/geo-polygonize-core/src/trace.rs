@@ -2,7 +2,9 @@
 
 use crate::fingerprint::coordinate_fingerprint;
 use crate::graph::{ExtractedRing, PlanarGraph};
-use crate::noding::grid::{UniformGridCellTrace, UniformGridGlobalLineTrace};
+use crate::noding::grid::{
+    UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
+};
 use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
@@ -107,6 +109,20 @@ pub struct UniformGridGlobalLineTraceV1 {
     pub iteration_index: usize,
     pub segment_index: usize,
     pub source_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct UniformGridCandidateTraceV1 {
+    pub index: usize,
+    pub iteration_index: usize,
+    pub row: usize,
+    pub column: usize,
+    pub first_segment: usize,
+    pub second_segment: usize,
+    pub first_source_id: String,
+    pub second_source_id: String,
+    pub witness: Option<IntersectionWitnessTraceV1>,
+    pub owned_by_cell: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -437,6 +453,48 @@ impl TraceRecorderV1 {
             })
             .expect("uniform-grid global-line trace event serializes");
             if !self.record(TraceStageV1::Noding, "uniform_grid_global_line", payload) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_uniform_grid_candidates(
+        &mut self,
+        candidates: &[UniformGridCandidateTrace],
+    ) -> crate::Result<()> {
+        if !self.records_stage(TraceStageV1::Noding) {
+            return Ok(());
+        }
+        for (index, candidate) in candidates.iter().enumerate() {
+            let witness = match candidate.witness {
+                Some(FloatingIntersectionTrace::Point(coordinate)) => {
+                    Some(IntersectionWitnessTraceV1::Point {
+                        coordinate: coordinate_fingerprint(coordinate)?,
+                    })
+                }
+                Some(FloatingIntersectionTrace::Collinear(start, end)) => {
+                    Some(IntersectionWitnessTraceV1::Collinear {
+                        start: coordinate_fingerprint(start)?,
+                        end: coordinate_fingerprint(end)?,
+                    })
+                }
+                None => None,
+            };
+            let payload = serde_json::to_value(UniformGridCandidateTraceV1 {
+                index,
+                iteration_index: candidate.iteration_index,
+                row: candidate.row,
+                column: candidate.column,
+                first_segment: candidate.first_segment,
+                second_segment: candidate.second_segment,
+                first_source_id: format!("0x{:08x}", candidate.first_source_id),
+                second_source_id: format!("0x{:08x}", candidate.second_source_id),
+                witness,
+                owned_by_cell: candidate.owned_by_cell,
+            })
+            .expect("uniform-grid candidate trace event serializes");
+            if !self.record(TraceStageV1::Noding, "uniform_grid_candidate_pair", payload) {
                 break;
             }
         }
@@ -1071,7 +1129,7 @@ mod tests {
                 let y = index as f64;
                 Line3D::new(
                     Coord3D::new(0.0, y, 0.0),
-                    Coord3D::new(10.0, y, 0.0),
+                    Coord3D::new(10.0, y + 10.0, 0.0),
                     index as u32,
                 )
             })
@@ -1111,5 +1169,15 @@ mod tests {
                 .len(),
             cells[0].payload["source_ids"].as_array().unwrap().len()
         );
+        let candidates: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "uniform_grid_candidate_pair")
+            .collect();
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0].payload["iteration_index"], 0);
+        assert!(candidates[0].payload["witness"].is_null());
+        assert_eq!(candidates[0].payload["owned_by_cell"], false);
     }
 }

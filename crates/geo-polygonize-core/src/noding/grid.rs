@@ -1,5 +1,5 @@
 use crate::diagnostics::ExecutionWorkTracker;
-use crate::noding::snap::SnapNoder;
+use crate::noding::snap::{FloatingIntersectionTrace, SnapNoder};
 use crate::options::ExecutionPolicy;
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
@@ -227,6 +227,18 @@ pub(crate) struct UniformGridGlobalLineTrace {
     pub(crate) iteration_index: usize,
     pub(crate) segment_index: usize,
     pub(crate) source_id: u32,
+}
+
+pub(crate) struct UniformGridCandidateTrace {
+    pub(crate) iteration_index: usize,
+    pub(crate) row: usize,
+    pub(crate) column: usize,
+    pub(crate) first_segment: usize,
+    pub(crate) second_segment: usize,
+    pub(crate) first_source_id: u32,
+    pub(crate) second_source_id: u32,
+    pub(crate) witness: Option<FloatingIntersectionTrace>,
+    pub(crate) owned_by_cell: bool,
 }
 
 impl UniformGrid {
@@ -560,6 +572,8 @@ impl UniformGrid {
                             &soa,
                             &mut acc,
                             None,
+                            0,
+                            None,
                         )
                         .expect("unlimited noding cannot fail");
                     }
@@ -593,6 +607,8 @@ impl UniformGrid {
                         &soa,
                         &mut splits,
                         None,
+                        0,
+                        None,
                     )
                     .expect("unlimited noding cannot fail");
                 }
@@ -614,6 +630,8 @@ impl UniformGrid {
         lines: &[Line3D],
         snap_noder: &SnapNoder,
         tracker: &mut ExecutionWorkTracker<'_>,
+        iteration_index: usize,
+        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
@@ -635,6 +653,8 @@ impl UniformGrid {
                 &soa,
                 &mut splits,
                 Some(tracker),
+                iteration_index,
+                trace_candidates.as_deref_mut(),
             )?;
         }
         if !self.global_lines.is_empty() {
@@ -776,7 +796,7 @@ impl UniformGrid {
         l1: Line3D,
         l2: Line3D,
         splits: &mut Vec<(usize, Coord3D)>,
-    ) {
+    ) -> bool {
         // Collinear is rare. Just process start/end and let HashMap dedup later.
         // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
         // We construct dummy 3D coords (Z=0).
@@ -790,6 +810,9 @@ impl UniformGrid {
             snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
                 splits.push((idx, pt));
             });
+            true
+        } else {
+            false
         }
     }
 
@@ -805,6 +828,8 @@ impl UniformGrid {
         soa: &SoALines,
         splits: &mut Vec<(usize, Coord3D)>,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+        iteration_index: usize,
+        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
     ) -> crate::Result<()> {
         if cell_indices.len() < 2 {
             return Ok(());
@@ -850,7 +875,24 @@ impl UniformGrid {
                     let l1_2d = l1.to_line_2d();
                     let l2_2d = l2.to_line_2d();
 
-                    if let Some(res) = line_intersection(l1_2d, l2_2d) {
+                    let intersection = line_intersection(l1_2d, l2_2d);
+                    let witness = intersection.map(|intersection| match intersection {
+                        LineIntersection::SinglePoint { intersection, .. } => {
+                            FloatingIntersectionTrace::Point(Coord3D::new(
+                                intersection.x,
+                                intersection.y,
+                                0.0,
+                            ))
+                        }
+                        LineIntersection::Collinear { intersection } => {
+                            FloatingIntersectionTrace::Collinear(
+                                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
+                                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
+                            )
+                        }
+                    });
+                    let mut owned_by_cell = false;
+                    if let Some(res) = intersection {
                         match res {
                             LineIntersection::SinglePoint {
                                 intersection: pt, ..
@@ -867,6 +909,7 @@ impl UniformGrid {
                                         || (r == self.rows - 1 && pt.y <= cell_max_y));
 
                                 if is_in_x && is_in_y {
+                                    owned_by_cell = true;
                                     snap_noder.handle_intersection(
                                         res,
                                         idx1,
@@ -881,11 +924,26 @@ impl UniformGrid {
                             }
                             LineIntersection::Collinear {
                                 intersection: overlap,
-                            } => self.handle_collinear(
-                                c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap,
-                                snap_noder, res, idx1, idx2, l1, l2, splits,
-                            ),
+                            } => {
+                                owned_by_cell = self.handle_collinear(
+                                    c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap,
+                                    snap_noder, res, idx1, idx2, l1, l2, splits,
+                                );
+                            }
                         }
+                    }
+                    if let Some(trace_candidates) = trace_candidates.as_deref_mut() {
+                        trace_candidates.push(UniformGridCandidateTrace {
+                            iteration_index,
+                            row: r,
+                            column: c,
+                            first_segment: idx1,
+                            second_segment: idx2,
+                            first_source_id: l1.line_id,
+                            second_source_id: l2.line_id,
+                            witness,
+                            owned_by_cell,
+                        });
                     }
                 }
             }
@@ -937,6 +995,8 @@ mod tests {
                 &[],
                 &SnapNoder::new(1.0),
                 &mut ExecutionWorkTracker::new(Some(&policy), None),
+                0,
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));
@@ -975,6 +1035,8 @@ mod tests {
             &lines,
             &SnapNoder::new(0.0),
             &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats)),
+            0,
+            None,
         );
 
         assert!(matches!(
@@ -1004,6 +1066,8 @@ mod tests {
             &SnapNoder::new(0.0),
             &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats))
                 .cancel_at_candidate(token, 17),
+            0,
+            None,
         );
 
         assert!(matches!(
