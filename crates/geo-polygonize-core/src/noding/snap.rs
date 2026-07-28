@@ -77,6 +77,29 @@ pub enum NodingStrategy {
     Grid,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum FloatingIntersectionTrace {
+    Point(Coord3D),
+    Collinear(Coord3D, Coord3D),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FloatingCandidateTrace {
+    pub(crate) iteration_index: usize,
+    pub(crate) first_segment: usize,
+    pub(crate) second_segment: usize,
+    pub(crate) first_source_id: u32,
+    pub(crate) second_source_id: u32,
+    pub(crate) witness: Option<FloatingIntersectionTrace>,
+}
+
+type FloatingNodingTraceResult = (
+    Vec<Line3D>,
+    Vec<NodingIterationStats>,
+    NodingWorkStats,
+    Vec<FloatingCandidateTrace>,
+);
+
 const AUTO_SIMD_LIMIT: usize = 1024;
 
 pub struct SnapNoder {
@@ -114,7 +137,7 @@ impl SnapNoder {
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Vec<Line3D> {
-        self.node_impl(lines, None, None, None)
+        self.node_impl(lines, None, None, None, None)
             .expect("unlimited noding cannot fail")
     }
 
@@ -125,7 +148,7 @@ impl SnapNoder {
         let mut stats = Vec::new();
         let mut work_stats = NodingWorkStats::default();
         let lines = self
-            .node_impl(lines, Some(&mut stats), Some(&mut work_stats), None)
+            .node_impl(lines, Some(&mut stats), Some(&mut work_stats), None, None)
             .expect("unlimited noding cannot fail");
         (lines, stats, work_stats)
     }
@@ -135,7 +158,7 @@ impl SnapNoder {
         lines: Vec<Line3D>,
         execution_policy: &ExecutionPolicy,
     ) -> crate::Result<Vec<Line3D>> {
-        self.node_impl(lines, None, None, Some(execution_policy))
+        self.node_impl(lines, None, None, Some(execution_policy), None)
     }
 
     pub(crate) fn node_with_stats_and_execution_policy(
@@ -150,8 +173,27 @@ impl SnapNoder {
             Some(&mut stats),
             Some(&mut work_stats),
             Some(execution_policy),
+            None,
         )?;
         Ok((lines, stats, work_stats))
+    }
+
+    pub(crate) fn node_with_trace(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<FloatingNodingTraceResult> {
+        let mut stats = Vec::new();
+        let mut work_stats = NodingWorkStats::default();
+        let mut candidates = Vec::new();
+        let lines = self.node_impl(
+            lines,
+            Some(&mut stats),
+            Some(&mut work_stats),
+            execution_policy,
+            Some(&mut candidates),
+        )?;
+        Ok((lines, stats, work_stats, candidates))
     }
 
     fn node_impl(
@@ -160,6 +202,7 @@ impl SnapNoder {
         mut stats: Option<&mut Vec<NodingIterationStats>>,
         mut work_stats: Option<&mut NodingWorkStats>,
         execution_policy: Option<&ExecutionPolicy>,
+        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
     ) -> crate::Result<Vec<Line3D>> {
         // 1. Initial Snap of endpoints
         for line in &mut lines {
@@ -203,10 +246,21 @@ impl SnapNoder {
 
             let mut events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
-                if execution_policy.is_some() || work_stats.is_some() {
+                if trace_candidates.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
-                    self.find_splits_simd_tracked(&lines, &mut tracker)?
+                    let candidates = trace_candidates.as_deref_mut().unwrap();
+                    let first_candidate = candidates.len();
+                    let events =
+                        self.find_splits_simd_tracked(&lines, &mut tracker, Some(candidates))?;
+                    for candidate in &mut candidates[first_candidate..] {
+                        candidate.iteration_index = iteration_index;
+                    }
+                    events
+                } else if execution_policy.is_some() || work_stats.is_some() {
+                    let mut tracker =
+                        ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
+                    self.find_splits_simd_tracked(&lines, &mut tracker, None)?
                 } else {
                     self.find_splits_simd(&lines)
                 }
@@ -832,7 +886,7 @@ impl SnapNoder {
                     .par_iter()
                     .enumerate()
                     .flat_map(|(i, &query_line)| {
-                        self.check_intersection_simd(query_line, i, lines, &soa, None)
+                        self.check_intersection_simd(query_line, i, lines, &soa, None, None)
                             .expect("unlimited noding cannot fail")
                     })
                     .collect()
@@ -842,7 +896,7 @@ impl SnapNoder {
                     .iter()
                     .enumerate()
                     .flat_map(|(i, &query_line)| {
-                        self.check_intersection_simd(query_line, i, lines, &soa, None)
+                        self.check_intersection_simd(query_line, i, lines, &soa, None, None)
                             .expect("unlimited noding cannot fail")
                     })
                     .collect()
@@ -854,7 +908,7 @@ impl SnapNoder {
             let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
                 let events = self
-                    .check_intersection_simd(query_line, i, lines, &soa, None)
+                    .check_intersection_simd(query_line, i, lines, &soa, None, None)
                     .expect("unlimited noding cannot fail");
                 splits.extend(events);
             }
@@ -866,6 +920,7 @@ impl SnapNoder {
         &self,
         lines: &[Line3D],
         tracker: &mut ExecutionWorkTracker<'_>,
+        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
@@ -877,6 +932,7 @@ impl SnapNoder {
                 lines,
                 &soa,
                 Some(tracker),
+                trace_candidates.as_deref_mut(),
             )?);
         }
         tracker.check_cancelled()?;
@@ -912,6 +968,7 @@ impl SnapNoder {
         lines: &[Line3D],
         soa: &SoALines,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
         // Start block to avoid duplicate checks (j > i)
@@ -945,9 +1002,14 @@ impl SnapNoder {
                 tracker.candidate(overlaps)?;
             }
             if overlaps {
-                self.process_intersection(query_line, target_line, i, j, |idx, pt| {
-                    events.push((idx, pt))
-                });
+                self.process_candidate(
+                    query_line,
+                    target_line,
+                    i,
+                    j,
+                    &mut events,
+                    trace_candidates.as_deref_mut(),
+                );
             }
         }
 
@@ -971,13 +1033,65 @@ impl SnapNoder {
                 }
                 if overlaps {
                     let target_line = lines[target_idx];
-                    self.process_intersection(query_line, target_line, i, target_idx, |idx, pt| {
-                        events.push((idx, pt))
-                    });
+                    self.process_candidate(
+                        query_line,
+                        target_line,
+                        i,
+                        target_idx,
+                        &mut events,
+                        trace_candidates.as_deref_mut(),
+                    );
                 }
             }
         }
         Ok(events)
+    }
+
+    fn process_candidate(
+        &self,
+        first: Line3D,
+        second: Line3D,
+        first_segment: usize,
+        second_segment: usize,
+        events: &mut Vec<(usize, Coord3D)>,
+        trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
+    ) {
+        let intersection = line_intersection(first.to_line_2d(), second.to_line_2d());
+        if let Some(trace_candidates) = trace_candidates {
+            let witness = intersection.map(|intersection| match intersection {
+                LineIntersection::SinglePoint { intersection, .. } => {
+                    FloatingIntersectionTrace::Point(Coord3D::new(
+                        intersection.x,
+                        intersection.y,
+                        0.0,
+                    ))
+                }
+                LineIntersection::Collinear { intersection } => {
+                    FloatingIntersectionTrace::Collinear(
+                        Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
+                        Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
+                    )
+                }
+            });
+            trace_candidates.push(FloatingCandidateTrace {
+                iteration_index: 0,
+                first_segment,
+                second_segment,
+                first_source_id: first.line_id,
+                second_source_id: second.line_id,
+                witness,
+            });
+        }
+        if let Some(intersection) = intersection {
+            self.handle_intersection(
+                intersection,
+                first_segment,
+                second_segment,
+                first,
+                second,
+                |index, point| events.push((index, point)),
+            );
+        }
     }
 
     #[inline]
@@ -1082,6 +1196,7 @@ mod tests {
             SnapNoder::new(1.0).find_splits_simd_tracked(
                 &lines,
                 &mut ExecutionWorkTracker::new(Some(&policy), None),
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));
@@ -1102,6 +1217,7 @@ mod tests {
             &lines,
             &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats))
                 .cancel_at_candidate(token, 17),
+            None,
         );
 
         assert!(matches!(
@@ -1130,6 +1246,7 @@ mod tests {
         let result = SnapNoder::new(0.0).find_splits_simd_tracked(
             &lines,
             &mut ExecutionWorkTracker::new(Some(&policy), Some(&mut stats)),
+            None,
         );
 
         assert!(matches!(
