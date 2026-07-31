@@ -213,7 +213,9 @@ jobs:
           cache: 'npm'
 
       - name: Install NPM dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm ci --prefix playground
 
       - name: Download scalar package
         uses: actions/download-artifact@v4
