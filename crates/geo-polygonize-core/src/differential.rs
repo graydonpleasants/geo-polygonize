@@ -9,6 +9,16 @@ use std::collections::BTreeMap;
 
 /// The standalone differential reproduction bundle schema version.
 pub const REPRO_BUNDLE_V1_SCHEMA_VERSION: u32 = 1;
+/// The persisted differential fixture schema version.
+pub const PERSISTED_DIFFERENTIAL_FIXTURE_V1_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompatibilityClassificationV1 {
+    ExpectedParity,
+    ExpectedDivergence,
+    InvalidAmbiguous,
+}
 
 /// Exact, portable input segment for a differential reproduction bundle.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -56,6 +66,46 @@ pub struct ReproBundleV1 {
     pub fingerprint: TopologyFingerprintV1,
     pub reference_metrics: ReferenceMetricsV1,
     pub witness: FingerprintDiffV1,
+}
+
+/// A strict golden repro paired with its compatibility classification.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PersistedDifferentialFixtureV1 {
+    pub schema_version: u32,
+    pub case_id: String,
+    pub classification: CompatibilityClassificationV1,
+    pub golden: ReproBundleV1,
+}
+
+impl PersistedDifferentialFixtureV1 {
+    pub fn new(
+        case_id: impl Into<String>,
+        classification: CompatibilityClassificationV1,
+        golden: ReproBundleV1,
+    ) -> crate::Result<Self> {
+        let case_id = case_id.into();
+        if case_id.is_empty()
+            || !case_id.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-._".contains(&byte)
+            })
+        {
+            return Err(crate::PolygonizeError::InvalidArgumentType {
+                field: "case_id".to_string(),
+                expected: "a nonempty lowercase fixture identifier".to_string(),
+                actual: case_id,
+            });
+        }
+        Ok(Self {
+            schema_version: PERSISTED_DIFFERENTIAL_FIXTURE_V1_SCHEMA_VERSION,
+            case_id,
+            classification,
+            golden,
+        })
+    }
+
+    pub fn to_pretty_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
 }
 
 impl ReproBundleV1 {
@@ -353,5 +403,28 @@ mod tests {
         assert_eq!(json["witness"]["path"], "$.polygons");
         assert!(json["options"].is_object());
         assert!(json["fingerprint"].is_object());
+
+        let persisted = PersistedDifferentialFixtureV1::new(
+            "geos-microface-v1",
+            CompatibilityClassificationV1::ExpectedDivergence,
+            bundle,
+        )
+        .unwrap();
+        let persisted_json: serde_json::Value =
+            serde_json::from_str(&persisted.to_pretty_json().unwrap()).unwrap();
+        assert_eq!(persisted_json["schema_version"], 1);
+        assert_eq!(persisted_json["case_id"], "geos-microface-v1");
+        assert_eq!(persisted_json["classification"], "expected_divergence");
+        assert_eq!(
+            persisted_json["golden"]["input"][0]["line_id"],
+            "0x00000007"
+        );
+        assert_eq!(persisted_json["golden"]["witness"]["path"], "$.polygons");
+        assert!(PersistedDifferentialFixtureV1::new(
+            "Unsafe Name",
+            CompatibilityClassificationV1::InvalidAmbiguous,
+            persisted.golden,
+        )
+        .is_err());
     }
 }
