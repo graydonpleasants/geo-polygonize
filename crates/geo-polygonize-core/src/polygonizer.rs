@@ -757,6 +757,23 @@ impl Polygonizer {
         self.polygonize_owned(self.input_lines.clone())
     }
 
+    /// Computes polygons while recording a bounded topology trace.
+    #[doc(hidden)]
+    pub fn polygonize_with_trace(
+        &mut self,
+        level: TraceLevelV1,
+        byte_limit: usize,
+    ) -> Result<TracedPolygonizerResultV1> {
+        self.trace = TraceRecorderV1::new(Some(level), byte_limit, &self.options);
+        let result = self.polygonize_owned(self.input_lines.clone());
+        let trace = self
+            .trace
+            .take()
+            .expect("enabled trace recorder exists")
+            .finish();
+        result.map(|result| TracedPolygonizerResultV1 { result, trace })
+    }
+
     fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
         self.options.validate()?;
         self.execution_policy.check_cancelled("ingest")?;

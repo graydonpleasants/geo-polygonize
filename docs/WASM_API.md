@@ -58,6 +58,27 @@ const resultStr = wasm.polygonizeWithOptions(
 );
 ```
 
+### `polygonizeTraceWithOptions(geojson, options, level, byteLimit)`
+
+Returns a JSON string containing the canonical topology report and the physical
+pipeline's versioned trace. Trace capture is opt-in and bounded by `byteLimit`;
+the response reports exact bytes used and whether capture was truncated.
+
+* `level`: `summary`, `noding`, `graph`, `rings`, or `full`.
+* `byteLimit`: an integer from `0` through `u32::MAX`. This is an operational
+  trace budget and is not part of `PolygonizerOptions`.
+
+```ts
+const traced = JSON.parse(wasm.polygonizeTraceWithOptions(
+  JSON.stringify(geojson),
+  cfbRobustOptions,
+  "noding",
+  1_000_000,
+));
+
+console.log(traced.topology, traced.trace.events, traced.trace.truncated);
+```
+
 ### `polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size)`
 
 Polygonizes raw coordinate arrays. This is an advanced API for high-performance integrations bypassing JSON serialization.
