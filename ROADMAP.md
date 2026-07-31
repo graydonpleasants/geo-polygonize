@@ -470,7 +470,7 @@ evidence from their shared physical split loop.
 
 - [x] Add the playground prominently to the docs navigation.
 - [x] Support paste, upload, drag-and-drop, drawing, and fixture selection.
-- [ ] Expose the canonical options schema, including `Validate` and
+- [x] Expose the canonical options schema, including `Validate` and
   `CertifiedFixedPrecision`.
 - [ ] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
   graph edges, dangles, cut edges, invalid rings, shells, holes, and final faces.

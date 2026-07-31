@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import init, {
   polygonizeReportWithOptions,
+  type NodingGuarantee,
   type PolygonizerOptions,
   type TopologyFingerprintV1,
 } from 'geo-polygonize';
@@ -22,6 +23,7 @@ import {
   Alert
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
+import { buildPlaygroundOptions } from './options';
 
 // --- Types ---
 interface ManifestEntry {
@@ -116,6 +118,7 @@ function App() {
   // Options
   const [nodeInput, setNodeInput] = useState(false);
   const [snapGridSize, setSnapGridSize] = useState(0.0);
+  const [nodingGuarantee, setNodingGuarantee] = useState<NodingGuarantee>('Unchecked');
 
   // Initialize WASM and fetch manifest
   useEffect(() => {
@@ -175,6 +178,7 @@ function App() {
     if (!entry) return;
 
     setNodeInput(entry.defaultOptions.node_input);
+    setNodingGuarantee('Unchecked');
     setSnapGridSize(
       entry.defaultOptions.precision_model.type === 'fixed_grid'
         ? entry.defaultOptions.precision_model.grid_size
@@ -277,13 +281,11 @@ function App() {
   useEffect(() => {
     if (!wasmReady || !inputGeojson) return;
     try {
-      const options: Partial<PolygonizerOptions> = {
-        node_input: nodeInput,
-        precision_model:
-          nodeInput && snapGridSize !== 0
-            ? { type: 'fixed_grid', grid_size: snapGridSize }
-            : { type: 'floating' },
-      };
+      const options: Partial<PolygonizerOptions> = buildPlaygroundOptions(
+        nodeInput,
+        snapGridSize,
+        nodingGuarantee,
+      );
       const nextReport = JSON.parse(
         polygonizeReportWithOptions(JSON.stringify(inputGeojson), options),
       ) as TopologyFingerprintV1;
@@ -295,7 +297,7 @@ function App() {
       setReport(null);
       setError("Polygonize Error: " + e.toString());
     }
-  }, [wasmReady, inputGeojson, nodeInput, snapGridSize]);
+  }, [wasmReady, inputGeojson, nodeInput, snapGridSize, nodingGuarantee]);
 
 
   // SVG Viewport calculation
@@ -389,9 +391,35 @@ function App() {
 
             <Typography variant="h6" gutterBottom>Options</Typography>
             <FormControlLabel
-              control={<Switch checked={nodeInput} onChange={(e) => setNodeInput(e.target.checked)} />}
-              label="Node Input (Unchecked Iterative Noding)"
+              control={(
+                <Switch
+                  checked={nodeInput}
+                  disabled={nodingGuarantee === 'CertifiedFixedPrecision'}
+                  onChange={(e) => setNodeInput(e.target.checked)}
+                />
+              )}
+              label="Node input"
             />
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel id="noding-guarantee-label">Noding guarantee</InputLabel>
+              <Select
+                labelId="noding-guarantee-label"
+                label="Noding guarantee"
+                value={nodingGuarantee}
+                onChange={(event) => {
+                  const guarantee = event.target.value as NodingGuarantee;
+                  setNodingGuarantee(guarantee);
+                  if (guarantee === 'CertifiedFixedPrecision') {
+                    setNodeInput(true);
+                    if (snapGridSize <= 0) setSnapGridSize(0.001);
+                  }
+                }}
+              >
+                <MenuItem value="Unchecked">Unchecked</MenuItem>
+                <MenuItem value="Validate">Validate</MenuItem>
+                <MenuItem value="CertifiedFixedPrecision">Certified fixed precision</MenuItem>
+              </Select>
+            </FormControl>
             <TextField
               fullWidth
               label="Snap Grid Size"
@@ -403,7 +431,8 @@ function App() {
               disabled={!nodeInput}
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Enable Node Input for dirty geometries. Snap Grid Size controls the snapping precision.
+              Enable noding for dirty geometries, then choose unchecked, independently validated,
+              or certified fixed-precision output.
             </Typography>
           </Paper>
 
@@ -414,6 +443,15 @@ function App() {
                <Typography>Dangles: {report.dangles.length}</Typography>
                <Typography>Cut edges: {report.cut_edges.length}</Typography>
                <Typography>Invalid rings: {report.invalid_rings.length}</Typography>
+               <TextField
+                 fullWidth
+                 multiline
+                 minRows={6}
+                 label="Resolved canonical options"
+                 value={JSON.stringify(report.options, null, 2)}
+                 InputProps={{ readOnly: true }}
+                 sx={{ mt: 2 }}
+               />
             </Paper>
           )}
         </Grid>
