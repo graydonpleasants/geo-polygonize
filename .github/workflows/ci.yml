@@ -38,7 +38,7 @@ jobs:
             changed="$(git diff --name-only "$base" "${{ github.sha }}")"
           fi
 
-          if echo "$changed" | grep -Eq '^(crates/|fixtures/cfb/|pkg-wrapper/|scripts/build_wasm\.sh$|package(-lock)?\.json$|rollup\.config\.mjs$|tsconfig\.json$|\.github/workflows/ci\.yml$)'; then
+          if echo "$changed" | grep -Eq '^(crates/|fixtures/cfb/|pkg-wrapper/|playground/|scripts/build_wasm\.sh$|package(-lock)?\.json$|rollup\.config\.mjs$|tsconfig\.json$|\.github/workflows/ci\.yml$)'; then
             echo "wasm=true" >> "$GITHUB_OUTPUT"
           else
             echo "wasm=false" >> "$GITHUB_OUTPUT"
@@ -238,6 +238,9 @@ jobs:
 
       - name: Run JS Tests
         run: npm test
+
+      - name: Build playground
+        run: npm run build --prefix playground
 
   test:
     name: CI Required

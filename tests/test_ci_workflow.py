@@ -10,3 +10,10 @@ def test_required_ci_runs_for_stacked_child_bases():
 
     assert "branches:" not in pull_request_trigger
     assert "name: CI Required" in workflow
+
+
+def test_playground_changes_run_and_build_in_js_ci():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+
+    assert "pkg-wrapper/|playground/|scripts/build_wasm" in workflow
+    assert "npm run build --prefix playground" in workflow
