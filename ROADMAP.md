@@ -409,6 +409,10 @@ minimized failures no longer requires rewriting geometry: a versioned persisted
 fixture now pairs the exact repro bundle with a strict compatibility
 classification and validated stable case ID. Wiring every fuzz and production
 mismatch producer to store that artifact remains open.
+The strict persisted-differential corpus is now exercised in CI by decoding
+the exact IEEE-754 input, rerunning the recorded options, requiring byte-exact
+fingerprint equality, and checking compatibility-classification evidence. It is
+seeded with the existing documented floating-microfaces GEOS divergence.
 
 ### P1.5 Trace schema
 
