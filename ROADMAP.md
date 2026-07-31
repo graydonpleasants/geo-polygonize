@@ -420,6 +420,10 @@ normalized errors, runs the persisted corpus before fuzzing, and retains
 libFuzzer failure artifacts for admission. The reviewed admission command now
 validates a candidate with the strict Rust corpus runner before exclusively
 creating its case-ID-named JSON file; existing fixtures cannot be overwritten.
+The adapter differential target now shares one raw-artifact decoder and
+comparator with a standalone replay command, so retained libFuzzer inputs can be
+reproduced without rebuilding fuzz-only control flow. Converting every observed
+mismatch into a reviewed persisted-fixture candidate remains open.
 
 ### P1.5 Trace schema
 
@@ -470,6 +474,10 @@ split loop. Floating SIMD and uniform-grid noding now record the same replacemen
 evidence from their shared physical split loop. Wasm now exposes the same
 bounded trace and canonical topology report through a dedicated non-semantic
 entrypoint so browser tooling does not reconstruct pipeline evidence.
+Physical Z reconciliation now records exact XY/Z bit patterns, ordered
+candidate/source multiplicity, the selected policy and tolerance, conflicts,
+and retained Z. Summary traces reuse the existing phase timings, work counters,
+diagnostics, and trace-budget accounting rather than rescanning the pipeline.
 
 ### P1.6 Turn the playground into a topology debugger
 
@@ -486,8 +494,9 @@ witnesses, dissolved graph edges, and every retained report layer. Trace event
 count, byte use, and truncation state remain visible alongside canonical options.
 Snapped lines, split witnesses, graph edges, shells, and holes are clickable for
 source and representative-edge provenance; rings also show their exact retained
-Z bit patterns. Z reconciliation decisions are not yet traced, so the broader
-inspection item remains open.
+Z bit patterns. Physical Z reconciliation and execution-summary evidence now
+exist in the bounded trace; rendering those events in the debugger remains
+open.
 Small V1 repro envelopes now encode input plus canonical noding controls as
 deterministic UTF-8 base64url query data, reject payloads beyond 8 KiB, and load
 directly into the worker-backed debugger.
@@ -495,7 +504,7 @@ directly into the worker-backed debugger.
 - [x] Make edges/rings clickable to inspect source provenance and retained Z.
 - [ ] Trace and inspect physical Z reconciliation decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
-- [ ] Compare two option profiles side by side.
+- [x] Compare two option profiles side by side.
 - [x] Encode small deterministic repros in shareable URLs.
 - [ ] Export an exact golden/compatibility fixture bundle.
 - [ ] Run differential minimization in a worker and visualize each reduction.
