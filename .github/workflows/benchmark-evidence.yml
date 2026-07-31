@@ -10,6 +10,7 @@ on:
       - "crates/geo-polygonize-core/tests/workloads/**"
       - "tests/test_reference_geos.py"
       - "tests/test_publish_benchmark.py"
+      - "tests/test_benchmark_workflow_pins.py"
   push:
     branches: [main]
     paths:
@@ -18,6 +19,7 @@ on:
       - "crates/geo-polygonize-core/tests/workloads/**"
       - "tests/test_reference_geos.py"
       - "tests/test_publish_benchmark.py"
+      - "tests/test_benchmark_workflow_pins.py"
 
 permissions:
   contents: read
@@ -46,7 +48,7 @@ jobs:
 
       - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
 
-      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py
+      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py tests/test_benchmark_workflow_pins.py
 
       - run: python benchmarks/check_geos_references.py
 
