@@ -10,7 +10,8 @@ use crate::noding::hot_pixel::{
 };
 use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
 use crate::{
-    CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult, ZPolicy,
+    CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics, PolygonizerOptions,
+    PolygonizerResult, ZPolicy,
 };
 use serde::Serialize;
 
@@ -446,6 +447,34 @@ impl TraceRecorderV1 {
 
     pub fn finish(self) -> TopologyTraceV1 {
         self.trace
+    }
+
+    pub(crate) fn record_diagnostics_summary(&mut self, diagnostics: &PolygonizerDiagnostics) {
+        let stage = |stage: TraceStageV1| {
+            let index = stage.index();
+            serde_json::json!({
+                "limit": self.limits.stage(stage),
+                "bytes_used_before_summary": self.stage_bytes_used[index],
+                "truncated_before_summary": self.stage_truncated[index],
+            })
+        };
+        let payload = serde_json::json!({
+            "diagnostics": diagnostics,
+            "trace_budget": {
+                "total": {
+                    "limit": self.trace.byte_limit,
+                    "bytes_used_before_summary": self.trace.bytes_used,
+                    "truncated_before_summary": self.total_truncated,
+                },
+                "truncated_before_summary": self.trace.truncated,
+                "summary": stage(TraceStageV1::Summary),
+                "noding": stage(TraceStageV1::Noding),
+                "graph": stage(TraceStageV1::Graph),
+                "rings": stage(TraceStageV1::Rings),
+                "output": stage(TraceStageV1::Output),
+            },
+        });
+        self.record(TraceStageV1::Summary, "polygonizer_summary", payload);
     }
 
     pub(crate) fn records_stage(&self, stage: TraceStageV1) -> bool {
@@ -1330,6 +1359,71 @@ mod tests {
             .events
             .iter()
             .all(|event| event.kind != "z_reconciliation"));
+    }
+
+    #[test]
+    fn summary_trace_reuses_diagnostics_and_budget_metadata_without_enabling_result_diagnostics() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 1),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 2),
+        ];
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let expected = polygonize(lines.clone(), &options).unwrap();
+        let traced = polygonize_with_trace(
+            lines.clone(),
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Summary,
+            usize::MAX,
+        )
+        .unwrap();
+
+        assert!(expected.diagnostics.is_none());
+        assert!(traced.result.diagnostics.is_none());
+        assert_eq!(traced.trace.events.len(), 1);
+        let summary = &traced.trace.events[0];
+        assert_eq!(summary.kind, "polygonizer_summary");
+        assert_eq!(summary.stage, TraceStageV1::Summary);
+        assert_eq!(summary.payload["diagnostics"]["input_segment_count"], 2);
+        assert_eq!(
+            summary.payload["diagnostics"]["noding_work_stats"]["candidate_pairs"],
+            1
+        );
+        assert!(summary.payload["diagnostics"]["phase_times"].is_object());
+        assert_eq!(
+            summary.payload["trace_budget"]["total"]["limit"],
+            usize::MAX
+        );
+        assert_eq!(
+            summary.payload["trace_budget"]["total"]["bytes_used_before_summary"],
+            0
+        );
+        assert_eq!(
+            summary.payload["trace_budget"]["summary"]["bytes_used_before_summary"],
+            0
+        );
+        assert_eq!(
+            TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
+            TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
+        );
+
+        let truncated = polygonize_with_trace_limits(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Summary,
+            TraceByteLimitsV1 {
+                summary_bytes: 0,
+                ..TraceByteLimitsV1::total(usize::MAX)
+            },
+        )
+        .unwrap()
+        .trace;
+        assert!(truncated.truncated);
+        assert!(truncated.events.is_empty());
     }
 
     #[test]
