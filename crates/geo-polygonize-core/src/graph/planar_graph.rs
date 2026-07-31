@@ -598,10 +598,12 @@ impl PlanarGraph {
         #[cfg(feature = "parallel")]
         self.nodes_outgoing
             .par_iter_mut()
+            .zip(self.nodes_degree.par_iter_mut())
             .enumerate()
-            .for_each(|(src_idx, adj)| {
+            .for_each(|(src_idx, (adj, degree))| {
                 // Filter out deleted edges before sorting
                 adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+                *degree = adj.len();
 
                 let center = Coord {
                     x: nodes_x[src_idx],
@@ -631,10 +633,12 @@ impl PlanarGraph {
         #[cfg(not(feature = "parallel"))]
         self.nodes_outgoing
             .iter_mut()
+            .zip(self.nodes_degree.iter_mut())
             .enumerate()
-            .for_each(|(src_idx, adj)| {
+            .for_each(|(src_idx, (adj, degree))| {
                 // Filter out deleted edges before sorting
                 adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+                *degree = adj.len();
 
                 let center = Coord {
                     x: nodes_x[src_idx],
@@ -659,6 +663,10 @@ impl PlanarGraph {
                     compare_angular(center, target_a, target_b)
                 });
             });
+
+        #[cfg(any(test, debug_assertions))]
+        self.validate_arrangement_edge_invariants()
+            .expect("post-sort arrangement edge invariants");
     }
 
     pub(crate) fn sort_edges_with_execution_policy(
@@ -673,6 +681,7 @@ impl PlanarGraph {
         for (src_idx, adj) in self.nodes_outgoing.iter_mut().enumerate() {
             execution_policy.check_cancelled_every("graph_construction", src_idx)?;
             adj.retain(|&idx| !self.edges[self.directed_edges[idx].edge_idx].deleted);
+            self.nodes_degree[src_idx] = adj.len();
             execution_policy.check_uncancellable_sort("graph_node_star_sort", adj.len())?;
 
             let center = Coord {
@@ -693,6 +702,191 @@ impl PlanarGraph {
                 compare_angular(center, target_a, target_b)
             });
         }
+
+        #[cfg(any(test, debug_assertions))]
+        self.validate_arrangement_edge_invariants()?;
+
+        Ok(())
+    }
+
+    /// Validates the post-sort, pre-pruning arrangement representation.
+    ///
+    /// This is compiled only for tests and debug builds so production release
+    /// pipelines pay no validation cost. Keeping the check at the shared sort
+    /// root also lets debug fuzz builds exercise it without a public graph API.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn validate_arrangement_edge_invariants(&self) -> crate::Result<()> {
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        let node_count = self.nodes_x.len();
+        for (name, actual) in [
+            ("nodes_y", self.nodes_y.len()),
+            ("nodes_z", self.nodes_z.len()),
+            ("nodes_outgoing", self.nodes_outgoing.len()),
+            ("nodes_degree", self.nodes_degree.len()),
+            ("nodes_marked", self.nodes_marked.len()),
+        ] {
+            if actual != node_count {
+                return Err(invariant(format!(
+                    "arrangement edge invariant node arena count mismatch: nodes_x={node_count}, {name}={actual}"
+                )));
+            }
+        }
+
+        let expected_directed = self.edges.len().checked_mul(2).ok_or_else(|| {
+            invariant("arrangement edge invariant directed edge count overflow".to_string())
+        })?;
+        if self.directed_edges.len() != expected_directed {
+            return Err(invariant(format!(
+                "arrangement edge invariant directed edge count mismatch: edges={}, directed_edges={}, expected={expected_directed}",
+                self.edges.len(),
+                self.directed_edges.len()
+            )));
+        }
+
+        let mut owners = vec![0usize; self.directed_edges.len()];
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
+            let [forward_idx, reverse_idx] = edge.dir_edges;
+            if forward_idx == reverse_idx {
+                return Err(invariant(format!(
+                    "arrangement edge invariant edge {edge_idx} has duplicate directed edge {forward_idx}"
+                )));
+            }
+            for directed_idx in [forward_idx, reverse_idx] {
+                let Some(directed) = self.directed_edges.get(directed_idx) else {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant edge {edge_idx} references missing directed edge {directed_idx}"
+                    )));
+                };
+                owners[directed_idx] += 1;
+                if directed.edge_idx != edge_idx {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant directed edge {directed_idx} parent mismatch: edge_idx={}, expected={edge_idx}",
+                        directed.edge_idx
+                    )));
+                }
+                if directed.src >= node_count || directed.dst >= node_count {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant directed edge {directed_idx} endpoint out of bounds: src={}, dst={}, nodes={node_count}",
+                        directed.src, directed.dst
+                    )));
+                }
+            }
+
+            let forward = &self.directed_edges[forward_idx];
+            let reverse = &self.directed_edges[reverse_idx];
+            if forward.sym_idx != reverse_idx || reverse.sym_idx != forward_idx {
+                return Err(invariant(format!(
+                    "arrangement edge invariant edge {edge_idx} twin involution mismatch: {forward_idx}.sym={}, {reverse_idx}.sym={}",
+                    forward.sym_idx, reverse.sym_idx
+                )));
+            }
+            if forward.src != reverse.dst || forward.dst != reverse.src {
+                return Err(invariant(format!(
+                    "arrangement edge invariant edge {edge_idx} twin endpoint mismatch: {forward_idx}=({}->{}), {reverse_idx}=({}->{})",
+                    forward.src, forward.dst, reverse.src, reverse.dst
+                )));
+            }
+
+            if !edge.deleted {
+                let sources = edge.sources.line_ids.as_slice();
+                if sources.is_empty() {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant live edge {edge_idx} has no sources"
+                    )));
+                }
+                if let Some(pair) = sources.windows(2).find(|pair| pair[0] >= pair[1]) {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant live edge {edge_idx} sources are not strictly sorted: {} then {}",
+                        pair[0], pair[1]
+                    )));
+                }
+                if edge.line.line_id != sources[0] {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant live edge {edge_idx} representative source mismatch: line_id={}, first_source={}",
+                        edge.line.line_id, sources[0]
+                    )));
+                }
+            }
+        }
+
+        for (directed_idx, owner_count) in owners.into_iter().enumerate() {
+            if owner_count != 1 {
+                return Err(invariant(format!(
+                    "arrangement edge invariant directed edge {directed_idx} owner count mismatch: actual={owner_count}, expected=1"
+                )));
+            }
+        }
+
+        let mut adjacency_counts = vec![0usize; self.directed_edges.len()];
+        for node_idx in 0..node_count {
+            let outgoing = &self.nodes_outgoing[node_idx];
+            if self.nodes_degree[node_idx] != outgoing.len() {
+                return Err(invariant(format!(
+                    "arrangement edge invariant node {node_idx} degree mismatch: degree={}, adjacency={}",
+                    self.nodes_degree[node_idx],
+                    outgoing.len()
+                )));
+            }
+
+            for (position, &directed_idx) in outgoing.iter().enumerate() {
+                let Some(directed) = self.directed_edges.get(directed_idx) else {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant node {node_idx} adjacency[{position}] references missing directed edge {directed_idx}"
+                    )));
+                };
+                if directed.src != node_idx {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant node {node_idx} adjacency[{position}] source mismatch: directed edge {directed_idx} has src={}",
+                        directed.src
+                    )));
+                }
+                if self.edges[directed.edge_idx].deleted {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant node {node_idx} adjacency[{position}] references deleted edge {} via directed edge {directed_idx}",
+                        directed.edge_idx
+                    )));
+                }
+                adjacency_counts[directed_idx] += 1;
+            }
+
+            let center = Coord {
+                x: self.nodes_x[node_idx],
+                y: self.nodes_y[node_idx],
+            };
+            for pair in outgoing.windows(2) {
+                let first_idx = pair[0];
+                let second_idx = pair[1];
+                let first = &self.directed_edges[first_idx];
+                let second = &self.directed_edges[second_idx];
+                let ordering = compare_angular(
+                    center,
+                    Coord {
+                        x: self.nodes_x[first.dst],
+                        y: self.nodes_y[first.dst],
+                    },
+                    Coord {
+                        x: self.nodes_x[second.dst],
+                        y: self.nodes_y[second.dst],
+                    },
+                );
+                if ordering != Ordering::Less {
+                    return Err(invariant(format!(
+                        "arrangement edge invariant node {node_idx} angular order is not strict between directed edges {first_idx} and {second_idx}: {ordering:?}"
+                    )));
+                }
+            }
+        }
+
+        for (directed_idx, directed) in self.directed_edges.iter().enumerate() {
+            let expected = usize::from(!self.edges[directed.edge_idx].deleted);
+            if adjacency_counts[directed_idx] != expected {
+                return Err(invariant(format!(
+                    "arrangement edge invariant directed edge {directed_idx} adjacency count mismatch: actual={}, expected={expected}",
+                    adjacency_counts[directed_idx]
+                )));
+            }
+        }
+
         Ok(())
     }
 
