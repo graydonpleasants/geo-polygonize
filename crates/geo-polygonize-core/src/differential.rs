@@ -2,7 +2,8 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::{
-    CoordinateFingerprintV1, FingerprintDiffV1, Line3D, PolygonizerOptions, TopologyFingerprintV1,
+    normalize_polygonize_error, CoordinateFingerprintV1, FingerprintDiffV1, Line3D,
+    NormalizedPolygonizeErrorV1, PolygonizerOptions, PolygonizerResult, TopologyFingerprintV1,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -11,6 +12,8 @@ use std::collections::BTreeMap;
 pub const REPRO_BUNDLE_V1_SCHEMA_VERSION: u32 = 1;
 /// The persisted differential fixture schema version.
 pub const PERSISTED_DIFFERENTIAL_FIXTURE_V1_SCHEMA_VERSION: u32 = 1;
+/// The two-sided differential mismatch candidate schema version.
+pub const DIFFERENTIAL_MISMATCH_CANDIDATE_V1_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +80,94 @@ pub struct PersistedDifferentialFixtureV1 {
     pub golden: ReproBundleV1,
 }
 
+/// One exact side of a differential comparison.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+pub enum DifferentialOutcomeV1 {
+    Success(TopologyFingerprintV1),
+    Error(NormalizedPolygonizeErrorV1),
+}
+
+impl DifferentialOutcomeV1 {
+    pub fn from_result(
+        result: crate::Result<PolygonizerResult>,
+        options: &PolygonizerOptions,
+    ) -> crate::Result<Self> {
+        match result {
+            Ok(result) => Ok(Self::Success(TopologyFingerprintV1::try_from_result(
+                &result, options,
+            )?)),
+            Err(error) => Ok(Self::Error(normalize_polygonize_error(&error))),
+        }
+    }
+}
+
+/// A named implementation and its exact normalized outcome.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DifferentialRunV1 {
+    pub implementation: String,
+    pub outcome: DifferentialOutcomeV1,
+}
+
+/// Reviewable evidence emitted before compatibility classification or corpus admission.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DifferentialMismatchCandidateV1 {
+    pub schema_version: u32,
+    pub producer: String,
+    pub input: Vec<ReproLineV1>,
+    pub options: serde_json::Value,
+    pub versions: BTreeMap<String, String>,
+    pub baseline: DifferentialRunV1,
+    pub comparison: DifferentialRunV1,
+}
+
+impl DifferentialMismatchCandidateV1 {
+    pub fn new(
+        producer: impl Into<String>,
+        input: &[Line3D],
+        options: &PolygonizerOptions,
+        mut versions: BTreeMap<String, String>,
+        baseline: DifferentialRunV1,
+        comparison: DifferentialRunV1,
+    ) -> crate::Result<Self> {
+        let producer = producer.into();
+        if producer.is_empty()
+            || baseline.implementation.is_empty()
+            || comparison.implementation.is_empty()
+            || baseline.implementation == comparison.implementation
+        {
+            return Err(crate::PolygonizeError::InvalidArgumentType {
+                field: "differential_candidate".to_string(),
+                expected: "nonempty producer and distinct implementation labels".to_string(),
+                actual: producer,
+            });
+        }
+        if baseline.outcome == comparison.outcome {
+            return Err(crate::PolygonizeError::InvalidArgumentType {
+                field: "differential_candidate".to_string(),
+                expected: "different normalized outcomes".to_string(),
+                actual: "matching outcomes".to_string(),
+            });
+        }
+        versions
+            .entry("geo-polygonize-core".to_string())
+            .or_insert_with(|| env!("CARGO_PKG_VERSION").to_string());
+        Ok(Self {
+            schema_version: DIFFERENTIAL_MISMATCH_CANDIDATE_V1_SCHEMA_VERSION,
+            producer,
+            input: repro_lines(input)?,
+            options: serde_json::to_value(options).expect("validated options serialize"),
+            versions,
+            baseline,
+            comparison,
+        })
+    }
+
+    pub fn to_pretty_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
+}
+
 impl PersistedDifferentialFixtureV1 {
     pub fn new(
         case_id: impl Into<String>,
@@ -122,16 +213,7 @@ impl ReproBundleV1 {
             .or_insert_with(|| env!("CARGO_PKG_VERSION").to_string());
         Ok(Self {
             schema_version: REPRO_BUNDLE_V1_SCHEMA_VERSION,
-            input: input
-                .iter()
-                .map(|line| {
-                    Ok(ReproLineV1 {
-                        start: coordinate_fingerprint(line.start)?,
-                        end: coordinate_fingerprint(line.end)?,
-                        line_id: format!("0x{:08x}", line.line_id),
-                    })
-                })
-                .collect::<crate::Result<_>>()?,
+            input: repro_lines(input)?,
             options: serde_json::to_value(options).expect("validated options serialize"),
             versions,
             fingerprint,
@@ -143,6 +225,19 @@ impl ReproBundleV1 {
     pub fn to_pretty_json(&self) -> serde_json::Result<String> {
         serde_json::to_string_pretty(self)
     }
+}
+
+fn repro_lines(input: &[Line3D]) -> crate::Result<Vec<ReproLineV1>> {
+    input
+        .iter()
+        .map(|line| {
+            Ok(ReproLineV1 {
+                start: coordinate_fingerprint(line.start)?,
+                end: coordinate_fingerprint(line.end)?,
+                line_id: format!("0x{:08x}", line.line_id),
+            })
+        })
+        .collect()
 }
 
 /// Delta-debug a line set while the caller's exact mismatch predicate holds.
@@ -424,6 +519,61 @@ mod tests {
             "Unsafe Name",
             CompatibilityClassificationV1::InvalidAmbiguous,
             persisted.golden,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn exports_two_sided_candidates_without_classifying_them() {
+        let lines = vec![line(7, 12.5)];
+        let options = PolygonizerOptions::default();
+        let success = DifferentialOutcomeV1::from_result(
+            polygonize(Vec::<Line3D>::new(), &options),
+            &options,
+        )
+        .unwrap();
+        let error = DifferentialOutcomeV1::Error(normalize_polygonize_error(
+            &crate::PolygonizeError::InvalidArgumentType {
+                field: "example".to_string(),
+                expected: "valid".to_string(),
+                actual: "invalid".to_string(),
+            },
+        ));
+        let baseline = DifferentialRunV1 {
+            implementation: "one_shot".to_string(),
+            outcome: success,
+        };
+        let comparison = DifferentialRunV1 {
+            implementation: "workspace".to_string(),
+            outcome: error,
+        };
+        let candidate = DifferentialMismatchCandidateV1::new(
+            "adapter_differential",
+            &lines,
+            &options,
+            BTreeMap::new(),
+            baseline.clone(),
+            comparison,
+        )
+        .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&candidate.to_pretty_json().unwrap()).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["producer"], "adapter_differential");
+        assert_eq!(json["input"][0]["line_id"], "0x00000007");
+        assert_eq!(json["input"][0]["start"]["z"], "0x4029000000000000");
+        assert_eq!(json["baseline"]["outcome"]["status"], "success");
+        assert_eq!(json["comparison"]["outcome"]["status"], "error");
+        assert!(json.get("case_id").is_none());
+        assert!(json.get("classification").is_none());
+        assert!(DifferentialMismatchCandidateV1::new(
+            "adapter_differential",
+            &lines,
+            &options,
+            BTreeMap::new(),
+            baseline.clone(),
+            baseline,
         )
         .is_err());
     }
