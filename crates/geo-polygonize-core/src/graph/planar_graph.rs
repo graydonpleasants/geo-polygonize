@@ -1,4 +1,5 @@
 use crate::options::ExecutionPolicy;
+use crate::trace::TraceCaptureBudget;
 use crate::types::{Coord3D, EdgeSources, Line3D};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{compare_angular, z_order_index};
@@ -836,8 +837,14 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
     ) -> Vec<ExtractedRing> {
-        self.get_edge_rings_with_graph_ids_impl(include_graph_ids, include_source_ids, None, None)
-            .expect("unlimited ring extraction cannot fail")
+        self.get_edge_rings_with_graph_ids_impl(
+            include_graph_ids,
+            include_source_ids,
+            None,
+            None,
+            None,
+        )
+        .expect("unlimited ring extraction cannot fail")
     }
 
     pub(crate) fn get_edge_rings_with_graph_ids_and_execution_policy(
@@ -851,6 +858,7 @@ impl PlanarGraph {
             include_source_ids,
             Some(execution_policy),
             None,
+            None,
         )
     }
 
@@ -859,15 +867,18 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: &ExecutionPolicy,
-    ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>)> {
+        capture_byte_limit: usize,
+    ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>, bool)> {
         let mut maximal = Vec::new();
+        let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
         let minimal = self.get_edge_rings_with_graph_ids_impl(
             include_graph_ids,
             include_source_ids,
             Some(execution_policy),
             Some(&mut maximal),
+            Some(&mut capture_budget),
         )?;
-        Ok((maximal, minimal))
+        Ok((maximal, minimal, capture_budget.truncated()))
     }
 
     fn get_edge_rings_with_graph_ids_impl(
@@ -876,6 +887,7 @@ impl PlanarGraph {
         include_source_ids: bool,
         execution_policy: Option<&ExecutionPolicy>,
         maximal_trace: Option<&mut Vec<ExtractedRing>>,
+        maximal_trace_budget: Option<&mut TraceCaptureBudget>,
     ) -> crate::Result<Vec<ExtractedRing>> {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
@@ -893,13 +905,16 @@ impl PlanarGraph {
             // Step 2: find and label maximal rings.
             let maximal_ring_starts =
                 self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
-            if let Some(maximal_trace) = maximal_trace {
+            if let (Some(maximal_trace), Some(maximal_trace_budget)) =
+                (maximal_trace, maximal_trace_budget)
+            {
                 *maximal_trace = self.extract_rings_from_starts(
                     &maximal_ring_starts,
                     &next_pointers,
                     include_graph_ids,
                     include_source_ids,
                     execution_policy,
+                    maximal_trace_budget,
                 )?;
             }
 
@@ -928,6 +943,7 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: Option<&ExecutionPolicy>,
+        capture_budget: &mut TraceCaptureBudget,
     ) -> crate::Result<Vec<ExtractedRing>> {
         let mut rings = Vec::with_capacity(starts.len());
         let mut ring_edges = Vec::new();
@@ -962,6 +978,13 @@ impl PlanarGraph {
                 current = next;
             }
             if valid && !ring_edges.is_empty() {
+                if !capture_budget.take(self.ring_capture_bytes(
+                    &ring_edges,
+                    include_graph_ids,
+                    include_source_ids,
+                )) {
+                    break;
+                }
                 rings.push(self.materialize_ring(
                     &ring_edges,
                     include_graph_ids,
@@ -972,6 +995,43 @@ impl PlanarGraph {
             }
         }
         Ok(rings)
+    }
+
+    fn ring_capture_bytes(
+        &self,
+        ring_edges: &[DirEdgeId],
+        include_graph_ids: bool,
+        include_source_ids: bool,
+    ) -> usize {
+        let edge_count = ring_edges.len();
+        let source_count = if include_source_ids {
+            ring_edges.iter().fold(0usize, |count, &directed_edge| {
+                count.saturating_add(
+                    self.edges[self.directed_edges[directed_edge].edge_idx]
+                        .sources
+                        .line_ids
+                        .len(),
+                )
+            })
+        } else {
+            0
+        };
+        let graph_identity_bytes = if include_graph_ids {
+            edge_count.saturating_mul(
+                std::mem::size_of::<(NodeId, NodeId)>() + std::mem::size_of::<NodeId>(),
+            )
+        } else {
+            0
+        };
+        std::mem::size_of::<ExtractedRing>()
+            .saturating_add(
+                edge_count
+                    .saturating_add(1)
+                    .saturating_mul(std::mem::size_of::<Coord3D>()),
+            )
+            .saturating_add(edge_count.saturating_mul(std::mem::size_of::<u32>()))
+            .saturating_add(source_count.saturating_mul(std::mem::size_of::<u32>()))
+            .saturating_add(graph_identity_bytes)
     }
 
     fn materialize_ring(
