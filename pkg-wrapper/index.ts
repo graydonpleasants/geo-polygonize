@@ -2,6 +2,7 @@ import wasmInit, * as exports from "../pkg-scalar/geo_polygonize.js";
 import wasmScalarUrl from "../pkg-scalar/geo_polygonize_bg.wasm";
 import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
 import type { PolygonizerOptions } from "./bindings/PolygonizerOptions";
+import type { TopologyTraceLevelV1 } from "./topology_trace";
 import { selectRuntime } from "./runtime";
 
 // Cache the initialization promise
@@ -32,12 +33,11 @@ export * from "./bindings/ZPolicy";
 export * from "./bindings/TopologyFingerprintV1";
 export * from "./bindings/NormalizedPolygonizeErrorV1";
 export * from "./cfb";
+export * from "./topology_trace";
 
 export type WasmWorkerOptions = {
     signal?: AbortSignal;
 };
-
-export type TopologyTraceLevel = "summary" | "noding" | "graph" | "rings" | "full";
 
 type WorkerOperation = "polygons" | "report" | "trace";
 
@@ -58,7 +58,7 @@ function polygonizeInWorker(
     geojson: string,
     options: Partial<PolygonizerOptions>,
     { signal }: WasmWorkerOptions = {},
-    trace?: { level: TopologyTraceLevel; byteLimit: number },
+    trace?: { level: TopologyTraceLevelV1; byteLimit: number },
 ): Promise<string> {
     if (signal?.aborted) return Promise.reject(abortError());
     if (typeof Worker === "undefined") {
@@ -129,7 +129,7 @@ export function polygonizeReportWithOptionsAsync(
 export function polygonizeTraceWithOptionsAsync(
     geojson: string,
     options: Partial<PolygonizerOptions>,
-    traceLevel: TopologyTraceLevel,
+    traceLevel: TopologyTraceLevelV1,
     byteLimit: number,
     workerOptions?: WasmWorkerOptions,
 ): Promise<string> {

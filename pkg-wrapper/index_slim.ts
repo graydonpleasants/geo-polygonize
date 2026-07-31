@@ -21,6 +21,7 @@ export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
 export * from "./cfb";
+export * from "./topology_trace";
 
 // We provide a helper to choose based on feature detection if the user wants to use it
 function normalizeInitInput(input: any) {

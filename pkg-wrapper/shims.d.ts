@@ -5,6 +5,7 @@ declare module '*.wasm' {
 
 // Override auto-generated WASM typings to use our auto-generated types
 import { PolygonizerOptions } from './bindings/PolygonizerOptions';
+import { TopologyTraceLevelV1 } from './topology_trace';
 import { WasmPolygonResult } from '../pkg-scalar/geo_polygonize.js';
 
 export declare function polygonizeWithOptions(
@@ -22,7 +23,7 @@ export declare function polygonizeReportWithOptions(
 export declare function polygonizeTraceWithOptions(
     geojson_str: string,
     options_val: Partial<PolygonizerOptions>,
-    trace_level: 'summary' | 'noding' | 'graph' | 'rings' | 'full',
+    trace_level: TopologyTraceLevelV1,
     byte_limit: number
 ): string;
 
