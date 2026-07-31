@@ -236,10 +236,10 @@ limit in the core regression suite.
 
 Trace-only floating, uniform-grid, and certified noding capture buffers now
 consume one shared remaining trace-byte budget before growing and mark the
-result truncated when that capture budget is exhausted. Stage-specific trace
-limits and non-noding capture buffers remain open. Containment candidate
-and tiled ownership captures now apply the same pre-growth accounting; maximal
-ring trace capture remains open.
+result truncated when that capture budget is exhausted. Containment candidate,
+tiled ownership, and maximal-ring snapshot captures apply the same pre-growth
+accounting. All currently known trace-only capture vectors are covered;
+stage-specific trace limits remain open.
 
 ### P0.6 Cooperative cancellation
 

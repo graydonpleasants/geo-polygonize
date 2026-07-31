@@ -299,6 +299,28 @@ mod tests {
     }
 
     #[test]
+    fn maximal_ring_trace_stops_before_budgeted_materialization() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line_string(LineString::from(vec![(0.0, 0.0), (10.0, 0.0)]));
+        graph.add_line_string(LineString::from(vec![(10.0, 0.0), (0.0, 10.0)]));
+        graph.add_line_string(LineString::from(vec![(0.0, 10.0), (0.0, 0.0)]));
+        graph.sort_edges();
+
+        let (maximal, minimal, truncated) = graph
+            .get_edge_rings_with_maximal_and_execution_policy(
+                false,
+                false,
+                &ExecutionPolicy::default(),
+                0,
+            )
+            .unwrap();
+
+        assert!(maximal.is_empty());
+        assert_eq!(minimal.len(), 2);
+        assert!(truncated);
+    }
+
+    #[test]
     fn test_bulk_load() {
         use geo::Line;
 

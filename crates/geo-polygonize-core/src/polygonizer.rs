@@ -810,16 +810,25 @@ impl Polygonizer {
             .as_ref()
             .is_some_and(|trace| trace.records_stage(crate::trace::TraceStageV1::Rings));
         let rings_with_ids = if trace_rings {
-            let (maximal, minimal) = self
+            let capture_byte_limit = self
+                .trace
+                .as_ref()
+                .map(TraceRecorderV1::capture_byte_limit)
+                .unwrap_or(0);
+            let (maximal, minimal, capture_truncated) = self
                 .graph
                 .get_edge_rings_with_maximal_and_execution_policy(
                     self.options.node_input,
                     include_source_ids,
                     &self.execution_policy,
+                    capture_byte_limit,
                 )?;
             let trace = self.trace.as_mut().unwrap();
             trace.record_extracted_rings("maximal_ring", &maximal)?;
             trace.record_extracted_rings("minimal_ring", &minimal)?;
+            if capture_truncated {
+                trace.mark_capture_truncated();
+            }
             minimal
         } else {
             self.graph
