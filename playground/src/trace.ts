@@ -31,7 +31,7 @@ export type ZReconciliationDecision = {
 export type ExecutionEvidence = {
   phase_times: Record<string, unknown>;
   noding_work_stats: Record<string, unknown>;
-  noding_iterations: number;
+  noding_iterations: unknown[];
   trace_budget: Record<string, unknown>;
 };
 
@@ -174,7 +174,7 @@ export function extractExecutionEvidence(trace: TopologyTraceV1): ExecutionEvide
   const { diagnostics, trace_budget: traceBudget } = summary.payload;
   if (!isObject(diagnostics) || !isObject(traceBudget)
     || !isObject(diagnostics.phase_times) || !isObject(diagnostics.noding_work_stats)
-    || typeof diagnostics.noding_iterations !== 'number') return null;
+    || !Array.isArray(diagnostics.noding_iterations)) return null;
   return {
     phase_times: diagnostics.phase_times,
     noding_work_stats: diagnostics.noding_work_stats,
