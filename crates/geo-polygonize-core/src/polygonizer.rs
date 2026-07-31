@@ -450,6 +450,11 @@ impl Polygonizer {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
                         });
                         if trace_hot_pixels {
+                            let capture_byte_limit = self
+                                .trace
+                                .as_ref()
+                                .map(TraceRecorderV1::capture_byte_limit)
+                                .unwrap_or(0);
                             let (
                                 noded,
                                 intersections,
@@ -457,15 +462,20 @@ impl Polygonizer {
                                 hot_pixels,
                                 candidates,
                                 split_events,
+                                capture_truncated,
                             ) = noder.node_with_hot_pixels(
                                 all_segments,
                                 has_execution_controls.then_some(&self.execution_policy),
+                                capture_byte_limit,
                             )?;
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             if let Some(trace) = self.trace.as_mut() {
                                 trace.record_hot_pixels(&hot_pixels, grid_size)?;
                                 trace.record_certified_candidates(&candidates)?;
                                 trace.record_certified_splits(&split_events)?;
+                                if capture_truncated {
+                                    trace.mark_capture_truncated();
+                                }
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
                                 diagnostics.intersection_stats.interpolated_intersections =
@@ -531,6 +541,11 @@ impl Polygonizer {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
                         });
                         if trace_candidates {
+                            let capture_byte_limit = self
+                                .trace
+                                .as_ref()
+                                .map(TraceRecorderV1::capture_byte_limit)
+                                .unwrap_or(0);
                             let (
                                 noded,
                                 stats,
@@ -540,9 +555,11 @@ impl Polygonizer {
                                 global_lines,
                                 grid_candidates,
                                 split_events,
+                                capture_truncated,
                             ) = noder.node_with_trace(
                                 all_segments,
                                 has_execution_controls.then_some(&self.execution_policy),
+                                capture_byte_limit,
                             )?;
                             work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
                             if let Some(trace) = self.trace.as_mut() {
@@ -550,6 +567,9 @@ impl Polygonizer {
                                 trace.record_uniform_grid(&grid_cells, &global_lines)?;
                                 trace.record_uniform_grid_candidates(&grid_candidates)?;
                                 trace.record_floating_splits(&split_events)?;
+                                if capture_truncated {
+                                    trace.mark_capture_truncated();
+                                }
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
                                 diagnostics.intersection_stats.interpolated_intersections = stats
