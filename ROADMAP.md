@@ -355,7 +355,7 @@ Record:
 
 - [ ] Publish machine-readable artifacts and a human-readable trend dashboard.
 - [x] Separate noisy runner samples from decision-quality measurements.
-- [ ] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
+- [x] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
 - [x] Define the minimum effect size and regression budget before each backend or
   dispatch experiment.
 - [x] Keep rejected experiments and crossover measurements linked from the
@@ -363,8 +363,10 @@ Record:
 
 Progress: The correctness jobs pin Rust, Python, Shapely and its bundled GEOS,
 plus the Maven/Java image, JTS, and JSON adapter used by the certified lane.
-Node remains to be pinned when a Node comparison job exists; neither correctness
-job publishes timing artifacts. Benchmark decision policy V1 now classifies
+The cross-architecture and maintenance comparisons now pin stable and nightly
+Rust, Python, Shapely and its bundled GEOS, JTS, Node, NumPy, and Wasm tooling;
+a regression test rejects floating selectors. Neither correctness job publishes
+timing artifacts. Benchmark decision policy V1 now classifies
 diagnostic results as nonpublishable and requires dedicated-runner repetitions,
 warmup, dispersion, correctness, environment, and commit gates for
 decision-quality evidence. It also predeclares a 5% minimum effect size and 2%
