@@ -27,6 +27,7 @@ import {
 import { appendLineString, parseGeojsonInput } from './input';
 import { comparePlaygroundProfiles, type ProfileComparison } from './compare';
 import { extractNormalizedError } from './error';
+import { createDebuggerEvidenceBundle, downloadDebuggerEvidence } from './evidence';
 import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
@@ -554,6 +555,31 @@ function App() {
                   }}
                 >
                   Copy repro URL
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={!inputGeojson || (!trace && !comparison && !normalizedError)}
+                  onClick={() => {
+                    try {
+                      downloadDebuggerEvidence(createDebuggerEvidenceBundle({
+                        input: inputGeojson,
+                        requestedOptions: buildPlaygroundOptions(
+                          nodeInput,
+                          snapGridSize,
+                          nodingGuarantee,
+                        ),
+                        topology: report,
+                        trace,
+                        comparison,
+                        normalizedError,
+                      }));
+                      setError(null);
+                    } catch (e) {
+                      setError(`Export Error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  }}
+                >
+                  Export evidence
                 </Button>
               </Box>
               <Typography variant="caption" color="text.secondary">
