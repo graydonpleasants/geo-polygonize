@@ -420,6 +420,9 @@ normalized errors, runs the persisted corpus before fuzzing, and retains
 libFuzzer failure artifacts for admission. The reviewed admission command now
 validates a candidate with the strict Rust corpus runner before exclusively
 creating its case-ID-named JSON file; existing fixtures cannot be overwritten.
+Persisted differential V2 fixtures retain success, normalized-error, and mixed
+outcome pairs without changing V1 bytes, and reviewed admission rejects unknown
+producers, matching outcomes, and implicit overwrites.
 The adapter differential target now shares one raw-artifact decoder and
 comparator with a standalone replay command, so retained libFuzzer inputs can be
 reproduced without rebuilding fuzz-only control flow. Converting every observed
@@ -494,16 +497,17 @@ witnesses, dissolved graph edges, and every retained report layer. Trace event
 count, byte use, and truncation state remain visible alongside canonical options.
 Snapped lines, split witnesses, graph edges, shells, and holes are clickable for
 source and representative-edge provenance; rings also show their exact retained
-Z bit patterns. Physical Z reconciliation and execution-summary evidence now
-exist in the bounded trace; rendering those events in the debugger remains
-open.
+Z bit patterns. Physical Z reconciliation and execution-summary evidence are
+rendered directly from the bounded trace, including exact retained bits,
+conflicts, timings, work counters, resource budgets, and normalized validator
+witnesses.
 Small V1 repro envelopes now encode input plus canonical noding controls as
 deterministic UTF-8 base64url query data, reject payloads beyond 8 KiB, and load
 directly into the worker-backed debugger.
 
 - [x] Make edges/rings clickable to inspect source provenance and retained Z.
-- [ ] Trace and inspect physical Z reconciliation decisions.
-- [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
+- [x] Trace and inspect physical Z reconciliation decisions.
+- [x] Show phase timings, work counters, resource budgets, and validator witnesses.
 - [x] Compare two option profiles side by side.
 - [x] Encode small deterministic repros in shareable URLs.
 - [ ] Export an exact golden/compatibility fixture bundle.
@@ -522,14 +526,14 @@ shared-edge simplification, or incremental topology.
 
 Add a debug/test validator for the live graph:
 
-- [ ] twin symmetry is an involution;
-- [ ] each twin reverses source and destination;
-- [ ] edge, adjacency, and degree counts agree;
-- [ ] no live adjacency references a deleted edge;
-- [ ] every live topology edge has a nonempty, sorted source set;
-- [ ] angular adjacency order is deterministic;
-- [ ] ring cycles close and do not accidentally reuse directed edges;
-- [ ] every directed edge is assigned to the expected maximal/minimal cycle;
+- [x] twin symmetry is an involution;
+- [x] each twin reverses source and destination;
+- [x] edge, adjacency, and degree counts agree;
+- [x] no live adjacency references a deleted edge;
+- [x] every live topology edge has a nonempty, sorted source set;
+- [x] angular adjacency order is deterministic;
+- [x] ring cycles close and do not accidentally reuse directed edges;
+- [x] every directed edge is assigned to the expected maximal/minimal cycle;
 - [ ] the planar Euler relation `V - E + F = C + 1` holds where the stage
   preconditions apply, including the unbounded face.
 
@@ -716,13 +720,13 @@ This milestone supersedes the broad intent of issue #672.
 
 ### P3.5 Stable support policy
 
-- [ ] Freeze the stable root facade; keep research backends and graph internals
+- [x] Freeze the stable root facade; keep research backends and graph internals
   private.
 - [ ] Remove expired aliases and transitional mutable configuration paths.
-- [ ] Publish MSRV, target, feature-matrix, and platform support policies.
-- [ ] Define semver, deprecation, and migration windows.
-- [ ] Enforce synchronized crates.io, npm, and PyPI release state.
-- [ ] Document panic, cancellation, resource-limit, and thread-safety behavior.
+- [x] Publish MSRV, target, feature-matrix, and platform support policies.
+- [x] Define semver, deprecation, and migration windows.
+- [x] Enforce synchronized crates.io, npm, and PyPI release state.
+- [x] Document panic, cancellation, resource-limit, and thread-safety behavior.
 
 ### P3.6 Complete production documentation
 
@@ -750,7 +754,7 @@ shortcuts.
 - [ ] Run scheduled differential fuzzing and persist novel minimized cases.
 - [ ] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
   dependencies support them.
-- [ ] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
+- [x] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
   Python ABI combinations.
 - [ ] Verify every public error family has a documented and tested construction
   path.
