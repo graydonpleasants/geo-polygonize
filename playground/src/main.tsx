@@ -31,6 +31,7 @@ import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
   extractTraceLayers,
+  extractZReconciliationDecisions,
   parsePlaygroundTraceReport,
   PLAYGROUND_TRACE_BYTE_LIMIT,
 } from './trace';
@@ -423,6 +424,10 @@ function App() {
     return computeBoundingBox(inputGeojson);
   }, [inputGeojson]);
   const traceLayers = useMemo(() => trace ? extractTraceLayers(trace) : null, [trace]);
+  const zDecisions = useMemo(
+    () => trace ? extractZReconciliationDecisions(trace) : [],
+    [trace],
+  );
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -631,7 +636,24 @@ function App() {
                    <Typography>
                      Trace bytes: {trace.bytes_used.toLocaleString()} / {trace.byte_limit.toLocaleString()}
                    </Typography>
+                   <Typography>
+                     Z reconciliation decisions: {zDecisions.length}
+                     {zDecisions.some(({ conflict }) => conflict)
+                       ? ` (${zDecisions.filter(({ conflict }) => conflict).length} conflicts)`
+                       : ''}
+                   </Typography>
                    {trace.truncated && <Alert severity="warning">Trace reached its byte budget.</Alert>}
+                   {zDecisions.length > 0 && (
+                     <TextField
+                       fullWidth
+                       multiline
+                       minRows={5}
+                       label="Physical Z reconciliation decisions"
+                       value={JSON.stringify(zDecisions, null, 2)}
+                       InputProps={{ readOnly: true }}
+                       sx={{ mt: 2 }}
+                     />
+                   )}
                  </>
                )}
                <TextField

@@ -3,6 +3,7 @@ import type { TopologyTraceV1 } from 'geo-polygonize';
 import {
   decodeTraceCoordinate,
   extractTraceLayers,
+  extractZReconciliationDecisions,
   parsePlaygroundTraceReport,
 } from './trace';
 
@@ -54,5 +55,76 @@ describe('trace layers', () => {
   it('rejects unsupported trace envelopes', () => {
     expect(() => parsePlaygroundTraceReport('{"schema_version":2}'))
       .toThrow('Unsupported topology trace report');
+  });
+});
+
+describe('Z reconciliation decisions', () => {
+  it('preserves physical order and exact evidence bits', () => {
+    const result = extractZReconciliationDecisions(trace([
+      {
+        sequence: 4,
+        stage: 'noding',
+        kind: 'z_reconciliation',
+        payload: {
+          x: bits(1),
+          y: bits(2),
+          policy: 'InterpolateAlongEdge',
+          conflict_tolerance: bits(5),
+          candidates: [
+            { source_id: '0x00000009', z: bits(20) },
+            { source_id: '0x00000007', z: bits(30) },
+          ],
+          conflict: true,
+          retained_z: bits(30),
+        },
+      },
+      {
+        sequence: 5,
+        stage: 'noding',
+        kind: 'z_reconciliation',
+        payload: {
+          x: bits(3),
+          y: bits(4),
+          policy: 'First',
+          conflict_tolerance: bits(0),
+          candidates: [{ source_id: '0x00000001', z: bits(10) }],
+          conflict: false,
+          retained_z: bits(10),
+        },
+      },
+    ]));
+
+    expect(result.map(({ sequence }) => sequence)).toEqual([4, 5]);
+    expect(result[0]).toMatchObject({
+      coordinate: [1, 2],
+      coordinateBits: { x: bits(1), y: bits(2) },
+      policy: 'InterpolateAlongEdge',
+      conflictTolerance: bits(5),
+      candidates: [
+        { sourceId: '0x00000009', z: bits(20) },
+        { sourceId: '0x00000007', z: bits(30) },
+      ],
+      conflict: true,
+      retainedZ: bits(30),
+    });
+  });
+
+  it('ignores malformed decisions instead of inventing evidence', () => {
+    expect(extractZReconciliationDecisions(trace([
+      {
+        sequence: 0,
+        stage: 'noding',
+        kind: 'z_reconciliation',
+        payload: {
+          x: bits(1),
+          y: bits(2),
+          policy: 'First',
+          conflict_tolerance: bits(0),
+          candidates: [{ source_id: 'a' }],
+          conflict: false,
+          retained_z: bits(3),
+        },
+      },
+    ]))).toEqual([]);
   });
 });

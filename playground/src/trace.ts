@@ -17,6 +17,17 @@ export type TracePoint = {
   sourceIds: string[];
 };
 
+export type ZReconciliationDecision = {
+  sequence: number;
+  coordinate: TraceCoordinate;
+  coordinateBits: { x: string; y: string };
+  policy: string;
+  conflictTolerance: string;
+  candidates: Array<{ sourceId: string; z: string }>;
+  conflict: boolean;
+  retainedZ: string;
+};
+
 export type PlaygroundTraceLayers = {
   snappedLines: TraceLine[];
   hotPixels: TracePoint[];
@@ -109,4 +120,43 @@ export function extractTraceLayers(trace: TopologyTraceV1): PlaygroundTraceLayer
   }
 
   return { snappedLines, hotPixels, splitPoints: [...splitPoints.values()], graphEdges };
+}
+
+export function extractZReconciliationDecisions(
+  trace: TopologyTraceV1,
+): ZReconciliationDecision[] {
+  return trace.events.flatMap((event) => {
+    if (event.kind !== 'z_reconciliation' || !isObject(event.payload)) return [];
+    const {
+      x,
+      y,
+      policy,
+      conflict_tolerance: conflictTolerance,
+      candidates,
+      conflict,
+      retained_z: retainedZ,
+    } = event.payload;
+    const coordinate = decodeTraceCoordinate({ x, y });
+    if (!coordinate || typeof x !== 'string' || typeof y !== 'string'
+      || typeof policy !== 'string' || typeof conflictTolerance !== 'string'
+      || !Array.isArray(candidates) || typeof conflict !== 'boolean'
+      || typeof retainedZ !== 'string') return [];
+    const parsedCandidates = candidates.flatMap((candidate) => (
+      isObject(candidate) && typeof candidate.source_id === 'string'
+        && typeof candidate.z === 'string'
+        ? [{ sourceId: candidate.source_id, z: candidate.z }]
+        : []
+    ));
+    if (parsedCandidates.length !== candidates.length) return [];
+    return [{
+      sequence: event.sequence,
+      coordinate,
+      coordinateBits: { x, y },
+      policy,
+      conflictTolerance,
+      candidates: parsedCandidates,
+      conflict,
+      retainedZ,
+    }];
+  });
 }
