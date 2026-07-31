@@ -221,7 +221,7 @@ Add opt-in limits for:
 - [x] split events and iterative-noding passes;
 - [x] graph nodes, edges, and rings;
 - [x] polygons and output coordinates;
-- [ ] per-stage and total trace bytes;
+- [x] per-stage and total trace bytes;
 - [ ] estimated working memory where a reliable bound is available.
 
 Return a typed result such as
@@ -239,7 +239,10 @@ consume one shared remaining trace-byte budget before growing and mark the
 result truncated when that capture budget is exhausted. Containment candidate,
 tiled ownership, and maximal-ring snapshot captures apply the same pre-growth
 accounting. All currently known trace-only capture vectors are covered;
-stage-specific trace limits remain open.
+callers can now independently bound summary, noding, graph, ring, and output
+trace bytes while retaining the existing total-only API as a compatibility
+wrapper. Exhausting one stage marks the trace truncated without suppressing
+later stages.
 
 ### P0.6 Cooperative cancellation
 

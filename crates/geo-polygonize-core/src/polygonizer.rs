@@ -11,7 +11,10 @@ use crate::noding::validate::ValidatingNoder;
 use crate::options::{
     ExecutionPolicy, NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy,
 };
-use crate::trace::{TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TracedPolygonizerResultV1};
+use crate::trace::{
+    TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
+    TracedPolygonizerResultV1,
+};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -116,10 +119,28 @@ pub fn polygonize_with_trace(
     level: TraceLevelV1,
     byte_limit: usize,
 ) -> Result<TracedPolygonizerResultV1> {
+    polygonize_with_trace_limits(
+        lines,
+        options,
+        execution_policy,
+        level,
+        TraceByteLimitsV1::total(byte_limit),
+    )
+}
+
+/// Polygonize an owned stream with independent total and per-stage trace limits.
+#[doc(hidden)]
+pub fn polygonize_with_trace_limits(
+    lines: impl IntoIterator<Item = Line3D>,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+    level: TraceLevelV1,
+    limits: TraceByteLimitsV1,
+) -> Result<TracedPolygonizerResultV1> {
     let collected = collect_owned_lines(lines, execution_policy)?;
     let mut runner = Polygonizer::with_options(options.clone())
         .with_execution_policy(execution_policy.clone())
-        .with_trace(TraceRecorderV1::new(Some(level), byte_limit, options).unwrap());
+        .with_trace(TraceRecorderV1::new_with_limits(Some(level), limits, options).unwrap());
     let result = runner.polygonize_owned(collected)?;
     Ok(TracedPolygonizerResultV1 {
         result,
@@ -453,7 +474,7 @@ impl Polygonizer {
                             let capture_byte_limit = self
                                 .trace
                                 .as_ref()
-                                .map(TraceRecorderV1::capture_byte_limit)
+                                .map(|trace| trace.capture_byte_limit(TraceStageV1::Noding))
                                 .unwrap_or(0);
                             let (
                                 noded,
@@ -474,7 +495,7 @@ impl Polygonizer {
                                 trace.record_certified_candidates(&candidates)?;
                                 trace.record_certified_splits(&split_events)?;
                                 if capture_truncated {
-                                    trace.mark_capture_truncated();
+                                    trace.mark_capture_truncated(TraceStageV1::Noding);
                                 }
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
@@ -544,7 +565,7 @@ impl Polygonizer {
                             let capture_byte_limit = self
                                 .trace
                                 .as_ref()
-                                .map(TraceRecorderV1::capture_byte_limit)
+                                .map(|trace| trace.capture_byte_limit(TraceStageV1::Noding))
                                 .unwrap_or(0);
                             let (
                                 noded,
@@ -568,7 +589,7 @@ impl Polygonizer {
                                 trace.record_uniform_grid_candidates(&grid_candidates)?;
                                 trace.record_floating_splits(&split_events)?;
                                 if capture_truncated {
-                                    trace.mark_capture_truncated();
+                                    trace.mark_capture_truncated(TraceStageV1::Noding);
                                 }
                             }
                             if let Some(diagnostics) = diagnostics.as_deref_mut() {
@@ -813,7 +834,7 @@ impl Polygonizer {
             let capture_byte_limit = self
                 .trace
                 .as_ref()
-                .map(TraceRecorderV1::capture_byte_limit)
+                .map(|trace| trace.capture_byte_limit(TraceStageV1::Rings))
                 .unwrap_or(0);
             let (maximal, minimal, capture_truncated) = self
                 .graph
@@ -827,7 +848,7 @@ impl Polygonizer {
             trace.record_extracted_rings("maximal_ring", &maximal)?;
             trace.record_extracted_rings("minimal_ring", &minimal)?;
             if capture_truncated {
-                trace.mark_capture_truncated();
+                trace.mark_capture_truncated(TraceStageV1::Rings);
             }
             minimal
         } else {
@@ -1370,7 +1391,8 @@ fn establish_topology(
 
     let mut capture_truncated = false;
     let assignments: Vec<_> = if let Some(trace) = trace.as_ref() {
-        let mut capture_budget = TraceCaptureBudget::new(trace.capture_byte_limit());
+        let mut capture_budget =
+            TraceCaptureBudget::new(trace.capture_byte_limit(TraceStageV1::Rings));
         let mut checked = Vec::with_capacity(holes.len());
         for (index, hole) in holes.into_iter().enumerate() {
             if let Some(execution_policy) = execution_policy {
@@ -1437,7 +1459,7 @@ fn establish_topology(
     if capture_truncated {
         trace
             .expect("trace capture exists")
-            .mark_capture_truncated();
+            .mark_capture_truncated(TraceStageV1::Rings);
     }
     if collect_stats {
         forest.record_locator_reuse(&mut containment_stats);

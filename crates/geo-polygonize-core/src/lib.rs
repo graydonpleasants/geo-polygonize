@@ -60,8 +60,8 @@ pub use polygonizer::Polygonizer;
 pub use polygonizer::{
     polygonize, polygonize_line_strings, polygonize_line_strings_with_execution_policy,
     polygonize_to_multi_polygon, polygonize_with_execution_policy, polygonize_with_trace,
-    polygonize_with_workspace, polygonize_with_workspace_and_execution_policy, PolygonizerResult,
-    PolygonizerWorkspace,
+    polygonize_with_trace_limits, polygonize_with_workspace,
+    polygonize_with_workspace_and_execution_policy, PolygonizerResult, PolygonizerWorkspace,
 };
 #[doc(hidden)]
 pub use tiling::{

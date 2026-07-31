@@ -1,7 +1,8 @@
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
 use crate::trace::{
-    TopologyTraceV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
+    TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
+    TraceStageV1,
 };
 use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
@@ -270,8 +271,16 @@ impl<'a> TiledPolygonizer<'a> {
         level: TraceLevelV1,
         byte_limit: usize,
     ) -> Result<TracedTiledPolygonizeResultV1> {
-        let mut trace =
-            TraceRecorderV1::new(Some(level), byte_limit, &self.options).expect("trace enabled");
+        self.polygonize_with_trace_limits(level, TraceByteLimitsV1::total(byte_limit))
+    }
+
+    pub fn polygonize_with_trace_limits(
+        &self,
+        level: TraceLevelV1,
+        limits: TraceByteLimitsV1,
+    ) -> Result<TracedTiledPolygonizeResultV1> {
+        let mut trace = TraceRecorderV1::new_with_limits(Some(level), limits, &self.options)
+            .expect("trace enabled");
         let result = self.polygonize_impl(Some(&mut trace))?;
         Ok(TracedTiledPolygonizeResultV1 {
             result,
@@ -296,7 +305,7 @@ impl<'a> TiledPolygonizer<'a> {
                 let capture_byte_limit = trace.as_ref().and_then(|trace| {
                     trace
                         .records_stage(TraceStageV1::Output)
-                        .then(|| trace.capture_byte_limit())
+                        .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
                 let (polygons, report, ownership_decisions, capture_truncated) =
                     self.process_tile(tile, capture_byte_limit)?;
@@ -310,7 +319,7 @@ impl<'a> TiledPolygonizer<'a> {
                     )?;
                 }
                 if capture_truncated {
-                    trace.mark_capture_truncated();
+                    trace.mark_capture_truncated(TraceStageV1::Output);
                 }
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
