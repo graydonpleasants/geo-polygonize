@@ -25,6 +25,7 @@ import {
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
 import { buildPlaygroundOptions } from './options';
+import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
   extractTraceLayers,
   parsePlaygroundTraceReport,
@@ -210,6 +211,20 @@ function App() {
   useEffect(() => {
     if (manifest.length > 0 && !selectedSlug) {
       const params = new URLSearchParams(window.location.search);
+      const encodedRepro = params.get('repro');
+      if (encodedRepro) {
+        try {
+          const repro = decodePlaygroundRepro(encodedRepro);
+          setInputGeojson(repro.input);
+          setInputText(JSON.stringify(repro.input, null, 2));
+          setNodeInput(repro.node_input);
+          setSnapGridSize(repro.snap_grid_size);
+          setNodingGuarantee(repro.noding_guarantee);
+          return;
+        } catch (e) {
+          setError(`Shared repro error: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       const scenario = params.get('scenario');
       if (scenario && manifest.find(m => m.slug === scenario)) {
         setSelectedSlug(scenario);
@@ -275,6 +290,7 @@ function App() {
     setSelectedSlug('');
     const url = new URL(window.location.href);
     url.searchParams.delete('scenario');
+    url.searchParams.delete('repro');
     window.history.replaceState({}, '', url.toString());
     setError(null);
   };
@@ -399,6 +415,7 @@ function App() {
                   // Update URL
                   const url = new URL(window.location.href);
                   url.searchParams.set('scenario', e.target.value as string);
+                  url.searchParams.delete('repro');
                   window.history.replaceState({}, '', url.toString());
                 }}
               >
@@ -451,6 +468,31 @@ function App() {
                   }}
                 >
                   {drawEnabled ? 'Stop drawing' : 'Draw line'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={!inputGeojson}
+                  onClick={async () => {
+                    try {
+                      const encoded = encodePlaygroundRepro({
+                        schema_version: 1,
+                        input: inputGeojson,
+                        node_input: nodeInput,
+                        snap_grid_size: snapGridSize,
+                        noding_guarantee: nodingGuarantee,
+                      });
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete('scenario');
+                      url.searchParams.set('repro', encoded);
+                      window.history.replaceState({}, '', url.toString());
+                      await navigator.clipboard.writeText(url.toString());
+                      setError(null);
+                    } catch (e) {
+                      setError(`Share Error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  }}
+                >
+                  Copy repro URL
                 </Button>
               </Box>
               <Typography variant="caption" color="text.secondary">
