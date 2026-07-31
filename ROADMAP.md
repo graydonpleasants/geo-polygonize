@@ -238,8 +238,8 @@ Trace-only floating, uniform-grid, and certified noding capture buffers now
 consume one shared remaining trace-byte budget before growing and mark the
 result truncated when that capture budget is exhausted. Stage-specific trace
 limits and non-noding capture buffers remain open. Containment candidate
-captures now apply the same pre-growth accounting; other non-noding captures
-remain open.
+and tiled ownership captures now apply the same pre-growth accounting; maximal
+ring trace capture remains open.
 
 ### P0.6 Cooperative cancellation
 

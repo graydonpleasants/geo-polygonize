@@ -1,6 +1,8 @@
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
-use crate::trace::{TopologyTraceV1, TraceLevelV1, TraceRecorderV1, TraceStageV1};
+use crate::trace::{
+    TopologyTraceV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
+};
 use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
@@ -71,7 +73,7 @@ pub struct TracedTiledPolygonizeResultV1 {
 }
 
 type TileOwnershipDecision = (usize, Option<Coord3D>, bool);
-type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>);
+type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>, bool);
 
 /// Experimental tiled polygonization.
 ///
@@ -131,8 +133,9 @@ impl<'a> TiledPolygonizer<'a> {
     fn process_tile(
         &self,
         tile_bbox: Rect<f64>,
-        trace_ownership: bool,
+        capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
+        let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
         let mut local_poly = Polygonizer::with_options(self.options.clone());
 
         // Define buffered bbox
@@ -166,7 +169,7 @@ impl<'a> TiledPolygonizer<'a> {
             invalid_ring_count: 0,
         };
         if relevant_lines == 0 {
-            return Ok((Vec::new(), report, Vec::new()));
+            return Ok((Vec::new(), report, Vec::new(), false));
         }
 
         // Run polygonization
@@ -177,7 +180,7 @@ impl<'a> TiledPolygonizer<'a> {
         report.invalid_ring_count = result.invalid_rings.len();
         // Ownership check:
         let mut valid_polys = Vec::new();
-        let mut ownership_decisions = trace_ownership.then(Vec::new).unwrap_or_default();
+        let mut ownership_decisions = Vec::new();
         for (polygon_index, poly) in result.polygons.into_iter().enumerate() {
             let ownership_point = self.ownership_point(&poly);
             let owned = ownership_point.is_some_and(|c| {
@@ -199,19 +202,27 @@ impl<'a> TiledPolygonizer<'a> {
                 };
                 in_x && in_y
             });
-            if trace_ownership {
-                ownership_decisions.push((
-                    polygon_index,
-                    ownership_point.map(|point| Coord3D::new(point.x(), point.y(), 0.0)),
-                    owned,
-                ));
+            if let Some(budget) = capture_budget.as_mut() {
+                budget.capture(
+                    &mut ownership_decisions,
+                    (
+                        polygon_index,
+                        ownership_point.map(|point| Coord3D::new(point.x(), point.y(), 0.0)),
+                        owned,
+                    ),
+                );
             }
             if owned {
                 valid_polys.push(poly);
             }
         }
         report.owned_polygon_count = valid_polys.len();
-        Ok((valid_polys, report, ownership_decisions))
+        Ok((
+            valid_polys,
+            report,
+            ownership_decisions,
+            capture_budget.is_some_and(|budget| budget.truncated()),
+        ))
     }
 
     fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
@@ -278,29 +289,18 @@ impl<'a> TiledPolygonizer<'a> {
             .as_ref()
             .is_some_and(|trace| trace.records_stage(TraceStageV1::Output));
 
-        // Process tiles in parallel or sequential
-        let tile_results: Vec<Result<TileProcessResult>>;
-        #[cfg(feature = "parallel")]
-        {
-            tile_results = tiles
-                .into_par_iter()
-                .map(|tile| self.process_tile(tile, trace_ownership))
-                .collect();
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            tile_results = tiles
-                .into_iter()
-                .map(|tile| self.process_tile(tile, trace_ownership))
-                .collect();
-        }
-        let tile_results = tile_results.into_iter().collect::<Result<Vec<_>>>()?;
-        let mut tile_polygons = Vec::with_capacity(tile_results.len());
-        let mut tile_reports = Vec::with_capacity(tile_results.len());
-        for (tile_index, (polygons, report, ownership_decisions)) in
-            tile_results.into_iter().enumerate()
-        {
-            if let Some(trace) = trace.as_deref_mut() {
+        let mut tile_polygons = Vec::with_capacity(tiles.len());
+        let mut tile_reports = Vec::with_capacity(tiles.len());
+        if trace_ownership {
+            for (tile_index, tile) in tiles.into_iter().enumerate() {
+                let capture_byte_limit = trace.as_ref().and_then(|trace| {
+                    trace
+                        .records_stage(TraceStageV1::Output)
+                        .then(|| trace.capture_byte_limit())
+                });
+                let (polygons, report, ownership_decisions, capture_truncated) =
+                    self.process_tile(tile, capture_byte_limit)?;
+                let trace = trace.as_deref_mut().expect("tile trace exists");
                 for (polygon_index, ownership_point, owned) in ownership_decisions {
                     trace.record_tile_ownership(
                         tile_index,
@@ -309,9 +309,29 @@ impl<'a> TiledPolygonizer<'a> {
                         owned,
                     )?;
                 }
+                if capture_truncated {
+                    trace.mark_capture_truncated();
+                }
+                tile_polygons.push(polygons);
+                tile_reports.push(report);
             }
-            tile_polygons.push(polygons);
-            tile_reports.push(report);
+        } else {
+            #[cfg(feature = "parallel")]
+            let tile_results: Vec<_> = tiles
+                .into_par_iter()
+                .map(|tile| self.process_tile(tile, None))
+                .collect();
+            #[cfg(not(feature = "parallel"))]
+            let tile_results: Vec<_> = tiles
+                .into_iter()
+                .map(|tile| self.process_tile(tile, None))
+                .collect();
+
+            for result in tile_results {
+                let (polygons, report, _, _) = result?;
+                tile_polygons.push(polygons);
+                tile_reports.push(report);
+            }
         }
         let result_polygons: Vec<Polygon3D> = tile_polygons.into_iter().flatten().collect();
         let merged_polygon_count = result_polygons.len();
