@@ -30,6 +30,7 @@ import { extractNormalizedError } from './error';
 import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
+  extractExecutionEvidence,
   extractTraceLayers,
   extractZReconciliationDecisions,
   parsePlaygroundTraceReport,
@@ -428,6 +429,10 @@ function App() {
     () => trace ? extractZReconciliationDecisions(trace) : [],
     [trace],
   );
+  const executionEvidence = useMemo(
+    () => trace ? extractExecutionEvidence(trace) : null,
+    [trace],
+  );
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -653,6 +658,22 @@ function App() {
                        InputProps={{ readOnly: true }}
                        sx={{ mt: 2 }}
                      />
+                   )}
+                   {executionEvidence && (
+                     <>
+                       <TextField
+                         fullWidth
+                         multiline
+                         minRows={6}
+                         label="Execution evidence"
+                         value={JSON.stringify(executionEvidence, null, 2)}
+                         InputProps={{ readOnly: true }}
+                         sx={{ mt: 2 }}
+                       />
+                       <Typography variant="caption" color="text.secondary">
+                         Validation failures retain their structured witness in the error panel above.
+                       </Typography>
+                     </>
                    )}
                  </>
                )}
