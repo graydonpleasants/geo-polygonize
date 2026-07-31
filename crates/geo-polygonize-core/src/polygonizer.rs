@@ -788,7 +788,10 @@ impl Polygonizer {
             trace.record_input_segments(&input_lines)?;
         }
 
-        let mut diag = if self.options.diagnostics.enabled || self.options.diagnostics.timings {
+        let return_diagnostics =
+            self.options.diagnostics.enabled || self.options.diagnostics.timings;
+        let collect_diagnostics = return_diagnostics || self.trace.is_some();
+        let mut diag = if collect_diagnostics {
             let d = PolygonizerDiagnostics {
                 input_segment_count: input_lines.len(),
                 ..Default::default()
@@ -801,7 +804,7 @@ impl Polygonizer {
         let t_ingest_start = get_time();
         self.build_graph(
             input_lines,
-            if self.options.diagnostics.enabled {
+            if self.options.diagnostics.enabled || self.trace.is_some() {
                 diag.as_mut()
             } else {
                 None
@@ -1010,12 +1013,15 @@ impl Polygonizer {
             d.invalid_ring_count = invalid_rings.len();
             // output_flatten time could be measured here if we had a separate pass, but we'll leave it 0 or record what we have
         }
+        if let (Some(trace), Some(diagnostics)) = (self.trace.as_mut(), diag.as_ref()) {
+            trace.record_diagnostics_summary(diagnostics);
+        }
         Ok(PolygonizerResult {
             polygons: result,
             dangles,
             cut_edges,
             invalid_rings,
-            diagnostics: diag,
+            diagnostics: if return_diagnostics { diag } else { None },
         })
     }
 }
