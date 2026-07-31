@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 pub const REPRO_BUNDLE_V1_SCHEMA_VERSION: u32 = 1;
 /// The persisted differential fixture schema version.
 pub const PERSISTED_DIFFERENTIAL_FIXTURE_V1_SCHEMA_VERSION: u32 = 1;
+/// The two-sided persisted differential fixture schema version.
+pub const PERSISTED_DIFFERENTIAL_FIXTURE_V2_SCHEMA_VERSION: u32 = 2;
 /// The two-sided differential mismatch candidate schema version.
 pub const DIFFERENTIAL_MISMATCH_CANDIDATE_V1_SCHEMA_VERSION: u32 = 1;
 
@@ -78,6 +80,15 @@ pub struct PersistedDifferentialFixtureV1 {
     pub case_id: String,
     pub classification: CompatibilityClassificationV1,
     pub golden: ReproBundleV1,
+}
+
+/// A reviewed two-sided mismatch retained without changing the V1 fixture shape.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PersistedDifferentialFixtureV2 {
+    pub schema_version: u32,
+    pub case_id: String,
+    pub classification: CompatibilityClassificationV1,
+    pub candidate: DifferentialMismatchCandidateV1,
 }
 
 /// One exact side of a differential comparison.
@@ -175,11 +186,7 @@ impl PersistedDifferentialFixtureV1 {
         golden: ReproBundleV1,
     ) -> crate::Result<Self> {
         let case_id = case_id.into();
-        if case_id.is_empty()
-            || !case_id.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-._".contains(&byte)
-            })
-        {
+        if !valid_case_id(&case_id) {
             return Err(crate::PolygonizeError::InvalidArgumentType {
                 field: "case_id".to_string(),
                 expected: "a nonempty lowercase fixture identifier".to_string(),
@@ -191,6 +198,47 @@ impl PersistedDifferentialFixtureV1 {
             case_id,
             classification,
             golden,
+        })
+    }
+
+    pub fn to_pretty_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
+}
+
+impl PersistedDifferentialFixtureV2 {
+    pub fn new(
+        case_id: impl Into<String>,
+        classification: CompatibilityClassificationV1,
+        candidate: DifferentialMismatchCandidateV1,
+    ) -> crate::Result<Self> {
+        let case_id = case_id.into();
+        if !valid_case_id(&case_id) {
+            return Err(crate::PolygonizeError::InvalidArgumentType {
+                field: "case_id".to_string(),
+                expected: "a nonempty lowercase fixture identifier".to_string(),
+                actual: case_id,
+            });
+        }
+        if candidate.schema_version != DIFFERENTIAL_MISMATCH_CANDIDATE_V1_SCHEMA_VERSION
+            || candidate.producer != "adapter_differential"
+            || candidate.baseline.implementation != "one_shot"
+            || candidate.comparison.implementation != "workspace"
+            || candidate.baseline.outcome == candidate.comparison.outcome
+            || candidate.versions.is_empty()
+        {
+            return Err(crate::PolygonizeError::InvalidArgumentType {
+                field: "candidate".to_string(),
+                expected: "an adapter_differential V1 mismatch from one_shot to workspace"
+                    .to_string(),
+                actual: candidate.producer,
+            });
+        }
+        Ok(Self {
+            schema_version: PERSISTED_DIFFERENTIAL_FIXTURE_V2_SCHEMA_VERSION,
+            case_id,
+            classification,
+            candidate,
         })
     }
 
@@ -238,6 +286,13 @@ fn repro_lines(input: &[Line3D]) -> crate::Result<Vec<ReproLineV1>> {
             })
         })
         .collect()
+}
+
+fn valid_case_id(case_id: &str) -> bool {
+    !case_id.is_empty()
+        && case_id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-._".contains(&byte)
+        })
 }
 
 /// Delta-debug a line set while the caller's exact mismatch predicate holds.
@@ -567,6 +622,35 @@ mod tests {
         assert_eq!(json["comparison"]["outcome"]["status"], "error");
         assert!(json.get("case_id").is_none());
         assert!(json.get("classification").is_none());
+        let persisted = PersistedDifferentialFixtureV2::new(
+            "adapter-mixed-v2",
+            CompatibilityClassificationV1::InvalidAmbiguous,
+            candidate.clone(),
+        )
+        .unwrap();
+        let persisted_json: serde_json::Value =
+            serde_json::from_str(&persisted.to_pretty_json().unwrap()).unwrap();
+        assert_eq!(persisted_json["schema_version"], 2);
+        assert_eq!(persisted_json["case_id"], "adapter-mixed-v2");
+        assert_eq!(persisted_json["classification"], "invalid_ambiguous");
+        assert_eq!(persisted_json["candidate"], json);
+
+        let mut unknown = candidate.clone();
+        unknown.producer = "benchmark_record".to_string();
+        assert!(PersistedDifferentialFixtureV2::new(
+            "unsupported-producer",
+            CompatibilityClassificationV1::ExpectedDivergence,
+            unknown,
+        )
+        .is_err());
+        let mut matching = candidate.clone();
+        matching.comparison.outcome = matching.baseline.outcome.clone();
+        assert!(PersistedDifferentialFixtureV2::new(
+            "matching-outcomes",
+            CompatibilityClassificationV1::ExpectedParity,
+            matching,
+        )
+        .is_err());
         assert!(DifferentialMismatchCandidateV1::new(
             "adapter_differential",
             &lines,
