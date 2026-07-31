@@ -22,6 +22,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Topology and output', link: '/guide/topology-output' },
           { text: 'WASM Integration', link: '/guide/wasm' },
         ]
       },

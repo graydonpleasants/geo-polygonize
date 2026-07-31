@@ -732,7 +732,7 @@ This milestone supersedes the broad intent of issue #672.
 
 Add or finish dedicated guides for:
 
-- [ ] topology and output semantics;
+- [x] topology and output semantics;
 - [ ] floating, fixed, validated, and certified noding guarantees;
 - [ ] Z and provenance behavior;
 - [ ] compatibility profiles and known divergences;
