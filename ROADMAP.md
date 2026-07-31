@@ -405,7 +405,10 @@ options and recompute both sides for every candidate. Retained segments are
 copied unchanged. Shared X/Y values can then be simplified atomically while
 source IDs and Z conflicts remain untouched; persisted fixtures and standalone
 repro bundles use an exact, versioned JSON representation. Persisting novel
-minimized failures as strict golden/compatibility cases remains separate work.
+minimized failures no longer requires rewriting geometry: a versioned persisted
+fixture now pairs the exact repro bundle with a strict compatibility
+classification and validated stable case ID. Wiring every fuzz and production
+mismatch producer to store that artifact remains open.
 
 ### P1.5 Trace schema
 
