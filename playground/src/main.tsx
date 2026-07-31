@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import init, {
   polygonizeTraceWithOptionsAsync,
   type NodingGuarantee,
+  type NormalizedPolygonizeErrorV1,
   type PolygonizerOptions,
   type TopologyFingerprintV1,
   type TopologyTraceV1,
@@ -25,6 +26,7 @@ import {
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
 import { comparePlaygroundProfiles, type ProfileComparison } from './compare';
+import { extractNormalizedError } from './error';
 import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
@@ -148,6 +150,7 @@ function App() {
   const [comparison, setComparison] = useState<ProfileComparison | null>(null);
   const [comparisonBusy, setComparisonBusy] = useState(false);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
+  const [normalizedError, setNormalizedError] = useState<NormalizedPolygonizeErrorV1 | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
@@ -257,6 +260,7 @@ function App() {
     setTrace(null);
     setSelectedFeature(null);
     setError(null);
+    setNormalizedError(null);
 
     async function loadFixture() {
       try {
@@ -362,6 +366,7 @@ function App() {
     setTraceBusy(true);
     setTrace(null);
     setSelectedFeature(null);
+    setNormalizedError(null);
     void polygonizeTraceWithOptionsAsync(
       JSON.stringify(inputGeojson),
       options,
@@ -379,6 +384,7 @@ function App() {
       setOutputGeojson(null);
       setReport(null);
       setTrace(null);
+      setNormalizedError(extractNormalizedError(e));
       setError("Polygonize Error: " + e.toString());
     }).finally(() => {
       if (!controller.signal.aborted) setTraceBusy(false);
@@ -400,7 +406,10 @@ function App() {
       controller.signal,
       polygonizeTraceWithOptionsAsync,
     ).then(setComparison).catch((e: Error) => {
-      if (e.name !== 'AbortError') setComparisonError(e.toString());
+      if (e.name !== 'AbortError') {
+        setNormalizedError(extractNormalizedError(e));
+        setComparisonError(e.toString());
+      }
     }).finally(() => {
       if (!controller.signal.aborted) setComparisonBusy(false);
     });
@@ -426,6 +435,21 @@ function App() {
       {comparisonBusy && <Alert severity="info">Comparing canonical profiles...</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {comparisonError && <Alert severity="error" sx={{ mb: 2 }}>Profile comparison: {comparisonError}</Alert>}
+      {normalizedError && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="h6">Normalized worker error</Typography>
+          <Typography>{normalizedError.family} / {normalizedError.code} at {normalizedError.stage}</Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={4}
+            label="Structured error and witness"
+            value={JSON.stringify(normalizedError, null, 2)}
+            InputProps={{ readOnly: true }}
+            sx={{ mt: 1 }}
+          />
+        </Paper>
+      )}
 
       <Grid container spacing={3}>
         {/* Controls */}
