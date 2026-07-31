@@ -5,6 +5,7 @@ use crate::polygonizer::{
     bounding_rect_3d, guaranteed_interior_probe_prepared, rings_share_edge_with_count,
     rings_touch_at_vertex_with_count,
 };
+use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use geo::algorithm::indexed::IntervalTreeMultiPolygon;
@@ -386,16 +387,18 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
         collect_stats: bool,
+        capture_budget: &mut TraceCaptureBudget,
     ) -> (Option<usize>, ContainmentStats, Vec<usize>) {
         let mut stats = ContainmentStats::default();
         let mut candidates = Vec::new();
+        let mut trace = TraceCapture::new(&mut candidates, capture_budget);
         let best_shell_idx = self.assign_hole_impl(
             hole_3d,
             hole_graph_ids,
             shells,
             touch_policy,
             collect_stats.then_some(&mut stats),
-            Some(&mut candidates),
+            Some(&mut trace),
         );
         candidates.sort_unstable();
         (best_shell_idx, stats, candidates)
@@ -408,7 +411,7 @@ impl ContainmentForest {
         shells: &[Polygon3D],
         touch_policy: &TouchPolicy,
         mut stats: Option<&mut ContainmentStats>,
-        mut traced_candidates: Option<&mut Vec<usize>>,
+        mut traced_candidates: Option<&mut TraceCapture<'_, usize>>,
     ) -> Option<usize> {
         let track_queries = stats.is_some();
         let hole_locator = SimdRing::new_3d(&hole_3d.exterior);
@@ -584,5 +587,40 @@ mod tests {
             );
         }
         assert!(prepared.interval_locator.get().is_some());
+    }
+
+    #[test]
+    fn containment_trace_candidates_stop_before_budgeted_growth() {
+        let ring = |min: f64, max: f64| {
+            Polygon3D::new(
+                vec![
+                    Coord3D::new(min, min, 0.0),
+                    Coord3D::new(max, min, 0.0),
+                    Coord3D::new(max, max, 0.0),
+                    Coord3D::new(min, max, 0.0),
+                    Coord3D::new(min, min, 0.0),
+                ],
+                vec![],
+                vec![],
+                vec![],
+            )
+        };
+        let shells = vec![ring(0.0, 10.0)];
+        let hole = ring(2.0, 3.0);
+        let forest = ContainmentForest::new(&shells);
+        let mut budget = TraceCaptureBudget::new(0);
+
+        let (selected, _, candidates) = forest.assign_hole_with_graph_ids_and_trace(
+            &hole,
+            None,
+            &shells,
+            &TouchPolicy::AllowPointTouchDisallowEdgeShare,
+            false,
+            &mut budget,
+        );
+
+        assert_eq!(selected, Some(0));
+        assert!(candidates.is_empty());
+        assert!(budget.truncated());
     }
 }
