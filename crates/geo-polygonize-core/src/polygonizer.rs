@@ -13,7 +13,7 @@ use crate::options::{
 };
 use crate::trace::{
     TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
-    TracedPolygonizerResultV1,
+    TracedPolygonizerResultV1, ZReconciliationCandidateTraceV1, ZReconciliationTraceV1,
 };
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
@@ -711,6 +711,7 @@ impl Polygonizer {
             self.options.z.conflict_tolerance,
             self.options.provenance.enabled,
             &self.execution_policy,
+            self.trace.as_mut(),
         )?;
         if let Some(diagnostics) = diagnostics {
             diagnostics.z_conflicts = z_conflicts;
@@ -1055,6 +1056,7 @@ fn reconcile_segment_z(
     tolerance: f64,
     include_line_ids: bool,
     execution_policy: &ExecutionPolicy,
+    mut trace: Option<&mut TraceRecorderV1>,
 ) -> Result<ZConflictStats> {
     execution_policy.check_cancelled("graph_construction")?;
     let mut has_nonzero_z = false;
@@ -1115,12 +1117,52 @@ fn reconcile_segment_z(
         let group = &endpoints[first..end];
         let mut min_z = group[0].coordinate.z;
         let mut max_z = min_z;
+        let mut trace_candidates = trace
+            .as_ref()
+            .filter(|trace| trace.records_stage(TraceStageV1::Noding))
+            .map(|trace| {
+                (
+                    Vec::new(),
+                    TraceCaptureBudget::new(trace.capture_byte_limit(TraceStageV1::Noding)),
+                )
+            });
         for (index, endpoint) in group.iter().enumerate() {
             execution_policy.check_cancelled_every("graph_construction", first + index)?;
             min_z = min_z.min(endpoint.coordinate.z);
             max_z = max_z.max(endpoint.coordinate.z);
+            if let Some((candidates, budget)) = trace_candidates.as_mut() {
+                budget.capture(
+                    candidates,
+                    ZReconciliationCandidateTraceV1 {
+                        source_id: format!("0x{:08x}", endpoint.line_id),
+                        z: format!("0x{:016x}", endpoint.coordinate.z.to_bits()),
+                    },
+                );
+            }
         }
         let is_conflict = max_z - min_z > tolerance;
+        let z = if matches!(policy, ZPolicy::Ignore) {
+            0.0
+        } else {
+            group[0].coordinate.z
+        };
+
+        if let Some((candidates, budget)) = trace_candidates {
+            let trace = trace.as_deref_mut().unwrap();
+            if budget.truncated() {
+                trace.mark_capture_truncated(TraceStageV1::Noding);
+            } else {
+                trace.record_z_reconciliation(ZReconciliationTraceV1::new(
+                    coordinate.x,
+                    coordinate.y,
+                    policy,
+                    tolerance,
+                    candidates,
+                    is_conflict,
+                    z,
+                )?);
+            }
+        }
 
         if is_conflict {
             stats.conflict_node_count += 1;
@@ -1143,11 +1185,6 @@ fn reconcile_segment_z(
             }
         }
 
-        let z = if matches!(policy, ZPolicy::Ignore) {
-            0.0
-        } else {
-            group[0].coordinate.z
-        };
         for (index, endpoint) in group.iter().enumerate() {
             execution_policy.check_cancelled_every("graph_construction", first + index)?;
             if endpoint.is_end {
@@ -1834,7 +1871,14 @@ mod topology_tests {
             Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
         ));
         assert!(matches!(
-            reconcile_segment_z(&mut [], ZPolicy::default(), 0.0, false, &policy),
+            reconcile_segment_z(
+                &mut [],
+                ZPolicy::default(),
+                0.0,
+                false,
+                &policy,
+                None,
+            ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "graph_construction"
         ));
         assert!(matches!(
