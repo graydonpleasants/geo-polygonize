@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       wasm: ${{ steps.filter.outputs.wasm }}
+      python: ${{ steps.filter.outputs.python }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +43,12 @@ jobs:
             echo "wasm=true" >> "$GITHUB_OUTPUT"
           else
             echo "wasm=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$changed" | grep -Eq '^(Cargo\.(toml|lock)$|pyproject\.toml$|python/|crates/geo-polygonize-(core|python)/|\.github/workflows/ci\.yml$)'; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
           fi
 
   rust:
@@ -73,6 +80,81 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked --verbose
+
+      - name: Verify supported core feature combinations
+        run: |
+          cargo test --locked -p geo-polygonize-core --no-default-features --lib --tests
+          cargo check --locked -p geo-polygonize-core --all-targets --all-features
+
+  python-abi-build:
+    name: Python abi3 wheel
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: python-abi
+          workspaces: |
+            . -> target
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Build abi3 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --locked --release --out dist
+
+      - name: Upload abi3 wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-abi3-wheel
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 3
+
+  python-abi:
+    name: Python ABI (${{ matrix.python-version }})
+    needs: [changes, python-abi-build]
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.x']
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-abi3-wheel
+          path: dist
+
+      - name: Install abi3 wheel
+        run: python -m pip install dist/*.whl
+
+      - name: Verify native ABI import
+        run: |
+          python - <<'PY'
+          import geo_polygonize
+          from geo_polygonize.geo_polygonize_core import polygonize_with_options
+
+          ok, error = geo_polygonize.import_probe()
+          assert ok, error
+          assert callable(polygonize_with_options)
+          PY
 
   release-tests:
     name: Release Tests
@@ -246,7 +328,7 @@ jobs:
 
   test:
     name: CI Required
-    needs: [changes, rust, release-tests, release-contract, supply-chain, wasm-build, js]
+    needs: [changes, rust, python-abi-build, python-abi, release-tests, release-contract, supply-chain, wasm-build, js]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -255,6 +337,8 @@ jobs:
         run: |
           [ "${{ needs.changes.result }}" = "success" ]
           [ "${{ needs.rust.result }}" = "success" ]
+          [[ "${{ needs.python-abi-build.result }}" =~ ^(success|skipped)$ ]]
+          [[ "${{ needs.python-abi.result }}" =~ ^(success|skipped)$ ]]
           [ "${{ needs.release-tests.result }}" = "success" ]
           [ "${{ needs.release-contract.result }}" = "success" ]
           [ "${{ needs.supply-chain.result }}" = "success" ]

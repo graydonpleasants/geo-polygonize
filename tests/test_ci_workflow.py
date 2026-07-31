@@ -20,3 +20,21 @@ def test_playground_changes_run_and_build_in_js_ci():
         "npm run build --prefix playground"
     )
     assert "npm run build --prefix playground" in workflow
+
+
+def test_supported_feature_and_python_abi_matrix_is_required():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+
+    assert (
+        "cargo test --locked -p geo-polygonize-core --no-default-features --lib --tests"
+        in workflow
+    )
+    assert (
+        "cargo check --locked -p geo-polygonize-core --all-targets --all-features"
+        in workflow
+    )
+    assert "variant: [scalar, simd, threads]" in workflow
+    assert "python-version: ['3.8', '3.x']" in workflow
+    assert "from geo_polygonize.geo_polygonize_core import polygonize_with_options" in workflow
+    assert "needs.python-abi-build.result" in workflow
+    assert "needs.python-abi.result" in workflow
