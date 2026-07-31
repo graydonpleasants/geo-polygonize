@@ -39,6 +39,17 @@ interface ManifestEntry {
   };
 }
 
+const layerOptions = [
+  ['rawLines', 'Raw lines'],
+  ['dangles', 'Dangles'],
+  ['cutEdges', 'Cut edges'],
+  ['invalidRings', 'Invalid rings'],
+  ['shells', 'Shells'],
+  ['holes', 'Holes'],
+  ['finalFaces', 'Final faces'],
+] as const;
+type LayerKey = typeof layerOptions[number][0];
+
 // --- Utils ---
 function computeBoundingBox(geojson: any) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -50,6 +61,7 @@ function computeBoundingBox(geojson: any) {
   };
 
   const processGeom = (geom: any) => {
+    if (!geom) return;
     if (geom.type === 'LineString') {
       geom.coordinates.forEach(processCoord);
     } else if (geom.type === 'Polygon') {
@@ -60,6 +72,8 @@ function computeBoundingBox(geojson: any) {
   if (geojson && geojson.features) {
     geojson.features.forEach((f: any) => processGeom(f.geometry));
   }
+
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
 
   // Padding
   const padX = (maxX - minX) * 0.1;
@@ -74,16 +88,16 @@ function computeBoundingBox(geojson: any) {
   };
 }
 
-function reportToGeojson(report: TopologyFingerprintV1) {
-  const view = new DataView(new ArrayBuffer(8));
-  const coordinate = (value: { x: string; y: string }) => {
-    const number = (bits: string) => {
-      view.setBigUint64(0, BigInt(bits));
-      return view.getFloat64(0);
-    };
-    return [number(value.x), number(value.y)];
+const fingerprintView = new DataView(new ArrayBuffer(8));
+function fingerprintCoordinate(value: { x: string; y: string }) {
+  const number = (bits: string) => {
+    fingerprintView.setBigUint64(0, BigInt(bits));
+    return fingerprintView.getFloat64(0);
   };
+  return [number(value.x), number(value.y)];
+}
 
+function reportToGeojson(report: TopologyFingerprintV1) {
   return {
     type: 'FeatureCollection',
     features: report.polygons.map((polygon) => ({
@@ -92,8 +106,8 @@ function reportToGeojson(report: TopologyFingerprintV1) {
       geometry: {
         type: 'Polygon',
         coordinates: [
-          polygon.exterior.map(coordinate),
-          ...polygon.interiors.map((ring) => ring.coordinates.map(coordinate)),
+          polygon.exterior.map(fingerprintCoordinate),
+          ...polygon.interiors.map((ring) => ring.coordinates.map(fingerprintCoordinate)),
         ],
       },
     })),
@@ -119,6 +133,15 @@ function App() {
   const [nodeInput, setNodeInput] = useState(false);
   const [snapGridSize, setSnapGridSize] = useState(0.0);
   const [nodingGuarantee, setNodingGuarantee] = useState<NodingGuarantee>('Unchecked');
+  const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
+    rawLines: true,
+    dangles: true,
+    cutEdges: true,
+    invalidRings: true,
+    shells: true,
+    holes: true,
+    finalFaces: true,
+  });
 
   // Initialize WASM and fetch manifest
   useEffect(() => {
@@ -434,6 +457,26 @@ function App() {
               Enable noding for dirty geometries, then choose unchecked, independently validated,
               or certified fixed-precision output.
             </Typography>
+
+            <Typography variant="h6" sx={{ mt: 3 }}>Layers</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+              {layerOptions.map(([key, label]) => (
+                <FormControlLabel
+                  key={key}
+                  control={(
+                    <Switch
+                      size="small"
+                      checked={layers[key]}
+                      onChange={() => setLayers((current) => ({
+                        ...current,
+                        [key]: !current[key],
+                      }))}
+                    />
+                  )}
+                  label={label}
+                />
+              ))}
+            </Box>
           </Paper>
 
           {report && (
@@ -495,7 +538,7 @@ function App() {
                     }} // Invert Y axis for standard Cartesian coords
                   >
                      {/* Draw Output Polygons (filled) */}
-                     {outputGeojson?.features.map((f: any, i: number) => {
+                     {layers.finalFaces && outputGeojson?.features.map((f: any, i: number) => {
                         if (f.geometry.type === 'Polygon') {
                           // SVG paths
                           let d = "";
@@ -510,13 +553,65 @@ function App() {
                      })}
 
                      {/* Draw Input Lines (dashed) */}
-                     {inputGeojson?.features.map((f: any, i: number) => {
-                        if (f.geometry.type === 'LineString') {
+                     {layers.rawLines && inputGeojson?.features.map((f: any, i: number) => {
+                        if (f.geometry?.type === 'LineString') {
                            const pts = f.geometry.coordinates.map((c: any) => `${c[0]},${c[1]}`).join(" ");
                            return <polyline key={`line-${i}`} points={pts} fill="none" stroke="#ff0000" strokeWidth={bbox.width * 0.003} strokeDasharray={`${bbox.width * 0.01},${bbox.width * 0.01}`} />;
                         }
                         return null;
                      })}
+
+                     {layers.shells && report?.polygons.map((polygon, index) => (
+                       <polyline
+                         key={`shell-${index}`}
+                         points={polygon.exterior.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
+                         fill="none"
+                         stroke="#0055aa"
+                         strokeWidth={bbox.width * 0.004}
+                       />
+                     ))}
+
+                     {layers.holes && report?.polygons.flatMap((polygon, polygonIndex) => (
+                       polygon.interiors.map((ring, ringIndex) => (
+                         <polyline
+                           key={`hole-${polygonIndex}-${ringIndex}`}
+                           points={ring.coordinates.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
+                           fill="none"
+                           stroke="#00897b"
+                           strokeWidth={bbox.width * 0.004}
+                         />
+                       ))
+                     ))}
+
+                     {layers.dangles && report?.dangles.map((line, index) => (
+                       <polyline
+                         key={`dangle-${index}`}
+                         points={line.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
+                         fill="none"
+                         stroke="#f9a825"
+                         strokeWidth={bbox.width * 0.005}
+                       />
+                     ))}
+
+                     {layers.cutEdges && report?.cut_edges.map((line, index) => (
+                       <polyline
+                         key={`cut-${index}`}
+                         points={line.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
+                         fill="none"
+                         stroke="#ef6c00"
+                         strokeWidth={bbox.width * 0.005}
+                       />
+                     ))}
+
+                     {layers.invalidRings && report?.invalid_rings.map((line, index) => (
+                       <polyline
+                         key={`invalid-${index}`}
+                         points={line.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
+                         fill="none"
+                         stroke="#c62828"
+                         strokeWidth={bbox.width * 0.006}
+                       />
+                     ))}
 
                      {drawnPoints.length > 1 && (
                        <polyline
