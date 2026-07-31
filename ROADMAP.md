@@ -735,7 +735,7 @@ Add or finish dedicated guides for:
 - [x] topology and output semantics;
 - [x] floating, fixed, validated, and certified noding guarantees;
 - [x] Z and provenance behavior;
-- [ ] compatibility profiles and known divergences;
+- [x] compatibility profiles and known divergences;
 - [ ] tiling guarantees and fallback behavior;
 - [ ] Wasm memory lifetime, workers, threads, and cancellation;
 - [ ] Python memory/GIL behavior;
