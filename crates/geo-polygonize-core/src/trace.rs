@@ -1,6 +1,6 @@
 //! Internal bounded topology trace schema.
 
-use crate::fingerprint::coordinate_fingerprint;
+use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::grid::{
     UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
@@ -9,7 +9,9 @@ use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
 use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
-use crate::{CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult};
+use crate::{
+    CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerOptions, PolygonizerResult, ZPolicy,
+};
 use serde::Serialize;
 
 pub const TOPOLOGY_TRACE_V1_SCHEMA_VERSION: u32 = 1;
@@ -128,6 +130,45 @@ pub struct SplitEventTraceV1 {
     pub source_id: String,
     pub start: CoordinateFingerprintV1,
     pub end: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct ZReconciliationCandidateTraceV1 {
+    pub source_id: String,
+    pub z: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct ZReconciliationTraceV1 {
+    x: String,
+    y: String,
+    policy: ZPolicy,
+    conflict_tolerance: String,
+    candidates: Vec<ZReconciliationCandidateTraceV1>,
+    conflict: bool,
+    retained_z: String,
+}
+
+impl ZReconciliationTraceV1 {
+    pub(crate) fn new(
+        x: f64,
+        y: f64,
+        policy: ZPolicy,
+        conflict_tolerance: f64,
+        candidates: Vec<ZReconciliationCandidateTraceV1>,
+        conflict: bool,
+        retained_z: f64,
+    ) -> crate::Result<Self> {
+        Ok(Self {
+            x: float_bits(x)?,
+            y: float_bits(y)?,
+            policy,
+            conflict_tolerance: format!("0x{:016x}", conflict_tolerance.to_bits()),
+            candidates,
+            conflict,
+            retained_z: format!("0x{:016x}", retained_z.to_bits()),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -705,6 +746,14 @@ impl TraceRecorderV1 {
         Ok(())
     }
 
+    pub(crate) fn record_z_reconciliation(&mut self, decision: ZReconciliationTraceV1) {
+        self.record(
+            TraceStageV1::Noding,
+            "z_reconciliation",
+            serde_json::to_value(decision).expect("Z-reconciliation trace event serializes"),
+        );
+    }
+
     pub(crate) fn record_graph(&mut self, graph: &PlanarGraph) -> crate::Result<()> {
         if !self.trace.level.allows(TraceStageV1::Graph) {
             return Ok(());
@@ -1175,19 +1224,112 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(traced.trace.events.len(), 2);
-        assert_eq!(
-            traced.trace.events[0].payload["start"]["x"],
-            "0x0000000000000000"
-        );
-        assert_eq!(
-            traced.trace.events[0].payload["source_ids"],
-            json!(["0x00000007"])
-        );
+        let input_events: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "normalized_input_segment")
+            .collect();
+        assert_eq!(input_events.len(), 2);
+        assert_eq!(input_events[0].payload["start"]["x"], "0x0000000000000000");
+        assert_eq!(input_events[0].payload["source_ids"], json!(["0x00000007"]));
         assert_eq!(
             TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
             TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
         );
+    }
+
+    #[test]
+    fn noding_trace_records_bounded_z_reconciliation_decisions_in_physical_order() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(0.0, 0.0, 10.0),
+                Coord3D::new(1.0, 0.0, 20.0),
+                9,
+            ),
+            Line3D::new(
+                Coord3D::new(1.0, 0.0, 30.0),
+                Coord3D::new(2.0, 0.0, 40.0),
+                7,
+            ),
+            Line3D::new(
+                Coord3D::new(1.0, 0.0, 30.0),
+                Coord3D::new(1.0, 1.0, 50.0),
+                7,
+            ),
+        ];
+        let options = PolygonizerOptions {
+            z: crate::ZOptions {
+                policy: ZPolicy::InterpolateAlongEdge,
+                conflict_tolerance: 5.0,
+            },
+            ..Default::default()
+        };
+        let traced = polygonize_with_trace(
+            lines.clone(),
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            usize::MAX,
+        )
+        .unwrap();
+        let decision = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| {
+                event.kind == "z_reconciliation"
+                    && event.payload["x"] == format!("0x{:016x}", 1.0f64.to_bits())
+                    && event.payload["y"] == "0x0000000000000000"
+            })
+            .unwrap();
+
+        assert_eq!(decision.payload["policy"], "InterpolateAlongEdge");
+        assert_eq!(
+            decision.payload["conflict_tolerance"],
+            format!("0x{:016x}", 5.0f64.to_bits())
+        );
+        assert_eq!(decision.payload["conflict"], true);
+        assert_eq!(
+            decision.payload["retained_z"],
+            format!("0x{:016x}", 30.0f64.to_bits())
+        );
+        assert_eq!(
+            decision.payload["candidates"],
+            json!([
+                {"source_id": "0x00000007", "z": format!("0x{:016x}", 30.0f64.to_bits())},
+                {"source_id": "0x00000007", "z": format!("0x{:016x}", 30.0f64.to_bits())},
+                {"source_id": "0x00000009", "z": format!("0x{:016x}", 20.0f64.to_bits())},
+            ])
+        );
+
+        let first_decision = traced
+            .trace
+            .events
+            .iter()
+            .position(|event| event.kind == "z_reconciliation")
+            .unwrap();
+        let limit = traced.trace.events[..=first_decision]
+            .iter()
+            .map(|event| serde_json::to_vec(event).unwrap().len())
+            .sum::<usize>()
+            - 1;
+        let truncated = polygonize_with_trace(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Noding,
+            limit,
+        )
+        .unwrap()
+        .trace;
+
+        assert!(truncated.truncated);
+        assert_eq!(truncated.events.len(), first_decision);
+        assert!(truncated
+            .events
+            .iter()
+            .all(|event| event.kind != "z_reconciliation"));
     }
 
     #[test]
