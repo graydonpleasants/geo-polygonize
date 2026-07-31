@@ -23,6 +23,7 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Topology and output', link: '/guide/topology-output' },
+          { text: 'Noding guarantees', link: '/guide/noding-guarantees' },
           { text: 'WASM Integration', link: '/guide/wasm' },
         ]
       },
