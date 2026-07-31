@@ -60,6 +60,14 @@ const layerOptions = [
 ] as const;
 type LayerKey = typeof layerOptions[number][0];
 
+type SelectedFeature = {
+  key: string;
+  label: string;
+  sourceIds: string[];
+  edgeIds?: string[];
+  z?: string[];
+};
+
 // --- Utils ---
 function computeBoundingBox(geojson: any) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -135,6 +143,7 @@ function App() {
   const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
   const [trace, setTrace] = useState<TopologyTraceV1 | null>(null);
   const [traceBusy, setTraceBusy] = useState(false);
+  const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
   const [drawnPoints, setDrawnPoints] = useState<number[][]>([]);
@@ -227,6 +236,7 @@ function App() {
     setOutputGeojson(null);
     setReport(null);
     setTrace(null);
+    setSelectedFeature(null);
     setError(null);
 
     async function loadFixture() {
@@ -331,6 +341,7 @@ function App() {
     );
     setTraceBusy(true);
     setTrace(null);
+    setSelectedFeature(null);
     void polygonizeTraceWithOptionsAsync(
       JSON.stringify(inputGeojson),
       options,
@@ -539,6 +550,21 @@ function App() {
                  InputProps={{ readOnly: true }}
                  sx={{ mt: 2 }}
                />
+               {selectedFeature && (
+                 <TextField
+                   fullWidth
+                   multiline
+                   minRows={4}
+                   label={selectedFeature.label}
+                   value={JSON.stringify({
+                     source_ids: selectedFeature.sourceIds,
+                     edge_ids: selectedFeature.edgeIds,
+                     retained_z_bits: selectedFeature.z,
+                   }, null, 2)}
+                   InputProps={{ readOnly: true }}
+                   sx={{ mt: 2 }}
+                 />
+               )}
             </Paper>
           )}
         </Grid>
@@ -556,7 +582,10 @@ function App() {
                     viewBox={`${bbox.minX} ${bbox.minY} ${bbox.width} ${bbox.height}`}
                     preserveAspectRatio="xMidYMid meet"
                     onPointerDown={(event) => {
-                      if (!drawEnabled) return;
+                      if (!drawEnabled) {
+                        setSelectedFeature(null);
+                        return;
+                      }
                       event.preventDefault();
                       const point = pointerCoordinate(event);
                       if (!point) return;
@@ -613,7 +642,16 @@ function App() {
                          x2={line.end[0]}
                          y2={line.end[1]}
                          stroke="#3949ab"
-                         strokeWidth={bbox.width * 0.004}
+                         strokeWidth={bbox.width * (selectedFeature?.key === `snapped-${line.sequence}` ? 0.007 : 0.004)}
+                         style={{ cursor: 'pointer' }}
+                         onClick={(event) => {
+                           event.stopPropagation();
+                           setSelectedFeature({
+                             key: `snapped-${line.sequence}`,
+                             label: 'Snapped line provenance',
+                             sourceIds: line.sourceIds,
+                           });
+                         }}
                        />
                      ))}
 
@@ -625,7 +663,16 @@ function App() {
                          x2={line.end[0]}
                          y2={line.end[1]}
                          stroke="#263238"
-                         strokeWidth={bbox.width * 0.002}
+                         strokeWidth={bbox.width * (selectedFeature?.key === `graph-${line.sequence}` ? 0.006 : 0.002)}
+                         style={{ cursor: 'pointer' }}
+                         onClick={(event) => {
+                           event.stopPropagation();
+                           setSelectedFeature({
+                             key: `graph-${line.sequence}`,
+                             label: 'Graph edge provenance',
+                             sourceIds: line.sourceIds,
+                           });
+                         }}
                        />
                      ))}
 
@@ -647,6 +694,17 @@ function App() {
                          cy={point.coordinate[1]}
                          r={bbox.width * 0.005}
                          fill="#8e24aa"
+                         stroke={selectedFeature?.key === `split-${point.sequence}` ? '#ffffff' : 'none'}
+                         strokeWidth={bbox.width * 0.002}
+                         style={{ cursor: 'pointer' }}
+                         onClick={(event) => {
+                           event.stopPropagation();
+                           setSelectedFeature({
+                             key: `split-${point.sequence}`,
+                             label: 'Split witness provenance',
+                             sourceIds: point.sourceIds,
+                           });
+                         }}
                        />
                      ))}
 
@@ -656,7 +714,18 @@ function App() {
                          points={polygon.exterior.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
                          fill="none"
                          stroke="#0055aa"
-                         strokeWidth={bbox.width * 0.004}
+                         strokeWidth={bbox.width * (selectedFeature?.key === `shell-${index}` ? 0.007 : 0.004)}
+                         style={{ cursor: 'pointer' }}
+                         onClick={(event) => {
+                           event.stopPropagation();
+                           setSelectedFeature({
+                             key: `shell-${index}`,
+                             label: 'Shell provenance and retained Z',
+                             sourceIds: polygon.provenance?.boundary_line_ids ?? [],
+                             edgeIds: polygon.exterior_edge_ids,
+                             z: polygon.exterior.map((coordinate) => coordinate.z),
+                           });
+                         }}
                        />
                      ))}
 
@@ -667,7 +736,18 @@ function App() {
                            points={ring.coordinates.map(fingerprintCoordinate).map((point) => point.join(',')).join(' ')}
                            fill="none"
                            stroke="#00897b"
-                           strokeWidth={bbox.width * 0.004}
+                           strokeWidth={bbox.width * (selectedFeature?.key === `hole-${polygonIndex}-${ringIndex}` ? 0.007 : 0.004)}
+                           style={{ cursor: 'pointer' }}
+                           onClick={(event) => {
+                             event.stopPropagation();
+                             setSelectedFeature({
+                               key: `hole-${polygonIndex}-${ringIndex}`,
+                               label: 'Hole provenance and retained Z',
+                               sourceIds: polygon.provenance?.boundary_line_ids ?? [],
+                               edgeIds: ring.edge_ids,
+                               z: ring.coordinates.map((coordinate) => coordinate.z),
+                             });
+                           }}
                          />
                        ))
                      ))}
