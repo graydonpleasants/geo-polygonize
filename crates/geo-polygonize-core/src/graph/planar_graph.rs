@@ -993,6 +993,9 @@ impl PlanarGraph {
             next_pointers.resize(self.directed_edges.len(), usize::MAX);
             self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
+            #[cfg(any(test, debug_assertions))]
+            self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+
             let mut labels = vec![-1_i64; self.directed_edges.len()];
             self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
 
@@ -1096,6 +1099,9 @@ impl PlanarGraph {
             // Step 1: computeNextCWEdges over every node.
             self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
+            #[cfg(any(test, debug_assertions))]
+            self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+
             // Step 2: find and label maximal rings.
             let maximal_ring_starts =
                 self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
@@ -1119,6 +1125,9 @@ impl PlanarGraph {
                 &labels,
                 execution_policy,
             )?;
+
+            #[cfg(any(test, debug_assertions))]
+            self.validate_arrangement_ring_cycles(&next_pointers, "minimal")?;
 
             // Extract the minimal rings from the graph.
             self.extract_valid_rings(
@@ -1327,6 +1336,95 @@ impl PlanarGraph {
                 next = curr;
             }
         }
+        Ok(())
+    }
+
+    /// Validates that active half-edges form disjoint closed cycles through
+    /// the current ephemeral ring links.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn validate_arrangement_ring_cycles(
+        &self,
+        next_pointers: &[usize],
+        phase: &str,
+    ) -> crate::Result<()> {
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        if next_pointers.len() != self.directed_edges.len() {
+            return Err(invariant(format!(
+                "arrangement {phase} ring invariant link count mismatch: links={}, directed_edges={}",
+                next_pointers.len(),
+                self.directed_edges.len()
+            )));
+        }
+
+        let is_active = |directed_idx: DirEdgeId| {
+            let directed = &self.directed_edges[directed_idx];
+            !directed.is_marked && !self.edges[directed.edge_idx].deleted
+        };
+
+        for (directed_idx, directed) in self.directed_edges.iter().enumerate() {
+            if !is_active(directed_idx) {
+                continue;
+            }
+            let Some(&successor_idx) = next_pointers.get(directed.sym_idx) else {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant directed edge {directed_idx} has missing twin link {}",
+                    directed.sym_idx
+                )));
+            };
+            if successor_idx == usize::MAX {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant directed edge {directed_idx} has no successor at twin link {}",
+                    directed.sym_idx
+                )));
+            }
+            let Some(successor) = self.directed_edges.get(successor_idx) else {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant directed edge {directed_idx} successor {successor_idx} is out of bounds"
+                )));
+            };
+            if !is_active(successor_idx) {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant directed edge {directed_idx} successor {successor_idx} is inactive"
+                )));
+            }
+            if directed.dst != successor.src {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant continuity mismatch: directed edge {directed_idx} ends at {}, successor {successor_idx} starts at {}",
+                    directed.dst, successor.src
+                )));
+            }
+        }
+
+        let mut assigned_cycle = vec![None; self.directed_edges.len()];
+        for start_idx in 0..self.directed_edges.len() {
+            if !is_active(start_idx) || assigned_cycle[start_idx].is_some() {
+                continue;
+            }
+
+            let mut current_idx = start_idx;
+            loop {
+                if let Some(first_start) = assigned_cycle[current_idx] {
+                    if current_idx == start_idx && first_start == start_idx {
+                        break;
+                    }
+                    return Err(invariant(format!(
+                        "arrangement {phase} ring invariant cycle {start_idx} reuses directed edge {current_idx} assigned to cycle {first_start} before closure"
+                    )));
+                }
+                assigned_cycle[current_idx] = Some(start_idx);
+                let twin_idx = self.directed_edges[current_idx].sym_idx;
+                current_idx = next_pointers[twin_idx];
+            }
+        }
+
+        for (directed_idx, assignment) in assigned_cycle.into_iter().enumerate() {
+            if is_active(directed_idx) && assignment.is_none() {
+                return Err(invariant(format!(
+                    "arrangement {phase} ring invariant directed edge {directed_idx} is unassigned"
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -1549,5 +1647,113 @@ impl PlanarGraph {
             }
         }
         Ok(rings)
+    }
+}
+
+#[cfg(test)]
+mod arrangement_ring_invariant_tests {
+    use super::*;
+
+    fn next_links(graph: &PlanarGraph) -> Vec<DirEdgeId> {
+        let mut links = vec![usize::MAX; graph.directed_edges.len()];
+        graph.compute_next_cw_edges(&mut links, None).unwrap();
+        links
+    }
+
+    fn add_triangle(graph: &mut PlanarGraph, points: [Coord3D; 3], first_line_id: u32) {
+        for offset in 0..3 {
+            graph.add_line(Line3D::new(
+                points[offset],
+                points[(offset + 1) % 3],
+                first_line_id + offset as u32,
+            ));
+        }
+    }
+
+    fn invariant_reason(graph: &PlanarGraph, links: &[DirEdgeId], phase: &str) -> String {
+        match graph
+            .validate_arrangement_ring_cycles(links, phase)
+            .unwrap_err()
+        {
+            crate::PolygonizeError::InternalInvariantViolation { reason } => reason,
+            error => panic!("unexpected validation error: {error}"),
+        }
+    }
+
+    #[test]
+    fn arrangement_ring_validator_accepts_maximal_and_minimal_cycles() {
+        let mut graph = PlanarGraph::new();
+        let center = Coord3D::new(0.0, 0.0, 0.0);
+        add_triangle(
+            &mut graph,
+            [
+                center,
+                Coord3D::new(2.0, 0.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+            ],
+            10,
+        );
+        add_triangle(
+            &mut graph,
+            [
+                center,
+                Coord3D::new(-2.0, 0.0, 0.0),
+                Coord3D::new(-1.0, -1.0, 0.0),
+            ],
+            20,
+        );
+        graph.sort_edges();
+
+        let mut links = next_links(&graph);
+        graph
+            .validate_arrangement_ring_cycles(&links, "maximal")
+            .unwrap();
+
+        let mut labels = vec![-1_i64; graph.directed_edges.len()];
+        let starts = graph
+            .find_and_label_maximal_rings(&links, &mut labels, None)
+            .unwrap();
+        graph
+            .convert_maximal_to_minimal_rings(&starts, &mut links, &labels, None)
+            .unwrap();
+        graph
+            .validate_arrangement_ring_cycles(&links, "minimal")
+            .unwrap();
+    }
+
+    #[test]
+    fn arrangement_ring_validator_reports_deterministic_witnesses() {
+        let mut graph = PlanarGraph::new();
+        let center = Coord3D::new(0.0, 0.0, 0.0);
+        for (line_id, end) in [
+            (10, Coord3D::new(10.0, 0.0, 0.0)),
+            (20, Coord3D::new(0.0, 10.0, 0.0)),
+            (30, Coord3D::new(-10.0, 0.0, 0.0)),
+        ] {
+            graph.add_line(Line3D::new(center, end, line_id));
+        }
+        graph.sort_edges();
+        let links = next_links(&graph);
+
+        let mut broken = links.clone();
+        broken[graph.directed_edges[0].sym_idx] = usize::MAX;
+        assert_eq!(
+            invariant_reason(&graph, &broken, "maximal"),
+            "arrangement maximal ring invariant directed edge 0 has no successor at twin link 1"
+        );
+
+        let mut broken = links.clone();
+        broken[graph.directed_edges[0].sym_idx] = 0;
+        assert_eq!(
+            invariant_reason(&graph, &broken, "maximal"),
+            "arrangement maximal ring invariant continuity mismatch: directed edge 0 ends at 1, successor 0 starts at 0"
+        );
+
+        let mut broken = links;
+        broken[2] = 4;
+        assert_eq!(
+            invariant_reason(&graph, &broken, "maximal"),
+            "arrangement maximal ring invariant cycle 0 reuses directed edge 4 assigned to cycle 0 before closure"
+        );
     }
 }
