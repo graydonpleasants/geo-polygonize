@@ -59,4 +59,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "adapter_differential"
+path = "fuzz_targets/adapter_differential.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

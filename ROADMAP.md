@@ -413,6 +413,10 @@ The strict persisted-differential corpus is now exercised in CI by decoding
 the exact IEEE-754 input, rerunning the recorded options, requiring byte-exact
 fingerprint equality, and checking compatibility-classification evidence. It is
 seeded with the existing documented floating-microfaces GEOS divergence.
+Scheduled fuzzing now compares one-shot and reusable-workspace fingerprints or
+normalized errors, runs the persisted corpus before fuzzing, and retains
+libFuzzer failure artifacts for admission. Converting those raw minimized bytes
+into checked-in persisted fixtures remains a reviewed step.
 
 ### P1.5 Trace schema
 
