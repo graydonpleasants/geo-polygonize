@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "case_id": "floating_microfaces_expected_divergence",
+  "classification": "expected_divergence",
+  "golden": {
+    "schema_version": 1,
+    "input": [
+      {
+        "start": {
+          "x": "0x4053800000000000",
+          "y": "0x4032000000000000",
+          "z": "0x0000000000000000"
+        },
+        "end": {
+          "x": "0x4045000000000000",
+          "y": "0x4042000000000000",
+          "z": "0x0000000000000000"
+        },
+        "line_id": "0x00000001"
+      },
+      {
+        "start": {
+          "x": "0x4044000000000000",
+          "y": "0x4042800000000000",
+          "z": "0x0000000000000000"
+        },
+        "end": {
+          "x": "0x4054000000000000",
+          "y": "0x4031000000000000",
+          "z": "0x0000000000000000"
+        },
+        "line_id": "0x00000002"
+      },
+      {
+        "start": {
+          "x": "0x404b800000000000",
+          "y": "0x4031000000000000",
+          "z": "0x0000000000000000"
+        },
+        "end": {
+          "x": "0x4056400000000000",
+          "y": "0x403b000000000000",
+          "z": "0x0000000000000000"
+        },
+        "line_id": "0x00000003"
+      }
+    ],
+    "options": {
+      "containment": {
+        "touch_policy": "AllowPointTouchDisallowEdgeShare"
+      },
+      "determinism": {
+        "canonical_ring_rotation": true,
+        "canonical_sort": true,
+        "stable_tie_breaks": true
+      },
+      "diagnostics": {
+        "enabled": false,
+        "report_mode": false,
+        "timings": false
+      },
+      "extract_only_polygonal": false,
+      "input_profile_id": null,
+      "node_input": true,
+      "noding": {
+        "backend": "Snap",
+        "guarantee": "Unchecked"
+      },
+      "output_filter": {
+        "minimum_face_area": null
+      },
+      "pre_snap_tolerance": 0.0,
+      "precision_model": {
+        "type": "floating"
+      },
+      "provenance": {
+        "enabled": false,
+        "include_boundary_line_ids": false
+      },
+      "snap_strategy": "Grid",
+      "z": {
+        "conflict_tolerance": 0.0,
+        "policy": "InterpolateAlongEdge"
+      }
+    },
+    "versions": {
+      "geo-polygonize-core": "0.76.2",
+      "reference": "Shapely 2.1.2 / GEOS 3.13.1"
+    },
+    "fingerprint": {
+      "schema_version": 1,
+      "options": {
+        "containment": {
+          "touch_policy": "AllowPointTouchDisallowEdgeShare"
+        },
+        "determinism": {
+          "canonical_ring_rotation": true,
+          "canonical_sort": true,
+          "stable_tie_breaks": true
+        },
+        "diagnostics": {
+          "enabled": false,
+          "report_mode": false,
+          "timings": false
+        },
+        "extract_only_polygonal": false,
+        "input_profile_id": null,
+        "node_input": true,
+        "noding": {
+          "backend": "Snap",
+          "guarantee": "Unchecked"
+        },
+        "output_filter": {
+          "minimum_face_area": null
+        },
+        "pre_snap_tolerance": 0.0,
+        "precision_model": {
+          "type": "floating"
+        },
+        "provenance": {
+          "enabled": false,
+          "include_boundary_line_ids": false
+        },
+        "snap_strategy": "Grid",
+        "z": {
+          "conflict_tolerance": 0.0,
+          "policy": "InterpolateAlongEdge"
+        }
+      },
+      "polygons": [
+        {
+          "exterior": [
+            {
+              "x": "0x4045000000000000",
+              "y": "0x4042000000000000",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4051af684bda12f6",
+              "y": "0x4035a12f684bda13",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4051af684bda12f7",
+              "y": "0x4035a12f684bda13",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4045000000000000",
+              "y": "0x4042000000000000",
+              "z": "0x0000000000000000"
+            }
+          ],
+          "interiors": [],
+          "exterior_edge_ids": [
+            "0x00000001",
+            "0x00000003",
+            "0x00000002"
+          ],
+          "provenance": null
+        },
+        {
+          "exterior": [
+            {
+              "x": "0x4051af684bda12f6",
+              "y": "0x4035a12f684bda13",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4053800000000000",
+              "y": "0x4032000000000000",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4051af684bda12f7",
+              "y": "0x4035a12f684bda13",
+              "z": "0x0000000000000000"
+            },
+            {
+              "x": "0x4051af684bda12f6",
+              "y": "0x4035a12f684bda13",
+              "z": "0x0000000000000000"
+            }
+          ],
+          "interiors": [],
+          "exterior_edge_ids": [
+            "0x00000001",
+            "0x00000002",
+            "0x00000003"
+          ],
+          "provenance": null
+        }
+      ],
+      "dangles": [
+        [
+          {
+            "x": "0x4044000000000000",
+            "y": "0x4042800000000000",
+            "z": "0x0000000000000000"
+          },
+          {
+            "x": "0x4045000000000000",
+            "y": "0x4042000000000000",
+            "z": "0x0000000000000000"
+          }
+        ],
+        [
+          {
+            "x": "0x404b800000000000",
+            "y": "0x4031000000000000",
+            "z": "0x0000000000000000"
+          },
+          {
+            "x": "0x4051af684bda12f6",
+            "y": "0x4035a12f684bda13",
+            "z": "0x0000000000000000"
+          }
+        ],
+        [
+          {
+            "x": "0x4051af684bda12f7",
+            "y": "0x4035a12f684bda13",
+            "z": "0x0000000000000000"
+          },
+          {
+            "x": "0x4056400000000000",
+            "y": "0x403b000000000000",
+            "z": "0x0000000000000000"
+          }
+        ],
+        [
+          {
+            "x": "0x4053800000000000",
+            "y": "0x4032000000000000",
+            "z": "0x0000000000000000"
+          },
+          {
+            "x": "0x4054000000000000",
+            "y": "0x4031000000000000",
+            "z": "0x0000000000000000"
+          }
+        ]
+      ],
+      "cut_edges": [],
+      "invalid_rings": [],
+      "diagnostics": null
+    },
+    "reference_metrics": {
+      "polygon_count": 0,
+      "dangle_count": 0,
+      "cut_edge_count": 0,
+      "invalid_ring_count": 0,
+      "total_area": "0x0000000000000000"
+    },
+    "witness": {
+      "path": "$.polygons.length",
+      "expected": 0,
+      "actual": 2
+    }
+  }
+}
