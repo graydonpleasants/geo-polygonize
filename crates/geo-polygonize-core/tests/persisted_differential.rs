@@ -40,6 +40,9 @@ fn persisted_differential_corpus_reproduces_strict_fingerprints() {
                 .is_some_and(|extension| extension == "json")
         })
         .collect();
+    if let Some(candidate) = std::env::var_os("PERSISTED_DIFFERENTIAL_CANDIDATE") {
+        paths.push(candidate.into());
+    }
     paths.sort();
     assert!(
         !paths.is_empty(),
