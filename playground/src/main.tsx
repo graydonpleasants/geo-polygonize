@@ -15,11 +15,13 @@ import {
   Switch,
   FormControlLabel,
   TextField,
+  Button,
   Box,
   Paper,
   Grid,
   Alert
 } from '@mui/material';
+import { parseGeojsonInput } from './input';
 
 // --- Types ---
 interface ManifestEntry {
@@ -102,6 +104,7 @@ function App() {
   const [selectedSlug, setSelectedSlug] = useState<string>('');
   const [wasmReady, setWasmReady] = useState(false);
   const [inputGeojson, setInputGeojson] = useState<any>(null);
+  const [inputText, setInputText] = useState('');
   const [outputGeojson, setOutputGeojson] = useState<any>(null);
   const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -200,12 +203,37 @@ function App() {
         }
         if (!data) throw new Error("Could not load fixture");
         setInputGeojson(data);
+        setInputText(JSON.stringify(data, null, 2));
       } catch (e: any) {
         setError("Failed to load fixture: " + e.toString());
       }
     }
     loadFixture();
   }, [selectedSlug, manifest]);
+
+  const applyInput = (text: string) => {
+    try {
+      const data = parseGeojsonInput(text);
+      setInputGeojson(data);
+      setInputText(JSON.stringify(data, null, 2));
+      setSelectedSlug('');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('scenario');
+      window.history.replaceState({}, '', url.toString());
+      setError(null);
+    } catch (e) {
+      setError(`Input Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const loadFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      applyInput(await file.text());
+    } catch (e) {
+      setError(`Input Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   // Run Polygonizer
   useEffect(() => {
@@ -249,7 +277,7 @@ function App() {
 
       <Grid container spacing={3}>
         {/* Controls */}
-        <Grid item xs={12} md={4}>
+        <Grid size={{ xs: 12, md: 4 }}>
           <Paper sx={{ p: 2 }}>
             <FormControl fullWidth sx={{ mb: 3 }}>
               <InputLabel id="scenario-label">Scenario</InputLabel>
@@ -265,11 +293,51 @@ function App() {
                   window.history.replaceState({}, '', url.toString());
                 }}
               >
+                <MenuItem value="" disabled>Custom input</MenuItem>
                 {manifest.map(m => (
                   <MenuItem key={m.slug} value={m.slug}>{m.title}</MenuItem>
                 ))}
               </Select>
             </FormControl>
+
+            <Typography variant="h6" gutterBottom>Input GeoJSON</Typography>
+            <Box
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                void loadFile(event.dataTransfer.files[0]);
+              }}
+              sx={{ mb: 3, p: 1.5, border: '1px dashed', borderColor: 'divider' }}
+            >
+              <TextField
+                fullWidth
+                multiline
+                minRows={6}
+                label="Paste GeoJSON"
+                value={inputText}
+                onChange={(event) => setInputText(event.target.value)}
+              />
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button variant="contained" onClick={() => applyInput(inputText)}>
+                  Apply
+                </Button>
+                <Button component="label" variant="outlined">
+                  Upload
+                  <input
+                    hidden
+                    type="file"
+                    accept=".geojson,.json,application/geo+json,application/json"
+                    onChange={(event) => void loadFile(event.target.files?.[0])}
+                  />
+                </Button>
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                Paste, upload, or drop a GeoJSON file here.
+              </Typography>
+            </Box>
 
             <Typography variant="h6" gutterBottom>Options</Typography>
             <FormControlLabel
@@ -303,7 +371,7 @@ function App() {
         </Grid>
 
         {/* Visualizer */}
-        <Grid item xs={12} md={8}>
+        <Grid size={{ xs: 12, md: 8 }}>
           <Paper sx={{ p: 2, height: '600px', display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>Geometry View</Typography>
             {bbox && (
