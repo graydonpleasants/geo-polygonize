@@ -353,7 +353,7 @@ Record:
 
 ### P1.3 Durable benchmark reporting
 
-- [ ] Publish machine-readable artifacts and a human-readable trend dashboard.
+- [x] Publish machine-readable artifacts and a human-readable trend dashboard.
 - [x] Separate noisy runner samples from decision-quality measurements.
 - [x] Pin GEOS, JTS, Shapely, Rust, and Node versions in comparison jobs.
 - [x] Define the minimum effect size and regression budget before each backend or
@@ -380,6 +380,10 @@ publication and decision artifacts into a human-readable trend view. The
 correctness workflow now retains its validated GEOS and JTS reference results
 for 30 days. Decision-quality timing publication still requires records from a
 dedicated runner; no timing rows are fabricated in their absence.
+The manual publication workflow runs only on a labeled dedicated self-hosted
+runner, collects five independent correctness-gated records, validates their
+dispersion, renders the trend report into the job summary, and retains the
+records, publication, checksums, reference, and Markdown report for 90 days.
 
 ### P1.4 Differential minimization
 
