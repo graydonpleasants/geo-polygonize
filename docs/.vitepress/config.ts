@@ -12,6 +12,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Playground', link: '/playground/' },
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Reference', link: '/reference/' },
       { text: 'Examples', link: '/examples/' }
