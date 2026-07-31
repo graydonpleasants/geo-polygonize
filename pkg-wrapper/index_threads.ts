@@ -18,5 +18,6 @@ export * from "./bindings/TouchPolicy";
 export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
 export * from "./cfb";
+export * from "./topology_trace";
 
 export default init;

@@ -9,6 +9,9 @@ describe('WASM Polygonizer', () => {
         expect(existsSync(resolve('dist/standard/pkg-scalar/geo_polygonize.d.ts'))).toBe(true);
         expect(existsSync(resolve('dist/slim/pkg-scalar/geo_polygonize.d.ts'))).toBe(true);
         expect(existsSync(resolve('dist/threads/pkg-threads/geo_polygonize.d.ts'))).toBe(true);
+        for (const variant of ['standard', 'slim', 'threads']) {
+            expect(existsSync(resolve(`dist/${variant}/es/topology_trace.d.ts`))).toBe(true);
+        }
     });
 
     it('should publish the browser worker cancellation entry point', async () => {
