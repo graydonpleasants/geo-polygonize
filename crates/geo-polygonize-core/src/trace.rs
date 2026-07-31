@@ -34,6 +34,43 @@ pub enum TraceStageV1 {
     Output,
 }
 
+/// Independent serialized-byte limits for a topology trace.
+///
+/// `total_bytes` bounds the complete trace. Each stage limit independently
+/// bounds events and temporary capture buffers for that stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TraceByteLimitsV1 {
+    pub total_bytes: usize,
+    pub summary_bytes: usize,
+    pub noding_bytes: usize,
+    pub graph_bytes: usize,
+    pub ring_bytes: usize,
+    pub output_bytes: usize,
+}
+
+impl TraceByteLimitsV1 {
+    pub const fn total(total_bytes: usize) -> Self {
+        Self {
+            total_bytes,
+            summary_bytes: usize::MAX,
+            noding_bytes: usize::MAX,
+            graph_bytes: usize::MAX,
+            ring_bytes: usize::MAX,
+            output_bytes: usize::MAX,
+        }
+    }
+
+    const fn stage(self, stage: TraceStageV1) -> usize {
+        match stage {
+            TraceStageV1::Summary => self.summary_bytes,
+            TraceStageV1::Noding => self.noding_bytes,
+            TraceStageV1::Graph => self.graph_bytes,
+            TraceStageV1::Rings => self.ring_bytes,
+            TraceStageV1::Output => self.output_bytes,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TraceEventV1 {
     pub sequence: usize,
@@ -223,6 +260,10 @@ pub struct TopologyTraceV1 {
 /// Callers hold this as an `Option`; `None` is the disabled fast path.
 pub struct TraceRecorderV1 {
     trace: TopologyTraceV1,
+    limits: TraceByteLimitsV1,
+    stage_bytes_used: [usize; 5],
+    stage_truncated: [bool; 5],
+    total_truncated: bool,
 }
 
 pub(crate) struct TraceCaptureBudget {
@@ -286,17 +327,29 @@ impl TraceRecorderV1 {
         byte_limit: usize,
         options: &PolygonizerOptions,
     ) -> Option<Self> {
+        Self::new_with_limits(level, TraceByteLimitsV1::total(byte_limit), options)
+    }
+
+    pub fn new_with_limits(
+        level: Option<TraceLevelV1>,
+        limits: TraceByteLimitsV1,
+        options: &PolygonizerOptions,
+    ) -> Option<Self> {
         level.map(|level| Self {
             trace: TopologyTraceV1 {
                 schema_version: TOPOLOGY_TRACE_V1_SCHEMA_VERSION,
                 library_version: env!("CARGO_PKG_VERSION").to_string(),
                 level,
-                byte_limit,
+                byte_limit: limits.total_bytes,
                 bytes_used: 0,
                 truncated: false,
                 options: serde_json::to_value(options).expect("validated options serialize"),
                 events: Vec::new(),
             },
+            limits,
+            stage_bytes_used: [0; 5],
+            stage_truncated: [false; 5],
+            total_truncated: false,
         })
     }
 
@@ -307,8 +360,12 @@ impl TraceRecorderV1 {
         kind: impl Into<String>,
         payload: serde_json::Value,
     ) -> bool {
-        if self.trace.truncated || !self.trace.level.allows(stage) {
-            return !self.trace.truncated;
+        if !self.trace.level.allows(stage) {
+            return true;
+        }
+        let stage_index = stage.index();
+        if self.total_truncated || self.stage_truncated[stage_index] {
+            return false;
         }
         let event = TraceEventV1 {
             sequence: self.trace.events.len(),
@@ -321,13 +378,27 @@ impl TraceRecorderV1 {
             .len();
         let Some(bytes_used) = self.trace.bytes_used.checked_add(event_bytes) else {
             self.trace.truncated = true;
+            self.total_truncated = true;
             return false;
         };
         if bytes_used > self.trace.byte_limit {
             self.trace.truncated = true;
+            self.total_truncated = true;
+            return false;
+        }
+        let Some(stage_bytes_used) = self.stage_bytes_used[stage_index].checked_add(event_bytes)
+        else {
+            self.trace.truncated = true;
+            self.stage_truncated[stage_index] = true;
+            return false;
+        };
+        if stage_bytes_used > self.limits.stage(stage) {
+            self.trace.truncated = true;
+            self.stage_truncated[stage_index] = true;
             return false;
         }
         self.trace.bytes_used = bytes_used;
+        self.stage_bytes_used[stage_index] = stage_bytes_used;
         self.trace.events.push(event);
         true
     }
@@ -337,15 +408,35 @@ impl TraceRecorderV1 {
     }
 
     pub(crate) fn records_stage(&self, stage: TraceStageV1) -> bool {
-        self.trace.level.allows(stage) && !self.trace.truncated
+        self.trace.level.allows(stage)
+            && !self.total_truncated
+            && !self.stage_truncated[stage.index()]
     }
 
-    pub(crate) fn capture_byte_limit(&self) -> usize {
-        self.trace.byte_limit.saturating_sub(self.trace.bytes_used)
+    pub(crate) fn capture_byte_limit(&self, stage: TraceStageV1) -> usize {
+        self.trace
+            .byte_limit
+            .saturating_sub(self.trace.bytes_used)
+            .min(
+                self.limits
+                    .stage(stage)
+                    .saturating_sub(self.stage_bytes_used[stage.index()]),
+            )
     }
 
-    pub(crate) fn mark_capture_truncated(&mut self) {
+    pub(crate) fn mark_capture_truncated(&mut self, stage: TraceStageV1) {
         self.trace.truncated = true;
+        let total_remaining = self.trace.byte_limit.saturating_sub(self.trace.bytes_used);
+        let stage_remaining = self
+            .limits
+            .stage(stage)
+            .saturating_sub(self.stage_bytes_used[stage.index()]);
+        if total_remaining <= stage_remaining {
+            self.total_truncated = true;
+        }
+        if stage_remaining <= total_remaining {
+            self.stage_truncated[stage.index()] = true;
+        }
     }
 
     pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
@@ -895,11 +986,24 @@ impl TraceLevelV1 {
     }
 }
 
+impl TraceStageV1 {
+    const fn index(self) -> usize {
+        match self {
+            Self::Summary => 0,
+            Self::Noding => 1,
+            Self::Graph => 2,
+            Self::Rings => 3,
+            Self::Output => 4,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        polygonize, polygonize_with_trace, Coord3D, ExecutionPolicy, TopologyFingerprintV1,
+        polygonize, polygonize_with_trace, polygonize_with_trace_limits, Coord3D, ExecutionPolicy,
+        TopologyFingerprintV1,
     };
     use serde_json::json;
 
@@ -948,6 +1052,82 @@ mod tests {
         assert!(!budget.capture(&mut values, split));
         assert_eq!(values.len(), 2);
         assert!(budget.truncated());
+    }
+
+    #[test]
+    fn exhausted_stage_limit_does_not_suppress_later_stages() {
+        let options = PolygonizerOptions::default();
+        let limits = TraceByteLimitsV1 {
+            noding_bytes: 0,
+            ..TraceByteLimitsV1::total(usize::MAX)
+        };
+        let mut recorder =
+            TraceRecorderV1::new_with_limits(Some(TraceLevelV1::Full), limits, &options).unwrap();
+
+        assert!(!recorder.record(TraceStageV1::Noding, "candidate", json!({"pair": [1, 2]})));
+        assert!(recorder.record(TraceStageV1::Graph, "node", json!({"id": 1})));
+
+        let trace = recorder.finish();
+        assert!(trace.truncated);
+        assert_eq!(trace.events.len(), 1);
+        assert_eq!(trace.events[0].stage, TraceStageV1::Graph);
+    }
+
+    #[test]
+    fn capture_truncation_distinguishes_stage_and_total_limits() {
+        let options = PolygonizerOptions::default();
+        let stage_limits = TraceByteLimitsV1 {
+            ring_bytes: 0,
+            ..TraceByteLimitsV1::total(usize::MAX)
+        };
+        let mut stage_limited =
+            TraceRecorderV1::new_with_limits(Some(TraceLevelV1::Full), stage_limits, &options)
+                .unwrap();
+        stage_limited.mark_capture_truncated(TraceStageV1::Rings);
+        assert!(stage_limited.record(TraceStageV1::Graph, "node", json!({"id": 1})));
+
+        let mut total_limited =
+            TraceRecorderV1::new(Some(TraceLevelV1::Full), 0, &options).unwrap();
+        total_limited.mark_capture_truncated(TraceStageV1::Rings);
+        assert!(!total_limited.record(TraceStageV1::Graph, "node", json!({"id": 1})));
+    }
+
+    #[test]
+    fn traced_entrypoint_applies_stage_limits_without_changing_results() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 7),
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 9),
+        ];
+        let options = PolygonizerOptions::default();
+        let expected = polygonize(lines.iter().copied(), &options).unwrap();
+        let limits = TraceByteLimitsV1 {
+            noding_bytes: 0,
+            ..TraceByteLimitsV1::total(usize::MAX)
+        };
+        let traced = polygonize_with_trace_limits(
+            lines,
+            &options,
+            &ExecutionPolicy::default(),
+            TraceLevelV1::Full,
+            limits,
+        )
+        .unwrap();
+
+        assert!(traced.trace.truncated);
+        assert!(traced
+            .trace
+            .events
+            .iter()
+            .all(|event| event.stage != TraceStageV1::Noding));
+        assert!(traced
+            .trace
+            .events
+            .iter()
+            .any(|event| event.stage == TraceStageV1::Graph));
+        assert_eq!(
+            TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
+            TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
+        );
     }
 
     #[test]
