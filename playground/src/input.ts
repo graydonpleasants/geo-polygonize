@@ -28,3 +28,25 @@ export function parseGeojsonInput(text: string): GeoJsonObject {
 
   throw new Error('GeoJSON object is missing a type');
 }
+
+export function appendLineString(
+  collection: GeoJsonObject,
+  coordinates: number[][],
+): GeoJsonObject {
+  if (!Array.isArray(collection.features)) {
+    throw new Error('Drawing requires a FeatureCollection');
+  }
+  if (coordinates.length < 2) return collection;
+
+  return {
+    ...collection,
+    features: [
+      ...collection.features,
+      {
+        type: 'Feature',
+        properties: null,
+        geometry: { type: 'LineString', coordinates },
+      },
+    ],
+  };
+}

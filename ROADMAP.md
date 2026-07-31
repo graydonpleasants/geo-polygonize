@@ -469,7 +469,7 @@ evidence from their shared physical split loop.
 ### P1.6 Turn the playground into a topology debugger
 
 - [x] Add the playground prominently to the docs navigation.
-- [ ] Support paste, upload, drag-and-drop, drawing, and fixture selection.
+- [x] Support paste, upload, drag-and-drop, drawing, and fixture selection.
 - [ ] Expose the canonical options schema, including `Validate` and
   `CertifiedFixedPrecision`.
 - [ ] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
