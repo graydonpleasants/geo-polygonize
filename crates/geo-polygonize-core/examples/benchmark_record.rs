@@ -3,8 +3,9 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::{
-    polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions, PolygonizerResult,
-    PrecisionModel, TopologyFingerprintV1,
+    normalize_polygonize_error, polygonize, Coord3D, Line3D, NodingGuarantee,
+    NormalizedPolygonizeErrorV1, PolygonizerOptions, PolygonizerResult, PrecisionModel,
+    TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::{Deserialize, Serialize};
@@ -156,6 +157,20 @@ struct BenchmarkPolygonV1 {
     interiors: Vec<Vec<BenchmarkCoordinateV1>>,
 }
 
+/// The benchmark parity contract intentionally compares reduced XY topology.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+enum BenchmarkReducedOutcomeV1 {
+    Success(BenchmarkTopologyFingerprintV1),
+    Error(Box<BenchmarkFailureV1>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct BenchmarkFailureV1 {
+    stage: String,
+    error: NormalizedPolygonizeErrorV1,
+}
+
 #[derive(Default)]
 struct Samples {
     elapsed: Vec<Duration>,
@@ -222,22 +237,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut validation_options = options.clone();
     validation_options.noding.guarantee = args.lane.validation_guarantee();
-    polygonize(lines.clone(), &validation_options)?;
+    let (validation_outcome, _) = reduced_rust_outcome(
+        polygonize(lines.clone(), &validation_options),
+        &validation_options,
+        "validation",
+    );
+    if matches!(validation_outcome, BenchmarkReducedOutcomeV1::Error(_)) {
+        return Err(format!(
+            "benchmark validation failed: {}",
+            serde_json::to_string(&validation_outcome)?
+        )
+        .into());
+    }
 
     let mut correctness_options = options.clone();
     correctness_options.diagnostics.enabled = true;
-    let correctness = polygonize(lines.clone(), &correctness_options)?;
+    let (actual_outcome, correctness) = reduced_rust_outcome(
+        polygonize(lines.clone(), &correctness_options),
+        &options,
+        "correctness",
+    );
+    let Some(correctness) = correctness else {
+        return Err(format!(
+            "correctness gate failed: {}",
+            serde_json::to_string(&actual_outcome)?
+        )
+        .into());
+    };
     let reference: ReferenceResult =
         serde_json::from_slice(&std::fs::read(&args.reference_result)?)?;
     validate_reference(&reference, &workload.id, args.lane)?;
+    let reference_outcome = reduced_reference_outcome(&reference);
     let expected = parse_sha256(&reference.fingerprint_sha256)?;
     let reference_hash = benchmark_fingerprint_sha256(&reference.topology);
     if reference_hash != expected {
         return Err("reference result fingerprint does not match its topology payload".into());
     }
-    let actual_topology = benchmark_topology(&correctness, &options)?;
-    let actual = benchmark_fingerprint_sha256(&actual_topology);
-    if actual_topology != reference.topology {
+    let BenchmarkReducedOutcomeV1::Success(actual_topology) = &actual_outcome else {
+        unreachable!("successful correctness result has a success outcome");
+    };
+    let actual = benchmark_fingerprint_sha256(actual_topology);
+    let BenchmarkReducedOutcomeV1::Success(reference_topology) = &reference_outcome else {
+        unreachable!("validated reference result has a success outcome");
+    };
+    if actual_topology != reference_topology {
         return Err(format!(
             "correctness gate failed: expected {}, observed {}",
             hex(&expected),
@@ -448,6 +491,36 @@ fn benchmark_topology(
         cut_edges: fingerprint.cut_edges.into_iter().map(xy).collect(),
         invalid_rings: fingerprint.invalid_rings.into_iter().map(xy).collect(),
     })
+}
+
+fn reduced_rust_outcome(
+    result: geo_polygonize_core::Result<PolygonizerResult>,
+    options: &PolygonizerOptions,
+    stage: &str,
+) -> (BenchmarkReducedOutcomeV1, Option<PolygonizerResult>) {
+    match result {
+        Ok(result) => match benchmark_topology(&result, options) {
+            Ok(topology) => (BenchmarkReducedOutcomeV1::Success(topology), Some(result)),
+            Err(error) => (
+                BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                    stage: format!("{stage}_fingerprint"),
+                    error: normalize_polygonize_error(&error),
+                })),
+                None,
+            ),
+        },
+        Err(error) => (
+            BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                stage: stage.to_string(),
+                error: normalize_polygonize_error(&error),
+            })),
+            None,
+        ),
+    }
+}
+
+fn reduced_reference_outcome(reference: &ReferenceResult) -> BenchmarkReducedOutcomeV1 {
+    BenchmarkReducedOutcomeV1::Success(reference.topology.clone())
 }
 
 fn xy(
@@ -682,6 +755,36 @@ mod tests {
             benchmark_topology(&first, &options).unwrap(),
             benchmark_topology(&second, &options).unwrap()
         );
+    }
+
+    #[test]
+    fn reduced_outcomes_keep_xy_success_and_structured_rust_errors_separate() {
+        let options = PolygonizerOptions::default();
+        let (success, result) = reduced_rust_outcome(
+            polygonize(Vec::<Line3D>::new(), &options),
+            &options,
+            "correctness",
+        );
+        let failure = reduced_rust_outcome(
+            Err(geo_polygonize_core::PolygonizeError::InvalidArgumentType {
+                field: "example".to_string(),
+                expected: "valid".to_string(),
+                actual: "invalid".to_string(),
+            }),
+            &options,
+            "validation",
+        )
+        .0;
+        let success = serde_json::to_value(success).unwrap();
+        let failure = serde_json::to_value(failure).unwrap();
+
+        assert!(result.is_some());
+        assert_eq!(success["status"], "success");
+        assert!(success["value"]["polygons"].is_array());
+        assert!(success["value"].get("options").is_none());
+        assert_eq!(failure["status"], "error");
+        assert_eq!(failure["value"]["stage"], "validation");
+        assert_eq!(failure["value"]["error"]["family"], "invalid_argument");
     }
 
     #[test]
