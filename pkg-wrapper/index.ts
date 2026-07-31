@@ -37,7 +37,9 @@ export type WasmWorkerOptions = {
     signal?: AbortSignal;
 };
 
-type WorkerOperation = "polygons" | "report";
+export type TopologyTraceLevel = "summary" | "noding" | "graph" | "rings" | "full";
+
+type WorkerOperation = "polygons" | "report" | "trace";
 
 type WorkerReply = {
     id: number;
@@ -56,6 +58,7 @@ function polygonizeInWorker(
     geojson: string,
     options: Partial<PolygonizerOptions>,
     { signal }: WasmWorkerOptions = {},
+    trace?: { level: TopologyTraceLevel; byteLimit: number },
 ): Promise<string> {
     if (signal?.aborted) return Promise.reject(abortError());
     if (typeof Worker === "undefined") {
@@ -88,7 +91,14 @@ function polygonizeInWorker(
             reject(new Error(message));
         };
         signal?.addEventListener("abort", abort, { once: true });
-        worker.postMessage({ id: 0, operation, geojson, options });
+        worker.postMessage({
+            id: 0,
+            operation,
+            geojson,
+            options,
+            traceLevel: trace?.level,
+            byteLimit: trace?.byteLimit,
+        });
     });
 }
 
@@ -113,6 +123,23 @@ export function polygonizeReportWithOptionsAsync(
     workerOptions?: WasmWorkerOptions,
 ): Promise<string> {
     return polygonizeInWorker("report", geojson, options, workerOptions);
+}
+
+/** Returns a bounded topology trace in an abortable browser worker. */
+export function polygonizeTraceWithOptionsAsync(
+    geojson: string,
+    options: Partial<PolygonizerOptions>,
+    traceLevel: TopologyTraceLevel,
+    byteLimit: number,
+    workerOptions?: WasmWorkerOptions,
+): Promise<string> {
+    return polygonizeInWorker(
+        "trace",
+        geojson,
+        options,
+        workerOptions,
+        { level: traceLevel, byteLimit },
+    );
 }
 
 // Override the init function

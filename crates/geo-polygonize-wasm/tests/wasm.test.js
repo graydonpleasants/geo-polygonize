@@ -13,10 +13,46 @@ describe('WASM Polygonizer', () => {
 
     it('should publish the browser worker cancellation entry point', async () => {
         expect(existsSync(resolve('dist/standard/es/polygonize_worker.js'))).toBe(true);
-        const { polygonizeReportWithOptionsAsync, polygonizeWithOptionsAsync } =
+        const {
+            polygonizeReportWithOptionsAsync,
+            polygonizeTraceWithOptionsAsync,
+            polygonizeWithOptionsAsync,
+        } =
             await import('../../../dist/standard/es/index.js');
         expect(polygonizeWithOptionsAsync).toBeTypeOf('function');
         expect(polygonizeReportWithOptionsAsync).toBeTypeOf('function');
+        expect(polygonizeTraceWithOptionsAsync).toBeTypeOf('function');
+    });
+
+    it('should send trace level and byte budget through the worker request', async () => {
+        const { polygonizeTraceWithOptionsAsync } =
+            await import('../../../dist/standard/es/index.js');
+        const originalWorker = globalThis.Worker;
+        let request;
+        class TestWorker {
+            postMessage(message) {
+                request = message;
+                queueMicrotask(() => this.onmessage({ data: { id: 0, result: 'traced' } }));
+            }
+            terminate() {}
+        }
+        globalThis.Worker = TestWorker;
+        try {
+            await expect(polygonizeTraceWithOptionsAsync(
+                '{"type":"FeatureCollection","features":[]}',
+                {},
+                'graph',
+                4096,
+            )).resolves.toBe('traced');
+            expect(request).toMatchObject({
+                operation: 'trace',
+                traceLevel: 'graph',
+                byteLimit: 4096,
+            });
+        } finally {
+            if (originalWorker === undefined) delete globalThis.Worker;
+            else globalThis.Worker = originalWorker;
+        }
     });
 
     it('should select the same scalar and SIMD variants for direct and worker runtimes', () => {
@@ -30,6 +66,7 @@ describe('WASM Polygonizer', () => {
         });
 
         const worker = readFileSync(resolve('dist/standard/es/polygonize_worker.js'), 'utf8');
+        expect(worker).toContain('polygonizeTraceWithOptions');
         for (const wasm of ['dist/geo_polygonize.wasm', 'dist/geo_polygonize_simd.wasm']) {
             expect(worker).toContain(readFileSync(resolve(wasm)).toString('base64'));
         }
