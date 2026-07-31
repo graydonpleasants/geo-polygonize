@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { TopologyTraceV1 } from 'geo-polygonize';
-import { decodeTraceCoordinate, extractTraceLayers } from './trace';
+import {
+  decodeTraceCoordinate,
+  extractTraceLayers,
+  parsePlaygroundTraceReport,
+} from './trace';
 
 const view = new DataView(new ArrayBuffer(8));
 const bits = (value: number) => {
@@ -45,5 +49,10 @@ describe('trace layers', () => {
 
   it('ignores malformed coordinates', () => {
     expect(decodeTraceCoordinate({ x: 'bad', y: '0x0' })).toBeNull();
+  });
+
+  it('rejects unsupported trace envelopes', () => {
+    expect(() => parsePlaygroundTraceReport('{"schema_version":2}'))
+      .toThrow('Unsupported topology trace report');
   });
 });

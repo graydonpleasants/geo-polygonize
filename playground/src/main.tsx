@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import init, {
-  polygonizeReportWithOptions,
+  polygonizeTraceWithOptionsAsync,
   type NodingGuarantee,
   type PolygonizerOptions,
   type TopologyFingerprintV1,
+  type TopologyTraceV1,
 } from 'geo-polygonize';
 import {
   Container,
@@ -24,6 +25,7 @@ import {
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
 import { buildPlaygroundOptions } from './options';
+import { parsePlaygroundTraceReport, PLAYGROUND_TRACE_BYTE_LIMIT } from './trace';
 
 // --- Types ---
 interface ManifestEntry {
@@ -123,6 +125,8 @@ function App() {
   const [inputText, setInputText] = useState('');
   const [outputGeojson, setOutputGeojson] = useState<any>(null);
   const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
+  const [trace, setTrace] = useState<TopologyTraceV1 | null>(null);
+  const [traceBusy, setTraceBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
   const [drawnPoints, setDrawnPoints] = useState<number[][]>([]);
@@ -210,6 +214,7 @@ function App() {
     setInputGeojson(null);
     setOutputGeojson(null);
     setReport(null);
+    setTrace(null);
     setError(null);
 
     async function loadFixture() {
@@ -302,24 +307,40 @@ function App() {
 
   // Run Polygonizer
   useEffect(() => {
-    if (!wasmReady || !inputGeojson) return;
-    try {
-      const options: Partial<PolygonizerOptions> = buildPlaygroundOptions(
-        nodeInput,
-        snapGridSize,
-        nodingGuarantee,
-      );
-      const nextReport = JSON.parse(
-        polygonizeReportWithOptions(JSON.stringify(inputGeojson), options),
-      ) as TopologyFingerprintV1;
-      setReport(nextReport);
-      setOutputGeojson(reportToGeojson(nextReport));
+    if (!wasmReady || !inputGeojson) {
+      setTraceBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    const options: Partial<PolygonizerOptions> = buildPlaygroundOptions(
+      nodeInput,
+      snapGridSize,
+      nodingGuarantee,
+    );
+    setTraceBusy(true);
+    setTrace(null);
+    void polygonizeTraceWithOptionsAsync(
+      JSON.stringify(inputGeojson),
+      options,
+      'full',
+      PLAYGROUND_TRACE_BYTE_LIMIT,
+      { signal: controller.signal },
+    ).then((text) => {
+      const next = parsePlaygroundTraceReport(text);
+      setReport(next.topology);
+      setTrace(next.trace);
+      setOutputGeojson(reportToGeojson(next.topology));
       setError(null);
-    } catch (e: any) {
+    }).catch((e: Error) => {
+      if (e.name === 'AbortError') return;
       setOutputGeojson(null);
       setReport(null);
+      setTrace(null);
       setError("Polygonize Error: " + e.toString());
-    }
+    }).finally(() => {
+      if (!controller.signal.aborted) setTraceBusy(false);
+    });
+    return () => controller.abort();
   }, [wasmReady, inputGeojson, nodeInput, snapGridSize, nodingGuarantee]);
 
 
@@ -336,6 +357,7 @@ function App() {
       </Typography>
 
       {!wasmReady && <Alert severity="info">Loading WebAssembly...</Alert>}
+      {traceBusy && <Alert severity="info">Tracing topology in a worker...</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={3}>
@@ -486,6 +508,15 @@ function App() {
                <Typography>Dangles: {report.dangles.length}</Typography>
                <Typography>Cut edges: {report.cut_edges.length}</Typography>
                <Typography>Invalid rings: {report.invalid_rings.length}</Typography>
+               {trace && (
+                 <>
+                   <Typography>Trace events: {trace.events.length}</Typography>
+                   <Typography>
+                     Trace bytes: {trace.bytes_used.toLocaleString()} / {trace.byte_limit.toLocaleString()}
+                   </Typography>
+                   {trace.truncated && <Alert severity="warning">Trace reached its byte budget.</Alert>}
+                 </>
+               )}
                <TextField
                  fullWidth
                  multiline
