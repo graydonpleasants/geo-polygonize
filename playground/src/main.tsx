@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import init, {
   polygonizeReportWithOptions,
@@ -21,7 +21,7 @@ import {
   Grid,
   Alert
 } from '@mui/material';
-import { parseGeojsonInput } from './input';
+import { appendLineString, parseGeojsonInput } from './input';
 
 // --- Types ---
 interface ManifestEntry {
@@ -108,6 +108,10 @@ function App() {
   const [outputGeojson, setOutputGeojson] = useState<any>(null);
   const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drawEnabled, setDrawEnabled] = useState(false);
+  const [drawnPoints, setDrawnPoints] = useState<number[][]>([]);
+  const drawnPointsRef = useRef<number[][]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   // Options
   const [nodeInput, setNodeInput] = useState(false);
@@ -211,16 +215,19 @@ function App() {
     loadFixture();
   }, [selectedSlug, manifest]);
 
+  const setCustomInput = (data: Record<string, unknown>) => {
+    setInputGeojson(data);
+    setInputText(JSON.stringify(data, null, 2));
+    setSelectedSlug('');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('scenario');
+    window.history.replaceState({}, '', url.toString());
+    setError(null);
+  };
+
   const applyInput = (text: string) => {
     try {
-      const data = parseGeojsonInput(text);
-      setInputGeojson(data);
-      setInputText(JSON.stringify(data, null, 2));
-      setSelectedSlug('');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('scenario');
-      window.history.replaceState({}, '', url.toString());
-      setError(null);
+      setCustomInput(parseGeojsonInput(text));
     } catch (e) {
       setError(`Input Error: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -233,6 +240,37 @@ function App() {
     } catch (e) {
       setError(`Input Error: ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+
+  const pointerCoordinate = (event: React.PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return null;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return [local.x, local.y];
+  };
+
+  const updateDrawnPoints = (points: number[][]) => {
+    drawnPointsRef.current = points;
+    setDrawnPoints(points);
+  };
+
+  const finishDrawing = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (!drawEnabled) return;
+    const point = pointerCoordinate(event);
+    const previous = drawnPointsRef.current.at(-1);
+    const points = point && previous
+      && Math.hypot(point[0] - previous[0], point[1] - previous[1])
+        >= (bbox?.width ?? 1) * 0.002
+      ? [...drawnPointsRef.current, point]
+      : drawnPointsRef.current;
+    if (inputGeojson && points.length >= 2) {
+      setCustomInput(appendLineString(inputGeojson, points));
+    }
+    updateDrawnPoints([]);
   };
 
   // Run Polygonizer
@@ -333,9 +371,19 @@ function App() {
                     onChange={(event) => void loadFile(event.target.files?.[0])}
                   />
                 </Button>
+                <Button
+                  variant={drawEnabled ? 'contained' : 'outlined'}
+                  disabled={!bbox}
+                  onClick={() => {
+                    setDrawEnabled((enabled) => !enabled);
+                    updateDrawnPoints([]);
+                  }}
+                >
+                  {drawEnabled ? 'Stop drawing' : 'Draw line'}
+                </Button>
               </Box>
               <Typography variant="caption" color="text.secondary">
-                Paste, upload, or drop a GeoJSON file here.
+                Paste, upload, or drop GeoJSON, or drag across the geometry view to draw a line.
               </Typography>
             </Box>
 
@@ -377,11 +425,36 @@ function App() {
             {bbox && (
                <Box sx={{ flexGrow: 1, border: '1px solid #ccc', position: 'relative', overflow: 'hidden' }}>
                   <svg
+                    ref={svgRef}
                     width="100%"
                     height="100%"
                     viewBox={`${bbox.minX} ${bbox.minY} ${bbox.width} ${bbox.height}`}
                     preserveAspectRatio="xMidYMid meet"
-                    style={{ transform: 'scaleY(-1)' }} // Invert Y axis for standard Cartesian coords
+                    onPointerDown={(event) => {
+                      if (!drawEnabled) return;
+                      event.preventDefault();
+                      const point = pointerCoordinate(event);
+                      if (!point) return;
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      updateDrawnPoints([point]);
+                    }}
+                    onPointerMove={(event) => {
+                      if (!drawEnabled || drawnPointsRef.current.length === 0) return;
+                      const point = pointerCoordinate(event);
+                      if (!point) return;
+                      const previous = drawnPointsRef.current.at(-1)!;
+                      const minimumDistance = bbox.width * 0.002;
+                      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= minimumDistance) {
+                        updateDrawnPoints([...drawnPointsRef.current, point]);
+                      }
+                    }}
+                    onPointerUp={finishDrawing}
+                    onPointerCancel={() => updateDrawnPoints([])}
+                    style={{
+                      transform: 'scaleY(-1)',
+                      cursor: drawEnabled ? 'crosshair' : 'default',
+                      touchAction: drawEnabled ? 'none' : 'auto',
+                    }} // Invert Y axis for standard Cartesian coords
                   >
                      {/* Draw Output Polygons (filled) */}
                      {outputGeojson?.features.map((f: any, i: number) => {
@@ -406,6 +479,15 @@ function App() {
                         }
                         return null;
                      })}
+
+                     {drawnPoints.length > 1 && (
+                       <polyline
+                         points={drawnPoints.map((point) => point.join(',')).join(' ')}
+                         fill="none"
+                         stroke="#7b1fa2"
+                         strokeWidth={bbox.width * 0.004}
+                       />
+                     )}
                   </svg>
                </Box>
             )}

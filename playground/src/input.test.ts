@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseGeojsonInput } from './input';
+import { appendLineString, parseGeojsonInput } from './input';
 
 describe('parseGeojsonInput', () => {
   it('normalizes geometry and feature roots for the playground', () => {
@@ -14,5 +14,13 @@ describe('parseGeojsonInput', () => {
     expect(() => parseGeojsonInput('{"type":"FeatureCollection"}')).toThrow(
       'FeatureCollection.features must be an array',
     );
+  });
+
+  it('appends drawn linework without mutating the input', () => {
+    const input = parseGeojsonInput('{"type":"FeatureCollection","features":[]}');
+    const output = appendLineString(input, [[0, 0], [1, 1]]);
+
+    expect(input.features).toHaveLength(0);
+    expect(output.features).toHaveLength(1);
   });
 });
