@@ -18,6 +18,14 @@ export declare function polygonizeReportWithOptions(
     options_val: Partial<PolygonizerOptions>
 ): string;
 
+/** Versioned topology report plus a bounded physical-pipeline trace. */
+export declare function polygonizeTraceWithOptions(
+    geojson_str: string,
+    options_val: Partial<PolygonizerOptions>,
+    trace_level: 'summary' | 'noding' | 'graph' | 'rings' | 'full',
+    byte_limit: number
+): string;
+
 export declare function polygonizeGeoArrowWithOptions(
     ipc_bytes: Uint8Array,
     options_val: Partial<PolygonizerOptions>

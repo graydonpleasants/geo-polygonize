@@ -1055,6 +1055,26 @@ mod tests {
     }
 
     #[test]
+    fn polygonizer_builder_records_its_collected_input_with_a_bound() {
+        let options = PolygonizerOptions::default();
+        let mut polygonizer = crate::Polygonizer::with_options(options);
+        polygonizer.add_lines(vec![Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            7,
+        )]);
+
+        let traced = polygonizer
+            .polygonize_with_trace(TraceLevelV1::Full, 0)
+            .unwrap();
+
+        assert!(traced.result.polygons.is_empty());
+        assert!(traced.trace.events.is_empty());
+        assert!(traced.trace.truncated);
+        assert_eq!(traced.trace.byte_limit, 0);
+    }
+
+    #[test]
     fn exhausted_stage_limit_does_not_suppress_later_stages() {
         let options = PolygonizerOptions::default();
         let limits = TraceByteLimitsV1 {

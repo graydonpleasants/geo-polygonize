@@ -5,8 +5,10 @@ use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 pub use buffer::parse_buffer_lines;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_core::trace::TraceLevelV1;
 use geo_polygonize_core::{
-    polygonize as polygonize_lines, Line3D, Polygonizer, PolygonizerResult, TopologyFingerprintV1,
+    polygonize as polygonize_lines, Line3D, PolygonizeError, Polygonizer, PolygonizerResult,
+    TopologyFingerprintV1,
 };
 use geoarrow::array::GeoArrowArray;
 use geojson::{GeoJson, Geometry, Value};
@@ -109,10 +111,85 @@ pub fn polygonize_report_with_options_js(
     polygonize_fingerprint_with_options_js(geojson_str, options_val)
 }
 
+#[wasm_bindgen(js_name = polygonizeTraceWithOptions)]
+/// Returns a versioned topology report and bounded physical-pipeline trace.
+pub fn polygonize_trace_with_options_js(
+    geojson_str: &str,
+    options_val: JsValue,
+    trace_level: &str,
+    byte_limit: f64,
+) -> Result<String, JsValue> {
+    let options: geo_polygonize_core::PolygonizerOptions =
+        serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+            to_js_error(
+                "InvalidArgumentType",
+                format!("Failed to parse options: {e}"),
+            )
+        })?;
+    let level = match trace_level {
+        "summary" => TraceLevelV1::Summary,
+        "noding" => TraceLevelV1::Noding,
+        "graph" => TraceLevelV1::Graph,
+        "rings" => TraceLevelV1::Rings,
+        "full" => TraceLevelV1::Full,
+        actual => {
+            return Err(from_polygonizer_error(
+                PolygonizeError::InvalidArgumentType {
+                    field: "trace_level".to_string(),
+                    expected: "summary, noding, graph, rings, or full".to_string(),
+                    actual: actual.to_string(),
+                },
+            ));
+        }
+    };
+    if !byte_limit.is_finite()
+        || byte_limit < 0.0
+        || byte_limit > f64::from(u32::MAX)
+        || byte_limit.fract() != 0.0
+    {
+        return Err(from_polygonizer_error(
+            PolygonizeError::InvalidArgumentType {
+                field: "byte_limit".to_string(),
+                expected: "an integer from 0 through u32::MAX".to_string(),
+                actual: byte_limit.to_string(),
+            },
+        ));
+    }
+    let byte_limit = usize::try_from(byte_limit as u32).map_err(|_| {
+        from_polygonizer_error(PolygonizeError::InvalidArgumentType {
+            field: "byte_limit".to_string(),
+            expected: "a platform-sized unsigned integer".to_string(),
+            actual: byte_limit.to_string(),
+        })
+    })?;
+    let mut polygonizer = polygonizer_from_geojson(geojson_str, &options)?;
+    let traced = polygonizer
+        .polygonize_with_trace(level, byte_limit)
+        .map_err(from_polygonizer_error)?;
+    let topology = TopologyFingerprintV1::try_from_result(&traced.result, &options)
+        .map_err(from_polygonizer_error)?;
+
+    serde_json::to_string(&serde_json::json!({
+        "schema_version": 1,
+        "topology": topology,
+        "trace": traced.trace,
+    }))
+    .map_err(|e| to_js_error("InternalInvariantViolation", e))
+}
+
 fn polygonize_geojson(
     geojson_str: &str,
     options: &geo_polygonize_core::PolygonizerOptions,
 ) -> Result<PolygonizerResult, JsValue> {
+    polygonizer_from_geojson(geojson_str, options)?
+        .polygonize()
+        .map_err(from_polygonizer_error)
+}
+
+fn polygonizer_from_geojson(
+    geojson_str: &str,
+    options: &geo_polygonize_core::PolygonizerOptions,
+) -> Result<Polygonizer, JsValue> {
     let geojson = GeoJson::from_str(geojson_str)
         .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {e}")))?;
     let mut polygonizer = Polygonizer::with_options(options.clone());
@@ -139,7 +216,7 @@ fn polygonize_geojson(
         }
         GeoJson::Geometry(geometry) => add(geometry)?,
     }
-    polygonizer.polygonize().map_err(from_polygonizer_error)
+    Ok(polygonizer)
 }
 
 #[wasm_bindgen]

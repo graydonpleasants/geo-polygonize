@@ -127,6 +127,53 @@ describe('WASM Polygonizer', () => {
         })).features).toHaveLength(0);
     });
 
+    it('should expose a versioned topology report with a bounded trace', async () => {
+        const {
+            default: initModule,
+            polygonizeReportWithOptions,
+            polygonizeTraceWithOptions,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const input = {
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]],
+                },
+            }],
+        };
+
+        const report = JSON.parse(
+            polygonizeTraceWithOptions(JSON.stringify(input), {}, 'full', 0),
+        );
+        expect(report.schema_version).toBe(1);
+        expect(report.topology).toEqual(JSON.parse(
+            polygonizeReportWithOptions(JSON.stringify(input), {}),
+        ));
+        expect(report.trace).toMatchObject({
+            schema_version: 1,
+            level: 'full',
+            byte_limit: 0,
+            bytes_used: 0,
+            truncated: true,
+            events: [],
+        });
+        expect(() => polygonizeTraceWithOptions(
+            JSON.stringify(input),
+            {},
+            'everything',
+            1024,
+        )).toThrow(/trace_level/);
+        expect(() => polygonizeTraceWithOptions(
+            JSON.stringify(input),
+            {},
+            'full',
+            -1,
+        )).toThrow(/byte_limit/);
+    });
+
     it('should match the shared canonical fixture through GeoJSON and buffers', async () => {
         const {
             default: initModule,

@@ -464,7 +464,9 @@ result. Global-line fallback scans emit the same exact candidate evidence with
 an explicit scan origin. Certified replacement segments additionally retain
 their source segment, source ID, and exact emitted endpoints from the physical
 split loop. Floating SIMD and uniform-grid noding now record the same replacement
-evidence from their shared physical split loop.
+evidence from their shared physical split loop. Wasm now exposes the same
+bounded trace and canonical topology report through a dedicated non-semantic
+entrypoint so browser tooling does not reconstruct pipeline evidence.
 
 ### P1.6 Turn the playground into a topology debugger
 
