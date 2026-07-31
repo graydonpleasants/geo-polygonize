@@ -391,8 +391,10 @@ records, publication, checksums, reference, and Markdown report for 90 days.
   the selected options and observed mismatch.
 - [x] Minimize coordinate complexity after feature/segment minimization.
 - [x] Preserve source IDs and Z conflicts during minimization.
-- [ ] Persist every minimized novel failure as a strict golden and compatibility
-  classification.
+- [x] Define and validate a strict persisted golden and compatibility
+  classification for minimized failures.
+- [ ] Wire each fuzz or production mismatch producer to emit a reviewed
+  persisted-fixture candidate.
 - [x] Export a standalone repro bundle containing input, options, versions,
   fingerprint, reference metrics, and witness.
 
@@ -436,7 +438,8 @@ Candidate events and snapshots:
 - [x] maximal rings, minimal rings, and invalid-ring reasons;
 - [x] shell/hole classification and containment candidates;
 - [x] canonical ordering decisions;
-- [ ] tile ownership, deduplication, retries, and fallback decisions.
+- [x] tile ownership and deduplication decisions;
+- [ ] tile retry and fallback decisions after those execution paths exist.
 
 Trace output must include byte limits, truncation metadata, schema version,
 library version, and canonical options.
@@ -489,7 +492,8 @@ Small V1 repro envelopes now encode input plus canonical noding controls as
 deterministic UTF-8 base64url query data, reject payloads beyond 8 KiB, and load
 directly into the worker-backed debugger.
 
-- [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
+- [x] Make edges/rings clickable to inspect source provenance and retained Z.
+- [ ] Trace and inspect physical Z reconciliation decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
 - [ ] Compare two option profiles side by side.
 - [x] Encode small deterministic repros in shareable URLs.
