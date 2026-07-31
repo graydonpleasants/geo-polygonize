@@ -19,6 +19,12 @@ A native Rust port of the JTS/GEOS polygonization algorithm. This crate allows y
 
 For delivered foundations and the next evidence-gated work, see [ROADMAP.md](ROADMAP.md).
 
+## Support policy
+
+Supported APIs, toolchains, targets, feature combinations, compatibility
+windows, and failure/threading contracts are defined in
+[SUPPORT.md](SUPPORT.md).
+
 ## Usage
 
 ### Library
