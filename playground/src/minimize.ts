@@ -1,4 +1,4 @@
-import type { TopologyTraceV1 } from 'geo-polygonize';
+import type { NormalizedPolygonizeErrorV1, TopologyTraceV1 } from 'geo-polygonize';
 
 export type ExactCoordinate = { x: string; y: string; z: string };
 export type ExactInputSegment = {
@@ -7,12 +7,24 @@ export type ExactInputSegment = {
   sourceId: string;
 };
 export type FingerprintDifference = { path: string; expected: unknown; actual: unknown };
+export type ProfileOutcome =
+  | { status: 'success'; value: unknown }
+  | { status: 'error'; value: NormalizedPolygonizeErrorV1 };
+export type ProfileDifferenceSignature = FingerprintDifference | {
+  kind: 'normalized_errors';
+  baseline: NormalizedPolygonizeErrorV1;
+  comparison: NormalizedPolygonizeErrorV1;
+} | {
+  kind: 'outcome_kinds';
+  baseline: ProfileOutcome['status'];
+  comparison: ProfileOutcome['status'];
+};
 export type MinimizationReduction = {
   phase: 'input' | 'segments' | 'coordinates';
   segments: ExactInputSegment[];
 };
 export type MinimizationResult = {
-  signature: FingerprintDifference;
+  signature: ProfileDifferenceSignature;
   segments: ExactInputSegment[];
 };
 
@@ -74,6 +86,28 @@ export function fingerprintDifference(
     return null;
   }
   return Object.is(expected, actual) ? null : { path, expected, actual };
+}
+
+export function profileDifferenceSignature(
+  baseline: ProfileOutcome,
+  comparison: ProfileOutcome,
+): ProfileDifferenceSignature | null {
+  if (baseline.status === 'success' && comparison.status === 'success') {
+    return fingerprintDifference(baseline.value, comparison.value);
+  }
+  if (baseline.status === 'error' && comparison.status === 'error') {
+    return fingerprintDifference(baseline.value, comparison.value)
+      ? { kind: 'normalized_errors', baseline: baseline.value, comparison: comparison.value }
+      : null;
+  }
+  return { kind: 'outcome_kinds', baseline: baseline.status, comparison: comparison.status };
+}
+
+export function sameProfileDifferenceSignature(
+  expected: ProfileDifferenceSignature,
+  actual: ProfileDifferenceSignature | null,
+) {
+  return actual !== null && fingerprintDifference(expected, actual) === null;
 }
 
 const floatView = new DataView(new ArrayBuffer(8));

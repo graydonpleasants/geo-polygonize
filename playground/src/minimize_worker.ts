@@ -1,10 +1,12 @@
 import init, { polygonizeWithOptionsBuffer, type PolygonizerOptions } from 'geo-polygonize';
+import { extractNormalizedError } from './error';
 import {
   decodeExactFloat,
-  fingerprintDifference,
   minimizeExactSegments,
+  profileDifferenceSignature,
+  sameProfileDifferenceSignature,
   type ExactInputSegment,
-  type FingerprintDifference,
+  type ProfileOutcome,
 } from './minimize';
 
 type Request = {
@@ -47,11 +49,20 @@ function topologyWithoutOptions(value: unknown) {
   return topology;
 }
 
-function run(segments: ExactInputSegment[], options: Partial<PolygonizerOptions>) {
+function run(segments: ExactInputSegment[], options: Partial<PolygonizerOptions>): ProfileOutcome {
   const { coordinates, offsets, sourceIds } = pack(segments);
-  const result = polygonizeWithOptionsBuffer(coordinates, offsets, 3, options, sourceIds);
+  let result;
   try {
-    return topologyWithoutOptions(result.topology_fingerprint);
+    result = polygonizeWithOptionsBuffer(coordinates, offsets, 3, options, sourceIds);
+  } catch (error) {
+    const normalized = extractNormalizedError(error);
+    if (!normalized) {
+      throw new Error('Buffer API failure did not include a normalized V1 error');
+    }
+    return { status: 'error', value: normalized };
+  }
+  try {
+    return { status: 'success', value: topologyWithoutOptions(result.topology_fingerprint) };
   } finally {
     result.free();
   }
@@ -60,18 +71,18 @@ function run(segments: ExactInputSegment[], options: Partial<PolygonizerOptions>
 self.addEventListener('message', async ({ data }: MessageEvent<Request>) => {
   try {
     await init();
-    const signature = fingerprintDifference(
+    const signature = profileDifferenceSignature(
       run(data.segments, data.baselineOptions),
       run(data.segments, data.comparisonOptions),
     );
     if (!signature) throw new Error('Profile difference no longer reproduces');
     const reproduces = async (candidate: ExactInputSegment[]) => {
       try {
-        const candidateSignature = fingerprintDifference(
+        const candidateSignature = profileDifferenceSignature(
           run(candidate, data.baselineOptions),
           run(candidate, data.comparisonOptions),
         );
-        return JSON.stringify(candidateSignature) === JSON.stringify(signature);
+        return sameProfileDifferenceSignature(signature, candidateSignature);
       } catch {
         return false;
       }
