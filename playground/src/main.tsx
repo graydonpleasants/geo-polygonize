@@ -25,7 +25,11 @@ import {
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
 import { buildPlaygroundOptions } from './options';
-import { parsePlaygroundTraceReport, PLAYGROUND_TRACE_BYTE_LIMIT } from './trace';
+import {
+  extractTraceLayers,
+  parsePlaygroundTraceReport,
+  PLAYGROUND_TRACE_BYTE_LIMIT,
+} from './trace';
 
 // --- Types ---
 interface ManifestEntry {
@@ -43,6 +47,10 @@ interface ManifestEntry {
 
 const layerOptions = [
   ['rawLines', 'Raw lines'],
+  ['snappedLines', 'Snapped lines'],
+  ['hotPixels', 'Hot pixels'],
+  ['splitPoints', 'Split points'],
+  ['graphEdges', 'Graph edges'],
   ['dangles', 'Dangles'],
   ['cutEdges', 'Cut edges'],
   ['invalidRings', 'Invalid rings'],
@@ -139,6 +147,10 @@ function App() {
   const [nodingGuarantee, setNodingGuarantee] = useState<NodingGuarantee>('Unchecked');
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     rawLines: true,
+    snappedLines: true,
+    hotPixels: true,
+    splitPoints: true,
+    graphEdges: true,
     dangles: true,
     cutEdges: true,
     invalidRings: true,
@@ -349,6 +361,7 @@ function App() {
     if (!inputGeojson) return null;
     return computeBoundingBox(inputGeojson);
   }, [inputGeojson]);
+  const traceLayers = useMemo(() => trace ? extractTraceLayers(trace) : null, [trace]);
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -584,13 +597,58 @@ function App() {
                      })}
 
                      {/* Draw Input Lines (dashed) */}
-                     {layers.rawLines && inputGeojson?.features.map((f: any, i: number) => {
+                   {layers.rawLines && inputGeojson?.features.map((f: any, i: number) => {
                         if (f.geometry?.type === 'LineString') {
                            const pts = f.geometry.coordinates.map((c: any) => `${c[0]},${c[1]}`).join(" ");
                            return <polyline key={`line-${i}`} points={pts} fill="none" stroke="#ff0000" strokeWidth={bbox.width * 0.003} strokeDasharray={`${bbox.width * 0.01},${bbox.width * 0.01}`} />;
                         }
                         return null;
                      })}
+
+                     {layers.snappedLines && traceLayers?.snappedLines.map((line) => (
+                       <line
+                         key={`snapped-${line.sequence}`}
+                         x1={line.start[0]}
+                         y1={line.start[1]}
+                         x2={line.end[0]}
+                         y2={line.end[1]}
+                         stroke="#3949ab"
+                         strokeWidth={bbox.width * 0.004}
+                       />
+                     ))}
+
+                     {layers.graphEdges && traceLayers?.graphEdges.map((line) => (
+                       <line
+                         key={`graph-${line.sequence}`}
+                         x1={line.start[0]}
+                         y1={line.start[1]}
+                         x2={line.end[0]}
+                         y2={line.end[1]}
+                         stroke="#263238"
+                         strokeWidth={bbox.width * 0.002}
+                       />
+                     ))}
+
+                     {layers.hotPixels && traceLayers?.hotPixels.map((point) => (
+                       <rect
+                         key={`hot-${point.sequence}`}
+                         x={point.coordinate[0] - bbox.width * 0.004}
+                         y={point.coordinate[1] - bbox.width * 0.004}
+                         width={bbox.width * 0.008}
+                         height={bbox.width * 0.008}
+                         fill="#d81b60"
+                       />
+                     ))}
+
+                     {layers.splitPoints && traceLayers?.splitPoints.map((point) => (
+                       <circle
+                         key={`split-${point.sequence}`}
+                         cx={point.coordinate[0]}
+                         cy={point.coordinate[1]}
+                         r={bbox.width * 0.005}
+                         fill="#8e24aa"
+                       />
+                     ))}
 
                      {layers.shells && report?.polygons.map((polygon, index) => (
                        <polyline
