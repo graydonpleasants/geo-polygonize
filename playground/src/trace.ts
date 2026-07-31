@@ -1,4 +1,6 @@
-import type { TopologyTraceV1 } from 'geo-polygonize';
+import type { PolygonizeTraceReportV1, TopologyTraceV1 } from 'geo-polygonize';
+
+export const PLAYGROUND_TRACE_BYTE_LIMIT = 4 * 1024 * 1024;
 
 export type TraceCoordinate = [number, number];
 
@@ -26,6 +28,17 @@ const coordinateView = new DataView(new ArrayBuffer(8));
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+export function parsePlaygroundTraceReport(text: string): PolygonizeTraceReportV1 {
+  const value: unknown = JSON.parse(text);
+  if (!isObject(value) || value.schema_version !== 1
+    || !isObject(value.topology) || value.topology.schema_version !== 1
+    || !isObject(value.trace) || value.trace.schema_version !== 1
+    || !Array.isArray(value.trace.events)) {
+    throw new Error('Unsupported topology trace report');
+  }
+  return value as unknown as PolygonizeTraceReportV1;
 }
 
 export function decodeTraceCoordinate(value: unknown): TraceCoordinate | null {
