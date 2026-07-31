@@ -474,6 +474,11 @@ evidence from their shared physical split loop.
   `CertifiedFixedPrecision`.
 - [ ] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
   graph edges, dangles, cut edges, invalid rings, shells, holes, and final faces.
+
+Progress: the playground now toggles raw lines and every retained report layer:
+dangles, cut edges, invalid rings, shells, holes, and final faces. Snapped lines,
+hot pixels, split points, and graph edges still require a browser trace contract.
+
 - [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
 - [ ] Compare two option profiles side by side.
