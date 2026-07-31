@@ -4,6 +4,15 @@ import { join, resolve } from 'node:path';
 import init, { polygonize, cfbRobustOptions } from '../../../dist/standard/es/index.js';
 import { selectRuntime } from '../../../pkg-wrapper/runtime.ts';
 
+function normalizedError(call) {
+    try {
+        call();
+        throw new Error('entrypoint unexpectedly succeeded');
+    } catch (error) {
+        return JSON.parse(JSON.stringify(error.normalized));
+    }
+}
+
 describe('WASM Polygonizer', () => {
     it('should publish declaration paths referenced by wrapper types', () => {
         expect(existsSync(resolve('dist/standard/pkg-scalar/geo_polygonize.d.ts'))).toBe(true);
@@ -52,6 +61,48 @@ describe('WASM Polygonizer', () => {
                 traceLevel: 'graph',
                 byteLimit: 4096,
             });
+        } finally {
+            if (originalWorker === undefined) delete globalThis.Worker;
+            else globalThis.Worker = originalWorker;
+        }
+    });
+
+    it('should preserve conformance through all async worker entrypoints', async () => {
+        const wasm = await import('../../../dist/standard/es/index.js');
+        await wasm.default();
+        const fixture = JSON.parse(readFileSync(
+            resolve('crates/geo-polygonize-core/tests/fixtures/conformance/axis_aligned_ring_v1.json'),
+            'utf8',
+        ));
+        const input = JSON.stringify(fixture.geojson);
+        const originalWorker = globalThis.Worker;
+        class TestWorker {
+            postMessage(request) {
+                queueMicrotask(() => {
+                    const calls = {
+                        polygons: () => wasm.polygonizeWithOptions(request.geojson, request.options),
+                        report: () => wasm.polygonizeReportWithOptions(request.geojson, request.options),
+                        trace: () => wasm.polygonizeTraceWithOptions(
+                            request.geojson,
+                            request.options,
+                            request.traceLevel,
+                            request.byteLimit,
+                        ),
+                    };
+                    this.onmessage({ data: { id: request.id, result: calls[request.operation]() } });
+                });
+            }
+            terminate() {}
+        }
+        globalThis.Worker = TestWorker;
+        try {
+            expect(JSON.parse(await wasm.polygonizeWithOptionsAsync(input, fixture.options)))
+                .toEqual(JSON.parse(wasm.polygonizeWithOptions(input, fixture.options)));
+            expect(JSON.parse(await wasm.polygonizeReportWithOptionsAsync(input, fixture.options)))
+                .toEqual(fixture.expected_fingerprint);
+            expect(JSON.parse(await wasm.polygonizeTraceWithOptionsAsync(
+                input, fixture.options, 'summary', 0,
+            )).topology).toEqual(fixture.expected_fingerprint);
         } finally {
             if (originalWorker === undefined) delete globalThis.Worker;
             else globalThis.Worker = originalWorker;
@@ -217,8 +268,12 @@ describe('WASM Polygonizer', () => {
     it('should match the shared canonical fixture through GeoJSON and buffers', async () => {
         const {
             default: initModule,
+            polygonize: polygonizeLegacy,
+            polygonize_buffers: polygonizeBuffersLegacy,
             polygonizeFingerprintWithOptions,
             polygonizeReportWithOptions,
+            polygonizeTraceWithOptions,
+            polygonizeWithOptions,
             polygonizeWithOptionsBuffer,
         } = await import('../../../dist/standard/es/index.js');
         await initModule();
@@ -229,10 +284,15 @@ describe('WASM Polygonizer', () => {
 
         const input = JSON.stringify(fixture.geojson);
         const report = JSON.parse(polygonizeReportWithOptions(input, fixture.options));
+        const retained = JSON.parse(polygonizeWithOptions(input, fixture.options));
         expect(JSON.parse(polygonizeFingerprintWithOptions(input, fixture.options))).toEqual(
             fixture.expected_fingerprint,
         );
         expect(report).toEqual(fixture.expected_fingerprint);
+        expect(JSON.parse(
+            polygonizeTraceWithOptions(input, fixture.options, 'summary', 0),
+        ).topology).toEqual(fixture.expected_fingerprint);
+        expect(JSON.parse(polygonizeLegacy(input))).toEqual(retained);
         expect(
             polygonizeWithOptionsBuffer(
                 new Float64Array(fixture.coords),
@@ -242,6 +302,102 @@ describe('WASM Polygonizer', () => {
                 new Uint32Array(fixture.line_ids),
             ).topology_fingerprint,
         ).toEqual(fixture.expected_fingerprint);
+        expect(
+            polygonizeBuffersLegacy(
+                new Float64Array(fixture.coords),
+                new Uint32Array(fixture.offsets),
+                fixture.stride,
+                false,
+                0,
+                new Uint32Array(fixture.line_ids),
+            ).topology_fingerprint,
+        ).toEqual(fixture.expected_fingerprint);
+    });
+
+    it('should expose normalized core errors through every canonical Wasm shape', async () => {
+        const {
+            default: initModule,
+            polygonizeFingerprintWithOptions,
+            polygonizeReportWithOptions,
+            polygonizeTraceWithOptions,
+            polygonizeWithOptions,
+            polygonizeWithOptionsBuffer,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+
+        const crossing = {
+            type: 'FeatureCollection',
+            features: [
+                { type: 'Feature', geometry: { type: 'LineString', coordinates: [[-1, 0], [1, 0]] } },
+                { type: 'Feature', geometry: { type: 'LineString', coordinates: [[0, -1], [0, 1]] } },
+            ],
+        };
+        const options = { noding: { guarantee: 'Validate' } };
+        const expected = {
+            schema_version: 1,
+            family: 'topology',
+            code: 'interior_intersection',
+            stage: 'noding_validation',
+            witness: {
+                ids: ['0x0000000000000000', '0x0000000000000001'],
+            },
+        };
+        for (const entrypoint of [
+            polygonizeWithOptions,
+            polygonizeFingerprintWithOptions,
+            polygonizeReportWithOptions,
+        ]) {
+            expect(normalizedError(
+                () => entrypoint(JSON.stringify(crossing), options),
+            )).toEqual(expected);
+        }
+        expect(normalizedError(() => polygonizeTraceWithOptions(
+            JSON.stringify(crossing), options, 'summary', 0,
+        ))).toEqual(expected);
+        expect(normalizedError(() => polygonizeWithOptionsBuffer(
+            new Float64Array([-1, 0, 1, 0, 0, -1, 0, 1]),
+            new Uint32Array([0, 2]),
+            2,
+            options,
+            new Uint32Array([0, 1]),
+        ))).toEqual(expected);
+    });
+
+    it('should retain normalized option failures through legacy Wasm entrypoints', async () => {
+        const {
+            default: initModule,
+            polygonize: polygonizeLegacy,
+            polygonize_buffers: polygonizeBuffersLegacy,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const input = JSON.stringify({
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [[0, 0], [1, 0], [1, 1], [0, 0]],
+                },
+            }],
+        });
+        const expected = {
+            schema_version: 1,
+            family: 'invalid_argument',
+            code: 'invalid_argument_type',
+            stage: 'options',
+            field: 'precision_model.grid_size',
+            expected: 'a finite positive number',
+            actual: '-1',
+        };
+
+        expect(normalizedError(() => polygonizeLegacy(input, true, -1))).toEqual(expected);
+        expect(normalizedError(() => polygonizeBuffersLegacy(
+            new Float64Array([0, 0, 1, 0, 1, 1, 0, 0]),
+            new Uint32Array([0]),
+            2,
+            true,
+            -1,
+        ))).toEqual(expected);
     });
 
     it('should round-trip every canonical option through report APIs', async () => {

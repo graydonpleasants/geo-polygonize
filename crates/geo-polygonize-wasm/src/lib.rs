@@ -701,37 +701,78 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_polygonize_geoarrow_valid() {
         let ipc_bytes = geoarrow_reference::square_ipc(Arc::new(Default::default()));
-        let result = polygonize_geoarrow(&ipc_bytes, false, 0.0, false);
+        let outputs = [
+            polygonize_geoarrow(&ipc_bytes, false, 0.0, false),
+            polygonize_geoarrow_with_options_js(
+                &ipc_bytes,
+                serde_wasm_bindgen::to_value(&PolygonizerOptions::default()).unwrap(),
+            ),
+        ];
 
-        // Ensure success without unwrapping directly which can panic
-        let out_bytes = result.unwrap_or_else(|e| {
-            panic!(
-                "Error from polygonize_geoarrow: {:?}",
-                js_sys::JSON::stringify(&e).unwrap().as_string()
-            );
-        });
+        for result in outputs {
+            let out_bytes = result.unwrap_or_else(|e| {
+                panic!(
+                    "Error from polygonize_geoarrow: {:?}",
+                    js_sys::JSON::stringify(&e).unwrap().as_string()
+                );
+            });
 
-        assert!(!out_bytes.is_empty());
+            assert!(!out_bytes.is_empty());
+            let reader =
+                arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(&out_bytes), None)
+                    .unwrap();
+            let schema = reader.schema();
+            let geom_field = schema.field(0);
+            let batches = reader.collect::<Result<Vec<_>, _>>().unwrap();
 
-        let reader =
-            arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(&out_bytes), None)
-                .unwrap();
-
-        let schema = reader.schema();
-        let geom_field = schema.field(0);
-
-        let mut batches = vec![];
-        for batch in reader {
-            batches.push(batch.unwrap());
+            assert_eq!(batches.len(), 1);
+            let geom_col = batches[0].column(0);
+            let poly_array = PolygonArray::try_from((geom_col.as_ref(), geom_field)).unwrap();
+            geoarrow_reference::assert_square(&poly_array);
         }
+    }
 
-        assert_eq!(batches.len(), 1);
-        let batch = &batches[0];
-        let geom_col = batch.column(0);
+    #[wasm_bindgen_test]
+    fn test_polygonize_geoarrow_errors_keep_normalized_fields() {
+        let ipc_bytes = geoarrow_reference::square_ipc(Arc::new(Default::default()));
+        let options = PolygonizerOptions {
+            node_input: true,
+            precision_model: geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: -1.0 },
+            ..Default::default()
+        };
+        let errors = [
+            polygonize_geoarrow(&ipc_bytes, true, -1.0, false).unwrap_err(),
+            polygonize_geoarrow_with_options_js(
+                &ipc_bytes,
+                serde_wasm_bindgen::to_value(&options).unwrap(),
+            )
+            .unwrap_err(),
+        ];
 
-        use std::convert::TryFrom;
-        let poly_array = PolygonArray::try_from((geom_col.as_ref(), geom_field)).unwrap();
-        geoarrow_reference::assert_square(&poly_array);
+        for error in errors {
+            let normalized = js_sys::Reflect::get(&error, &"normalized".into()).unwrap();
+            assert_eq!(
+                js_sys::Reflect::get(&normalized, &"family".into())
+                    .unwrap()
+                    .as_string()
+                    .as_deref(),
+                Some("invalid_argument")
+            );
+            assert_eq!(
+                js_sys::Reflect::get(&normalized, &"code".into())
+                    .unwrap()
+                    .as_string()
+                    .as_deref(),
+                Some("invalid_argument_type")
+            );
+            assert_eq!(
+                js_sys::Reflect::get(&normalized, &"stage".into())
+                    .unwrap()
+                    .as_string()
+                    .as_deref(),
+                Some("options")
+            );
+        }
     }
 
     #[wasm_bindgen_test]

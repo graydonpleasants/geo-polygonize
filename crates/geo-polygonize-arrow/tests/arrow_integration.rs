@@ -1,8 +1,11 @@
 use arrow::array::Array;
 use arrow::datatypes::Field;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use geo_polygonize_arrow::ffi::{polygonize_ffi, polygonize_with_options_ffi, PolygonizerOptions};
+use geo_polygonize_arrow::ffi::{
+    polygonize_ffi, polygonize_ffi_last_error, polygonize_with_options_ffi, PolygonizerOptions,
+};
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions as CoreOptions};
+use geo_polygonize_core::normalize_polygonize_error;
 use geo_traits::{CoordTrait, LineStringTrait, PolygonTrait};
 use geoarrow::array::{
     GeoArrowArray, GeoArrowArrayAccessor, LineStringArray, LineStringBuilder, PolygonArray,
@@ -10,6 +13,7 @@ use geoarrow::array::{
 use geoarrow::datatypes::{Crs, Dimension, LineStringType, Metadata};
 use serde_json::Value;
 use std::convert::TryFrom;
+use std::ffi::CStr;
 use std::sync::Arc;
 
 #[allow(dead_code)]
@@ -102,6 +106,16 @@ fn assert_conformance_polygon(fixture: &Value, polygons: &PolygonArray) {
     assert_eq!(canonical_ring(actual), canonical_ring(expected));
 }
 
+fn import_ffi_polygons(
+    output_array: FFI_ArrowArray,
+    output_schema: &FFI_ArrowSchema,
+) -> PolygonArray {
+    let output = unsafe { arrow::ffi::from_ffi(output_array, output_schema).unwrap() };
+    let output = arrow::array::make_array(output);
+    let field = Field::try_from(output_schema).unwrap();
+    PolygonArray::try_from((output.as_ref(), &field)).unwrap()
+}
+
 #[test]
 fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let fixture = conformance_fixture();
@@ -123,6 +137,32 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
+    let legacy_options = PolygonizerOptions {
+        node_input: 0,
+        snap_grid_size: 1e-10,
+        extract_only_polygonal: 0,
+        report_mode: 0,
+    };
+    let status = unsafe {
+        polygonize_ffi(
+            &mut *input_array,
+            &mut *input_schema,
+            &mut output_array,
+            &mut output_schema,
+            &legacy_options,
+        )
+    };
+    assert_eq!(status, 0);
+    assert_conformance_polygon(&fixture, &import_ffi_polygons(output_array, &output_schema));
+
+    let (input, field) = conformance_input(&fixture);
+    let input = input.into_array_ref();
+    let (input_array, _) = arrow::ffi::to_ffi(&input.to_data()).unwrap();
+    let input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
+    let mut input_array = std::mem::ManuallyDrop::new(input_array);
+    let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
+    let mut output_array = FFI_ArrowArray::empty();
+    let mut output_schema = FFI_ArrowSchema::empty();
     let options = serde_json::to_vec(&canonical_options_fixture()["options"]).unwrap();
     let status = unsafe {
         polygonize_with_options_ffi(
@@ -135,11 +175,91 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
         )
     };
     assert_eq!(status, 0);
-    let output = unsafe { arrow::ffi::from_ffi(output_array, &output_schema).unwrap() };
-    let output = arrow::array::make_array(output);
-    let field = Field::try_from(&output_schema).unwrap();
-    let polygons = PolygonArray::try_from((output.as_ref(), &field)).unwrap();
-    assert_conformance_polygon(&fixture, &polygons);
+    assert_conformance_polygon(&fixture, &import_ffi_polygons(output_array, &output_schema));
+}
+
+#[test]
+fn arrow_and_c_data_expose_normalized_non_finite_errors_without_message_equality() {
+    let mut builder = LineStringBuilder::new(LineStringType::new(
+        Dimension::XY,
+        Arc::new(Default::default()),
+    ));
+    builder
+        .push_line_string(Some(&geo::LineString::from(vec![
+            (0.0, 0.0),
+            (f64::NAN, 1.0),
+        ])))
+        .unwrap();
+    let input = builder.finish();
+    let field = input.data_type().to_field("geometry", true);
+    let input = input.into_array_ref();
+    let normalized = normalize_polygonize_error(
+        &polygonize_arrow(input.as_ref(), &field, CoreOptions::default()).unwrap_err(),
+    );
+    assert_eq!(normalized.family, "invalid_geometry");
+    assert_eq!(normalized.code, "non_finite_coordinate");
+    assert_eq!(normalized.stage, "input_validation");
+
+    for canonical_options in [false, true] {
+        let mut builder = LineStringBuilder::new(LineStringType::new(
+            Dimension::XY,
+            Arc::new(Default::default()),
+        ));
+        builder
+            .push_line_string(Some(&geo::LineString::from(vec![
+                (0.0, 0.0),
+                (f64::NAN, 1.0),
+            ])))
+            .unwrap();
+        let input = builder.finish();
+        let field = input.data_type().to_field("geometry", true);
+        let input = input.into_array_ref();
+        let (input_array, _) = arrow::ffi::to_ffi(&input.to_data()).unwrap();
+        let input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
+        let mut input_array = std::mem::ManuallyDrop::new(input_array);
+        let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
+        let mut output_array = FFI_ArrowArray::empty();
+        let mut output_schema = FFI_ArrowSchema::empty();
+        let status = if canonical_options {
+            let options = serde_json::to_vec(&CoreOptions::default()).unwrap();
+            unsafe {
+                polygonize_with_options_ffi(
+                    &mut *input_array,
+                    &mut *input_schema,
+                    &mut output_array,
+                    &mut output_schema,
+                    options.as_ptr(),
+                    options.len(),
+                )
+            }
+        } else {
+            let options = PolygonizerOptions {
+                node_input: 0,
+                snap_grid_size: 1e-10,
+                extract_only_polygonal: 0,
+                report_mode: 0,
+            };
+            unsafe {
+                polygonize_ffi(
+                    &mut *input_array,
+                    &mut *input_schema,
+                    &mut output_array,
+                    &mut output_schema,
+                    &options,
+                )
+            }
+        };
+        assert_eq!(status, 7);
+        let error = polygonize_ffi_last_error();
+        assert!(!error.is_null());
+        let error = unsafe { &*error };
+        let family = unsafe { CStr::from_ptr(error.family) }.to_str().unwrap();
+        let stage = unsafe { CStr::from_ptr(error.stage) }.to_str().unwrap();
+        let witness = unsafe { CStr::from_ptr(error.witness) }.to_str().unwrap();
+        assert_eq!(family, normalized.family);
+        assert_eq!(stage, normalized.stage);
+        assert!(witness.is_empty());
+    }
 }
 
 #[test]
