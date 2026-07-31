@@ -24,6 +24,7 @@ import {
   Alert
 } from '@mui/material';
 import { appendLineString, parseGeojsonInput } from './input';
+import { comparePlaygroundProfiles, type ProfileComparison } from './compare';
 import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
@@ -144,6 +145,9 @@ function App() {
   const [report, setReport] = useState<TopologyFingerprintV1 | null>(null);
   const [trace, setTrace] = useState<TopologyTraceV1 | null>(null);
   const [traceBusy, setTraceBusy] = useState(false);
+  const [comparison, setComparison] = useState<ProfileComparison | null>(null);
+  const [comparisonBusy, setComparisonBusy] = useState(false);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
@@ -382,6 +386,27 @@ function App() {
     return () => controller.abort();
   }, [wasmReady, inputGeojson, nodeInput, snapGridSize, nodingGuarantee]);
 
+  useEffect(() => {
+    if (!wasmReady || !inputGeojson) {
+      setComparisonBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    setComparisonBusy(true);
+    setComparison(null);
+    setComparisonError(null);
+    void comparePlaygroundProfiles(
+      JSON.stringify(inputGeojson),
+      controller.signal,
+      polygonizeTraceWithOptionsAsync,
+    ).then(setComparison).catch((e: Error) => {
+      if (e.name !== 'AbortError') setComparisonError(e.toString());
+    }).finally(() => {
+      if (!controller.signal.aborted) setComparisonBusy(false);
+    });
+    return () => controller.abort();
+  }, [wasmReady, inputGeojson]);
+
 
   // SVG Viewport calculation
   const bbox = useMemo(() => {
@@ -398,7 +423,9 @@ function App() {
 
       {!wasmReady && <Alert severity="info">Loading WebAssembly...</Alert>}
       {traceBusy && <Alert severity="info">Tracing topology in a worker...</Alert>}
+      {comparisonBusy && <Alert severity="info">Comparing canonical profiles...</Alert>}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {comparisonError && <Alert severity="error" sx={{ mb: 2 }}>Profile comparison: {comparisonError}</Alert>}
 
       <Grid container spacing={3}>
         {/* Controls */}
@@ -607,6 +634,37 @@ function App() {
                    sx={{ mt: 2 }}
                  />
                )}
+            </Paper>
+          )}
+
+          {comparison && (
+            <Paper sx={{ p: 2, mt: 3 }}>
+              <Typography variant="h6">Profile comparison</Typography>
+              <Alert severity={comparison.diverged ? 'warning' : 'success'} sx={{ my: 1 }}>
+                Canonical topology fingerprints {comparison.diverged ? 'diverge' : 'match'}.
+              </Alert>
+              <Grid container spacing={2}>
+                {comparison.results.map(({ label, report: result }) => (
+                  <Grid key={label} size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="subtitle1">{label}</Typography>
+                    <Typography>Polygons: {result.topology.polygons.length}</Typography>
+                    <Typography>Dangles: {result.topology.dangles.length}</Typography>
+                    <Typography>Cut edges: {result.topology.cut_edges.length}</Typography>
+                    <Typography>Invalid rings: {result.topology.invalid_rings.length}</Typography>
+                    <Typography>Trace events: {result.trace.events.length}</Typography>
+                    <Typography>Trace bytes: {result.trace.bytes_used.toLocaleString()}</Typography>
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={4}
+                      label="Canonical options"
+                      value={JSON.stringify(result.topology.options, null, 2)}
+                      InputProps={{ readOnly: true }}
+                      sx={{ mt: 1 }}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
             </Paper>
           )}
         </Grid>
