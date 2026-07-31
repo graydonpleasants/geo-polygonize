@@ -79,6 +79,10 @@ const traced = JSON.parse(wasm.polygonizeTraceWithOptions(
 console.log(traced.topology, traced.trace.events, traced.trace.truncated);
 ```
 
+Use `polygonizeTraceWithOptionsAsync` when the call must be abortable. It uses
+the same scalar/SIMD runtime selection as direct calls and terminates its worker
+when the supplied `AbortSignal` fires.
+
 ### `polygonize_buffers(coords, offsets, stride, node_input, snap_grid_size)`
 
 Polygonizes raw coordinate arrays. This is an advanced API for high-performance integrations bypassing JSON serialization.
