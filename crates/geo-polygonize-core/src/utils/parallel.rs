@@ -1,5 +1,22 @@
 #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
 use rayon::prelude::*;
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static PAR_FLAT_MAP_DISPATCHES: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_par_flat_map_dispatches() {
+    PAR_FLAT_MAP_DISPATCHES.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn par_flat_map_dispatches() -> usize {
+    PAR_FLAT_MAP_DISPATCHES.get()
+}
 
 /// A trait to switch between parallel and sequential iterators
 pub trait MaybeParIter<T> {
@@ -62,6 +79,8 @@ where
 {
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
+        #[cfg(test)]
+        PAR_FLAT_MAP_DISPATCHES.with(|dispatches| dispatches.set(dispatches.get() + 1));
         slice.par_iter().flat_map_iter(f).collect()
     }
     #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
