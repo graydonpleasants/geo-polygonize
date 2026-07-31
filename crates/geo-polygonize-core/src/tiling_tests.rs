@@ -363,6 +363,31 @@ mod tests {
         assert_eq!(dedup.payload["retained"], true);
         assert_eq!(traced.result.polygons.len(), 1);
     }
+
+    #[test]
+    fn tile_trace_capture_stops_before_budgeted_growth() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 9.0, y: 1.0 },
+            Coord { x: 9.0, y: 9.0 },
+            Coord { x: 1.0, y: 9.0 },
+            Coord { x: 1.0, y: 1.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0);
+        tiler.add_geometry(&square);
+        let expected = tiler.polygonize().unwrap();
+
+        let traced = tiler.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+
+        assert_eq!(traced.result.polygons.len(), expected.polygons.len());
+        assert_eq!(
+            traced.result.polygons[0].exterior,
+            expected.polygons[0].exterior
+        );
+        assert!(traced.trace.events.is_empty());
+        assert!(traced.trace.truncated);
+    }
 }
 
 #[test]
