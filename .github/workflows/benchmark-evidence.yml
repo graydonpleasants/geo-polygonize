@@ -11,6 +11,7 @@ on:
       - "tests/test_reference_geos.py"
       - "tests/test_publish_benchmark.py"
       - "tests/test_benchmark_workflow_pins.py"
+      - "tests/test_benchmark_artifacts.py"
   push:
     branches: [main]
     paths:
@@ -20,6 +21,7 @@ on:
       - "tests/test_reference_geos.py"
       - "tests/test_publish_benchmark.py"
       - "tests/test_benchmark_workflow_pins.py"
+      - "tests/test_benchmark_artifacts.py"
 
 permissions:
   contents: read
@@ -48,9 +50,16 @@ jobs:
 
       - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
 
-      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py tests/test_benchmark_workflow_pins.py
+      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py tests/test_benchmark_workflow_pins.py tests/test_benchmark_artifacts.py
 
-      - run: python benchmarks/check_geos_references.py
+      - run: python benchmarks/check_geos_references.py --output-dir target/geos-reference
+
+      - name: Retain validated GEOS references
+        uses: actions/upload-artifact@v4
+        with:
+          name: geos-correctness-references
+          path: target/geos-reference/*.json
+          retention-days: 30
 
   jts-reference:
     runs-on: ubuntu-24.04
@@ -90,3 +99,10 @@ jobs:
               --lane certified-fixed --workload "$workload" \
               --reference-result "$reference" --check-only
           done
+
+      - name: Retain validated JTS references
+        uses: actions/upload-artifact@v4
+        with:
+          name: jts-correctness-references
+          path: target/jts-reference/*.json
+          retention-days: 30

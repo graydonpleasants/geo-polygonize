@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Check every GEOS-comparable parity workload without recording timings."""
 
+import argparse
+import contextlib
 import json
 import subprocess
 import sys
@@ -13,6 +15,9 @@ import reference_geos
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", type=Path)
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     binary = root / "target/release/examples/benchmark_record"
     if not binary.is_file():
@@ -27,14 +32,22 @@ def main():
     )
 
     checked = 0
-    with tempfile.TemporaryDirectory() as temporary:
+    directory = (
+        contextlib.nullcontext(args.output_dir)
+        if args.output_dir
+        else tempfile.TemporaryDirectory()
+    )
+    if args.output_dir:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+    with directory as temporary:
+        temporary = Path(temporary)
         for workload in manifest["workloads"]:
             if workload["compatibility_class"] != "parity":
                 continue
             for lane in reference_geos.LANES:
                 if lane not in workload["permitted_profiles"]:
                     continue
-                reference_path = Path(temporary) / f"{workload['id']}-{lane}.json"
+                reference_path = temporary / f"{workload['id']}-{lane}.json"
                 subprocess.run(
                     [
                         sys.executable,
