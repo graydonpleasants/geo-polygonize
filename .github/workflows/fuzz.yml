@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: "nightly-2026-07-15"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -27,6 +29,16 @@ jobs:
         working-directory: crates/geo-polygonize-core
         run: |
           cargo fetch --locked --manifest-path fuzz/Cargo.toml
-          for target in core_pipeline wasm_typed_buffer_ingestion arrow_ffi_ingestion tile_ownership_dedup provenance_report_mode; do
+          cargo test --test persisted_differential
+          for target in core_pipeline wasm_typed_buffer_ingestion arrow_ffi_ingestion tile_ownership_dedup provenance_report_mode adapter_differential; do
             cargo fuzz run "$target" -- -max_total_time=60
           done
+
+      - name: Retain minimized fuzz failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-fuzz-failures-${{ github.run_id }}
+          path: crates/geo-polygonize-core/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
