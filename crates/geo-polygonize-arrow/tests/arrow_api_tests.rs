@@ -1,7 +1,8 @@
-use arrow::array::{Array, Float64Array, LargeListArray, StructArray};
+use arrow::array::{Array, Float64Array, LargeListArray, ListArray, StructArray};
 use arrow::buffer::OffsetBuffer;
 use arrow::datatypes::{DataType, Field};
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_core::PolygonizeErrorKind;
 use geo_traits::{LineStringTrait, PolygonTrait};
 use geoarrow::array::{GeoArrowArray, GeoArrowArrayAccessor, LineStringBuilder};
 use geoarrow::datatypes::{Crs, Dimension, Edges, LineStringType, Metadata};
@@ -21,14 +22,19 @@ fn test_polygonize_arrow_invalid_type_error_path() {
     let field = Field::new("geometry", DataType::Float64, true);
     let options = PolygonizerOptions::default();
 
-    let result = polygonize_arrow(&array, &field, options);
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("Failed to convert input array to LineStringArray and fallback failed")
-            && err.contains("DataType: Float64")
-            && err.contains("Field { name: \"geometry\", data_type: Float64, nullable: true")
-    );
+    let error = polygonize_arrow(&array, &field, options).unwrap_err();
+    assert_eq!(error.kind(), PolygonizeErrorKind::ArrowError);
+}
+
+#[test]
+fn test_polygonize_arrow_invalid_buffer_shape_error_path() {
+    let values = Arc::new(Float64Array::from(vec![0.0, 1.0])) as Arc<dyn Array>;
+    let item = Arc::new(Field::new("item", DataType::Float64, false));
+    let array = ListArray::try_new(item, OffsetBuffer::from_lengths([2]), values, None).unwrap();
+    let field = Field::new("geometry", array.data_type().clone(), true);
+
+    let error = polygonize_arrow(&array, &field, PolygonizerOptions::default()).unwrap_err();
+    assert_eq!(error.kind(), PolygonizeErrorKind::InvalidBufferShape);
 }
 
 #[test]
