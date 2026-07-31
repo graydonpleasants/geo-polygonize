@@ -202,6 +202,122 @@ mod tests {
         assert!(graph.edges[0].deleted);
     }
 
+    fn arrangement_graph() -> PlanarGraph {
+        let mut graph = PlanarGraph::new();
+        let center = Coord3D::new(0.0, 0.0, 0.0);
+        for (line_id, end) in [
+            (10, Coord3D::new(10.0, 0.0, 0.0)),
+            (20, Coord3D::new(0.0, 10.0, 0.0)),
+            (30, Coord3D::new(-10.0, 0.0, 0.0)),
+            (40, Coord3D::new(0.0, -10.0, 0.0)),
+        ] {
+            graph.add_line(Line3D::new(center, end, line_id));
+        }
+        graph.add_line(Line3D::new(Coord3D::new(10.0, 0.0, 0.0), center, 11));
+        graph.sort_edges();
+        graph
+    }
+
+    fn arrangement_invariant_reason(graph: &PlanarGraph) -> String {
+        match graph.validate_arrangement_edge_invariants().unwrap_err() {
+            PolygonizeError::InternalInvariantViolation { reason } => reason,
+            error => panic!("unexpected validation error: {error}"),
+        }
+    }
+
+    #[test]
+    fn arrangement_edge_validator_accepts_bulk_incremental_and_deleted_edges() {
+        let incremental = arrangement_graph();
+        incremental.validate_arrangement_edge_invariants().unwrap();
+
+        let center = Coord3D::new(0.0, 0.0, 0.0);
+        let east = Coord3D::new(10.0, 0.0, 0.0);
+        let mut bulk = PlanarGraph::new();
+        bulk.bulk_load(vec![
+            Line3D::new(center, east, 10),
+            Line3D::new(east, center, 11),
+            Line3D::new(center, Coord3D::new(0.0, 10.0, 0.0), 20),
+        ]);
+        bulk.sort_edges();
+        bulk.validate_arrangement_edge_invariants().unwrap();
+
+        assert!(bulk.remove_line_by_id(10));
+        assert!(bulk.remove_line_by_id(11));
+        bulk.sort_edges();
+        bulk.validate_arrangement_edge_invariants().unwrap();
+        assert_eq!(bulk.nodes_degree[0], 1);
+        assert_eq!(bulk.nodes_degree[1], 0);
+    }
+
+    #[test]
+    fn arrangement_edge_validator_reports_deterministic_witnesses() {
+        let graph = arrangement_graph();
+
+        let mut broken = graph.clone();
+        broken.directed_edges.pop();
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant directed edge count mismatch: edges=4, directed_edges=7, expected=8"
+        );
+
+        let mut broken = graph.clone();
+        broken.directed_edges[0].sym_idx = 0;
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant edge 0 twin involution mismatch: 0.sym=0, 1.sym=0"
+        );
+
+        let mut broken = graph.clone();
+        broken.directed_edges[1].dst = 2;
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant edge 0 twin endpoint mismatch: 0=(0->1), 1=(1->2)"
+        );
+
+        let mut broken = graph.clone();
+        broken.edges[0].sources.line_ids.clear();
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant live edge 0 has no sources"
+        );
+
+        let mut broken = graph.clone();
+        broken.edges[0].sources.line_ids.swap(0, 1);
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant live edge 0 sources are not strictly sorted: 11 then 10"
+        );
+
+        let mut broken = graph.clone();
+        broken.nodes_degree[0] -= 1;
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant node 0 degree mismatch: degree=3, adjacency=4"
+        );
+
+        let mut broken = graph.clone();
+        broken.edges[0].deleted = true;
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant node 0 adjacency[0] references deleted edge 0 via directed edge 0"
+        );
+
+        let mut broken = graph.clone();
+        broken.nodes_outgoing[0].remove(0);
+        broken.nodes_degree[0] -= 1;
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant directed edge 0 adjacency count mismatch: actual=0, expected=1"
+        );
+
+        let mut broken = graph;
+        broken.nodes_outgoing[0].swap(0, 1);
+        assert_eq!(
+            arrangement_invariant_reason(&broken),
+            "arrangement edge invariant node 0 angular order is not strict between directed edges 2 and 0: Greater"
+        );
+    }
+
     #[test]
     fn test_edge_sorting() {
         let mut graph = PlanarGraph::new();
