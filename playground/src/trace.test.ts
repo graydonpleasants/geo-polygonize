@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TopologyTraceV1 } from 'geo-polygonize';
 import {
   decodeTraceCoordinate,
+  extractExecutionEvidence,
   extractTraceLayers,
   extractZReconciliationDecisions,
   parsePlaygroundTraceReport,
@@ -126,5 +127,47 @@ describe('Z reconciliation decisions', () => {
         },
       },
     ]))).toEqual([]);
+  });
+});
+
+describe('execution evidence', () => {
+  it('extracts only existing summary timing, work, and budget fields', () => {
+    const phaseTimes = { ingest_and_node: { secs: 0, nanos: 42 } };
+    const workStats = { candidate_pairs: 7, exact_intersection_calls: 3 };
+    const traceBudget = {
+      total: { limit: 4096, bytes_used_before_summary: 1200, truncated_before_summary: false },
+      noding: { limit: 2000, bytes_used_before_summary: 900, truncated_before_summary: false },
+    };
+    expect(extractExecutionEvidence(trace([
+      {
+        sequence: 8,
+        stage: 'summary',
+        kind: 'polygonizer_summary',
+        payload: {
+          diagnostics: {
+            phase_times: phaseTimes,
+            noding_work_stats: workStats,
+            noding_iterations: 2,
+          },
+          trace_budget: traceBudget,
+        },
+      },
+    ]))).toEqual({
+      phase_times: phaseTimes,
+      noding_work_stats: workStats,
+      noding_iterations: 2,
+      trace_budget: traceBudget,
+    });
+  });
+
+  it('rejects incomplete summary evidence', () => {
+    expect(extractExecutionEvidence(trace([
+      {
+        sequence: 0,
+        stage: 'summary',
+        kind: 'polygonizer_summary',
+        payload: { diagnostics: {}, trace_budget: {} },
+      },
+    ]))).toBeNull();
   });
 });

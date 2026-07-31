@@ -28,6 +28,13 @@ export type ZReconciliationDecision = {
   retainedZ: string;
 };
 
+export type ExecutionEvidence = {
+  phase_times: Record<string, unknown>;
+  noding_work_stats: Record<string, unknown>;
+  noding_iterations: number;
+  trace_budget: Record<string, unknown>;
+};
+
 export type PlaygroundTraceLayers = {
   snappedLines: TraceLine[];
   hotPixels: TracePoint[];
@@ -159,4 +166,19 @@ export function extractZReconciliationDecisions(
       retainedZ,
     }];
   });
+}
+
+export function extractExecutionEvidence(trace: TopologyTraceV1): ExecutionEvidence | null {
+  const summary = trace.events.find(({ kind }) => kind === 'polygonizer_summary');
+  if (!summary || !isObject(summary.payload)) return null;
+  const { diagnostics, trace_budget: traceBudget } = summary.payload;
+  if (!isObject(diagnostics) || !isObject(traceBudget)
+    || !isObject(diagnostics.phase_times) || !isObject(diagnostics.noding_work_stats)
+    || typeof diagnostics.noding_iterations !== 'number') return null;
+  return {
+    phase_times: diagnostics.phase_times,
+    noding_work_stats: diagnostics.noding_work_stats,
+    noding_iterations: diagnostics.noding_iterations,
+    trace_budget: traceBudget,
+  };
 }
