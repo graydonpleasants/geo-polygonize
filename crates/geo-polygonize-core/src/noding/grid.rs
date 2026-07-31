@@ -1,6 +1,7 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::noding::snap::{FloatingIntersectionTrace, SnapNoder};
 use crate::options::ExecutionPolicy;
+use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -498,6 +499,7 @@ impl UniformGrid {
         &self,
         lines: &[Line3D],
         iteration_index: usize,
+        budget: &mut TraceCaptureBudget,
     ) -> (Vec<UniformGridCellTrace>, Vec<UniformGridGlobalLineTrace>) {
         let mut cells = Vec::new();
         for index in 0..self.rows * self.cols {
@@ -505,6 +507,13 @@ impl UniformGrid {
             let end = self.cell_offsets[index + 1];
             if end - start < 2 {
                 continue;
+            }
+            let member_bytes = (end - start)
+                .saturating_mul(std::mem::size_of::<usize>() + std::mem::size_of::<u32>());
+            let capture_bytes =
+                std::mem::size_of::<UniformGridCellTrace>().saturating_add(member_bytes);
+            if !budget.take(capture_bytes) {
+                break;
             }
             let row = index / self.cols;
             let column = index % self.cols;
@@ -533,15 +542,17 @@ impl UniformGrid {
                 segment_indices,
             });
         }
-        let global_lines = self
-            .global_lines
-            .iter()
-            .map(|&segment_index| UniformGridGlobalLineTrace {
+        let mut global_lines = Vec::new();
+        for &segment_index in &self.global_lines {
+            let line = UniformGridGlobalLineTrace {
                 iteration_index,
                 segment_index,
                 source_id: lines[segment_index].line_id,
-            })
-            .collect();
+            };
+            if !budget.capture(&mut global_lines, line) {
+                break;
+            }
+        }
         (cells, global_lines)
     }
 
@@ -632,7 +643,7 @@ impl UniformGrid {
         snap_noder: &SnapNoder,
         tracker: &mut ExecutionWorkTracker<'_>,
         iteration_index: usize,
-        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
+        mut trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
@@ -757,7 +768,7 @@ impl UniformGrid {
         snap_noder: &SnapNoder,
         tracker: &mut ExecutionWorkTracker<'_>,
         iteration_index: usize,
-        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
+        mut trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
         for &left_idx in &self.global_lines {
@@ -871,7 +882,7 @@ impl UniformGrid {
         splits: &mut Vec<(usize, Coord3D)>,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
         iteration_index: usize,
-        mut trace_candidates: Option<&mut Vec<UniformGridCandidateTrace>>,
+        mut trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
     ) -> crate::Result<()> {
         if cell_indices.len() < 2 {
             return Ok(());
@@ -1054,13 +1065,15 @@ mod tests {
         let mut grid = UniformGrid::empty();
         grid.global_lines.push(0);
         let mut candidates = Vec::new();
+        let mut budget = TraceCaptureBudget::new(usize::MAX);
+        let mut trace = TraceCapture::new(&mut candidates, &mut budget);
         let splits = grid
             .find_splits_tracked(
                 &lines,
                 &SnapNoder::new(0.0),
                 &mut ExecutionWorkTracker::new(None, None),
                 0,
-                Some(&mut candidates),
+                Some(&mut trace),
             )
             .unwrap();
 

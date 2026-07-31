@@ -225,9 +225,59 @@ pub struct TraceRecorderV1 {
     trace: TopologyTraceV1,
 }
 
+pub(crate) struct TraceCaptureBudget {
+    remaining_bytes: usize,
+    truncated: bool,
+}
+
+pub(crate) struct TraceCapture<'a, T> {
+    values: &'a mut Vec<T>,
+    budget: &'a mut TraceCaptureBudget,
+}
+
 pub struct TracedPolygonizerResultV1 {
     pub result: PolygonizerResult,
     pub trace: TopologyTraceV1,
+}
+
+impl TraceCaptureBudget {
+    pub(crate) fn new(byte_limit: usize) -> Self {
+        Self {
+            remaining_bytes: byte_limit,
+            truncated: false,
+        }
+    }
+
+    pub(crate) fn capture<T>(&mut self, values: &mut Vec<T>, value: T) -> bool {
+        if !self.take(std::mem::size_of::<T>().max(1)) {
+            return false;
+        }
+        values.push(value);
+        true
+    }
+
+    pub(crate) fn take(&mut self, bytes: usize) -> bool {
+        let Some(remaining_bytes) = self.remaining_bytes.checked_sub(bytes) else {
+            self.truncated = true;
+            return false;
+        };
+        self.remaining_bytes = remaining_bytes;
+        true
+    }
+
+    pub(crate) fn truncated(&self) -> bool {
+        self.truncated
+    }
+}
+
+impl<'a, T> TraceCapture<'a, T> {
+    pub(crate) fn new(values: &'a mut Vec<T>, budget: &'a mut TraceCaptureBudget) -> Self {
+        Self { values, budget }
+    }
+
+    pub(crate) fn push(&mut self, value: T) -> bool {
+        self.budget.capture(self.values, value)
+    }
 }
 
 impl TraceRecorderV1 {
@@ -288,6 +338,14 @@ impl TraceRecorderV1 {
 
     pub(crate) fn records_stage(&self, stage: TraceStageV1) -> bool {
         self.trace.level.allows(stage) && !self.trace.truncated
+    }
+
+    pub(crate) fn capture_byte_limit(&self) -> usize {
+        self.trace.byte_limit.saturating_sub(self.trace.bytes_used)
+    }
+
+    pub(crate) fn mark_capture_truncated(&mut self) {
+        self.trace.truncated = true;
     }
 
     pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
@@ -870,6 +928,26 @@ mod tests {
         assert!(trace.bytes_used <= trace.byte_limit);
         assert!(trace.truncated);
         assert!(trace.options.is_object());
+    }
+
+    #[test]
+    fn capture_budget_stops_before_trace_only_vector_growth() {
+        let item_bytes = std::mem::size_of::<FloatingSplitTrace>();
+        let mut budget = TraceCaptureBudget::new(item_bytes * 2);
+        let mut values = Vec::new();
+        let split = FloatingSplitTrace {
+            iteration_index: 0,
+            source_segment: 0,
+            source_id: 1,
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(1.0, 0.0, 0.0),
+        };
+
+        assert!(budget.capture(&mut values, split));
+        assert!(budget.capture(&mut values, split));
+        assert!(!budget.capture(&mut values, split));
+        assert_eq!(values.len(), 2);
+        assert!(budget.truncated());
     }
 
     #[test]

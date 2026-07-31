@@ -4,6 +4,7 @@ use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
 use crate::options::{ExecutionPolicy, ZPolicy};
+use crate::trace::TraceCaptureBudget;
 use crate::types::{Coord3D, IPoint, Line3D};
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
 use rstar::AABB;
@@ -38,6 +39,7 @@ type HotPixelNodingResult = (
     Vec<IPoint>,
     Vec<HotPixelCandidateTrace>,
     Vec<HotPixelSplitTrace>,
+    bool,
 );
 
 /// Fixed-precision hot-pixel snap-rounding noder.
@@ -67,16 +69,16 @@ impl HotPixelNoder {
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Result<Vec<Line3D>> {
-        self.node_with_stats_impl(lines, None, false)
-            .map(|(lines, _, _, _, _, _)| lines)
+        self.node_with_stats_impl(lines, None, None)
+            .map(|(lines, _, _, _, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats(
         &self,
         lines: Vec<Line3D>,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
-        self.node_with_stats_impl(lines, None, false)
-            .map(|(lines, intersections, work, _, _, _)| (lines, intersections, work))
+        self.node_with_stats_impl(lines, None, None)
+            .map(|(lines, intersections, work, _, _, _, _)| (lines, intersections, work))
     }
 
     pub(crate) fn node_with_execution_policy(
@@ -84,8 +86,8 @@ impl HotPixelNoder {
         lines: Vec<Line3D>,
         execution_policy: &ExecutionPolicy,
     ) -> Result<Vec<Line3D>> {
-        self.node_with_stats_impl(lines, Some(execution_policy), false)
-            .map(|(lines, _, _, _, _, _)| lines)
+        self.node_with_stats_impl(lines, Some(execution_policy), None)
+            .map(|(lines, _, _, _, _, _, _)| lines)
     }
 
     pub(crate) fn node_with_stats_and_execution_policy(
@@ -93,24 +95,26 @@ impl HotPixelNoder {
         lines: Vec<Line3D>,
         execution_policy: &ExecutionPolicy,
     ) -> Result<(Vec<Line3D>, usize, NodingWorkStats)> {
-        self.node_with_stats_impl(lines, Some(execution_policy), false)
-            .map(|(lines, intersections, work, _, _, _)| (lines, intersections, work))
+        self.node_with_stats_impl(lines, Some(execution_policy), None)
+            .map(|(lines, intersections, work, _, _, _, _)| (lines, intersections, work))
     }
 
     pub(crate) fn node_with_hot_pixels(
         &self,
         lines: Vec<Line3D>,
         execution_policy: Option<&ExecutionPolicy>,
+        capture_byte_limit: usize,
     ) -> Result<HotPixelNodingResult> {
-        self.node_with_stats_impl(lines, execution_policy, true)
+        self.node_with_stats_impl(lines, execution_policy, Some(capture_byte_limit))
     }
 
     fn node_with_stats_impl(
         &self,
         mut lines: Vec<Line3D>,
         execution_policy: Option<&ExecutionPolicy>,
-        capture_trace: bool,
+        capture_byte_limit: Option<usize>,
     ) -> Result<HotPixelNodingResult> {
+        let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
         for line in &mut lines {
             line.start = self.snap(line.start)?;
             line.end = self.snap(line.end)?;
@@ -178,25 +182,28 @@ impl HotPixelNoder {
                 }
                 let intersection =
                     line_intersection(first.to_line_2d(), lines[second_index].to_line_2d());
-                if capture_trace {
-                    candidate_trace.push(HotPixelCandidateTrace {
-                        first_segment: first_index,
-                        second_segment: second_index,
-                        first_source_id: first.line_id,
-                        second_source_id: lines[second_index].line_id,
-                        witness: match intersection {
-                            Some(LineIntersection::SinglePoint { intersection, .. }) => Some(
-                                HotPixelIntersectionTrace::Point(Coord3D::from(intersection)),
-                            ),
-                            Some(LineIntersection::Collinear { intersection }) => {
-                                Some(HotPixelIntersectionTrace::Collinear(
-                                    Coord3D::from(intersection.start),
-                                    Coord3D::from(intersection.end),
-                                ))
-                            }
-                            None => None,
+                if let Some(budget) = capture_budget.as_mut() {
+                    budget.capture(
+                        &mut candidate_trace,
+                        HotPixelCandidateTrace {
+                            first_segment: first_index,
+                            second_segment: second_index,
+                            first_source_id: first.line_id,
+                            second_source_id: lines[second_index].line_id,
+                            witness: match intersection {
+                                Some(LineIntersection::SinglePoint { intersection, .. }) => Some(
+                                    HotPixelIntersectionTrace::Point(Coord3D::from(intersection)),
+                                ),
+                                Some(LineIntersection::Collinear { intersection }) => {
+                                    Some(HotPixelIntersectionTrace::Collinear(
+                                        Coord3D::from(intersection.start),
+                                        Coord3D::from(intersection.end),
+                                    ))
+                                }
+                                None => None,
+                            },
                         },
-                    });
+                    );
                 }
                 match intersection {
                     Some(LineIntersection::SinglePoint { intersection, .. }) => {
@@ -315,13 +322,16 @@ impl HotPixelNoder {
                         )?;
                     }
                     output.push(Line3D::new(pair[0], pair[1], line.line_id));
-                    if capture_trace {
-                        split_trace.push(HotPixelSplitTrace {
-                            source_segment,
-                            source_id: line.line_id,
-                            start: pair[0],
-                            end: pair[1],
-                        });
+                    if let Some(budget) = capture_budget.as_mut() {
+                        budget.capture(
+                            &mut split_trace,
+                            HotPixelSplitTrace {
+                                source_segment,
+                                source_id: line.line_id,
+                                start: pair[0],
+                                end: pair[1],
+                            },
+                        );
                     }
                 }
             }
@@ -336,6 +346,7 @@ impl HotPixelNoder {
             hot_pixels,
             candidate_trace,
             split_trace,
+            capture_budget.is_some_and(|budget| budget.truncated()),
         ))
     }
 
@@ -455,5 +466,23 @@ mod tests {
         assert!(output.iter().all(|line| [line.start, line.end]
             .iter()
             .all(|point| point.x == point.x.round() && point.y == point.y.round())));
+    }
+
+    #[test]
+    fn trace_capture_budget_stops_certified_capture_growth() {
+        let lines = vec![
+            line((-2.0, 0.0), (2.0, 0.0), 1),
+            line((0.0, -2.0), (0.0, 2.0), 2),
+        ];
+        let noder = HotPixelNoder::new(1.0).unwrap();
+        let expected = noder.node(lines.clone()).unwrap();
+        let (output, _, work, _, candidates, splits, truncated) =
+            noder.node_with_hot_pixels(lines, None, 0).unwrap();
+
+        assert_eq!(output, expected);
+        assert!(work.exact_intersection_calls > 0);
+        assert!(candidates.is_empty());
+        assert!(splits.is_empty());
+        assert!(truncated);
     }
 }

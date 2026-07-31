@@ -5,6 +5,7 @@ use crate::noding::grid::{
     UniformGrid, UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
 };
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
+use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -113,15 +114,29 @@ type FloatingNodingTraceResult = (
     Vec<UniformGridGlobalLineTrace>,
     Vec<UniformGridCandidateTrace>,
     Vec<FloatingSplitTrace>,
+    bool,
 );
 
-#[derive(Default)]
 struct FloatingTraceCapture {
     candidates: Vec<FloatingCandidateTrace>,
     grid_cells: Vec<UniformGridCellTrace>,
     global_lines: Vec<UniformGridGlobalLineTrace>,
     grid_candidates: Vec<UniformGridCandidateTrace>,
     splits: Vec<FloatingSplitTrace>,
+    budget: TraceCaptureBudget,
+}
+
+impl FloatingTraceCapture {
+    fn new(byte_limit: usize) -> Self {
+        Self {
+            candidates: Vec::new(),
+            grid_cells: Vec::new(),
+            global_lines: Vec::new(),
+            grid_candidates: Vec::new(),
+            splits: Vec::new(),
+            budget: TraceCaptureBudget::new(byte_limit),
+        }
+    }
 }
 
 const AUTO_SIMD_LIMIT: usize = 1024;
@@ -206,10 +221,11 @@ impl SnapNoder {
         &self,
         lines: Vec<Line3D>,
         execution_policy: Option<&ExecutionPolicy>,
+        capture_byte_limit: usize,
     ) -> crate::Result<FloatingNodingTraceResult> {
         let mut stats = Vec::new();
         let mut work_stats = NodingWorkStats::default();
-        let mut trace = FloatingTraceCapture::default();
+        let mut trace = FloatingTraceCapture::new(capture_byte_limit);
         let lines = self.node_impl(
             lines,
             Some(&mut stats),
@@ -226,6 +242,7 @@ impl SnapNoder {
             trace.global_lines,
             trace.grid_candidates,
             trace.splits,
+            trace.budget.truncated(),
         ))
     }
 
@@ -282,11 +299,13 @@ impl SnapNoder {
                 if trace.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
-                    let candidates = &mut trace.as_deref_mut().unwrap().candidates;
-                    let first_candidate = candidates.len();
+                    let trace = trace.as_deref_mut().unwrap();
+                    let first_candidate = trace.candidates.len();
+                    let mut candidates =
+                        TraceCapture::new(&mut trace.candidates, &mut trace.budget);
                     let events =
-                        self.find_splits_simd_tracked(&lines, &mut tracker, Some(candidates))?;
-                    for candidate in &mut candidates[first_candidate..] {
+                        self.find_splits_simd_tracked(&lines, &mut tracker, Some(&mut candidates))?;
+                    for candidate in &mut trace.candidates[first_candidate..] {
                         candidate.iteration_index = iteration_index;
                     }
                     events
@@ -305,19 +324,23 @@ impl SnapNoder {
                     UniformGrid::new(&lines)
                 };
                 if let Some(trace) = trace.as_deref_mut() {
-                    let (cells, global_lines) = grid.trace_structure(&lines, iteration_index);
+                    let (cells, global_lines) =
+                        grid.trace_structure(&lines, iteration_index, &mut trace.budget);
                     trace.grid_cells.extend(cells);
                     trace.global_lines.extend(global_lines);
                 }
                 if execution_policy.is_some() || work_stats.is_some() {
                     let mut tracker =
                         ExecutionWorkTracker::new(execution_policy, work_stats.as_deref_mut());
+                    let mut grid_candidates = trace.as_deref_mut().map(|trace| {
+                        TraceCapture::new(&mut trace.grid_candidates, &mut trace.budget)
+                    });
                     grid.find_splits_tracked(
                         &lines,
                         self,
                         &mut tracker,
                         iteration_index,
-                        trace.as_deref_mut().map(|trace| &mut trace.grid_candidates),
+                        grid_candidates.as_mut(),
                     )?
                 } else {
                     grid.find_splits(&lines, self)
@@ -468,13 +491,16 @@ impl SnapNoder {
                         }
                         new_lines.push(Line3D::new(p0, p1, line.line_id));
                         if let Some(trace) = trace.as_deref_mut() {
-                            trace.splits.push(FloatingSplitTrace {
-                                iteration_index,
-                                source_segment: line_idx,
-                                source_id: line.line_id,
-                                start: p0,
-                                end: p1,
-                            });
+                            trace.budget.capture(
+                                &mut trace.splits,
+                                FloatingSplitTrace {
+                                    iteration_index,
+                                    source_segment: line_idx,
+                                    source_id: line.line_id,
+                                    start: p0,
+                                    end: p1,
+                                },
+                            );
                         }
                     }
                 }
@@ -973,7 +999,7 @@ impl SnapNoder {
         &self,
         lines: &[Line3D],
         tracker: &mut ExecutionWorkTracker<'_>,
-        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
+        mut trace_candidates: Option<&mut TraceCapture<'_, FloatingCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let soa = SoALines::new(lines);
         let mut splits = Vec::new();
@@ -1021,7 +1047,7 @@ impl SnapNoder {
         lines: &[Line3D],
         soa: &SoALines,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
-        mut trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
+        mut trace_candidates: Option<&mut TraceCapture<'_, FloatingCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
         // Start block to avoid duplicate checks (j > i)
@@ -1107,7 +1133,7 @@ impl SnapNoder {
         first_segment: usize,
         second_segment: usize,
         events: &mut Vec<(usize, Coord3D)>,
-        trace_candidates: Option<&mut Vec<FloatingCandidateTrace>>,
+        trace_candidates: Option<&mut TraceCapture<'_, FloatingCandidateTrace>>,
     ) {
         let intersection = line_intersection(first.to_line_2d(), second.to_line_2d());
         if let Some(trace_candidates) = trace_candidates {
@@ -1236,13 +1262,32 @@ mod tests {
     #[test]
     fn grid_trace_records_shared_replacement_loop() {
         let lines = vec![make_line(0.0, 0.0, 2.0, 2.0), make_line(0.0, 2.0, 2.0, 0.0)];
-        let (_, _, _, _, _, _, _, splits) = SnapNoder::new(0.0)
+        let (_, _, _, _, _, _, _, splits, truncated) = SnapNoder::new(0.0)
             .with_strategy(NodingStrategy::Grid)
-            .node_with_trace(lines, None)
+            .node_with_trace(lines, None, usize::MAX)
             .unwrap();
 
         assert_eq!(splits.len(), 4);
         assert!(splits.iter().all(|split| split.iteration_index == 0));
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn trace_capture_budget_stops_all_floating_capture_growth() {
+        let lines = vec![make_line(0.0, 0.0, 2.0, 2.0), make_line(0.0, 2.0, 2.0, 0.0)];
+        let noder = SnapNoder::new(0.0).with_strategy(NodingStrategy::Simd);
+        let expected = noder.node(lines.clone());
+        let (noded, _, work, candidates, cells, globals, grid_candidates, splits, truncated) =
+            noder.node_with_trace(lines, None, 0).unwrap();
+
+        assert_eq!(noded, expected);
+        assert!(work.exact_intersection_calls > 0);
+        assert!(candidates.is_empty());
+        assert!(cells.is_empty());
+        assert!(globals.is_empty());
+        assert!(grid_candidates.is_empty());
+        assert!(splits.is_empty());
+        assert!(truncated);
     }
 
     #[test]
