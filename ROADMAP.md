@@ -474,12 +474,13 @@ entrypoint so browser tooling does not reconstruct pipeline evidence.
 - [x] Support paste, upload, drag-and-drop, drawing, and fixture selection.
 - [x] Expose the canonical options schema, including `Validate` and
   `CertifiedFixedPrecision`.
-- [ ] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
+- [x] Add layer toggles for raw lines, snapped lines, hot pixels, split points,
   graph edges, dangles, cut edges, invalid rings, shells, holes, and final faces.
 
-Progress: the playground now toggles raw lines and every retained report layer:
-dangles, cut edges, invalid rings, shells, holes, and final faces. Snapped lines,
-hot pixels, split points, and graph edges still require a browser trace contract.
+Progress: the playground now runs the bounded V1 trace in an abortable worker
+and toggles raw lines, physical snapped lines, certified hot pixels, exact point
+witnesses, dissolved graph edges, and every retained report layer. Trace event
+count, byte use, and truncation state remain visible alongside canonical options.
 
 - [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
