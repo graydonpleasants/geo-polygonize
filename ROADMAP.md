@@ -415,8 +415,9 @@ fingerprint equality, and checking compatibility-classification evidence. It is
 seeded with the existing documented floating-microfaces GEOS divergence.
 Scheduled fuzzing now compares one-shot and reusable-workspace fingerprints or
 normalized errors, runs the persisted corpus before fuzzing, and retains
-libFuzzer failure artifacts for admission. Converting those raw minimized bytes
-into checked-in persisted fixtures remains a reviewed step.
+libFuzzer failure artifacts for admission. The reviewed admission command now
+validates a candidate with the strict Rust corpus runner before exclusively
+creating its case-ID-named JSON file; existing fixtures cannot be overwritten.
 
 ### P1.5 Trace schema
 
