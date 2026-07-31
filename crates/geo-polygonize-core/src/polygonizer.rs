@@ -11,7 +11,7 @@ use crate::noding::validate::ValidatingNoder;
 use crate::options::{
     ExecutionPolicy, NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy, ZPolicy,
 };
-use crate::trace::{TraceLevelV1, TraceRecorderV1, TracedPolygonizerResultV1};
+use crate::trace::{TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TracedPolygonizerResultV1};
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
 use crate::utils::z_order_index;
@@ -1330,63 +1330,79 @@ fn establish_topology(
             trace.record_classified_ring("containment_shell", index, shell)?;
         }
     }
-    let trace_containment = trace.is_some();
-    let process_hole_assignment = |(hole_3d, graph_ids): (Polygon3D, Option<RingGraphIdentity>)| -> (
-        Option<usize>,
-        Polygon3D,
-        ContainmentStats,
-        Option<Vec<usize>>,
-    ) {
-        let (best_shell_idx, stats, candidates) = if trace_containment {
+    let process_untraced_hole_assignment =
+        |(hole_3d, graph_ids): (Polygon3D, Option<RingGraphIdentity>)| -> (
+            Option<usize>,
+            Polygon3D,
+            ContainmentStats,
+            Option<Vec<usize>>,
+        ) {
+            let (best_shell_idx, stats) = if collect_stats {
+                let (best_shell_idx, stats) = forest.assign_hole_with_graph_ids_and_stats(
+                    &hole_3d,
+                    graph_ids.as_ref(),
+                    &shells,
+                    &options.containment.touch_policy,
+                );
+                (best_shell_idx, stats)
+            } else {
+                (
+                    forest.assign_hole_with_graph_ids(
+                        &hole_3d,
+                        graph_ids.as_ref(),
+                        &shells,
+                        &options.containment.touch_policy,
+                    ),
+                    ContainmentStats::default(),
+                )
+            };
+            (best_shell_idx, hole_3d, stats, None)
+        };
+
+    let mut capture_truncated = false;
+    let assignments: Vec<_> = if let Some(trace) = trace.as_ref() {
+        let mut capture_budget = TraceCaptureBudget::new(trace.capture_byte_limit());
+        let mut checked = Vec::with_capacity(holes.len());
+        for (index, hole) in holes.into_iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("containment", index)?;
+            }
+            let (hole_3d, graph_ids) = hole;
             let (best_shell_idx, stats, candidates) = forest.assign_hole_with_graph_ids_and_trace(
                 &hole_3d,
                 graph_ids.as_ref(),
                 &shells,
                 &options.containment.touch_policy,
                 collect_stats,
+                &mut capture_budget,
             );
-            (best_shell_idx, stats, Some(candidates))
-        } else if collect_stats {
-            let (best_shell_idx, stats) = forest.assign_hole_with_graph_ids_and_stats(
-                &hole_3d,
-                graph_ids.as_ref(),
-                &shells,
-                &options.containment.touch_policy,
-            );
-            (best_shell_idx, stats, None)
-        } else {
-            (
-                forest.assign_hole_with_graph_ids(
-                    &hole_3d,
-                    graph_ids.as_ref(),
-                    &shells,
-                    &options.containment.touch_policy,
-                ),
-                ContainmentStats::default(),
-                None,
-            )
-        };
-        (best_shell_idx, hole_3d, stats, candidates)
-    };
-
-    let assignments: Vec<_>;
-    if let Some(execution_policy) = execution_policy {
+            checked.push((best_shell_idx, hole_3d, stats, Some(candidates)));
+        }
+        capture_truncated = capture_budget.truncated();
+        checked
+    } else if let Some(execution_policy) = execution_policy {
         let mut checked = Vec::with_capacity(holes.len());
         for (index, hole) in holes.into_iter().enumerate() {
             execution_policy.check_cancelled_every("containment", index)?;
-            checked.push(process_hole_assignment(hole));
+            checked.push(process_untraced_hole_assignment(hole));
         }
-        assignments = checked;
+        checked
     } else {
         #[cfg(feature = "parallel")]
         {
-            assignments = holes.into_par_iter().map(process_hole_assignment).collect();
+            holes
+                .into_par_iter()
+                .map(process_untraced_hole_assignment)
+                .collect()
         }
         #[cfg(not(feature = "parallel"))]
         {
-            assignments = holes.into_iter().map(process_hole_assignment).collect();
+            holes
+                .into_iter()
+                .map(process_untraced_hole_assignment)
+                .collect()
         }
-    }
+    };
 
     let mut shell_holes: Vec<Vec<Vec<Coord3D>>> = vec![vec![]; shells.len()];
     let mut shell_holes_ids: Vec<Vec<Vec<u32>>> = vec![vec![]; shells.len()];
@@ -1408,6 +1424,11 @@ fn establish_topology(
             unassigned_hole_count += 1;
             unassigned_hole_area += hole.exterior_unsigned_area_2d();
         }
+    }
+    if capture_truncated {
+        trace
+            .expect("trace capture exists")
+            .mark_capture_truncated();
     }
     if collect_stats {
         forest.record_locator_reuse(&mut containment_stats);
