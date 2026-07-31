@@ -485,11 +485,14 @@ Snapped lines, split witnesses, graph edges, shells, and holes are clickable for
 source and representative-edge provenance; rings also show their exact retained
 Z bit patterns. Z reconciliation decisions are not yet traced, so the broader
 inspection item remains open.
+Small V1 repro envelopes now encode input plus canonical noding controls as
+deterministic UTF-8 base64url query data, reject payloads beyond 8 KiB, and load
+directly into the worker-backed debugger.
 
 - [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
 - [ ] Compare two option profiles side by side.
-- [ ] Encode small deterministic repros in shareable URLs.
+- [x] Encode small deterministic repros in shareable URLs.
 - [ ] Export an exact golden/compatibility fixture bundle.
 - [ ] Run differential minimization in a worker and visualize each reduction.
 
