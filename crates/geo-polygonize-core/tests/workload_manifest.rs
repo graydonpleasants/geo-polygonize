@@ -201,6 +201,48 @@ fn already_noded_workloads_pass_full_noding_validation() {
     }
 }
 
+#[test]
+fn checked_in_size_descriptors_match_geojson() {
+    let root = workload_root();
+    let manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(root.join("manifest-v1.json")).unwrap()).unwrap();
+    for workload in manifest.workloads {
+        let Some(path) = workload.artifact.clip_path else {
+            continue;
+        };
+        let geojson: GeoJson = std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let GeoJson::FeatureCollection(collection) = geojson else {
+            panic!("{} must be a FeatureCollection", workload.id);
+        };
+        let mut actual = (0usize, 0usize, 0usize);
+        for feature in collection.features {
+            let lines = match feature.geometry.unwrap().value {
+                GeoJsonValue::LineString(line) => vec![line],
+                GeoJsonValue::MultiLineString(lines) => lines,
+                _ => panic!("{} must contain line strings", workload.id),
+            };
+            for line in lines {
+                actual.0 += 1;
+                actual.1 += line.len().saturating_sub(1);
+                actual.2 += line.len();
+            }
+        }
+        assert_eq!(
+            actual,
+            (
+                workload.size.line_strings,
+                workload.size.segments,
+                workload.size.coordinates,
+            ),
+            "{} size descriptor",
+            workload.id
+        );
+    }
+}
+
 fn load_segments(path: &Path) -> Vec<Line3D> {
     let geojson: GeoJson = std::fs::read_to_string(path).unwrap().parse().unwrap();
     let GeoJson::FeatureCollection(collection) = geojson else {

@@ -299,7 +299,7 @@ checksum-pinned downloads covering:
 - [x] already-noded cadastral or coverage boundaries;
 - [x] OSM/network linework;
 - [x] CAD/CFB dirty linework;
-- [ ] contour or hydrographic boundaries;
+- [x] contour or hydrographic boundaries;
 - [x] long sparse polylines;
 - [x] dense crossing-heavy linework;
 - [x] collinear overlaps and duplicate boundaries;

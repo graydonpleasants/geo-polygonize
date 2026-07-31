@@ -103,6 +103,25 @@
       "size": {"line_strings": 8, "segments": 8, "coordinates": 16, "expected_candidate_class": "dense"}
     },
     {
+      "id": "hydrographic-boundary-v1",
+      "description": "Natural Earth Lake Baikal boundary converted from polygon boundary to linework.",
+      "domain": "hydrographic-boundary",
+      "source_url": "https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_lakes.geojson",
+      "license": "Public domain",
+      "attribution": "Made with Natural Earth; Lake Baikal from ne_110m_lakes",
+      "artifact": {
+        "clip_path": "clips/hydrographic-boundary.geojson",
+        "sha256": "bb0bb113608ae1d9672a976669eab7573d8ed5f19349ab21b5273f9331077c4c"
+      },
+      "coordinate_reference": "WGS 84 (EPSG:4326)",
+      "units": "degrees",
+      "compatibility_class": "parity",
+      "permitted_profiles": ["already-noded", "floating"],
+      "options": [{"node_input": false}, {"node_input": true}],
+      "retained_result_families": ["polygons", "provenance", "diagnostics"],
+      "size": {"line_strings": 1, "segments": 38, "coordinates": 39, "expected_candidate_class": "sparse"}
+    },
+    {
       "id": "overlaps-duplicates-v1",
       "description": "Coincident, duplicate, and partially overlapping boundaries.",
       "domain": "boundary-cleaning",
