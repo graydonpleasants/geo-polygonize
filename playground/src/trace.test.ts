@@ -147,7 +147,7 @@ describe('execution evidence', () => {
           diagnostics: {
             phase_times: phaseTimes,
             noding_work_stats: workStats,
-            noding_iterations: 2,
+            noding_iterations: [{ iteration: 0, output_segments: 7 }],
           },
           trace_budget: traceBudget,
         },
@@ -155,7 +155,7 @@ describe('execution evidence', () => {
     ]))).toEqual({
       phase_times: phaseTimes,
       noding_work_stats: workStats,
-      noding_iterations: 2,
+      noding_iterations: [{ iteration: 0, output_segments: 7 }],
       trace_budget: traceBudget,
     });
   });
