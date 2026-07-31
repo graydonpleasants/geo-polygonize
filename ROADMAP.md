@@ -481,6 +481,10 @@ Progress: the playground now runs the bounded V1 trace in an abortable worker
 and toggles raw lines, physical snapped lines, certified hot pixels, exact point
 witnesses, dissolved graph edges, and every retained report layer. Trace event
 count, byte use, and truncation state remain visible alongside canonical options.
+Snapped lines, split witnesses, graph edges, shells, and holes are clickable for
+source and representative-edge provenance; rings also show their exact retained
+Z bit patterns. Z reconciliation decisions are not yet traced, so the broader
+inspection item remains open.
 
 - [ ] Make edges/rings clickable to inspect source provenance and Z decisions.
 - [ ] Show phase timings, work counters, resource budgets, and validator witnesses.
