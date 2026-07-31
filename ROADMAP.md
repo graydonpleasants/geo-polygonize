@@ -376,9 +376,10 @@ dispersion gates; diagnostic and noisy records cannot enter that artifact.
 Decision record V1 now requires checksum-pinned baseline and candidate evidence,
 preserves the predeclared thresholds, and refuses unlinked rejected experiments
 or measured crossovers. A deterministic Markdown renderer now turns valid
-publication and decision artifacts into a human-readable trend view. Durable
-artifact upload and retention remain separate work; no timing rows are
-fabricated in their absence.
+publication and decision artifacts into a human-readable trend view. The
+correctness workflow now retains its validated GEOS and JTS reference results
+for 30 days. Decision-quality timing publication still requires records from a
+dedicated runner; no timing rows are fabricated in their absence.
 
 ### P1.4 Differential minimization
 
