@@ -12,4 +12,7 @@ hero:
     - theme: alt
       text: Reference
       link: /reference/
+    - theme: alt
+      text: Playground
+      link: /playground/
 ---
