@@ -28,6 +28,13 @@ import { appendLineString, parseGeojsonInput } from './input';
 import { comparePlaygroundProfiles, type ProfileComparison } from './compare';
 import { extractNormalizedError } from './error';
 import { createDebuggerEvidenceBundle, downloadDebuggerEvidence } from './evidence';
+import {
+  extractExactInputSegments,
+  segmentsToGeojson,
+  type FingerprintDifference,
+  type MinimizationReduction,
+} from './minimize';
+import { minimizeProfileDifference } from './minimize_client';
 import { buildPlaygroundOptions } from './options';
 import { decodePlaygroundRepro, encodePlaygroundRepro } from './repro';
 import {
@@ -154,12 +161,18 @@ function App() {
   const [comparisonBusy, setComparisonBusy] = useState(false);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [normalizedError, setNormalizedError] = useState<NormalizedPolygonizeErrorV1 | null>(null);
+  const [minimizationBusy, setMinimizationBusy] = useState(false);
+  const [minimizationError, setMinimizationError] = useState<string | null>(null);
+  const [minimizationSignature, setMinimizationSignature] = useState<FingerprintDifference | null>(null);
+  const [reductions, setReductions] = useState<MinimizationReduction[]>([]);
+  const [selectedReductionIndex, setSelectedReductionIndex] = useState(0);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
   const [drawnPoints, setDrawnPoints] = useState<number[][]>([]);
   const drawnPointsRef = useRef<number[][]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
+  const minimizationControllerRef = useRef<AbortController | null>(null);
 
   // Options
   const [nodeInput, setNodeInput] = useState(false);
@@ -361,6 +374,13 @@ function App() {
       return;
     }
     const controller = new AbortController();
+    minimizationControllerRef.current?.abort();
+    minimizationControllerRef.current = null;
+    setMinimizationBusy(false);
+    setMinimizationError(null);
+    setMinimizationSignature(null);
+    setReductions([]);
+    setSelectedReductionIndex(0);
     const options: Partial<PolygonizerOptions> = buildPlaygroundOptions(
       nodeInput,
       snapGridSize,
@@ -395,6 +415,8 @@ function App() {
     return () => controller.abort();
   }, [wasmReady, inputGeojson, nodeInput, snapGridSize, nodingGuarantee]);
 
+  useEffect(() => () => minimizationControllerRef.current?.abort(), []);
+
   useEffect(() => {
     if (!wasmReady || !inputGeojson) {
       setComparisonBusy(false);
@@ -420,11 +442,59 @@ function App() {
   }, [wasmReady, inputGeojson]);
 
 
+  const selectedReduction = reductions[selectedReductionIndex] ?? null;
+  const reductionGeojson = useMemo(
+    () => selectedReduction ? segmentsToGeojson(selectedReduction.segments) : null,
+    [selectedReduction],
+  );
+
+  const startMinimization = () => {
+    if (!trace || !comparison?.diverged) return;
+    const segments = extractExactInputSegments(trace);
+    if (!segments) {
+      setMinimizationError('The bounded trace does not contain every normalized input segment.');
+      return;
+    }
+    const controller = new AbortController();
+    minimizationControllerRef.current = controller;
+    setMinimizationBusy(true);
+    setMinimizationError(null);
+    setMinimizationSignature(null);
+    setReductions([{ phase: 'input', segments }]);
+    setSelectedReductionIndex(0);
+    void minimizeProfileDifference({
+      segments,
+      baselineOptions: comparison.results[0].report.topology.options as Partial<PolygonizerOptions>,
+      comparisonOptions: comparison.results[1].report.topology.options as Partial<PolygonizerOptions>,
+    }, {
+      signal: controller.signal,
+      onReduction: (reduction) => {
+        setReductions((current) => [...current, reduction]);
+        setSelectedReductionIndex((index) => index + 1);
+      },
+    }).then((result) => {
+      setMinimizationSignature(result.signature);
+    }).catch((e: Error) => {
+      if (e.name !== 'AbortError') setMinimizationError(e.message);
+    }).finally(() => {
+      if (minimizationControllerRef.current === controller) {
+        minimizationControllerRef.current = null;
+        setMinimizationBusy(false);
+      }
+    });
+  };
+
   // SVG Viewport calculation
   const bbox = useMemo(() => {
     if (!inputGeojson) return null;
-    return computeBoundingBox(inputGeojson);
-  }, [inputGeojson]);
+    if (!reductionGeojson || !Array.isArray(inputGeojson.features)) {
+      return computeBoundingBox(inputGeojson);
+    }
+    return computeBoundingBox({
+      type: 'FeatureCollection',
+      features: [...inputGeojson.features, ...reductionGeojson.features],
+    });
+  }, [inputGeojson, reductionGeojson]);
   const traceLayers = useMemo(() => trace ? extractTraceLayers(trace) : null, [trace]);
   const zDecisions = useMemo(
     () => trace ? extractZReconciliationDecisions(trace) : [],
@@ -758,6 +828,49 @@ function App() {
                   </Grid>
                 ))}
               </Grid>
+              {comparison.diverged && (
+                <>
+                  <Button
+                    variant="outlined"
+                    sx={{ mt: 2 }}
+                    onClick={() => {
+                      if (minimizationBusy) minimizationControllerRef.current?.abort();
+                      else startMinimization();
+                    }}
+                  >
+                    {minimizationBusy ? 'Stop minimization' : 'Minimize difference'}
+                  </Button>
+                  {minimizationError && <Alert severity="error" sx={{ mt: 1 }}>{minimizationError}</Alert>}
+                  {reductions.length > 0 && (
+                    <FormControl fullWidth sx={{ mt: 2 }}>
+                      <InputLabel id="reduction-label">Reduction</InputLabel>
+                      <Select
+                        labelId="reduction-label"
+                        label="Reduction"
+                        value={selectedReductionIndex}
+                        onChange={(event) => setSelectedReductionIndex(Number(event.target.value))}
+                      >
+                        {reductions.map((reduction, index) => (
+                          <MenuItem key={`${reduction.phase}-${index}`} value={index}>
+                            {index}: {reduction.phase} ({reduction.segments.length} segments)
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+                  {minimizationSignature && (
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={3}
+                      label="Preserved profile-difference witness"
+                      value={JSON.stringify(minimizationSignature, null, 2)}
+                      InputProps={{ readOnly: true }}
+                      sx={{ mt: 2 }}
+                    />
+                  )}
+                </>
+              )}
             </Paper>
           )}
         </Grid>
@@ -819,13 +932,25 @@ function App() {
                      })}
 
                      {/* Draw Input Lines (dashed) */}
-                   {layers.rawLines && inputGeojson?.features.map((f: any, i: number) => {
+                     {layers.rawLines && inputGeojson?.features.map((f: any, i: number) => {
                         if (f.geometry?.type === 'LineString') {
                            const pts = f.geometry.coordinates.map((c: any) => `${c[0]},${c[1]}`).join(" ");
                            return <polyline key={`line-${i}`} points={pts} fill="none" stroke="#ff0000" strokeWidth={bbox.width * 0.003} strokeDasharray={`${bbox.width * 0.01},${bbox.width * 0.01}`} />;
                         }
                         return null;
                      })}
+
+                     {reductionGeojson?.features.map((feature, index) => (
+                       <polyline
+                         key={`reduction-${index}`}
+                         points={feature.geometry.coordinates.map((coordinate) => (
+                           `${coordinate[0]},${coordinate[1]}`
+                         )).join(' ')}
+                         fill="none"
+                         stroke="#00c853"
+                         strokeWidth={bbox.width * 0.006}
+                       />
+                     ))}
 
                      {layers.snappedLines && traceLayers?.snappedLines.map((line) => (
                        <line
