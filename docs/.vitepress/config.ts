@@ -24,6 +24,7 @@ export default defineConfig({
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Topology and output', link: '/guide/topology-output' },
           { text: 'Noding guarantees', link: '/guide/noding-guarantees' },
+          { text: 'Z and provenance', link: '/guide/z-provenance' },
           { text: 'WASM Integration', link: '/guide/wasm' },
         ]
       },
