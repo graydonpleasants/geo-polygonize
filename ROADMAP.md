@@ -695,6 +695,8 @@ that physical-pass evidence as `tile_input_boundary` and
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
+  - [x] Pin the excluded-component gap where untiled output contains a face but
+    no member geometry intersects any tile halo.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and

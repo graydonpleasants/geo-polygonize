@@ -80,6 +80,9 @@ returned to the caller.
 Both validation modes are deliberately narrower than coverage certification.
 They cannot certify missing connected regions whose geometry was excluded from
 every halo.
+The checked-in excluded-component fixture demonstrates this boundary explicitly:
+untiled polygonization reconstructs an enclosing face while every tiled halo
+observes no member geometry, no face, and no coverage issue.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.
