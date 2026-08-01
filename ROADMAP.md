@@ -739,7 +739,7 @@ Add or finish dedicated guides for:
 - [x] tiling guarantees and fallback behavior;
 - [x] Wasm memory lifetime, workers, threads, and cancellation;
 - [x] Python memory/GIL behavior;
-- [ ] Arrow C ABI ownership and error retrieval;
+- [x] Arrow C ABI ownership and error retrieval;
 - [ ] benchmark methodology and how to reproduce claims.
 
 Compile examples, run rustdoc with warnings denied, check links, and ensure the
