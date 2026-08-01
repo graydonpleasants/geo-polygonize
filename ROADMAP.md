@@ -751,7 +751,7 @@ shortcuts.
 - [x] Run canonical equality across serial and parallel native builds.
 - [x] Run cross-binding conformance on every stable entrypoint.
 - [x] Run the certified corpus with zero residual noding failures.
-- [ ] Run scheduled differential fuzzing and persist novel minimized cases.
+- [x] Run scheduled differential fuzzing and persist novel minimized cases.
 - [ ] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
   dependencies support them.
 - [x] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
@@ -765,7 +765,11 @@ build enters Rayon graph construction. Stable Rust, Python, Wasm, Arrow, and C
 entrypoints now compare the complete fingerprint/error contract or an explicit
 retained-field projection for lossy APIs. Every manifest workload permitting the
 certified-fixed profile runs its declared certified options and currently has
-zero residual noding failures. The error construction matrix is exhaustive, but
+zero residual noding failures. Scheduled differential fuzzing now converts every
+retained adapter-differential failure into a deterministic minimized candidate,
+uploads the raw input and review candidate together for 30 days, and leaves
+classification and checked-in admission to the existing reviewed command. The
+error construction matrix is exhaustive, but
 the public-family row remains open: `TopologyFailure` and `NullPointer` have no
 production constructor, `InternalInvariantViolation` is a bug sentinel, and
 `Panic` is boundary-only.

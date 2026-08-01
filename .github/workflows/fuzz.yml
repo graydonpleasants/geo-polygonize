@@ -36,9 +36,25 @@ jobs:
 
       - name: Retain minimized fuzz failures
         if: failure()
+        working-directory: crates/geo-polygonize-core
+        run: |
+          mkdir -p ../../target/differential-fuzz-candidates
+          cargo build --locked --manifest-path fuzz/Cargo.toml \
+            --example prepare_adapter_differential_candidate
+          for artifact in fuzz/artifacts/adapter_differential/*; do
+            [ -f "$artifact" ] || continue
+            name=$(basename "$artifact")
+            fuzz/target/debug/examples/prepare_adapter_differential_candidate \
+              "$artifact" "../../target/differential-fuzz-candidates/${name}.json"
+          done
+
+      - name: Upload fuzz review candidates
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: differential-fuzz-failures-${{ github.run_id }}
-          path: crates/geo-polygonize-core/fuzz/artifacts/
+          path: |
+            crates/geo-polygonize-core/fuzz/artifacts/
+            target/differential-fuzz-candidates/
           if-no-files-found: ignore
           retention-days: 30

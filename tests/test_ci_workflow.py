@@ -38,3 +38,13 @@ def test_supported_feature_and_python_abi_matrix_is_required():
     assert "from geo_polygonize.geo_polygonize_core import polygonize_with_options" in workflow
     assert "needs.python-abi-build.result" in workflow
     assert "needs.python-abi.result" in workflow
+
+
+def test_scheduled_differential_fuzzing_retains_review_candidates():
+    workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
+
+    assert 'cron: "0 6 * * 1"' in workflow
+    assert "prepare_adapter_differential_candidate" in workflow
+    assert "fuzz/artifacts/adapter_differential/*" in workflow
+    assert "target/differential-fuzz-candidates/" in workflow
+    assert "retention-days: 30" in workflow
