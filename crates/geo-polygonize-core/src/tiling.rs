@@ -129,7 +129,7 @@ pub struct TileReport {
     pub coverage_issues: Vec<TileCoverageIssue>,
     /// Inputs that may connect to linework beyond this tile's halo.
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
-    /// Exact-linework-connected components excluded from this tile's halo.
+    /// Transformed-connected components excluded from this tile's halo.
     pub excluded_component_issues: Vec<TileExcludedComponentIssue>,
     pub retry_attempts: Vec<TileRetryAttempt>,
     pub retry_exhausted: bool,
@@ -178,7 +178,7 @@ pub enum TileCoverageGuarantee {
     /// that is absent because its closing linework fell outside every tile halo.
     ValidateOwnedFaces,
     /// Reject tiled output when owned-face, input-boundary, or excluded
-    /// linework-component evidence is present.
+    /// component evidence is present.
     ///
     /// A successful caller-enabled untiled fallback replaces unresolved tiled
     /// output and satisfies this guarantee. Otherwise this validates observed
