@@ -897,6 +897,10 @@ mod tests {
 
     #[test]
     fn validated_owned_face_coverage_rejects_reported_halo_escape() {
+        assert_eq!(
+            TileCoverageGuarantee::default(),
+            TileCoverageGuarantee::BestEffort
+        );
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let face = Geometry::LineString(LineString::new(vec![
             Coord { x: 1.0, y: 2.0 },

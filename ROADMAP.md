@@ -714,7 +714,7 @@ covered while the broader coverage-detection rows remain open.
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
     source IDs explicitly in tile reports and bounded traces.
-- [ ] Add explicit guarantee levels such as `BestEffort` and
+- [x] Add explicit guarantee levels such as `BestEffort` and
   `ValidateCoverage`; do not rename best effort as certified.
   - [x] Add `BestEffort` and `ValidateOwnedFaces` for the reconstructed-face
     subset; missing-region coverage certification remains open.
