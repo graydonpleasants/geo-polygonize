@@ -3,7 +3,7 @@
 mod tests {
     use crate::{
         trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, PolygonizerOptions,
-        TiledPolygonizer,
+        ProvenanceOptions, TileBoundarySide, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -295,6 +295,55 @@ mod tests {
         assert_eq!(result.stitching_report.merged_polygon_count, 1);
         assert_eq!(result.stitching_report.duplicate_polygon_count, 0);
         assert_eq!(result.stitching_report.output_polygon_count, 1);
+    }
+
+    #[test]
+    fn reports_owned_faces_that_escape_an_internal_halo() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 2.0 },
+            Coord { x: 19.0, y: 2.0 },
+            Coord { x: 19.0, y: 8.0 },
+            Coord { x: 1.0, y: 8.0 },
+            Coord { x: 1.0, y: 2.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(2.0);
+        tiler.add_geometry(&face);
+
+        let result = tiler.polygonize().unwrap();
+        let issues: Vec<_> = result
+            .tile_reports
+            .iter()
+            .flat_map(|report| &report.coverage_issues)
+            .collect();
+
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].unresolved_sides, vec![TileBoundarySide::MinX]);
+        assert_eq!(issues[0].polygon_bbox.min().x, 1.0);
+        assert_eq!(issues[0].polygon_bbox.max().x, 19.0);
+        assert!(!issues[0].representative_source_line_ids.is_empty());
+        assert!(issues[0].aggregate_source_line_ids.is_empty());
+        assert_eq!(result.stitching_report.unresolved_tile_count, 1);
+        assert_eq!(result.stitching_report.unresolved_owned_polygon_count, 1);
+
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(PolygonizerOptions {
+                provenance: ProvenanceOptions {
+                    enabled: true,
+                    include_boundary_line_ids: true,
+                },
+                ..Default::default()
+            });
+        tiler.add_geometry(&face);
+        let result = tiler.polygonize().unwrap();
+        let issue = result
+            .tile_reports
+            .iter()
+            .flat_map(|report| &report.coverage_issues)
+            .next()
+            .unwrap();
+        assert!(!issue.aggregate_source_line_ids.is_empty());
     }
 
     #[test]

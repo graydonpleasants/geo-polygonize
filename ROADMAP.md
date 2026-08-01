@@ -684,6 +684,12 @@ Treat two different algorithms separately:
 
 ### P3.1 Coverage validation for replicate-and-own tiling
 
+Progress: tile and stitching reports now retain definite owned-face halo escapes
+with internal boundary sides, polygon envelopes, representative edge source IDs,
+and complete aggregate source IDs when provenance is enabled. This does not yet
+detect missing connected regions that produced no local face, so the
+coverage-detection rows remain open.
+
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
 - [ ] Report source IDs and boundary evidence that were required but not fully
