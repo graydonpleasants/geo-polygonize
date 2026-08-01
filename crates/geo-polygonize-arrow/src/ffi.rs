@@ -469,9 +469,8 @@ mod tests {
         let input_arrow_array = builder.finish();
 
         let array_ref = input_arrow_array.into_array_ref();
-        let (input_array, input_schema) = arrow::ffi::to_ffi(&array_ref.to_data()).unwrap();
+        let (input_array, mut input_schema_ffi) = arrow::ffi::to_ffi(&array_ref.to_data()).unwrap();
         let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array);
-        let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema);
 
         let mut output_array = FFI_ArrowArray::empty();
         let mut output_schema = FFI_ArrowSchema::empty();
@@ -487,7 +486,7 @@ mod tests {
         let status = unsafe {
             polygonize_ffi(
                 &mut *input_array_ffi,
-                &mut *input_schema_ffi,
+                &mut input_schema_ffi,
                 &mut output_array,
                 &mut output_schema,
                 &options,
