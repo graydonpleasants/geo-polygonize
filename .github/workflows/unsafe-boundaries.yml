@@ -1,0 +1,32 @@
+name: Unsafe boundary checks
+
+on:
+  schedule:
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/unsafe-boundaries.yml"
+      - "crates/geo-polygonize-core/**"
+      - "tests/test_ci_workflow.py"
+
+permissions:
+  contents: read
+
+jobs:
+  miri-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: "nightly-2026-07-15"
+          components: miri, rust-src
+
+      - name: Check bounded core execution with Miri
+        run: |
+          cargo miri setup
+          cargo miri test --locked -p geo-polygonize-core \
+            --no-default-features --test execution_policy
