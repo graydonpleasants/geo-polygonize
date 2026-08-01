@@ -4,7 +4,6 @@ use crate::diagnostics::{
 };
 use crate::error::{PolygonizeError, Result};
 use crate::graph::{ExtractedRing, PlanarGraph};
-use crate::noding::advanced::AdvancedNoder;
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
@@ -629,38 +628,6 @@ impl Polygonizer {
                                 &self.execution_policy,
                             )?;
                         }
-                    }
-                }
-                crate::options::NodingBackend::Advanced => {
-                    let noder = AdvancedNoder::new().with_z_policy(self.options.z.policy);
-                    if let Some(diagnostics) = diagnostics.as_deref_mut() {
-                        let noder = SnapNoder::new(0.0).with_z_policy(self.options.z.policy);
-                        let (noded, stats, mut work_stats) = if has_execution_controls {
-                            noder.node_with_stats_and_execution_policy(
-                                all_segments,
-                                &self.execution_policy,
-                            )?
-                        } else {
-                            noder.node_with_stats(all_segments)
-                        };
-                        work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
-                        diagnostics.intersection_stats.interpolated_intersections = stats
-                            .iter()
-                            .map(|iteration| iteration.intersections_found)
-                            .sum();
-                        diagnostics.noding_iterations = stats;
-                        diagnostics.intersection_stats.exact_intersections =
-                            work_stats.exact_intersection_calls;
-                        diagnostics.noding_work_stats = work_stats;
-                        segments = noded;
-                    } else {
-                        segments = if has_execution_controls {
-                            SnapNoder::new(0.0)
-                                .with_z_policy(self.options.z.policy)
-                                .node_with_execution_policy(all_segments, &self.execution_policy)?
-                        } else {
-                            noder.node(all_segments)
-                        };
                     }
                 }
             }
