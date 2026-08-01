@@ -32,6 +32,14 @@ affected tiles and faces. Absence of this definite witness does not certify
 coverage because missing external linework may leave no reconstructed face to
 inspect.
 
+`TileReport::input_boundary_issues` also records the stable input geometry index,
+envelope, and internal halo sides for each included geometry whose envelope
+reaches beyond that halo. This conservative witness remains available when no
+local face is reconstructed, so it catches split-boundary cases that face-only
+evidence cannot see. It reports unresolved connectivity, not a confirmed missing
+face: whole input geometries are replicated and may already contain everything
+needed locally.
+
 ## Ownership and deduplication
 
 Tiles use half-open `[min, max)` ownership intervals, except that the final row

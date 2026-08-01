@@ -2,9 +2,9 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::{
-        trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, PolygonizerOptions,
-        ProvenanceOptions, TileBoundarySide, TileCoverageGuarantee, TiledPolygonizeError,
-        TiledPolygonizer,
+        trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, Polygonizer,
+        PolygonizerOptions, ProvenanceOptions, TileBoundarySide, TileCoverageGuarantee,
+        TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -345,6 +345,58 @@ mod tests {
             .next()
             .unwrap();
         assert!(!issue.aggregate_source_line_ids.is_empty());
+    }
+
+    #[test]
+    fn reports_boundary_inputs_when_no_local_face_is_reconstructed() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let boundaries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 2.0 },
+                Coord { x: 19.0, y: 2.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 19.0, y: 2.0 },
+                Coord { x: 19.0, y: 8.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 19.0, y: 8.0 },
+                Coord { x: 1.0, y: 8.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 8.0 },
+                Coord { x: 1.0, y: 2.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::new();
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(2.0);
+        for boundary in &boundaries {
+            untiled.add_borrowed_geometry(boundary);
+            tiled.add_geometry(boundary);
+        }
+
+        assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+        let result = tiled.polygonize().unwrap();
+        assert!(result.polygons.is_empty());
+        let issues: Vec<_> = result
+            .tile_reports
+            .iter()
+            .flat_map(|report| &report.input_boundary_issues)
+            .collect();
+        assert_eq!(issues.len(), 4);
+        assert!(issues
+            .iter()
+            .all(|issue| { issue.input_geometry_index == 0 || issue.input_geometry_index == 2 }));
+        assert!(result.tile_reports[0]
+            .input_boundary_issues
+            .iter()
+            .all(|issue| issue.unresolved_sides == vec![TileBoundarySide::MaxX]));
+        assert!(result.tile_reports[1]
+            .input_boundary_issues
+            .iter()
+            .all(|issue| issue.unresolved_sides == vec![TileBoundarySide::MinX]));
+        assert_eq!(result.stitching_report.unresolved_input_tile_count, 2);
+        assert_eq!(result.stitching_report.unresolved_input_geometry_count, 4);
     }
 
     #[test]
