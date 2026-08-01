@@ -149,6 +149,8 @@ pub struct StitchingReport {
     pub retried_tile_count: usize,
     pub retry_attempt_count: usize,
     pub retry_exhausted_tile_count: usize,
+    /// Whether unresolved tiled output was replaced by one untiled pass over all input.
+    pub untiled_fallback_used: bool,
 }
 
 /// Experimental tiled output with per-tile and merge diagnostics.
@@ -170,11 +172,13 @@ pub enum TileCoverageGuarantee {
     /// This validates reconstructed owned faces only. It cannot detect a region
     /// that is absent because its closing linework fell outside every tile halo.
     ValidateOwnedFaces,
-    /// Reject output when owned-face, input-boundary, or excluded linework-component evidence is
-    /// present.
+    /// Reject tiled output when owned-face, input-boundary, or excluded
+    /// linework-component evidence is present.
     ///
-    /// This validates the observed evidence only. It does not certify connected
-    /// regions whose geometry never intersected a tile halo.
+    /// A successful caller-enabled untiled fallback replaces unresolved tiled
+    /// output and satisfies this guarantee. Otherwise this validates observed
+    /// evidence only; it does not certify connected regions whose geometry
+    /// never intersected a tile halo.
     ValidateObservedCoverage,
 }
 
@@ -340,6 +344,7 @@ pub struct TiledPolygonizer<'a> {
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
     retry_policy: Option<TileRetryPolicy>,
+    untiled_fallback: bool,
 }
 
 impl<'a> TiledPolygonizer<'a> {
@@ -358,6 +363,7 @@ impl<'a> TiledPolygonizer<'a> {
             options,
             execution_policy: ExecutionPolicy::default(),
             retry_policy: None,
+            untiled_fallback: false,
         }
     }
 
@@ -389,6 +395,15 @@ impl<'a> TiledPolygonizer<'a> {
 
     pub fn with_retry_policy(mut self, retry_policy: TileRetryPolicy) -> Self {
         self.retry_policy = Some(retry_policy);
+        self
+    }
+
+    /// Replaces unresolved tiled output with one global untiled pass.
+    ///
+    /// The global pass preserves containment relationships that cannot be
+    /// recovered by appending independently polygonized components.
+    pub fn with_untiled_fallback(mut self) -> Self {
+        self.untiled_fallback = true;
         self
     }
 
@@ -825,12 +840,14 @@ impl<'a> TiledPolygonizer<'a> {
         let reject = match guarantee {
             TileCoverageGuarantee::BestEffort => false,
             TileCoverageGuarantee::ValidateOwnedFaces => {
-                result.stitching_report.unresolved_owned_polygon_count != 0
+                !result.stitching_report.untiled_fallback_used
+                    && result.stitching_report.unresolved_owned_polygon_count != 0
             }
             TileCoverageGuarantee::ValidateObservedCoverage => {
-                result.stitching_report.unresolved_owned_polygon_count != 0
-                    || result.stitching_report.unresolved_input_geometry_count != 0
-                    || result.stitching_report.unresolved_component_count != 0
+                !result.stitching_report.untiled_fallback_used
+                    && (result.stitching_report.unresolved_owned_polygon_count != 0
+                        || result.stitching_report.unresolved_input_geometry_count != 0
+                        || result.stitching_report.unresolved_component_count != 0)
             }
         };
         if reject {
@@ -969,33 +986,48 @@ impl<'a> TiledPolygonizer<'a> {
                 tile_reports.push(report);
             }
         }
-        let result_polygons: Vec<Polygon3D> = tile_polygons.into_iter().flatten().collect();
+        let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
+        let untiled_fallback_used = self.untiled_fallback && unresolved;
+        let result_polygons: Vec<Polygon3D> = if untiled_fallback_used {
+            let mut polygonizer = Polygonizer::with_options(self.options.clone())
+                .with_execution_policy(self.execution_policy.clone());
+            for (geometry, _) in &self.geometries {
+                polygonizer.add_borrowed_geometry(geometry);
+            }
+            polygonizer.polygonize()?.polygons
+        } else {
+            tile_polygons.into_iter().flatten().collect()
+        };
         let merged_polygon_count = result_polygons.len();
 
-        let polygons = match self.dedup_policy {
-            DedupPolicy::KeepAll => {
-                if let Some(trace) = trace.as_deref_mut() {
-                    for polygon_index in 0..result_polygons.len() {
-                        trace.record_tile_dedup(polygon_index, true);
-                    }
-                }
-                result_polygons
-            }
-            DedupPolicy::CanonicalRingHash => {
-                let mut unique_polygons = Vec::new();
-                let mut seen = HashSet::new();
-
-                for (polygon_index, poly) in result_polygons.into_iter().enumerate() {
-                    let retained = seen.insert(canonical_polygon_key(&poly));
+        let polygons = if untiled_fallback_used {
+            result_polygons
+        } else {
+            match self.dedup_policy {
+                DedupPolicy::KeepAll => {
                     if let Some(trace) = trace.as_deref_mut() {
-                        trace.record_tile_dedup(polygon_index, retained);
+                        for polygon_index in 0..result_polygons.len() {
+                            trace.record_tile_dedup(polygon_index, true);
+                        }
                     }
-                    if retained {
-                        unique_polygons.push(poly);
-                    }
+                    result_polygons
                 }
+                DedupPolicy::CanonicalRingHash => {
+                    let mut unique_polygons = Vec::new();
+                    let mut seen = HashSet::new();
 
-                unique_polygons
+                    for (polygon_index, poly) in result_polygons.into_iter().enumerate() {
+                        let retained = seen.insert(canonical_polygon_key(&poly));
+                        if let Some(trace) = trace.as_deref_mut() {
+                            trace.record_tile_dedup(polygon_index, retained);
+                        }
+                        if retained {
+                            unique_polygons.push(poly);
+                        }
+                    }
+
+                    unique_polygons
+                }
             }
         };
         let mut dangles = Vec::new();
@@ -1061,6 +1093,7 @@ impl<'a> TiledPolygonizer<'a> {
                 retried_tile_count,
                 retry_attempt_count,
                 retry_exhausted_tile_count,
+                untiled_fallback_used,
             },
         })
     }
