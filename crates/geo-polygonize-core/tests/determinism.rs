@@ -1,6 +1,6 @@
 use geo_polygonize_core::DeterminismOptions;
 use geo_polygonize_core::Polygonizer;
-use geo_polygonize_core::{Coord3D, Line3D};
+use geo_polygonize_core::{Coord3D, Line3D, PolygonizerOptions};
 
 #[test]
 fn test_determinism_canonical_sort_and_rotation() {
@@ -10,15 +10,20 @@ fn test_determinism_canonical_sort_and_rotation() {
     // 3. polygons are ordered consistently.
 
     let create_polygons_from_lines = |lines: Vec<Line3D>, use_determinism: bool| {
-        let mut poly = Polygonizer::new();
-        poly.options_mut().node_input = true;
-        if use_determinism {
-            poly.options_mut().determinism = DeterminismOptions {
+        let determinism = if use_determinism {
+            DeterminismOptions {
                 canonical_sort: true,
                 canonical_ring_rotation: true,
                 stable_tie_breaks: true,
-            };
-        }
+            }
+        } else {
+            DeterminismOptions::default()
+        };
+        let mut poly = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            determinism,
+            ..Default::default()
+        });
         poly.add_lines(lines);
         poly.polygonize().unwrap()
     };
@@ -95,15 +100,20 @@ fn test_determinism_canonical_sort_and_rotation() {
 fn test_determinism_byte_identical_serialization() {
     // 1. the same input produces byte-identical serialized output across repeated runs.
     let create_polygons_from_lines = |lines: Vec<Line3D>, use_determinism: bool| {
-        let mut poly = Polygonizer::new();
-        poly.options_mut().node_input = true;
-        if use_determinism {
-            poly.options_mut().determinism = DeterminismOptions {
+        let determinism = if use_determinism {
+            DeterminismOptions {
                 canonical_sort: true,
                 canonical_ring_rotation: true,
                 stable_tie_breaks: true,
-            };
-        }
+            }
+        } else {
+            DeterminismOptions::default()
+        };
+        let mut poly = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            determinism,
+            ..Default::default()
+        });
         poly.add_lines(lines);
         poly.polygonize().unwrap()
     };
@@ -156,13 +166,15 @@ fn test_determinism_segment_order_permutation() {
     use rand::SeedableRng;
 
     let create_polygons_from_lines = |lines: Vec<Line3D>| {
-        let mut poly = Polygonizer::new();
-        poly.options_mut().node_input = true;
-        poly.options_mut().determinism = DeterminismOptions {
-            canonical_sort: true,
-            canonical_ring_rotation: true,
-            stable_tie_breaks: true,
-        };
+        let mut poly = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            determinism: DeterminismOptions {
+                canonical_sort: true,
+                canonical_ring_rotation: true,
+                stable_tie_breaks: true,
+            },
+            ..Default::default()
+        });
         poly.add_lines(lines);
         poly.polygonize().unwrap()
     };

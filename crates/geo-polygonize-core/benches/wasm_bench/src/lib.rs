@@ -42,11 +42,13 @@ pub fn polygonize(lines: JsValue) -> Result<JsValue, JsValue> {
     let lines = parse_input(lines)?;
 
     // Core Logic
-    let mut polygonizer = Polygonizer::new();
+    let mut polygonizer = Polygonizer::with_options(geo_polygonize_core::PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    });
     for line in lines {
         polygonizer.add_geometry(Geometry::LineString(line));
     }
-    polygonizer.options_mut().node_input = true;
     let results = polygonizer.polygonize();
 
     let results_vec = results.map_err(|e| JsValue::from_str(&format!("{:?}", e)))?;
@@ -84,8 +86,10 @@ pub fn polygonize_random(lines: JsValue) -> Result<JsValue, JsValue> {
     let lines = parse_input(lines)?;
 
     // Core Logic
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.options_mut().node_input = true;
+    let mut polygonizer = Polygonizer::with_options(geo_polygonize_core::PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    });
     for line in lines {
         polygonizer.add_geometry(Geometry::LineString(line));
     }
@@ -99,12 +103,13 @@ pub fn polygonize_random(lines: JsValue) -> Result<JsValue, JsValue> {
 pub fn polygonize_robust(lines: JsValue, grid_size: Option<f64>) -> Result<JsValue, JsValue> {
     let lines = parse_input(lines)?;
 
-    let mut polygonizer = Polygonizer::new();
-    polygonizer.options_mut().node_input = true;
-    if let Some(g) = grid_size {
-        polygonizer.options_mut().precision_model =
-            geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: g };
-    }
+    let mut polygonizer = Polygonizer::with_options(geo_polygonize_core::PolygonizerOptions {
+        node_input: true,
+        precision_model: grid_size.map_or(geo_polygonize_core::PrecisionModel::Floating, |g| {
+            geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: g }
+        }),
+        ..Default::default()
+    });
 
     for line in lines {
         polygonizer.add_geometry(Geometry::LineString(line));
