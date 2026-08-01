@@ -393,7 +393,7 @@ records, publication, checksums, reference, and Markdown report for 90 days.
 - [x] Preserve source IDs and Z conflicts during minimization.
 - [x] Define and validate a strict persisted golden and compatibility
   classification for minimized failures.
-- [ ] Wire each fuzz or production mismatch producer to emit a reviewed
+- [x] Wire each fuzz or production mismatch producer to emit a reviewed
   persisted-fixture candidate.
 - [x] Export a standalone repro bundle containing input, options, versions,
   fingerprint, reference metrics, and witness.
@@ -409,8 +409,7 @@ source IDs and Z conflicts remain untouched; persisted fixtures and standalone
 repro bundles use an exact, versioned JSON representation. Persisting novel
 minimized failures no longer requires rewriting geometry: a versioned persisted
 fixture now pairs the exact repro bundle with a strict compatibility
-classification and validated stable case ID. Wiring every fuzz and production
-mismatch producer to store that artifact remains open.
+classification and validated stable case ID.
 The strict persisted-differential corpus is now exercised in CI by decoding
 the exact IEEE-754 input, rerunning the recorded options, requiring byte-exact
 fingerprint equality, and checking compatibility-classification evidence. It is
@@ -423,10 +422,12 @@ creating its case-ID-named JSON file; existing fixtures cannot be overwritten.
 Persisted differential V2 fixtures retain success, normalized-error, and mixed
 outcome pairs without changing V1 bytes, and reviewed admission rejects unknown
 producers, matching outcomes, and implicit overwrites.
-The adapter differential target now shares one raw-artifact decoder and
-comparator with a standalone replay command, so retained libFuzzer inputs can be
-reproduced without rebuilding fuzz-only control flow. Converting every observed
-mismatch into a reviewed persisted-fixture candidate remains open.
+The adapter differential target—the current mismatch producer—shares one raw
+artifact decoder and comparator with a standalone replay command. Its scheduled
+workflow minimizes every retained mismatch into a review candidate and uploads
+the raw and prepared artifacts together. The remaining fuzz targets are crash
+and ingestion-safety producers, not two-sided mismatch producers; no production
+mismatch producer currently exists.
 
 ### P1.5 Trace schema
 
