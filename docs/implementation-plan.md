@@ -221,9 +221,6 @@ pub enum PolygonizeError {
 	UnsupportedOptionCombination {
 		reason: String,
 	},
-	TopologyFailure {
-		reason: String,
-	},
 	InternalInvariantViolation {
 		reason: String,
 	},

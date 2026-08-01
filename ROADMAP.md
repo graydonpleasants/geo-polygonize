@@ -759,7 +759,7 @@ shortcuts.
   dependencies support them.
 - [x] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
   Python ABI combinations.
-- [ ] Verify every public error family has a documented and tested construction
+- [x] Verify every public error family has a documented and tested construction
   path.
 
 Progress: Default and no-default builds consume the same canonical success and
@@ -776,10 +776,10 @@ selective Miri job runs the bounded-execution core tests without default
 parallel features under a pinned nightly; filesystem-backed corpus tests remain
 outside Miri rather than disabling its isolation. A pinned AddressSanitizer job
 checks Arrow integration and raw C ownership/error paths on Linux. The error
-construction matrix is exhaustive, but
-the public-family row remains open: `TopologyFailure` and `NullPointer` have no
-production constructor, `InternalInvariantViolation` is a bug sentinel, and
-`Panic` is boundary-only.
+construction matrix is exhaustive. Unreachable `TopologyFailure` and
+`NullPointer` core variants were removed before `1.0`; null C pointers retain
+their direct `InvalidArgument` ABI status. `InternalInvariantViolation` remains
+a tested bug sentinel and `Panic` remains boundary-only.
 
 ### `1.0` exit criteria
 

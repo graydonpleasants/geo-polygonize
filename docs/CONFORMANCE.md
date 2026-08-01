@@ -80,12 +80,11 @@ variants, never message wording.
 | `NodingValidationFailure` | Residual intersection with the `Validate` guarantee | `supported_core_entrypoints_construct_every_core_error_family` |
 | `ArrowError` | Incompatible Arrow array through `polygonize_arrow` | `test_polygonize_arrow_invalid_type_error_path` |
 
-`TopologyFailure` and `NullPointer` are retained structural mappings but have
-no supported production constructor today. `InternalInvariantViolation` is a
-bug sentinel, not an input-validation path. `Panic` is emitted only when a
-binding catches an unexpected unwind; a deterministic public input must never
-be added merely to exercise it. These four remain internal/boundary-only until
-a real supported construction path exists.
+`InternalInvariantViolation` is a bug sentinel exercised through internal
+invariant regressions, not an input-validation path. `Panic` is emitted only
+when a binding catches an unexpected unwind; a deterministic public input must
+never be added merely to exercise it. The C ABI reports null pointers directly
+as `InvalidArgument`; it does not route them through a core error variant.
 
 ## Serialized report and compatibility policy
 

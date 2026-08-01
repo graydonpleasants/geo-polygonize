@@ -8,8 +8,8 @@ use geo_polygonize_core::{
 enum ConstructionPath {
     CoreEntrypoint,
     AdapterEntrypoint,
-    InternalOnly,
-    BoundaryOnly,
+    InvariantRegression,
+    BoundaryCatch,
 }
 
 fn construction_path(kind: PolygonizeErrorKind) -> ConstructionPath {
@@ -31,10 +31,8 @@ fn construction_path(kind: PolygonizeErrorKind) -> ConstructionPath {
         PolygonizeErrorKind::InvalidBufferShape | PolygonizeErrorKind::ArrowError => {
             ConstructionPath::AdapterEntrypoint
         }
-        PolygonizeErrorKind::TopologyFailure
-        | PolygonizeErrorKind::InternalInvariantViolation
-        | PolygonizeErrorKind::NullPointer => ConstructionPath::InternalOnly,
-        PolygonizeErrorKind::Panic => ConstructionPath::BoundaryOnly,
+        PolygonizeErrorKind::InternalInvariantViolation => ConstructionPath::InvariantRegression,
+        PolygonizeErrorKind::Panic => ConstructionPath::BoundaryCatch,
     }
 }
 
@@ -142,7 +140,7 @@ fn supported_core_entrypoints_construct_every_core_error_family() {
 }
 
 #[test]
-fn non_core_error_families_remain_explicitly_classified() {
+fn remaining_non_core_error_families_have_tested_construction_paths() {
     for (kind, expected) in [
         (
             PolygonizeErrorKind::InvalidBufferShape,
@@ -153,18 +151,10 @@ fn non_core_error_families_remain_explicitly_classified() {
             ConstructionPath::AdapterEntrypoint,
         ),
         (
-            PolygonizeErrorKind::TopologyFailure,
-            ConstructionPath::InternalOnly,
-        ),
-        (
             PolygonizeErrorKind::InternalInvariantViolation,
-            ConstructionPath::InternalOnly,
+            ConstructionPath::InvariantRegression,
         ),
-        (
-            PolygonizeErrorKind::NullPointer,
-            ConstructionPath::InternalOnly,
-        ),
-        (PolygonizeErrorKind::Panic, ConstructionPath::BoundaryOnly),
+        (PolygonizeErrorKind::Panic, ConstructionPath::BoundaryCatch),
     ] {
         assert_eq!(construction_path(kind), expected);
     }

@@ -105,9 +105,9 @@ fn set_polygonize_error(error: &PolygonizeError) -> i32 {
         PolygonizeError::InvalidGeometry { .. } | PolygonizeError::NonFiniteCoordinate { .. } => {
             PolygonizeFfiStatus::InvalidGeometry
         }
-        PolygonizeError::TopologyFailure { .. }
-        | PolygonizeError::ZConflict { .. }
-        | PolygonizeError::NodingValidationFailure { .. } => PolygonizeFfiStatus::Topology,
+        PolygonizeError::ZConflict { .. } | PolygonizeError::NodingValidationFailure { .. } => {
+            PolygonizeFfiStatus::Topology
+        }
         PolygonizeError::UnsupportedOptionCombination { .. } => {
             PolygonizeFfiStatus::UnsupportedOptionCombination
         }
@@ -115,7 +115,6 @@ fn set_polygonize_error(error: &PolygonizeError) -> i32 {
             PolygonizeFfiStatus::InternalInvariant
         }
         PolygonizeError::ArrowError(_) => PolygonizeFfiStatus::Arrow,
-        PolygonizeError::NullPointer(_) => PolygonizeFfiStatus::InvalidArgument,
         PolygonizeError::Panic(_) => PolygonizeFfiStatus::Panic,
     };
     let witness = normalized

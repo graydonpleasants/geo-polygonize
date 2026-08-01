@@ -146,7 +146,6 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
         PolygonizeError::UnsupportedOptionCombination { reason } => {
             PolygonizeOptionsError::new_err(reason)
         }
-        PolygonizeError::TopologyFailure { reason } => PolygonizeTopologyError::new_err(reason),
         err @ PolygonizeError::ZConflict { .. } => {
             PolygonizeTopologyError::new_err(err.to_string())
         }
@@ -155,7 +154,6 @@ fn to_py_err(err: PolygonizeError) -> PyErr {
         }
         PolygonizeError::InternalInvariantViolation { reason } => PyRuntimeError::new_err(reason),
         PolygonizeError::ArrowError(msg) => PyValueError::new_err(msg),
-        PolygonizeError::NullPointer(msg) => PyValueError::new_err(msg),
         PolygonizeError::Panic(msg) => PyRuntimeError::new_err(msg),
     };
     Python::try_attach(|py| {

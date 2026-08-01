@@ -47,14 +47,12 @@ pub fn from_polygonizer_error(e: PolygonizeError) -> JsValue {
         PolygonizeError::UnsupportedOptionCombination { .. } => {
             "UnsupportedOptionCombination".to_string()
         }
-        PolygonizeError::TopologyFailure { .. } => "TopologyFailure".to_string(),
         PolygonizeError::ZConflict { .. } => "ZConflict".to_string(),
         PolygonizeError::NodingValidationFailure { .. } => "NodingValidationFailure".to_string(),
         PolygonizeError::InternalInvariantViolation { .. } => {
             "InternalInvariantViolation".to_string()
         }
         PolygonizeError::ArrowError(_) => "ArrowError".to_string(),
-        PolygonizeError::NullPointer(_) => "NullPointer".to_string(),
         PolygonizeError::Panic(_) => "Panic".to_string(),
     };
 
