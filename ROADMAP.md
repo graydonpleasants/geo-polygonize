@@ -738,7 +738,7 @@ Add or finish dedicated guides for:
 - [x] compatibility profiles and known divergences;
 - [x] tiling guarantees and fallback behavior;
 - [x] Wasm memory lifetime, workers, threads, and cancellation;
-- [ ] Python memory/GIL behavior;
+- [x] Python memory/GIL behavior;
 - [ ] Arrow C ABI ownership and error retrieval;
 - [ ] benchmark methodology and how to reproduce claims.
 

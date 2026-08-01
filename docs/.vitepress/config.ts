@@ -28,6 +28,7 @@ export default defineConfig({
           { text: 'Compatibility', link: '/guide/compatibility' },
           { text: 'Tiling', link: '/guide/tiling' },
           { text: 'WASM Integration', link: '/guide/wasm' },
+          { text: 'Python Integration', link: '/guide/python' },
         ]
       },
       {
