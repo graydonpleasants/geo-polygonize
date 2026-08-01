@@ -229,8 +229,9 @@ impl<'a> TiledPolygonizer<'a> {
     fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
         match self.ownership_policy {
             TileOwnershipPolicy::Centroid => poly.centroid_2d(),
-            TileOwnershipPolicy::RepresentativePointInsidePolygon
-            | TileOwnershipPolicy::CanonicalBoundaryHash => poly.to_polygon_2d().interior_point(),
+            TileOwnershipPolicy::RepresentativePointInsidePolygon => {
+                poly.to_polygon_2d().interior_point()
+            }
             TileOwnershipPolicy::LexicographicMinVertex => poly
                 .exterior
                 .iter()

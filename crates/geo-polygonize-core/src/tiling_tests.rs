@@ -187,36 +187,6 @@ mod tests {
     }
 
     #[test]
-    fn test_canonical_boundary_hash_ownership() {
-        use crate::options::TileOwnershipPolicy;
-
-        let geoms = vec![Geometry::LineString(LineString::new(vec![
-            Coord { x: 8.0, y: 0.0 },
-            Coord { x: 12.0, y: 0.0 },
-            Coord { x: 12.0, y: 4.0 },
-            Coord { x: 8.0, y: 4.0 },
-            Coord { x: 8.0, y: 0.0 },
-        ]))];
-
-        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
-
-        let mut tiler = TiledPolygonizer::new(bbox, 10.0)
-            .with_buffer(5.0)
-            .with_ownership_policy(TileOwnershipPolicy::CanonicalBoundaryHash);
-
-        for g in &geoms {
-            tiler.add_geometry(g);
-        }
-
-        let polys = tiler.polygonize().unwrap().polygons;
-        assert_eq!(
-            polys.len(),
-            1,
-            "Should identify polygon based on CanonicalBoundaryHash ownership policy"
-        );
-    }
-
-    #[test]
     fn representative_ownership_uses_an_interior_point() {
         use crate::options::TileOwnershipPolicy;
         use crate::Polygon3D;

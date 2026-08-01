@@ -722,7 +722,10 @@ This milestone supersedes the broad intent of issue #672.
 
 - [x] Freeze the stable root facade; keep research backends and graph internals
   private.
-- [ ] Remove expired aliases and transitional mutable configuration paths.
+- [x] Remove expired aliases and transitional mutable configuration paths.
+  `with_snap_grid`, `NodingBackend::Advanced`, and
+  `TileOwnershipPolicy::CanonicalBoundaryHash` are removed; mutable options are
+  construction-only outside core tests.
 - [x] Publish MSRV, target, feature-matrix, and platform support policies.
 - [x] Define semver, deprecation, and migration windows.
 - [x] Enforce synchronized crates.io, npm, and PyPI release state.

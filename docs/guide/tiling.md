@@ -37,8 +37,6 @@ for that test:
   polygon interior when one exists and is the safest current choice.
 - `Centroid` is the default but may lie outside a concave polygon.
 - `LexicographicMinVertex` is deterministic but chooses a boundary vertex.
-- `CanonicalBoundaryHash` is a compatibility name that currently uses the same
-  interior-point behavior as `RepresentativePointInsidePolygon`.
 
 `KeepAll` performs no duplicate removal. `CanonicalRingHash` removes exact
 duplicate polygon geometry after canonicalizing ring direction and start; its
