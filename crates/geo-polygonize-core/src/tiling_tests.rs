@@ -480,6 +480,15 @@ mod tests {
         assert!(observed.polygons.is_empty());
         assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
         assert_eq!(observed.stitching_report.unresolved_owned_polygon_count, 0);
+        assert_eq!(observed.stitching_report.unresolved_component_tile_count, 4);
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        for report in &observed.tile_reports {
+            assert_eq!(report.excluded_component_issues.len(), 1);
+            let issue = &report.excluded_component_issues[0];
+            assert_eq!(issue.input_geometry_indices, vec![0, 1, 2, 3]);
+            assert_eq!(issue.component_bbox.min(), Coord { x: -10.0, y: -10.0 });
+            assert_eq!(issue.component_bbox.max(), Coord { x: 30.0, y: 30.0 });
+        }
         assert!(tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
             .unwrap()
@@ -545,7 +554,10 @@ mod tests {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
             tiles.swap(upper, (state as usize) % (upper + 1));
         }
-        let permuted = tiler.polygonize_tiles(tiles, None).unwrap();
+        let endpoint_components = tiler.endpoint_components();
+        let permuted = tiler
+            .polygonize_tiles(tiles, &endpoint_components, None)
+            .unwrap();
 
         assert_eq!(permuted.polygons.len(), forward.polygons.len());
         assert_eq!(permuted.polygons[0].exterior, forward.polygons[0].exterior);

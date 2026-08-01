@@ -42,6 +42,15 @@ needed locally. Full output traces record both evidence families as bounded
 `tile_input_boundary` and `tile_owned_face_boundary` events without rescanning
 inputs or reconstructed faces.
 
+`TileReport::excluded_component_issues` covers one additional missing-input
+case. Separate input geometries that share exact endpoints are grouped, and a
+tile reports the component when its combined envelope intersects the buffered
+tile but no member geometry envelope does. This catches an enclosing component
+that is excluded from every halo. It remains conservative: an envelope does not
+prove that the component contains a face, and connections created only by
+mid-segment intersections are not grouped. `StitchingReport` counts affected
+tiles and issue instances.
+
 ## Ownership and deduplication
 
 Tiles use half-open `[min, max)` ownership intervals, except that the final row
@@ -78,11 +87,9 @@ returned to the caller.
   conservative input-boundary evidence is present.
 
 Both validation modes are deliberately narrower than coverage certification.
-They cannot certify missing connected regions whose geometry was excluded from
-every halo.
-The checked-in excluded-component fixture demonstrates this boundary explicitly:
-untiled polygonization reconstructs an enclosing face while every tiled halo
-observes no member geometry, no face, and no coverage issue.
+Excluded exact-endpoint component evidence is reported but is not yet rejected
+by either mode. Connections created at mid-segment intersections also remain
+outside the detector.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.

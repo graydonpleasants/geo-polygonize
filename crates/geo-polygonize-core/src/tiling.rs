@@ -9,10 +9,10 @@ use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
 use geo::InteriorPoint;
-use geo_types::{Coord, Geometry, Point, Rect};
+use geo_types::{Coord, Geometry, LineString, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 fn canonical_ring_key(ring: &[Coord3D]) -> Vec<[u64; 3]> {
@@ -66,6 +66,17 @@ pub struct TileInputBoundaryIssue {
     pub unresolved_sides: Vec<TileBoundarySide>,
 }
 
+/// An exact-endpoint-connected input component excluded from a tile halo.
+///
+/// The component envelope intersects the buffered tile, but none of its member
+/// geometry envelopes do. This is conservative evidence, not proof that the
+/// component contains a face.
+#[derive(Clone, Debug)]
+pub struct TileExcludedComponentIssue {
+    pub input_geometry_indices: Vec<usize>,
+    pub component_bbox: Rect<f64>,
+}
+
 /// Observed work and topology output for one tile.
 #[derive(Debug)]
 pub struct TileReport {
@@ -82,6 +93,8 @@ pub struct TileReport {
     pub coverage_issues: Vec<TileCoverageIssue>,
     /// Inputs that may connect to linework beyond this tile's halo.
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
+    /// Exact-endpoint-connected components excluded from this tile's halo.
+    pub excluded_component_issues: Vec<TileExcludedComponentIssue>,
 }
 
 /// Counts from merging and deduplicating owned tile polygons.
@@ -97,6 +110,9 @@ pub struct StitchingReport {
     pub unresolved_input_tile_count: usize,
     /// Input-boundary issue instances across tiles; a geometry may occur more than once.
     pub unresolved_input_geometry_count: usize,
+    pub unresolved_component_tile_count: usize,
+    /// Excluded-component issue instances across tiles; a component may occur more than once.
+    pub unresolved_component_count: usize,
 }
 
 /// Experimental tiled output with per-tile and merge diagnostics.
@@ -151,6 +167,82 @@ pub struct TracedTiledPolygonizeResultV1 {
 
 type TileOwnershipDecision = (usize, Option<Coord3D>, bool);
 type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>, bool);
+
+#[derive(Debug)]
+struct EndpointComponent {
+    input_geometry_indices: Vec<usize>,
+    bbox: Rect<f64>,
+}
+
+fn endpoint_bits(value: f64) -> u64 {
+    if value == 0.0 {
+        0.0f64.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
+fn line_string_endpoints(line: &LineString<f64>, endpoints: &mut Vec<Coord<f64>>) {
+    if let Some(first) = line.0.first() {
+        endpoints.push(*first);
+    }
+    if let Some(last) = line.0.last() {
+        endpoints.push(*last);
+    }
+}
+
+fn geometry_endpoints(geometry: &Geometry<f64>, endpoints: &mut Vec<Coord<f64>>) {
+    match geometry {
+        Geometry::LineString(line) => line_string_endpoints(line, endpoints),
+        Geometry::MultiLineString(lines) => {
+            for line in lines {
+                line_string_endpoints(line, endpoints);
+            }
+        }
+        Geometry::Polygon(polygon) => {
+            line_string_endpoints(polygon.exterior(), endpoints);
+            for ring in polygon.interiors() {
+                line_string_endpoints(ring, endpoints);
+            }
+        }
+        Geometry::MultiPolygon(polygons) => {
+            for polygon in polygons {
+                line_string_endpoints(polygon.exterior(), endpoints);
+                for ring in polygon.interiors() {
+                    line_string_endpoints(ring, endpoints);
+                }
+            }
+        }
+        Geometry::GeometryCollection(collection) => {
+            for member in collection {
+                geometry_endpoints(member, endpoints);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn component_root(parents: &mut [usize], index: usize) -> usize {
+    let mut root = index;
+    while parents[root] != root {
+        root = parents[root];
+    }
+    let mut current = index;
+    while parents[current] != current {
+        let next = parents[current];
+        parents[current] = root;
+        current = next;
+    }
+    root
+}
+
+fn join_components(parents: &mut [usize], left: usize, right: usize) {
+    let left = component_root(parents, left);
+    let right = component_root(parents, right);
+    if left != right {
+        parents[left.max(right)] = left.min(right);
+    }
+}
 
 /// Experimental tiled polygonization.
 ///
@@ -210,6 +302,7 @@ impl<'a> TiledPolygonizer<'a> {
     fn process_tile(
         &self,
         tile_bbox: Rect<f64>,
+        endpoint_components: &[EndpointComponent],
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
         let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
@@ -247,6 +340,21 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
+        let excluded_component_issues = endpoint_components
+            .iter()
+            .filter(|component| {
+                component.bbox.intersects(&buffered_bbox)
+                    && component.input_geometry_indices.iter().all(|&index| {
+                        self.geometries[index]
+                            .1
+                            .is_none_or(|bbox| !bbox.intersects(&buffered_bbox))
+                    })
+            })
+            .map(|component| TileExcludedComponentIssue {
+                input_geometry_indices: component.input_geometry_indices.clone(),
+                component_bbox: component.bbox,
+            })
+            .collect();
 
         let mut report = TileReport {
             tile_bbox,
@@ -258,6 +366,7 @@ impl<'a> TiledPolygonizer<'a> {
             invalid_ring_count: 0,
             coverage_issues: Vec::new(),
             input_boundary_issues,
+            excluded_component_issues,
         };
         if relevant_lines == 0 {
             return Ok((Vec::new(), report, Vec::new(), false));
@@ -424,6 +533,56 @@ impl<'a> TiledPolygonizer<'a> {
         tiles
     }
 
+    fn endpoint_components(&self) -> Vec<EndpointComponent> {
+        let mut parents = (0..self.geometries.len()).collect::<Vec<_>>();
+        let mut endpoint_owners = HashMap::new();
+        let mut endpoints = Vec::new();
+        for (geometry_index, (geometry, _)) in self.geometries.iter().enumerate() {
+            endpoints.clear();
+            geometry_endpoints(geometry, &mut endpoints);
+            for endpoint in &endpoints {
+                let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
+                if let Some(previous) = endpoint_owners.insert(key, geometry_index) {
+                    join_components(&mut parents, previous, geometry_index);
+                }
+            }
+        }
+
+        let mut members = HashMap::<usize, Vec<usize>>::new();
+        for geometry_index in 0..self.geometries.len() {
+            let root = component_root(&mut parents, geometry_index);
+            members.entry(root).or_default().push(geometry_index);
+        }
+        let mut components = members
+            .into_values()
+            .filter(|indices| indices.len() > 1)
+            .filter_map(|input_geometry_indices| {
+                let mut bounds = input_geometry_indices
+                    .iter()
+                    .filter_map(|&index| self.geometries[index].1);
+                let first = bounds.next()?;
+                let bbox = bounds.fold(first, |bbox, next| {
+                    Rect::new(
+                        Coord {
+                            x: bbox.min().x.min(next.min().x),
+                            y: bbox.min().y.min(next.min().y),
+                        },
+                        Coord {
+                            x: bbox.max().x.max(next.max().x),
+                            y: bbox.max().y.max(next.max().y),
+                        },
+                    )
+                });
+                Some(EndpointComponent {
+                    input_geometry_indices,
+                    bbox,
+                })
+            })
+            .collect::<Vec<_>>();
+        components.sort_unstable_by_key(|component| component.input_geometry_indices[0]);
+        components
+    }
+
     pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
         self.polygonize_impl(None)
     }
@@ -487,12 +646,14 @@ impl<'a> TiledPolygonizer<'a> {
     ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
-        self.polygonize_tiles(tiles, trace)
+        let endpoint_components = self.endpoint_components();
+        self.polygonize_tiles(tiles, &endpoint_components, trace)
     }
 
     fn polygonize_tiles(
         &self,
         tiles: Vec<Rect<f64>>,
+        endpoint_components: &[EndpointComponent],
         mut trace: Option<&mut TraceRecorderV1>,
     ) -> Result<TiledPolygonizeResult> {
         let trace_ownership = trace
@@ -509,7 +670,7 @@ impl<'a> TiledPolygonizer<'a> {
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
                 let (polygons, report, ownership_decisions, capture_truncated) =
-                    self.process_tile(tile, capture_byte_limit)?;
+                    self.process_tile(tile, endpoint_components, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
                 for issue in &report.input_boundary_issues {
                     if !trace.record_tile_input_boundary(tile_index, issue)? {
@@ -539,12 +700,12 @@ impl<'a> TiledPolygonizer<'a> {
             #[cfg(feature = "parallel")]
             let tile_results: Vec<_> = tiles
                 .into_par_iter()
-                .map(|tile| self.process_tile(tile, None))
+                .map(|tile| self.process_tile(tile, endpoint_components, None))
                 .collect();
             #[cfg(not(feature = "parallel"))]
             let tile_results: Vec<_> = tiles
                 .into_iter()
-                .map(|tile| self.process_tile(tile, None))
+                .map(|tile| self.process_tile(tile, endpoint_components, None))
                 .collect();
 
             for result in tile_results {
@@ -611,6 +772,13 @@ impl<'a> TiledPolygonizer<'a> {
         let unresolved_input_geometry_count = tile_reports.iter().fold(0usize, |total, report| {
             total.saturating_add(report.input_boundary_issues.len())
         });
+        let unresolved_component_tile_count = tile_reports
+            .iter()
+            .filter(|report| !report.excluded_component_issues.is_empty())
+            .count();
+        let unresolved_component_count = tile_reports.iter().fold(0usize, |total, report| {
+            total.saturating_add(report.excluded_component_issues.len())
+        });
         Ok(TiledPolygonizeResult {
             polygons,
             tile_reports,
@@ -622,6 +790,8 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_owned_polygon_count,
                 unresolved_input_tile_count,
                 unresolved_input_geometry_count,
+                unresolved_component_tile_count,
+                unresolved_component_count,
             },
         })
     }

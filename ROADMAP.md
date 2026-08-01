@@ -689,7 +689,10 @@ with internal boundary sides, polygon envelopes, representative edge source IDs,
 and complete aggregate source IDs when provenance is enabled. Conservative
 input-boundary evidence now retains stable input geometry indexes, envelopes,
 and internal halo sides even when no local face was reconstructed. Missing
-connected regions are not yet classified conclusively. Bounded full traces reuse
+regions formed by separate input geometries that share exact endpoints now
+produce conservative excluded-component evidence when their combined envelope
+intersects a halo but no member geometry does. Connections created at
+mid-segment intersections are not yet classified. Bounded full traces reuse
 that physical-pass evidence as `tile_input_boundary` and
 `tile_owned_face_boundary` events, so the coverage-detection rows remain open.
 
@@ -697,6 +700,9 @@ that physical-pass evidence as `tile_input_boundary` and
   partition boundary.
   - [x] Pin the excluded-component gap where untiled output contains a face but
     no member geometry intersects any tile halo.
+  - [x] Report conservative excluded-component evidence for separate input
+    geometries connected by exact shared endpoints; intersection-connected
+    components remain open.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
