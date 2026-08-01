@@ -748,9 +748,9 @@ shortcuts.
 
 ### P3.7 Verification matrix
 
-- [ ] Run canonical equality across serial and parallel native builds.
-- [ ] Run cross-binding conformance on every stable entrypoint.
-- [ ] Run the certified corpus with zero residual noding failures.
+- [x] Run canonical equality across serial and parallel native builds.
+- [x] Run cross-binding conformance on every stable entrypoint.
+- [x] Run the certified corpus with zero residual noding failures.
 - [ ] Run scheduled differential fuzzing and persist novel minimized cases.
 - [ ] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
   dependencies support them.
@@ -758,6 +758,17 @@ shortcuts.
   Python ABI combinations.
 - [ ] Verify every public error family has a documented and tested construction
   path.
+
+Progress: Default and no-default builds consume the same canonical success and
+normalized-error snapshot while test-only path evidence proves that the default
+build enters Rayon graph construction. Stable Rust, Python, Wasm, Arrow, and C
+entrypoints now compare the complete fingerprint/error contract or an explicit
+retained-field projection for lossy APIs. Every manifest workload permitting the
+certified-fixed profile runs its declared certified options and currently has
+zero residual noding failures. The error construction matrix is exhaustive, but
+the public-family row remains open: `TopologyFailure` and `NullPointer` have no
+production constructor, `InternalInvariantViolation` is a bug sentinel, and
+`Panic` is boundary-only.
 
 ### `1.0` exit criteria
 
