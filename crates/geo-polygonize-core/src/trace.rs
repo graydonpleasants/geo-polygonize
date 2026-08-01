@@ -316,6 +316,15 @@ pub struct TileHaloRetryTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileUntiledFallbackTraceV1 {
+    pub input_geometry_count: usize,
+    pub output_polygon_count: usize,
+    pub unresolved_owned_polygon_count: usize,
+    pub unresolved_input_geometry_count: usize,
+    pub unresolved_component_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileOwnedFaceBoundaryTraceV1 {
     pub tile_index: usize,
     pub polygon_index: usize,
@@ -1182,6 +1191,28 @@ impl TraceRecorderV1 {
                 resolved: attempt.resolved,
             })
             .expect("tile halo-retry trace event serializes"),
+        )
+    }
+
+    pub(crate) fn record_tile_untiled_fallback(
+        &mut self,
+        input_geometry_count: usize,
+        output_polygon_count: usize,
+        unresolved_owned_polygon_count: usize,
+        unresolved_input_geometry_count: usize,
+        unresolved_component_count: usize,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Output,
+            "tile_untiled_fallback",
+            serde_json::to_value(TileUntiledFallbackTraceV1 {
+                input_geometry_count,
+                output_polygon_count,
+                unresolved_owned_polygon_count,
+                unresolved_input_geometry_count,
+                unresolved_component_count,
+            })
+            .expect("tile untiled-fallback trace event serializes"),
         )
     }
 

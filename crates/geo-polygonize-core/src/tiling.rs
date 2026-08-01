@@ -1077,7 +1077,7 @@ impl<'a> TiledPolygonizer<'a> {
             .iter()
             .filter(|report| report.retry_exhausted)
             .count();
-        Ok(TiledPolygonizeResult {
+        let result = TiledPolygonizeResult {
             polygons,
             tile_reports,
             stitching_report: StitchingReport {
@@ -1095,7 +1095,19 @@ impl<'a> TiledPolygonizer<'a> {
                 retry_exhausted_tile_count,
                 untiled_fallback_used,
             },
-        })
+        };
+        if untiled_fallback_used {
+            if let Some(trace) = trace {
+                trace.record_tile_untiled_fallback(
+                    self.geometries.len(),
+                    result.stitching_report.output_polygon_count,
+                    result.stitching_report.unresolved_owned_polygon_count,
+                    result.stitching_report.unresolved_input_geometry_count,
+                    result.stitching_report.unresolved_component_count,
+                );
+            }
+        }
+        Ok(result)
     }
 
     fn validate(&self) -> Result<()> {
