@@ -74,6 +74,10 @@ least one minor release and includes migration guidance in the changelog.
 Incorrect, unsafe, or unsupportable behavior may be removed immediately; the
 release notes must identify the exception and replacement.
 
+The retired `NodingBackend::Advanced` compatibility alias was removed before
+`1.0`; use `NodingBackend::Snap` with `PrecisionModel::Floating` for the same
+exact snap-noding behavior.
+
 Source versions for the Rust crates, npm package, and Python package must match.
 The required release-contract check enforces this before merge. Registry
 publication is performed by separate tag-triggered workflows and is not atomic;

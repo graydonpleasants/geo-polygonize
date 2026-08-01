@@ -286,12 +286,6 @@ impl PolygonizerOptions {
                     actual: grid_size.to_string(),
                 });
             }
-            if self.node_input && matches!(self.noding.backend, NodingBackend::Advanced) {
-                return Err(PolygonizeError::UnsupportedOptionCombination {
-                    reason: "the Advanced compatibility noder supports floating precision only"
-                        .to_string(),
-                });
-            }
         }
 
         if self.pre_snap_tolerance > 0.0 && !self.node_input {
@@ -409,11 +403,6 @@ pub enum TileOwnershipPolicy {
 pub enum NodingBackend {
     /// Snap-rounding noder using the configured precision grid.
     Snap,
-    /// Deprecated compatibility alias for exact (`grid_size = 0`) snap noding.
-    ///
-    /// The experimental sweep-line implementation was retired because it did not
-    /// maintain the invariants required for complete intersection enumeration.
-    Advanced,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -581,6 +570,14 @@ mod tests {
     }
 
     #[test]
+    fn retired_advanced_backend_is_rejected() {
+        let error =
+            serde_json::from_str::<PolygonizerOptions>(r#"{"noding":{"backend":"Advanced"}}"#)
+                .unwrap_err();
+        assert!(error.to_string().contains("unknown variant `Advanced`"));
+    }
+
+    #[test]
     fn validation_rejects_invalid_options() {
         for value in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let options = PolygonizerOptions {
@@ -618,20 +615,6 @@ mod tests {
 
         let options = PolygonizerOptions {
             pre_snap_tolerance: 1.0,
-            ..Default::default()
-        };
-        assert!(matches!(
-            options.validate(),
-            Err(PolygonizeError::UnsupportedOptionCombination { .. })
-        ));
-
-        let options = PolygonizerOptions {
-            node_input: true,
-            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
-            noding: NodingOptions {
-                backend: NodingBackend::Advanced,
-                guarantee: NodingGuarantee::Unchecked,
-            },
             ..Default::default()
         };
         assert!(matches!(
