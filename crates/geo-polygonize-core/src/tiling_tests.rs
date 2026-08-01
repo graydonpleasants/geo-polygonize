@@ -489,6 +489,28 @@ mod tests {
             assert_eq!(issue.component_bbox.min(), Coord { x: -10.0, y: -10.0 });
             assert_eq!(issue.component_bbox.max(), Coord { x: 30.0, y: 30.0 });
         }
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let component_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_endpoint_component")
+            .collect::<Vec<_>>();
+        assert_eq!(component_events.len(), 4);
+        assert_eq!(component_events[0].payload["tile_index"], 0);
+        assert_eq!(
+            component_events[0].payload["input_geometry_indices"],
+            serde_json::json!([0, 1, 2, 3])
+        );
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert_eq!(
+            bounded.result.stitching_report.unresolved_component_count,
+            4
+        );
         assert!(tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
             .is_ok());

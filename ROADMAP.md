@@ -693,8 +693,9 @@ regions formed by separate input geometries that share exact endpoints now
 produce conservative excluded-component evidence when their combined envelope
 intersects a halo but no member geometry does. Connections created at
 mid-segment intersections are not yet classified. Bounded full traces reuse
-that physical-pass evidence as `tile_input_boundary` and
-`tile_owned_face_boundary` events, so the coverage-detection rows remain open.
+that physical-pass evidence as `tile_input_boundary`,
+`tile_owned_face_boundary`, and `tile_excluded_endpoint_component` events, so
+the coverage-detection rows remain open.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
