@@ -751,6 +751,8 @@ When coverage cannot be proven:
 - [ ] fall back to untiled processing for the unresolved connected region;
   - [x] Pin the global-containment boundary where an excluded outer component
     spatially nests an already retained tile-local face.
+  - [x] Add opt-in envelope-disjoint component fallback that declines nested,
+    overlapping, or previously included linework and records the recovery.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile
@@ -764,7 +766,8 @@ When coverage cannot be proven:
   - [x] Record deterministic retry attempts and exhausted tiles in tile and
     stitching reports and bounded `tile_halo_retry` trace events.
   - [x] Record whole-input fallback use in the stitching report and a bounded
-    `tile_untiled_fallback` trace event; component-local fallback remains open.
+    `tile_untiled_fallback` trace event; broader partial-merge coverage remains
+    open.
 
 ### P3.3 True graph stitching
 
