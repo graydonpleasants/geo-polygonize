@@ -694,11 +694,11 @@ input noding is enabled, exact segment intersections now produce conservative
 excluded-component evidence when their combined envelope intersects a halo but
 no member geometry does. Bounded full traces distinguish endpoint-only and
 segment-intersection component evidence, so this specific missing-region gap is
-covered while the broader coverage-detection rows remain open. A minimized
-pre-snap fixture also pins the remaining boundary: separate inputs that connect
-only after caller-enabled `pre_snap_tolerance` are now grouped as conservative
-pre-snap component evidence; region coverage remains observational rather than
-certified.
+covered while the broader coverage-detection rows remain open. Minimized
+pre-snap and fixed-grid fixtures also pin the remaining transformation boundary:
+separate inputs that connect only after caller-selected precision transformations
+are now grouped as conservative component evidence; region coverage remains
+observational rather than certified.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -718,6 +718,8 @@ certified.
     only after caller-enabled pre-snap.
   - [x] Report caller-enabled pre-snap-connected components distinctly in tile
     reports and bounded traces; broader region coverage detection remains open.
+  - [x] Pin and report the corresponding fixed-grid-connected component case
+    with bounded trace evidence; broader region coverage detection remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary

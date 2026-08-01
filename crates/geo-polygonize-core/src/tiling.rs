@@ -79,9 +79,10 @@ pub enum TileComponentConnection {
     ExactEndpoint,
     SegmentIntersection,
     PreSnap,
+    FixedGrid,
 }
 
-/// An exact-linework-connected input component excluded from a tile halo.
+/// A transformed-connected input component excluded from a tile halo.
 ///
 /// The component envelope intersects the buffered tile, but none of its member
 /// geometry envelopes do. This is conservative evidence, not proof that the
@@ -754,6 +755,22 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .collect::<Result<Vec<_>>>()?;
         }
+        let grid_size = self.options.precision_model.grid_size();
+        if grid_size > 0.0 {
+            let snapper = SnapNoder::new(grid_size)
+                .with_snap_strategy(self.options.snap_strategy.clone())
+                .with_z_policy(self.options.z.policy);
+            for (segment_index, segment) in segments.iter_mut().enumerate() {
+                self.execution_policy
+                    .check_cancelled_every("tile_component_preflight", segment_index)?;
+                let start: Coord3D = segment.line.start.into();
+                let end: Coord3D = segment.line.end.into();
+                segment.line = Line::new(
+                    snapper.snap(start).to_coord_2d(),
+                    snapper.snap(end).to_coord_2d(),
+                );
+            }
+        }
         for segment in &segments {
             for endpoint in [segment.line.start, segment.line.end] {
                 let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
@@ -864,6 +881,8 @@ impl<'a> TiledPolygonizer<'a> {
                     bbox,
                     connection: if self.options.pre_snap_tolerance > 0.0 {
                         TileComponentConnection::PreSnap
+                    } else if grid_size > 0.0 {
+                        TileComponentConnection::FixedGrid
                     } else if intersection_roots.contains(&root) {
                         TileComponentConnection::SegmentIntersection
                     } else {
@@ -989,6 +1008,9 @@ impl<'a> TiledPolygonizer<'a> {
                         }
                         TileComponentConnection::PreSnap => {
                             trace.record_tile_excluded_pre_snap_component(tile_index, issue)?
+                        }
+                        TileComponentConnection::FixedGrid => {
+                            trace.record_tile_excluded_fixed_grid_component(tile_index, issue)?
                         }
                     };
                     if !recorded {
