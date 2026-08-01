@@ -36,6 +36,32 @@ The Python canonical-options result exposes this value as
 `topology_fingerprint`; both are serialized directly by Rust rather than
 reconstructed in the adapter.
 
+## Error construction matrix
+
+`PolygonizeErrorKind` is the structural error-family contract. The exhaustive
+match in `error_family_contract.rs` makes adding a family a compile failure
+until its construction class is chosen. Construction tests compare structural
+variants, never message wording.
+
+| Error kind | Supported construction path | Regression |
+| --- | --- | --- |
+| `InvalidArgumentType` | Invalid `PolygonizerOptions` through `validate` or polygonization | `supported_core_entrypoints_construct_every_core_error_family` |
+| `InvalidGeometry` | Non-finite input through `polygonize` | `supported_core_entrypoints_construct_every_core_error_family` |
+| `InvalidBufferShape` | Malformed Arrow list buffers through `polygonize_arrow` | `test_polygonize_arrow_invalid_buffer_shape_error_path` |
+| `ResourceLimitExceeded` | Any exceeded `ExecutionPolicy` budget | `supported_core_entrypoints_construct_every_core_error_family` |
+| `Cancelled` | A cancelled `ExecutionPolicy` token | `supported_core_entrypoints_construct_every_core_error_family` |
+| `UnsupportedOptionCombination` | Incompatible semantic options through `validate` or polygonization | `supported_core_entrypoints_construct_every_core_error_family` |
+| `ZConflict` | Conflicting source Z values with `ErrorOnConflict` | `supported_core_entrypoints_construct_every_core_error_family` |
+| `NodingValidationFailure` | Residual intersection with the `Validate` guarantee | `supported_core_entrypoints_construct_every_core_error_family` |
+| `ArrowError` | Incompatible Arrow array through `polygonize_arrow` | `test_polygonize_arrow_invalid_type_error_path` |
+
+`TopologyFailure` and `NullPointer` are retained structural mappings but have
+no supported production constructor today. `InternalInvariantViolation` is a
+bug sentinel, not an input-validation path. `Panic` is emitted only when a
+binding catches an unexpected unwind; a deterministic public input must never
+be added merely to exercise it. These four remain internal/boundary-only until
+a real supported construction path exists.
+
 ## Serialized report and compatibility policy
 
 Topology fingerprints, normalized errors, and serialized diagnostics expose a
