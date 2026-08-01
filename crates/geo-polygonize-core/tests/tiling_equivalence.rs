@@ -111,6 +111,23 @@ fn tiled_output_matches_untiled_when_the_halo_contains_each_owned_face() {
         line((10.0, 0.0), (10.0, 20.0)),
     ]);
 
+    let mut disconnected_nested = ring(&[(2.0, 2.0), (28.0, 2.0), (28.0, 28.0), (2.0, 28.0)]);
+    disconnected_nested.extend(ring(&[(6.0, 6.0), (24.0, 6.0), (24.0, 24.0), (6.0, 24.0)]));
+    disconnected_nested.extend(ring(&[
+        (10.0, 10.0),
+        (20.0, 10.0),
+        (20.0, 20.0),
+        (10.0, 20.0),
+    ]));
+
+    let mut overlaps = ring(&[(2.0, 3.0), (17.0, 3.0), (17.0, 18.0), (2.0, 18.0)]);
+    overlaps.extend(ring(&[
+        (11.0, 9.0),
+        (26.0, 9.0),
+        (26.0, 24.0),
+        (11.0, 24.0),
+    ]));
+
     let cases = [
         Case {
             name: "one boundary",
@@ -169,6 +186,20 @@ fn tiled_output_matches_untiled_when_the_halo_contains_each_owned_face() {
             bbox: world(20.0),
             tile_size: 10.0,
             buffer: 20.0,
+        },
+        Case {
+            name: "disconnected nested rings",
+            lines: disconnected_nested,
+            bbox: world(30.0),
+            tile_size: 10.0,
+            buffer: 30.0,
+        },
+        Case {
+            name: "overlapping boundaries",
+            lines: overlaps,
+            bbox: world(30.0),
+            tile_size: 10.0,
+            buffer: 30.0,
         },
     ];
 
