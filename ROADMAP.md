@@ -724,12 +724,12 @@ covered while the broader coverage-detection rows remain open.
     without claiming certification.
 - [x] Randomize tile origins, sizes, input orders, and tile traversal order in
   deterministic metamorphic tests with sufficient halos.
-- [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
+- [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
   - [x] Cover nested disconnected rings, long faces, narrow concavities,
     boundary-crossing holes, overlaps, and dirty crossings under sufficient
-    halos; exact retained-family evidence for dangles and cut edges remains open.
+    halos, plus exact one-tile dangle and cut-edge family counts.
 
 ### P3.2 Deterministic recovery
 

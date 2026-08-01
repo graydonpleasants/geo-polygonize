@@ -123,6 +123,59 @@ fn untiled_fallback_matches_global_output_across_tile_and_input_permutations() {
     }
 }
 
+#[test]
+fn tiled_report_matches_untiled_dangle_and_cut_edge_families() {
+    let mut lines = ring(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
+    lines.push(line((10.0, 10.0), (15.0, 15.0)));
+    lines.extend(ring(&[
+        (20.0, 0.0),
+        (30.0, 0.0),
+        (30.0, 10.0),
+        (20.0, 10.0),
+    ]));
+    lines.extend(ring(&[
+        (40.0, 0.0),
+        (50.0, 0.0),
+        (50.0, 10.0),
+        (40.0, 10.0),
+    ]));
+    lines.push(line((30.0, 5.0), (40.0, 5.0)));
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let expected = polygonize(lines.iter().copied(), &options).unwrap();
+    assert_eq!(expected.dangles.len(), 1);
+    assert_eq!(expected.cut_edges.len(), 1);
+    let geometries = lines
+        .iter()
+        .map(|line| {
+            Geometry::LineString(LineString::new(vec![
+                line.start.to_coord_2d(),
+                line.end.to_coord_2d(),
+            ]))
+        })
+        .collect::<Vec<_>>();
+    let bbox = Rect::new(Coord { x: -1.0, y: -1.0 }, Coord { x: 51.0, y: 16.0 });
+    let mut tiler = TiledPolygonizer::new(bbox, 60.0).with_options(options);
+    for geometry in &geometries {
+        tiler.add_geometry(geometry);
+    }
+
+    let actual = tiler.polygonize().unwrap();
+    assert_eq!(actual.tile_reports.len(), 1);
+    assert_eq!(actual.tile_reports[0].dangle_count, expected.dangles.len());
+    assert_eq!(
+        actual.tile_reports[0].cut_edge_count,
+        expected.cut_edges.len()
+    );
+    assert_eq!(actual.polygons.len(), expected.polygons.len());
+    for (actual, expected) in actual.polygons.iter().zip(&expected.polygons) {
+        assert_eq!(actual.exterior, expected.exterior);
+        assert_eq!(actual.interiors, expected.interiors);
+    }
+}
+
 fn ring(points: &[(f64, f64)]) -> Vec<Line3D> {
     (0..points.len())
         .map(|index| {
