@@ -490,10 +490,19 @@ mod tests {
             assert_eq!(issue.component_bbox.max(), Coord { x: 30.0, y: 30.0 });
         }
         assert!(tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
+            .is_ok());
+        let error = tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
-            .unwrap()
-            .polygons
-            .is_empty());
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_tile_count: 4,
+                unresolved_component_count: 4,
+                ..
+            }
+        ));
     }
 
     #[test]

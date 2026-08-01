@@ -134,7 +134,8 @@ pub enum TileCoverageGuarantee {
     /// This validates reconstructed owned faces only. It cannot detect a region
     /// that is absent because its closing linework fell outside every tile halo.
     ValidateOwnedFaces,
-    /// Reject output when either owned-face or input-boundary evidence is present.
+    /// Reject output when owned-face, input-boundary, or excluded endpoint-component evidence is
+    /// present.
     ///
     /// This validates the observed evidence only. It does not certify connected
     /// regions whose geometry never intersected a tile halo.
@@ -147,13 +148,15 @@ pub enum TiledPolygonizeError {
     #[error(transparent)]
     Polygonize(#[from] PolygonizeError),
     #[error(
-        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons and {unresolved_input_geometry_count} input boundary instances"
+        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons, {unresolved_input_geometry_count} input boundary instances, and {unresolved_component_count} excluded endpoint-component instances"
     )]
     CoverageIncomplete {
         unresolved_tile_count: usize,
         unresolved_owned_polygon_count: usize,
         unresolved_input_tile_count: usize,
         unresolved_input_geometry_count: usize,
+        unresolved_component_tile_count: usize,
+        unresolved_component_count: usize,
         tile_reports: Vec<TileReport>,
     },
 }
@@ -600,6 +603,7 @@ impl<'a> TiledPolygonizer<'a> {
             TileCoverageGuarantee::ValidateObservedCoverage => {
                 result.stitching_report.unresolved_owned_polygon_count != 0
                     || result.stitching_report.unresolved_input_geometry_count != 0
+                    || result.stitching_report.unresolved_component_count != 0
             }
         };
         if reject {
@@ -612,6 +616,10 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_input_geometry_count: result
                     .stitching_report
                     .unresolved_input_geometry_count,
+                unresolved_component_tile_count: result
+                    .stitching_report
+                    .unresolved_component_tile_count,
+                unresolved_component_count: result.stitching_report.unresolved_component_count,
                 tile_reports: result.tile_reports,
             });
         }
