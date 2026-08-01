@@ -118,6 +118,11 @@ pub enum TileCoverageGuarantee {
     /// This validates reconstructed owned faces only. It cannot detect a region
     /// that is absent because its closing linework fell outside every tile halo.
     ValidateOwnedFaces,
+    /// Reject output when either owned-face or input-boundary evidence is present.
+    ///
+    /// This validates the observed evidence only. It does not certify connected
+    /// regions whose geometry never intersected a tile halo.
+    ValidateObservedCoverage,
 }
 
 /// Failure from experimental tiled polygonization with coverage validation.
@@ -126,11 +131,13 @@ pub enum TiledPolygonizeError {
     #[error(transparent)]
     Polygonize(#[from] PolygonizeError),
     #[error(
-        "tiled owned-face coverage validation failed for {unresolved_owned_polygon_count} polygons across {unresolved_tile_count} tiles"
+        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons and {unresolved_input_geometry_count} input boundary instances"
     )]
     CoverageIncomplete {
         unresolved_tile_count: usize,
         unresolved_owned_polygon_count: usize,
+        unresolved_input_tile_count: usize,
+        unresolved_input_geometry_count: usize,
         tile_reports: Vec<TileReport>,
     },
 }
@@ -426,14 +433,26 @@ impl<'a> TiledPolygonizer<'a> {
         guarantee: TileCoverageGuarantee,
     ) -> std::result::Result<TiledPolygonizeResult, TiledPolygonizeError> {
         let result = self.polygonize_impl(None)?;
-        if guarantee == TileCoverageGuarantee::ValidateOwnedFaces
-            && result.stitching_report.unresolved_owned_polygon_count != 0
-        {
+        let reject = match guarantee {
+            TileCoverageGuarantee::BestEffort => false,
+            TileCoverageGuarantee::ValidateOwnedFaces => {
+                result.stitching_report.unresolved_owned_polygon_count != 0
+            }
+            TileCoverageGuarantee::ValidateObservedCoverage => {
+                result.stitching_report.unresolved_owned_polygon_count != 0
+                    || result.stitching_report.unresolved_input_geometry_count != 0
+            }
+        };
+        if reject {
             return Err(TiledPolygonizeError::CoverageIncomplete {
                 unresolved_tile_count: result.stitching_report.unresolved_tile_count,
                 unresolved_owned_polygon_count: result
                     .stitching_report
                     .unresolved_owned_polygon_count,
+                unresolved_input_tile_count: result.stitching_report.unresolved_input_tile_count,
+                unresolved_input_geometry_count: result
+                    .stitching_report
+                    .unresolved_input_geometry_count,
                 tile_reports: result.tile_reports,
             });
         }

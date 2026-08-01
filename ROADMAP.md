@@ -700,6 +700,8 @@ rows remain open.
   `ValidateCoverage`; do not rename best effort as certified.
   - [x] Add `BestEffort` and `ValidateOwnedFaces` for the reconstructed-face
     subset; missing-region coverage certification remains open.
+  - [x] Add `ValidateObservedCoverage` to reject either owned-face or
+    conservative input-boundary evidence without claiming certification.
 - [x] Randomize tile origins, sizes, input orders, and tile traversal order in
   deterministic metamorphic tests with sufficient halos.
 - [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
