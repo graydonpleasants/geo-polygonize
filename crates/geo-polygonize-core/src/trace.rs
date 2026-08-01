@@ -312,6 +312,14 @@ pub struct TileExcludedPreSnapComponentTraceV1 {
     pub component_max: CoordinateFingerprintV1,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileExcludedFixedGridComponentTraceV1 {
+    pub tile_index: usize,
+    pub input_geometry_indices: Vec<usize>,
+    pub component_min: CoordinateFingerprintV1,
+    pub component_max: CoordinateFingerprintV1,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TileHaloRetryTraceV1 {
     pub tile_index: usize,
@@ -1200,6 +1208,26 @@ impl TraceRecorderV1 {
                 component_max: coordinate_fingerprint(crate::Coord3D::new(max.x, max.y, 0.0))?,
             })
             .expect("tile excluded pre-snap component trace event serializes"),
+        ))
+    }
+
+    pub(crate) fn record_tile_excluded_fixed_grid_component(
+        &mut self,
+        tile_index: usize,
+        issue: &crate::tiling::TileExcludedComponentIssue,
+    ) -> crate::Result<bool> {
+        let min = issue.component_bbox.min();
+        let max = issue.component_bbox.max();
+        Ok(self.record(
+            TraceStageV1::Output,
+            "tile_excluded_fixed_grid_component",
+            serde_json::to_value(TileExcludedFixedGridComponentTraceV1 {
+                tile_index,
+                input_geometry_indices: issue.input_geometry_indices.clone(),
+                component_min: coordinate_fingerprint(crate::Coord3D::new(min.x, min.y, 0.0))?,
+                component_max: coordinate_fingerprint(crate::Coord3D::new(max.x, max.y, 0.0))?,
+            })
+            .expect("tile excluded fixed-grid component trace event serializes"),
         ))
     }
 
