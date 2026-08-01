@@ -1,3 +1,4 @@
+use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
 use crate::trace::{
@@ -6,12 +7,14 @@ use crate::trace::{
 };
 use crate::types::{Coord3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
+use geo::algorithm::line_intersection::line_intersection;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
 use geo::InteriorPoint;
-use geo_types::{Coord, Geometry, LineString, Point, Rect};
+use geo_types::{Coord, Geometry, Line, LineString, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use rstar::AABB;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
@@ -66,7 +69,14 @@ pub struct TileInputBoundaryIssue {
     pub unresolved_sides: Vec<TileBoundarySide>,
 }
 
-/// An exact-endpoint-connected input component excluded from a tile halo.
+/// How separate input geometries in an excluded component are connected.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TileComponentConnection {
+    ExactEndpoint,
+    SegmentIntersection,
+}
+
+/// An exact-linework-connected input component excluded from a tile halo.
 ///
 /// The component envelope intersects the buffered tile, but none of its member
 /// geometry envelopes do. This is conservative evidence, not proof that the
@@ -75,6 +85,7 @@ pub struct TileInputBoundaryIssue {
 pub struct TileExcludedComponentIssue {
     pub input_geometry_indices: Vec<usize>,
     pub component_bbox: Rect<f64>,
+    pub connection: TileComponentConnection,
 }
 
 /// Observed work and topology output for one tile.
@@ -93,7 +104,7 @@ pub struct TileReport {
     pub coverage_issues: Vec<TileCoverageIssue>,
     /// Inputs that may connect to linework beyond this tile's halo.
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
-    /// Exact-endpoint-connected components excluded from this tile's halo.
+    /// Exact-linework-connected components excluded from this tile's halo.
     pub excluded_component_issues: Vec<TileExcludedComponentIssue>,
 }
 
@@ -134,7 +145,7 @@ pub enum TileCoverageGuarantee {
     /// This validates reconstructed owned faces only. It cannot detect a region
     /// that is absent because its closing linework fell outside every tile halo.
     ValidateOwnedFaces,
-    /// Reject output when owned-face, input-boundary, or excluded endpoint-component evidence is
+    /// Reject output when owned-face, input-boundary, or excluded linework-component evidence is
     /// present.
     ///
     /// This validates the observed evidence only. It does not certify connected
@@ -148,7 +159,7 @@ pub enum TiledPolygonizeError {
     #[error(transparent)]
     Polygonize(#[from] PolygonizeError),
     #[error(
-        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons, {unresolved_input_geometry_count} input boundary instances, and {unresolved_component_count} excluded endpoint-component instances"
+        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons, {unresolved_input_geometry_count} input boundary instances, and {unresolved_component_count} excluded linework-component instances"
     )]
     CoverageIncomplete {
         unresolved_tile_count: usize,
@@ -172,9 +183,16 @@ type TileOwnershipDecision = (usize, Option<Coord3D>, bool);
 type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>, bool);
 
 #[derive(Debug)]
-struct EndpointComponent {
+struct InputComponent {
     input_geometry_indices: Vec<usize>,
     bbox: Rect<f64>,
+    connection: TileComponentConnection,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct InputSegment {
+    line: Line<f64>,
+    geometry_index: usize,
 }
 
 fn endpoint_bits(value: f64) -> u64 {
@@ -185,40 +203,46 @@ fn endpoint_bits(value: f64) -> u64 {
     }
 }
 
-fn line_string_endpoints(line: &LineString<f64>, endpoints: &mut Vec<Coord<f64>>) {
-    if let Some(first) = line.0.first() {
-        endpoints.push(*first);
-    }
-    if let Some(last) = line.0.last() {
-        endpoints.push(*last);
-    }
+fn line_string_segments(
+    line: &LineString<f64>,
+    geometry_index: usize,
+    segments: &mut Vec<InputSegment>,
+) {
+    segments.extend(line.lines().map(|line| InputSegment {
+        line,
+        geometry_index,
+    }));
 }
 
-fn geometry_endpoints(geometry: &Geometry<f64>, endpoints: &mut Vec<Coord<f64>>) {
+fn geometry_segments(
+    geometry: &Geometry<f64>,
+    geometry_index: usize,
+    segments: &mut Vec<InputSegment>,
+) {
     match geometry {
-        Geometry::LineString(line) => line_string_endpoints(line, endpoints),
+        Geometry::LineString(line) => line_string_segments(line, geometry_index, segments),
         Geometry::MultiLineString(lines) => {
             for line in lines {
-                line_string_endpoints(line, endpoints);
+                line_string_segments(line, geometry_index, segments);
             }
         }
         Geometry::Polygon(polygon) => {
-            line_string_endpoints(polygon.exterior(), endpoints);
+            line_string_segments(polygon.exterior(), geometry_index, segments);
             for ring in polygon.interiors() {
-                line_string_endpoints(ring, endpoints);
+                line_string_segments(ring, geometry_index, segments);
             }
         }
         Geometry::MultiPolygon(polygons) => {
             for polygon in polygons {
-                line_string_endpoints(polygon.exterior(), endpoints);
+                line_string_segments(polygon.exterior(), geometry_index, segments);
                 for ring in polygon.interiors() {
-                    line_string_endpoints(ring, endpoints);
+                    line_string_segments(ring, geometry_index, segments);
                 }
             }
         }
         Geometry::GeometryCollection(collection) => {
             for member in collection {
-                geometry_endpoints(member, endpoints);
+                geometry_segments(member, geometry_index, segments);
             }
         }
         _ => {}
@@ -305,7 +329,7 @@ impl<'a> TiledPolygonizer<'a> {
     fn process_tile(
         &self,
         tile_bbox: Rect<f64>,
-        endpoint_components: &[EndpointComponent],
+        input_components: &[InputComponent],
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
         let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
@@ -343,7 +367,7 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
-        let excluded_component_issues = endpoint_components
+        let excluded_component_issues = input_components
             .iter()
             .filter(|component| {
                 component.bbox.intersects(&buffered_bbox)
@@ -356,6 +380,7 @@ impl<'a> TiledPolygonizer<'a> {
             .map(|component| TileExcludedComponentIssue {
                 input_geometry_indices: component.input_geometry_indices.clone(),
                 component_bbox: component.bbox,
+                connection: component.connection,
             })
             .collect();
 
@@ -536,18 +561,87 @@ impl<'a> TiledPolygonizer<'a> {
         tiles
     }
 
-    fn endpoint_components(&self) -> Vec<EndpointComponent> {
+    fn input_components(&self) -> Vec<InputComponent> {
         let mut parents = (0..self.geometries.len()).collect::<Vec<_>>();
         let mut endpoint_owners = HashMap::new();
-        let mut endpoints = Vec::new();
+        let mut segments = Vec::new();
         for (geometry_index, (geometry, _)) in self.geometries.iter().enumerate() {
-            endpoints.clear();
-            geometry_endpoints(geometry, &mut endpoints);
-            for endpoint in &endpoints {
+            geometry_segments(geometry, geometry_index, &mut segments);
+        }
+        for segment in &segments {
+            for endpoint in [segment.line.start, segment.line.end] {
                 let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
-                if let Some(previous) = endpoint_owners.insert(key, geometry_index) {
-                    join_components(&mut parents, previous, geometry_index);
+                if let Some(previous) = endpoint_owners.insert(key, segment.geometry_index) {
+                    join_components(&mut parents, previous, segment.geometry_index);
                 }
+            }
+        }
+
+        let endpoint_roots = (0..self.geometries.len())
+            .map(|index| component_root(&mut parents, index))
+            .collect::<Vec<_>>();
+        let mut intersection_connected = vec![false; self.geometries.len()];
+        if self.options.node_input {
+            let envelopes = segments
+                .iter()
+                .enumerate()
+                .map(|(index, segment)| IndexedEnvelope {
+                    aabb: AABB::from_corners(
+                        [
+                            segment.line.start.x.min(segment.line.end.x),
+                            segment.line.start.y.min(segment.line.end.y),
+                        ],
+                        [
+                            segment.line.start.x.max(segment.line.end.x),
+                            segment.line.start.y.max(segment.line.end.y),
+                        ],
+                    ),
+                    index,
+                })
+                .collect();
+            let index = RStarBackend::new(envelopes);
+            // ponytail: this exact preflight can have quadratic dense candidates; thread an
+            // execution policy through the experimental tiled API before certification.
+            for (segment_index, segment) in segments.iter().enumerate() {
+                let envelope = AABB::from_corners(
+                    [
+                        segment.line.start.x.min(segment.line.end.x),
+                        segment.line.start.y.min(segment.line.end.y),
+                    ],
+                    [
+                        segment.line.start.x.max(segment.line.end.x),
+                        segment.line.start.y.max(segment.line.end.y),
+                    ],
+                );
+                for candidate_index in index.locate_in_envelope_intersecting(&envelope) {
+                    if candidate_index <= segment_index {
+                        continue;
+                    }
+                    let candidate = segments[candidate_index];
+                    if candidate.geometry_index == segment.geometry_index
+                        || line_intersection(segment.line, candidate.line).is_none()
+                    {
+                        continue;
+                    }
+                    if endpoint_roots[segment.geometry_index]
+                        != endpoint_roots[candidate.geometry_index]
+                    {
+                        intersection_connected[segment.geometry_index] = true;
+                        intersection_connected[candidate.geometry_index] = true;
+                    }
+                    join_components(
+                        &mut parents,
+                        segment.geometry_index,
+                        candidate.geometry_index,
+                    );
+                }
+            }
+        }
+
+        let mut intersection_roots = HashSet::new();
+        for (geometry_index, connected) in intersection_connected.into_iter().enumerate() {
+            if connected {
+                intersection_roots.insert(component_root(&mut parents, geometry_index));
             }
         }
 
@@ -560,6 +654,7 @@ impl<'a> TiledPolygonizer<'a> {
             .into_values()
             .filter(|indices| indices.len() > 1)
             .filter_map(|input_geometry_indices| {
+                let root = component_root(&mut parents, input_geometry_indices[0]);
                 let mut bounds = input_geometry_indices
                     .iter()
                     .filter_map(|&index| self.geometries[index].1);
@@ -576,9 +671,14 @@ impl<'a> TiledPolygonizer<'a> {
                         },
                     )
                 });
-                Some(EndpointComponent {
+                Some(InputComponent {
                     input_geometry_indices,
                     bbox,
+                    connection: if intersection_roots.contains(&root) {
+                        TileComponentConnection::SegmentIntersection
+                    } else {
+                        TileComponentConnection::ExactEndpoint
+                    },
                 })
             })
             .collect::<Vec<_>>();
@@ -654,14 +754,14 @@ impl<'a> TiledPolygonizer<'a> {
     ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
-        let endpoint_components = self.endpoint_components();
-        self.polygonize_tiles(tiles, &endpoint_components, trace)
+        let input_components = self.input_components();
+        self.polygonize_tiles(tiles, &input_components, trace)
     }
 
     fn polygonize_tiles(
         &self,
         tiles: Vec<Rect<f64>>,
-        endpoint_components: &[EndpointComponent],
+        input_components: &[InputComponent],
         mut trace: Option<&mut TraceRecorderV1>,
     ) -> Result<TiledPolygonizeResult> {
         let trace_ownership = trace
@@ -678,9 +778,13 @@ impl<'a> TiledPolygonizer<'a> {
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
                 let (polygons, report, ownership_decisions, capture_truncated) =
-                    self.process_tile(tile, endpoint_components, capture_byte_limit)?;
+                    self.process_tile(tile, input_components, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
-                for issue in &report.excluded_component_issues {
+                for issue in report
+                    .excluded_component_issues
+                    .iter()
+                    .filter(|issue| issue.connection == TileComponentConnection::ExactEndpoint)
+                {
                     if !trace.record_tile_excluded_endpoint_component(tile_index, issue)? {
                         break;
                     }
@@ -713,12 +817,12 @@ impl<'a> TiledPolygonizer<'a> {
             #[cfg(feature = "parallel")]
             let tile_results: Vec<_> = tiles
                 .into_par_iter()
-                .map(|tile| self.process_tile(tile, endpoint_components, None))
+                .map(|tile| self.process_tile(tile, input_components, None))
                 .collect();
             #[cfg(not(feature = "parallel"))]
             let tile_results: Vec<_> = tiles
                 .into_iter()
-                .map(|tile| self.process_tile(tile, endpoint_components, None))
+                .map(|tile| self.process_tile(tile, input_components, None))
                 .collect();
 
             for result in tile_results {

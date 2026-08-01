@@ -43,14 +43,17 @@ needed locally. Full output traces record both evidence families as bounded
 inputs or reconstructed faces.
 
 `TileReport::excluded_component_issues` covers one additional missing-input
-case. Separate input geometries that share exact endpoints are grouped, and a
-tile reports the component when its combined envelope intersects the buffered
-tile but no member geometry envelope does. This catches an enclosing component
-that is excluded from every halo. It remains conservative: an envelope does not
-prove that the component contains a face, and connections created only by
-mid-segment intersections are not grouped. `StitchingReport` counts affected
-tiles and issue instances. Full output traces reuse the report as bounded
-`tile_excluded_endpoint_component` events without rescanning input.
+case. Separate input geometries that share exact endpoints are grouped. When
+input noding is enabled, an indexed exact-intersection pass also groups geometry
+connected through segment interiors. A tile reports the component when its
+combined envelope intersects the buffered tile but no member geometry envelope
+does. This catches an enclosing component that is excluded from every halo. It
+remains conservative: an envelope does not prove that the component contains a
+face. `TileComponentConnection` distinguishes endpoint-only and
+segment-intersection evidence, and `StitchingReport` counts affected tiles and
+issue instances. Full output traces currently record endpoint-only evidence as
+bounded `tile_excluded_endpoint_component` events; intersection events are a
+separate pending trace slice.
 
 ## Ownership and deduplication
 
@@ -85,11 +88,12 @@ returned to the caller.
 - `ValidateOwnedFaces` returns `TiledPolygonizeError::CoverageIncomplete` instead
   of polygons when a reconstructed owned face reaches an internal halo boundary.
 - `ValidateObservedCoverage` returns that typed error when owned-face,
-  conservative input-boundary, or excluded exact-endpoint component evidence is
+  conservative input-boundary, or excluded exact-linework component evidence is
   present.
 
 Both validation modes are deliberately narrower than coverage certification.
-Connections created at mid-segment intersections remain outside the detector.
+The indexed component preflight is not yet execution-policy bounded, and the
+component envelope remains conservative evidence rather than proof of a face.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.

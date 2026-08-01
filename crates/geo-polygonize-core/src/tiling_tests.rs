@@ -3,8 +3,8 @@
 mod tests {
     use crate::{
         trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, Polygonizer,
-        PolygonizerOptions, ProvenanceOptions, TileBoundarySide, TileCoverageGuarantee,
-        TiledPolygonizeError, TiledPolygonizer,
+        PolygonizerOptions, ProvenanceOptions, TileBoundarySide, TileComponentConnection,
+        TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -488,6 +488,7 @@ mod tests {
             assert_eq!(issue.input_geometry_indices, vec![0, 1, 2, 3]);
             assert_eq!(issue.component_bbox.min(), Coord { x: -10.0, y: -10.0 });
             assert_eq!(issue.component_bbox.max(), Coord { x: 30.0, y: 30.0 });
+            assert_eq!(issue.connection, TileComponentConnection::ExactEndpoint);
         }
         let traced = tiled
             .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
@@ -561,12 +562,37 @@ mod tests {
         assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
         let observed = tiled.polygonize().unwrap();
         assert!(observed.polygons.is_empty());
-        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
-        assert!(tiled
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        assert!(observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::SegmentIntersection
+        }));
+        let error = tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
-            .unwrap()
-            .polygons
-            .is_empty());
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_count: 4,
+                ..
+            }
+        ));
+
+        let mut unnoded = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(PolygonizerOptions::default());
+        for boundary in &boundaries {
+            unnoded.add_geometry(boundary);
+        }
+        assert_eq!(
+            unnoded
+                .polygonize()
+                .unwrap()
+                .stitching_report
+                .unresolved_component_count,
+            0
+        );
     }
 
     #[test]
@@ -627,9 +653,9 @@ mod tests {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
             tiles.swap(upper, (state as usize) % (upper + 1));
         }
-        let endpoint_components = tiler.endpoint_components();
+        let input_components = tiler.input_components();
         let permuted = tiler
-            .polygonize_tiles(tiles, &endpoint_components, None)
+            .polygonize_tiles(tiles, &input_components, None)
             .unwrap();
 
         assert_eq!(permuted.polygons.len(), forward.polygons.len());
