@@ -397,6 +397,16 @@ mod tests {
             .all(|issue| issue.unresolved_sides == vec![TileBoundarySide::MinX]));
         assert_eq!(result.stitching_report.unresolved_input_tile_count, 2);
         assert_eq!(result.stitching_report.unresolved_input_geometry_count, 4);
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_input_tile_count: 2,
+                unresolved_input_geometry_count: 4,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -424,13 +434,14 @@ mod tests {
                 unresolved_tile_count: 1,
                 unresolved_owned_polygon_count: 1,
                 tile_reports,
+                ..
             } if tile_reports.iter().any(|report| !report.coverage_issues.is_empty())
         ));
 
         let mut sufficient = TiledPolygonizer::new(bbox, 10.0).with_buffer(10.0);
         sufficient.add_geometry(&face);
         assert!(sufficient
-            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
             .is_ok());
     }
 

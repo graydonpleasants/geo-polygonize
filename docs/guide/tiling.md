@@ -72,9 +72,12 @@ returned to the caller.
 - `BestEffort` preserves the existing output behavior and reports detected issues.
 - `ValidateOwnedFaces` returns `TiledPolygonizeError::CoverageIncomplete` instead
   of polygons when a reconstructed owned face reaches an internal halo boundary.
+- `ValidateObservedCoverage` returns that typed error when either owned-face or
+  conservative input-boundary evidence is present.
 
-The validation is deliberately scoped to reconstructed owned faces. It cannot
-certify missing regions whose closing linework was excluded from every halo.
+Both validation modes are deliberately narrower than coverage certification.
+They cannot certify missing connected regions whose geometry was excluded from
+every halo.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.
