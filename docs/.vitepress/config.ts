@@ -25,6 +25,7 @@ export default defineConfig({
           { text: 'Topology and output', link: '/guide/topology-output' },
           { text: 'Noding guarantees', link: '/guide/noding-guarantees' },
           { text: 'Z and provenance', link: '/guide/z-provenance' },
+          { text: 'Compatibility', link: '/guide/compatibility' },
           { text: 'WASM Integration', link: '/guide/wasm' },
         ]
       },
