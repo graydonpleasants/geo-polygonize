@@ -1,6 +1,6 @@
 use geo_polygonize_core::{
     polygonize, Coord3D, DedupPolicy, Line3D, PolygonizerOptions, TileCoverageGuarantee,
-    TileOwnershipPolicy, TiledPolygonizer,
+    TileOwnershipPolicy, TileRetryPolicy, TiledPolygonizer,
 };
 use geo_types::{Coord, Geometry, LineString, Rect};
 
@@ -70,6 +70,55 @@ fn sufficient_halos_survive_deterministic_grid_and_input_permutations() {
         for (actual, expected) in actual.polygons.iter().zip(&expected.polygons) {
             assert_eq!(actual.exterior, expected.exterior, "case {case_index}");
             assert_eq!(actual.interiors, expected.interiors, "case {case_index}");
+        }
+    }
+}
+
+#[test]
+fn untiled_fallback_matches_global_output_across_tile_and_input_permutations() {
+    let mut lines = ring(&[(-10.0, -10.0), (30.0, -10.0), (30.0, 30.0), (-10.0, 30.0)]);
+    lines.extend(ring(&[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0)]));
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let expected = polygonize(lines.iter().copied(), &options).unwrap();
+    let geometries = lines
+        .iter()
+        .map(|line| {
+            Geometry::LineString(LineString::new(vec![
+                line.start.to_coord_2d(),
+                line.end.to_coord_2d(),
+            ]))
+        })
+        .collect::<Vec<_>>();
+
+    for tile_size in [5.0, 10.0, 20.0] {
+        for rotation in 0..geometries.len() {
+            let mut permuted = geometries.clone();
+            permuted.rotate_left(rotation);
+            let mut tiler = TiledPolygonizer::new(world(20.0), tile_size)
+                .with_buffer(2.0)
+                .with_options(options.clone())
+                .with_retry_policy(TileRetryPolicy {
+                    max_attempts: 1,
+                    buffer_increment: 1.0,
+                    max_buffer: 3.0,
+                })
+                .with_untiled_fallback();
+            for geometry in &permuted {
+                tiler.add_geometry(geometry);
+            }
+
+            let actual = tiler
+                .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+                .unwrap();
+            assert!(actual.stitching_report.untiled_fallback_used);
+            assert_eq!(actual.polygons.len(), expected.polygons.len());
+            for (actual, expected) in actual.polygons.iter().zip(&expected.polygons) {
+                assert_eq!(actual.exterior, expected.exterior);
+                assert_eq!(actual.interiors, expected.interiors);
+            }
         }
     }
 }
