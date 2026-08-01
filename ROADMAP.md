@@ -534,8 +534,15 @@ Add a debug/test validator for the live graph:
 - [x] angular adjacency order is deterministic;
 - [x] ring cycles close and do not accidentally reuse directed edges;
 - [x] every directed edge is assigned to the expected maximal/minimal cycle;
-- [ ] the planar Euler relation `V - E + F = C + 1` holds where the stage
+- [x] the planar Euler relation `V - E + F = C + 1` holds where the stage
   preconditions apply, including the unbounded face.
+
+The debug/test maximal-ring validator derives face count from closed boundary
+cycles and connected components, includes the shared unbounded face, and rejects
+an unnoded crossing with a deterministic count witness. Automatic graph-stage
+checks run after validated noding postconditions; unchecked profiles retain the
+cycle validator because they do not promise planar input. The validated core
+pipeline fuzz target exercises the Euler check.
 
 Run it in tests, fuzz targets, and optionally diagnostic builds—not in the
 default release hot path.

@@ -969,20 +969,22 @@ impl PlanarGraph {
 
     /// Finds and removes edges whose two directions belong to the same maximal ring.
     pub fn delete_cut_edges(&mut self) -> Vec<Vec<Coord3D>> {
-        self.delete_cut_edges_impl(None)
+        self.delete_cut_edges_impl(None, false)
             .expect("unlimited cut-edge removal cannot fail")
     }
 
     pub(crate) fn delete_cut_edges_with_execution_policy(
         &mut self,
         execution_policy: &ExecutionPolicy,
+        noding_postcondition_validated: bool,
     ) -> crate::Result<Vec<Vec<Coord3D>>> {
-        self.delete_cut_edges_impl(Some(execution_policy))
+        self.delete_cut_edges_impl(Some(execution_policy), noding_postcondition_validated)
     }
 
     fn delete_cut_edges_impl(
         &mut self,
         execution_policy: Option<&ExecutionPolicy>,
+        _noding_postcondition_validated: bool,
     ) -> crate::Result<Vec<Vec<Coord3D>>> {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
@@ -994,7 +996,11 @@ impl PlanarGraph {
             self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
             #[cfg(any(test, debug_assertions))]
-            self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+            if _noding_postcondition_validated {
+                self.validate_arrangement_euler(&next_pointers, "maximal")?;
+            } else {
+                self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+            }
 
             let mut labels = vec![-1_i64; self.directed_edges.len()];
             self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
@@ -1040,6 +1046,7 @@ impl PlanarGraph {
             None,
             None,
             None,
+            false,
         )
         .expect("unlimited ring extraction cannot fail")
     }
@@ -1049,6 +1056,7 @@ impl PlanarGraph {
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: &ExecutionPolicy,
+        noding_postcondition_validated: bool,
     ) -> crate::Result<Vec<ExtractedRing>> {
         self.get_edge_rings_with_graph_ids_impl(
             include_graph_ids,
@@ -1056,6 +1064,7 @@ impl PlanarGraph {
             Some(execution_policy),
             None,
             None,
+            noding_postcondition_validated,
         )
     }
 
@@ -1065,6 +1074,7 @@ impl PlanarGraph {
         include_source_ids: bool,
         execution_policy: &ExecutionPolicy,
         capture_byte_limit: usize,
+        noding_postcondition_validated: bool,
     ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>, bool)> {
         let mut maximal = Vec::new();
         let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
@@ -1074,6 +1084,7 @@ impl PlanarGraph {
             Some(execution_policy),
             Some(&mut maximal),
             Some(&mut capture_budget),
+            noding_postcondition_validated,
         )?;
         Ok((maximal, minimal, capture_budget.truncated()))
     }
@@ -1085,6 +1096,7 @@ impl PlanarGraph {
         execution_policy: Option<&ExecutionPolicy>,
         maximal_trace: Option<&mut Vec<ExtractedRing>>,
         maximal_trace_budget: Option<&mut TraceCaptureBudget>,
+        _noding_postcondition_validated: bool,
     ) -> crate::Result<Vec<ExtractedRing>> {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
@@ -1100,7 +1112,11 @@ impl PlanarGraph {
             self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
 
             #[cfg(any(test, debug_assertions))]
-            self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+            if _noding_postcondition_validated {
+                self.validate_arrangement_euler(&next_pointers, "maximal")?;
+            } else {
+                self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+            }
 
             // Step 2: find and label maximal rings.
             let maximal_ring_starts =
@@ -1346,7 +1362,7 @@ impl PlanarGraph {
         &self,
         next_pointers: &[usize],
         phase: &str,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<usize> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
         if next_pointers.len() != self.directed_edges.len() {
             return Err(invariant(format!(
@@ -1396,10 +1412,12 @@ impl PlanarGraph {
         }
 
         let mut assigned_cycle = vec![None; self.directed_edges.len()];
+        let mut cycle_count = 0;
         for start_idx in 0..self.directed_edges.len() {
             if !is_active(start_idx) || assigned_cycle[start_idx].is_some() {
                 continue;
             }
+            cycle_count += 1;
 
             let mut current_idx = start_idx;
             loop {
@@ -1425,6 +1443,75 @@ impl PlanarGraph {
             }
         }
 
+        Ok(cycle_count)
+    }
+
+    /// Validates Euler's planar relation for the active maximal-ring graph.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn validate_arrangement_euler(
+        &self,
+        next_pointers: &[usize],
+        phase: &str,
+    ) -> crate::Result<()> {
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        let boundary_cycles = self.validate_arrangement_ring_cycles(next_pointers, phase)?;
+        let mut active_nodes = vec![false; self.nodes_x.len()];
+        let mut parents: Vec<_> = (0..self.nodes_x.len()).collect();
+        let mut edge_count = 0usize;
+
+        fn root(parents: &mut [usize], mut node: usize) -> usize {
+            while parents[node] != node {
+                parents[node] = parents[parents[node]];
+                node = parents[node];
+            }
+            node
+        }
+
+        for edge in &self.edges {
+            let [forward_idx, reverse_idx] = edge.dir_edges;
+            if edge.deleted
+                || self.directed_edges[forward_idx].is_marked
+                || self.directed_edges[reverse_idx].is_marked
+            {
+                continue;
+            }
+            edge_count += 1;
+            let forward = &self.directed_edges[forward_idx];
+            active_nodes[forward.src] = true;
+            active_nodes[forward.dst] = true;
+            let src_root = root(&mut parents, forward.src);
+            let dst_root = root(&mut parents, forward.dst);
+            if src_root != dst_root {
+                let (smaller, larger) = if src_root < dst_root {
+                    (src_root, dst_root)
+                } else {
+                    (dst_root, src_root)
+                };
+                parents[larger] = smaller;
+            }
+        }
+
+        let vertex_count = active_nodes.iter().filter(|&&active| active).count();
+        let component_count = active_nodes
+            .iter()
+            .enumerate()
+            .filter(|&(node, active)| *active && root(&mut parents, node) == node)
+            .count();
+        let face_count = boundary_cycles
+            .checked_sub(component_count)
+            .and_then(|count| count.checked_add(1))
+            .ok_or_else(|| {
+                invariant(format!(
+                    "arrangement {phase} Euler invariant invalid boundary count: cycles={boundary_cycles}, components={component_count}"
+                ))
+            })?;
+        let lhs = vertex_count as i128 - edge_count as i128 + face_count as i128;
+        let rhs = component_count as i128 + 1;
+        if lhs != rhs {
+            return Err(invariant(format!(
+                "arrangement {phase} Euler invariant mismatch: vertices={vertex_count}, edges={edge_count}, faces={face_count}, components={component_count}, boundary_cycles={boundary_cycles}, lhs={lhs}, rhs={rhs}"
+            )));
+        }
         Ok(())
     }
 
@@ -1754,6 +1841,67 @@ mod arrangement_ring_invariant_tests {
         assert_eq!(
             invariant_reason(&graph, &broken, "maximal"),
             "arrangement maximal ring invariant cycle 0 reuses directed edge 4 assigned to cycle 0 before closure"
+        );
+    }
+
+    #[test]
+    fn arrangement_euler_validator_counts_components_and_the_unbounded_face() {
+        let mut graph = PlanarGraph::new();
+        add_triangle(
+            &mut graph,
+            [
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(2.0, 0.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+            ],
+            10,
+        );
+        add_triangle(
+            &mut graph,
+            [
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(12.0, 0.0, 0.0),
+                Coord3D::new(11.0, 1.0, 0.0),
+            ],
+            20,
+        );
+        graph.sort_edges();
+
+        graph
+            .validate_arrangement_euler(&next_links(&graph), "maximal")
+            .unwrap();
+    }
+
+    #[test]
+    fn arrangement_euler_validator_rejects_unnoded_crossings() {
+        let mut graph = PlanarGraph::new();
+        let points = [
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+            Coord3D::new(0.0, 2.0, 0.0),
+        ];
+        for index in 0..4 {
+            graph.add_line(Line3D::new(
+                points[index],
+                points[(index + 1) % 4],
+                index as u32,
+            ));
+        }
+        graph.add_line(Line3D::new(points[0], points[2], 4));
+        graph.add_line(Line3D::new(points[1], points[3], 5));
+        graph.sort_edges();
+
+        let reason = match graph
+            .validate_arrangement_euler(&next_links(&graph), "maximal")
+            .unwrap_err()
+        {
+            crate::PolygonizeError::InternalInvariantViolation { reason } => reason,
+            error => panic!("unexpected validation error: {error}"),
+        };
+        assert_eq!(
+            reason,
+            "arrangement maximal Euler invariant mismatch: vertices=4, edges=6, faces=2, components=1, boundary_cycles=2, lhs=0, rhs=2"
         );
     }
 }

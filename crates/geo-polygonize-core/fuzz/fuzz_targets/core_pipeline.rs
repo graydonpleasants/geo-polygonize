@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use geo_polygonize_core::{PolygonizerOptions, PrecisionModel, SnapStrategy};
+use geo_polygonize_core::{NodingGuarantee, PolygonizerOptions, PrecisionModel, SnapStrategy};
 use geo_polygonize_core::polygonize;
 use geo_polygonize_core::{Coord3D, Line3D};
 use libfuzzer_sys::fuzz_target;
@@ -38,7 +38,7 @@ fuzz_target!(|input: FuzzInput| {
         });
     }
 
-    let options = PolygonizerOptions {
+    let mut options = PolygonizerOptions {
         node_input: input.node_input,
         precision_model: PrecisionModel::FixedGrid {
             grid_size: input.snap_grid_size.abs().clamp(1e-10, 1.0),
@@ -46,6 +46,7 @@ fuzz_target!(|input: FuzzInput| {
         snap_strategy: SnapStrategy::Grid,
         ..Default::default()
     };
+    options.noding.guarantee = NodingGuarantee::Validate;
 
     let _ = polygonize(lines.iter().copied(), &options);
 });

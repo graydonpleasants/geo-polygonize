@@ -793,9 +793,12 @@ impl Polygonizer {
         };
 
         // 3. Remove cut edges before extracting minimal rings.
-        let mut cut_edges = self
-            .graph
-            .delete_cut_edges_with_execution_policy(&self.execution_policy)?;
+        let noding_postcondition_validated =
+            !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked);
+        let mut cut_edges = self.graph.delete_cut_edges_with_execution_policy(
+            &self.execution_policy,
+            noding_postcondition_validated,
+        )?;
         if let Some(trace) = self.trace.as_mut() {
             trace.record_classified_lines("dangle", &dangles)?;
             trace.record_classified_lines("cut_edge", &cut_edges)?;
@@ -821,6 +824,7 @@ impl Polygonizer {
                     include_source_ids,
                     &self.execution_policy,
                     capture_byte_limit,
+                    noding_postcondition_validated,
                 )?;
             let trace = self.trace.as_mut().unwrap();
             trace.record_extracted_rings("maximal_ring", &maximal)?;
@@ -835,6 +839,7 @@ impl Polygonizer {
                     self.options.node_input,
                     include_source_ids,
                     &self.execution_policy,
+                    noding_postcondition_validated,
                 )?
         };
         self.execution_policy.check(
