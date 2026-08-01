@@ -3,7 +3,8 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::{
-    polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions, PolygonizerResult,
+    normalize_polygonize_error, polygonize, Coord3D, CoordinateFingerprintV1, Line3D,
+    NodingGuarantee, NormalizedPolygonizeErrorV1, PolygonizerOptions, PolygonizerResult,
     PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
@@ -11,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -36,6 +39,8 @@ struct Args {
     check_only: bool,
     #[arg(long)]
     output: Option<PathBuf>,
+    #[arg(long)]
+    mismatch_candidate: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -156,6 +161,82 @@ struct BenchmarkPolygonV1 {
     interiors: Vec<Vec<BenchmarkCoordinateV1>>,
 }
 
+/// The benchmark parity contract intentionally compares reduced XY topology.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+enum BenchmarkReducedOutcomeV1 {
+    Success(BenchmarkTopologyFingerprintV1),
+    Error(Box<BenchmarkFailureV1>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct BenchmarkFailureV1 {
+    stage: String,
+    error: NormalizedPolygonizeErrorV1,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct BenchmarkRunV1 {
+    implementation: String,
+    outcome: BenchmarkReducedOutcomeV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct BenchmarkInputLineV1 {
+    start: CoordinateFingerprintV1,
+    end: CoordinateFingerprintV1,
+    line_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct BenchmarkMismatchCandidateV1 {
+    schema_version: u32,
+    producer: String,
+    workload_id: String,
+    lane: String,
+    input: Vec<BenchmarkInputLineV1>,
+    options: serde_json::Value,
+    versions: BTreeMap<String, String>,
+    baseline: BenchmarkRunV1,
+    comparison: BenchmarkRunV1,
+}
+
+impl BenchmarkMismatchCandidateV1 {
+    fn new(
+        workload_id: &str,
+        lane: Lane,
+        input: &[Line3D],
+        options: &PolygonizerOptions,
+        versions: &BTreeMap<String, String>,
+        baseline: BenchmarkRunV1,
+        comparison: BenchmarkRunV1,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        if baseline.implementation == comparison.implementation
+            || baseline.outcome == comparison.outcome
+        {
+            return Err("benchmark mismatch candidates require distinct runs and outcomes".into());
+        }
+        Ok(Self {
+            schema_version: 1,
+            producer: "benchmark_record".to_string(),
+            workload_id: workload_id.to_string(),
+            lane: lane.record_name().to_string(),
+            input: input
+                .iter()
+                .map(|line| BenchmarkInputLineV1 {
+                    start: exact_coordinate(line.start),
+                    end: exact_coordinate(line.end),
+                    line_id: format!("0x{:08x}", line.line_id),
+                })
+                .collect(),
+            options: serde_json::to_value(options)?,
+            versions: versions.clone(),
+            baseline,
+            comparison,
+        })
+    }
+}
+
 #[derive(Default)]
 struct Samples {
     elapsed: Vec<Duration>,
@@ -220,24 +301,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options.provenance.enabled = true;
     options.provenance.include_boundary_line_ids = true;
 
-    let mut validation_options = options.clone();
-    validation_options.noding.guarantee = args.lane.validation_guarantee();
-    polygonize(lines.clone(), &validation_options)?;
-
-    let mut correctness_options = options.clone();
-    correctness_options.diagnostics.enabled = true;
-    let correctness = polygonize(lines.clone(), &correctness_options)?;
     let reference: ReferenceResult =
         serde_json::from_slice(&std::fs::read(&args.reference_result)?)?;
     validate_reference(&reference, &workload.id, args.lane)?;
+    let reference_outcome = reduced_reference_outcome(&reference);
     let expected = parse_sha256(&reference.fingerprint_sha256)?;
     let reference_hash = benchmark_fingerprint_sha256(&reference.topology);
     if reference_hash != expected {
         return Err("reference result fingerprint does not match its topology payload".into());
     }
-    let actual_topology = benchmark_topology(&correctness, &options)?;
-    let actual = benchmark_fingerprint_sha256(&actual_topology);
-    if actual_topology != reference.topology {
+    let versions = dependencies(&reference)?;
+    let write_candidate = |candidate_options: &PolygonizerOptions,
+                           comparison: &BenchmarkReducedOutcomeV1|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let candidate = BenchmarkMismatchCandidateV1::new(
+            &workload.id,
+            args.lane,
+            &lines,
+            candidate_options,
+            &versions,
+            BenchmarkRunV1 {
+                implementation: reference.implementation.name.clone(),
+                outcome: reference_outcome.clone(),
+            },
+            BenchmarkRunV1 {
+                implementation: "geo-polygonize-core".to_string(),
+                outcome: comparison.clone(),
+            },
+        )?;
+        write_mismatch_candidate(args.mismatch_candidate.as_deref(), &candidate)
+    };
+
+    let mut validation_options = options.clone();
+    validation_options.noding.guarantee = args.lane.validation_guarantee();
+    let (validation_outcome, _) = reduced_rust_outcome(
+        polygonize(lines.clone(), &validation_options),
+        &validation_options,
+        "validation",
+    );
+    if matches!(validation_outcome, BenchmarkReducedOutcomeV1::Error(_)) {
+        write_candidate(&validation_options, &validation_outcome)?;
+        return Err(format!(
+            "benchmark validation failed: {}",
+            serde_json::to_string(&validation_outcome)?
+        )
+        .into());
+    }
+
+    let mut correctness_options = options.clone();
+    correctness_options.diagnostics.enabled = true;
+    let (actual_outcome, correctness) = reduced_rust_outcome(
+        polygonize(lines.clone(), &correctness_options),
+        &correctness_options,
+        "correctness",
+    );
+    let Some(correctness) = correctness else {
+        write_candidate(&correctness_options, &actual_outcome)?;
+        return Err(format!(
+            "correctness gate failed: {}",
+            serde_json::to_string(&actual_outcome)?
+        )
+        .into());
+    };
+    let BenchmarkReducedOutcomeV1::Success(actual_topology) = &actual_outcome else {
+        unreachable!("successful correctness result has a success outcome");
+    };
+    let actual = benchmark_fingerprint_sha256(actual_topology);
+    let BenchmarkReducedOutcomeV1::Success(reference_topology) = &reference_outcome else {
+        unreachable!("validated reference result has a success outcome");
+    };
+    if actual_topology != reference_topology {
+        write_candidate(&correctness_options, &actual_outcome)?;
         return Err(format!(
             "correctness gate failed: expected {}, observed {}",
             hex(&expected),
@@ -289,7 +423,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("correctness run omitted diagnostics")?;
     let p50 = percentile(&samples.elapsed, 50);
     let p95 = percentile(&samples.elapsed, 95);
-    let dependencies = dependencies(&reference)?;
     let commit = command("git", &["rev-parse", "HEAD"])?;
     let output_coordinates = output_coordinates(&correctness);
     let record_id = format!("{}-{}-{}", workload.id, &commit[..12], args.lane.profile());
@@ -367,7 +500,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "name": "rustc",
                 "version": command("rustc", &["--version"])?,
             },
-            "dependencies": dependencies,
+            "dependencies": versions,
             "commit_sha": commit,
         },
     });
@@ -448,6 +581,58 @@ fn benchmark_topology(
         cut_edges: fingerprint.cut_edges.into_iter().map(xy).collect(),
         invalid_rings: fingerprint.invalid_rings.into_iter().map(xy).collect(),
     })
+}
+
+fn reduced_rust_outcome(
+    result: geo_polygonize_core::Result<PolygonizerResult>,
+    options: &PolygonizerOptions,
+    stage: &str,
+) -> (BenchmarkReducedOutcomeV1, Option<PolygonizerResult>) {
+    match result {
+        Ok(result) => match benchmark_topology(&result, options) {
+            Ok(topology) => (BenchmarkReducedOutcomeV1::Success(topology), Some(result)),
+            Err(error) => (
+                BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                    stage: format!("{stage}_fingerprint"),
+                    error: normalize_polygonize_error(&error),
+                })),
+                None,
+            ),
+        },
+        Err(error) => (
+            BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                stage: stage.to_string(),
+                error: normalize_polygonize_error(&error),
+            })),
+            None,
+        ),
+    }
+}
+
+fn reduced_reference_outcome(reference: &ReferenceResult) -> BenchmarkReducedOutcomeV1 {
+    BenchmarkReducedOutcomeV1::Success(reference.topology.clone())
+}
+
+fn exact_coordinate(coordinate: Coord3D) -> CoordinateFingerprintV1 {
+    let bits = |value: f64| format!("0x{:016x}", value.to_bits());
+    CoordinateFingerprintV1 {
+        x: bits(coordinate.x),
+        y: bits(coordinate.y),
+        z: bits(coordinate.z),
+    }
+}
+
+fn write_mismatch_candidate(
+    path: Option<&Path>,
+    candidate: &BenchmarkMismatchCandidateV1,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let mut output = OpenOptions::new().write(true).create_new(true).open(path)?;
+    serde_json::to_writer_pretty(&mut output, candidate)?;
+    writeln!(output)?;
+    Ok(())
 }
 
 fn xy(
@@ -682,6 +867,109 @@ mod tests {
             benchmark_topology(&first, &options).unwrap(),
             benchmark_topology(&second, &options).unwrap()
         );
+    }
+
+    #[test]
+    fn reduced_outcomes_keep_xy_success_and_structured_rust_errors_separate() {
+        let options = PolygonizerOptions::default();
+        let (success, result) = reduced_rust_outcome(
+            polygonize(Vec::<Line3D>::new(), &options),
+            &options,
+            "correctness",
+        );
+        let failure = reduced_rust_outcome(
+            Err(geo_polygonize_core::PolygonizeError::InvalidArgumentType {
+                field: "example".to_string(),
+                expected: "valid".to_string(),
+                actual: "invalid".to_string(),
+            }),
+            &options,
+            "validation",
+        )
+        .0;
+        let success = serde_json::to_value(success).unwrap();
+        let failure = serde_json::to_value(failure).unwrap();
+
+        assert!(result.is_some());
+        assert_eq!(success["status"], "success");
+        assert!(success["value"]["polygons"].is_array());
+        assert!(success["value"].get("options").is_none());
+        assert_eq!(failure["status"], "error");
+        assert_eq!(failure["value"]["stage"], "validation");
+        assert_eq!(failure["value"]["error"]["family"], "invalid_argument");
+    }
+
+    #[test]
+    fn mismatch_candidates_keep_exact_input_and_reduced_outcomes() {
+        let mut options = PolygonizerOptions::default();
+        options.diagnostics.enabled = true;
+        let lines = [Line3D::new(
+            Coord3D::new(-0.0, 1.0, 10.0),
+            Coord3D::new(2.0, 3.0, 11.0),
+            7,
+        )];
+        let baseline = BenchmarkRunV1 {
+            implementation: "shapely".to_string(),
+            outcome: reduced_rust_outcome(
+                polygonize(Vec::<Line3D>::new(), &options),
+                &options,
+                "reference",
+            )
+            .0,
+        };
+        let comparison = BenchmarkRunV1 {
+            implementation: "geo-polygonize-core".to_string(),
+            outcome: reduced_rust_outcome(
+                Err(geo_polygonize_core::PolygonizeError::InvalidArgumentType {
+                    field: "example".to_string(),
+                    expected: "valid".to_string(),
+                    actual: "invalid".to_string(),
+                }),
+                &options,
+                "correctness",
+            )
+            .0,
+        };
+        let versions = BTreeMap::from([
+            (
+                "geo-polygonize-core".to_string(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            ),
+            ("shapely".to_string(), "2.1.2".to_string()),
+        ]);
+        let candidate = BenchmarkMismatchCandidateV1::new(
+            "example-workload",
+            Lane::Floating,
+            &lines,
+            &options,
+            &versions,
+            baseline.clone(),
+            comparison,
+        )
+        .unwrap();
+        let json = serde_json::to_value(candidate).unwrap();
+
+        assert_eq!(json["producer"], "benchmark_record");
+        assert_eq!(json["input"][0]["start"]["x"], "0x8000000000000000");
+        assert_eq!(json["input"][0]["start"]["z"], "0x4024000000000000");
+        assert_eq!(json["input"][0]["line_id"], "0x00000007");
+        assert_eq!(json["baseline"]["outcome"]["status"], "success");
+        assert!(json["baseline"]["outcome"]["value"]
+            .get("schema_version")
+            .is_none());
+        assert_eq!(json["comparison"]["outcome"]["status"], "error");
+        assert!(json.get("case_id").is_none());
+        assert!(json.get("classification").is_none());
+        assert!(BenchmarkMismatchCandidateV1::new(
+            "example-workload",
+            Lane::Floating,
+            &lines,
+            &options,
+            &versions,
+            baseline.clone(),
+            baseline,
+        )
+        .is_err());
     }
 
     #[test]

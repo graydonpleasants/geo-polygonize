@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "square_with_hole",
+      "outcome": {
+        "status": "success",
+        "fingerprint_sha256": "371b55c677ba8840f4956f3fad392611bd8818d603a61a2488ca4c52958c1e30"
+      }
+    },
+    {
+      "name": "bowtie",
+      "outcome": {
+        "status": "success",
+        "fingerprint_sha256": "e009cab4b1c8a64557d72db6e726e1f51339794a011aa094054d43666811f477"
+      }
+    },
+    {
+      "name": "reported_output_families",
+      "outcome": {
+        "status": "success",
+        "fingerprint_sha256": "c7bb7a071462ece423548b7574fee94051150b02fe048866a5b17271f507ee81"
+      }
+    },
+    {
+      "name": "provenance_with_profile",
+      "outcome": {
+        "status": "success",
+        "fingerprint_sha256": "cf9a1fbc3c5394c30f9b77aa0e59bf64a69f3cadeae749d2f882d0b6dc275223"
+      }
+    },
+    {
+      "name": "z_ignore_conflicts",
+      "outcome": {
+        "status": "success",
+        "fingerprint_sha256": "8bd2301a7eff161f29bec5c935f8602f660a440ae6b8c6d419df443d11874a30"
+      }
+    },
+    {
+      "name": "noding_validation_failure",
+      "outcome": {
+        "status": "error",
+        "normalized": {
+          "schema_version": 1,
+          "family": "topology",
+          "code": "interior_intersection",
+          "stage": "noding_validation",
+          "field": null,
+          "expected": null,
+          "actual": null,
+          "limit": null,
+          "observed": null,
+          "witness": {
+            "ids": [
+              "0x0000000000000000",
+              "0x0000000000000001"
+            ],
+            "coordinate": null
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid_option",
+      "outcome": {
+        "status": "error",
+        "normalized": {
+          "schema_version": 1,
+          "family": "invalid_argument",
+          "code": "invalid_argument_type",
+          "stage": "options",
+          "field": "pre_snap_tolerance",
+          "expected": "a finite non-negative number",
+          "actual": "-1",
+          "limit": null,
+          "observed": null,
+          "witness": null
+        }
+      }
+    },
+    {
+      "name": "z_conflict",
+      "outcome": {
+        "status": "error",
+        "normalized": {
+          "schema_version": 1,
+          "family": "topology",
+          "code": "z_conflict",
+          "stage": "z_reconciliation",
+          "field": null,
+          "expected": null,
+          "actual": null,
+          "limit": null,
+          "observed": null,
+          "witness": {
+            "ids": [
+              "0x0000000a",
+              "0x00000028"
+            ],
+            "coordinate": {
+              "x": "0x0000000000000000",
+              "y": "0x0000000000000000",
+              "z": "0x0000000000000000"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

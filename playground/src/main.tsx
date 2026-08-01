@@ -31,8 +31,8 @@ import { createDebuggerEvidenceBundle, downloadDebuggerEvidence } from './eviden
 import {
   extractExactInputSegments,
   segmentsToGeojson,
-  type FingerprintDifference,
   type MinimizationReduction,
+  type ProfileDifferenceSignature,
 } from './minimize';
 import { minimizeProfileDifference } from './minimize_client';
 import { buildPlaygroundOptions } from './options';
@@ -163,7 +163,7 @@ function App() {
   const [normalizedError, setNormalizedError] = useState<NormalizedPolygonizeErrorV1 | null>(null);
   const [minimizationBusy, setMinimizationBusy] = useState(false);
   const [minimizationError, setMinimizationError] = useState<string | null>(null);
-  const [minimizationSignature, setMinimizationSignature] = useState<FingerprintDifference | null>(null);
+  const [minimizationSignature, setMinimizationSignature] = useState<ProfileDifferenceSignature | null>(null);
   const [reductions, setReductions] = useState<MinimizationReduction[]>([]);
   const [selectedReductionIndex, setSelectedReductionIndex] = useState(0);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
@@ -447,6 +447,7 @@ function App() {
     () => selectedReduction ? segmentsToGeojson(selectedReduction.segments) : null,
     [selectedReduction],
   );
+  const comparisonIncludesError = comparison?.results.some(({ status }) => status === 'error') ?? false;
 
   const startMinimization = () => {
     if (!trace || !comparison?.diverged) return;
@@ -464,8 +465,8 @@ function App() {
     setSelectedReductionIndex(0);
     void minimizeProfileDifference({
       segments,
-      baselineOptions: comparison.results[0].report.topology.options as Partial<PolygonizerOptions>,
-      comparisonOptions: comparison.results[1].report.topology.options as Partial<PolygonizerOptions>,
+      baselineOptions: comparison.results[0].options,
+      comparisonOptions: comparison.results[1].options,
     }, {
       signal: controller.signal,
       onReduction: (reduction) => {
@@ -804,24 +805,44 @@ function App() {
             <Paper sx={{ p: 2, mt: 3 }}>
               <Typography variant="h6">Profile comparison</Typography>
               <Alert severity={comparison.diverged ? 'warning' : 'success'} sx={{ my: 1 }}>
-                Canonical topology fingerprints {comparison.diverged ? 'diverge' : 'match'}.
+                {comparisonIncludesError
+                  ? `Normalized profile outcomes ${comparison.diverged ? 'diverge' : 'match'}.`
+                  : `Canonical topology fingerprints ${comparison.diverged ? 'diverge' : 'match'}.`}
               </Alert>
               <Grid container spacing={2}>
-                {comparison.results.map(({ label, report: result }) => (
-                  <Grid key={label} size={{ xs: 12, sm: 6 }}>
-                    <Typography variant="subtitle1">{label}</Typography>
-                    <Typography>Polygons: {result.topology.polygons.length}</Typography>
-                    <Typography>Dangles: {result.topology.dangles.length}</Typography>
-                    <Typography>Cut edges: {result.topology.cut_edges.length}</Typography>
-                    <Typography>Invalid rings: {result.topology.invalid_rings.length}</Typography>
-                    <Typography>Trace events: {result.trace.events.length}</Typography>
-                    <Typography>Trace bytes: {result.trace.bytes_used.toLocaleString()}</Typography>
+                {comparison.results.map((result) => (
+                  <Grid key={result.label} size={{ xs: 12, sm: 6 }}>
+                    <Typography variant="subtitle1">{result.label}</Typography>
+                    {result.status === 'success' ? (
+                      <>
+                        <Typography>Outcome: success</Typography>
+                        <Typography>Polygons: {result.report.topology.polygons.length}</Typography>
+                        <Typography>Dangles: {result.report.topology.dangles.length}</Typography>
+                        <Typography>Cut edges: {result.report.topology.cut_edges.length}</Typography>
+                        <Typography>Invalid rings: {result.report.topology.invalid_rings.length}</Typography>
+                        <Typography>Trace events: {result.report.trace.events.length}</Typography>
+                        <Typography>Trace bytes: {result.report.trace.bytes_used.toLocaleString()}</Typography>
+                      </>
+                    ) : (
+                      <>
+                        <Typography>Outcome: error</Typography>
+                        <TextField
+                          fullWidth
+                          multiline
+                          minRows={6}
+                          label="Normalized error outcome"
+                          value={JSON.stringify(result.error, null, 2)}
+                          InputProps={{ readOnly: true }}
+                          sx={{ mt: 1 }}
+                        />
+                      </>
+                    )}
                     <TextField
                       fullWidth
                       multiline
                       minRows={4}
-                      label="Canonical options"
-                      value={JSON.stringify(result.topology.options, null, 2)}
+                      label="Canonical profile options"
+                      value={JSON.stringify(result.options, null, 2)}
                       InputProps={{ readOnly: true }}
                       sx={{ mt: 1 }}
                     />
@@ -833,13 +854,21 @@ function App() {
                   <Button
                     variant="outlined"
                     sx={{ mt: 2 }}
+                    disabled={!trace && !minimizationBusy}
                     onClick={() => {
                       if (minimizationBusy) minimizationControllerRef.current?.abort();
                       else startMinimization();
                     }}
                   >
-                    {minimizationBusy ? 'Stop minimization' : 'Minimize difference'}
+                    {minimizationBusy
+                      ? 'Stop minimization'
+                      : comparisonIncludesError ? 'Minimize error difference' : 'Minimize difference'}
                   </Button>
+                  {!trace && (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      Minimization requires a successful full trace with exact normalized input segments.
+                    </Alert>
+                  )}
                   {minimizationError && <Alert severity="error" sx={{ mt: 1 }}>{minimizationError}</Alert>}
                   {reductions.length > 0 && (
                     <FormControl fullWidth sx={{ mt: 2 }}>
@@ -863,7 +892,9 @@ function App() {
                       fullWidth
                       multiline
                       minRows={3}
-                      label="Preserved profile-difference witness"
+                      label={comparisonIncludesError
+                        ? 'Preserved normalized-error signature'
+                        : 'Preserved profile-difference witness'}
                       value={JSON.stringify(minimizationSignature, null, 2)}
                       InputProps={{ readOnly: true }}
                       sx={{ mt: 2 }}

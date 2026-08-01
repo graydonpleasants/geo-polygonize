@@ -160,3 +160,34 @@ fn decision_policy_separates_diagnostics_from_publishable_evidence() {
         true
     );
 }
+
+#[test]
+fn mismatch_candidate_schema_keeps_exact_input_and_reduced_outcomes() {
+    let schema = benchmark_file("benchmark-mismatch-candidate-v1.schema.json");
+    assert_eq!(schema["additionalProperties"], false);
+    assert!(required(&schema).is_superset(&HashSet::from([
+        "producer",
+        "workload_id",
+        "lane",
+        "input",
+        "options",
+        "versions",
+        "baseline",
+        "comparison",
+    ])));
+    assert_eq!(
+        schema["properties"]["producer"]["const"],
+        "benchmark_record"
+    );
+    assert!(required(&schema["$defs"]["coordinate"]).contains("z"));
+    assert_eq!(
+        schema["$defs"]["outcome"]["oneOf"][0]["properties"]["value"]["$ref"],
+        "#/$defs/topology"
+    );
+    assert_eq!(
+        schema["$defs"]["outcome"]["oneOf"][1]["properties"]["value"]["$ref"],
+        "#/$defs/failure"
+    );
+    assert!(schema["properties"].get("classification").is_none());
+    assert!(schema["properties"].get("case_id").is_none());
+}
