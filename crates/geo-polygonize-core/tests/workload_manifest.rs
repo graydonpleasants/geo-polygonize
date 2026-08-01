@@ -1,8 +1,10 @@
-use geo_polygonize_core::{polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions};
+use geo_polygonize_core::{
+    normalize_polygonize_error, polygonize, Coord3D, Line3D, NodingGuarantee, PolygonizerOptions,
+};
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Deserialize)]
@@ -199,6 +201,56 @@ fn already_noded_workloads_pass_full_noding_validation() {
         polygonize(load_segments(&root.join(path)), &options)
             .unwrap_or_else(|error| panic!("{} is not fully noded: {error}", workload.id));
     }
+}
+
+#[test]
+fn certified_fixed_workloads_have_zero_residual_noding_failures() {
+    let root = workload_root();
+    let manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(root.join("manifest-v1.json")).unwrap()).unwrap();
+    let mut certified_workloads = 0;
+    let mut failures = BTreeMap::new();
+    for workload in manifest.workloads.iter().filter(|workload| {
+        workload
+            .permitted_profiles
+            .iter()
+            .any(|profile| matches!(profile, Profile::CertifiedFixed))
+    }) {
+        certified_workloads += 1;
+        let options = workload
+            .options
+            .iter()
+            .find(|options| {
+                matches!(
+                    options.noding.guarantee,
+                    NodingGuarantee::CertifiedFixedPrecision
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} permits certified-fixed but has no explicit certified options",
+                    workload.id
+                )
+            });
+        let path = workload.artifact.clip_path.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{} certified workload must have a checked-in clip",
+                workload.id
+            )
+        });
+        if let Err(error) = polygonize(load_segments(&root.join(path)), options) {
+            failures.insert(workload.id.clone(), normalize_polygonize_error(&error));
+        }
+    }
+    assert!(
+        certified_workloads > 0,
+        "public manifest must retain at least one certified-fixed workload"
+    );
+    assert!(
+        failures.is_empty(),
+        "certified-fixed public workloads retained residual noding failures:\n{}",
+        serde_json::to_string_pretty(&failures).unwrap()
+    );
 }
 
 #[test]
