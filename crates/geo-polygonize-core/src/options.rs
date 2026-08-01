@@ -394,8 +394,6 @@ pub enum TileOwnershipPolicy {
     RepresentativePointInsidePolygon,
     /// Ownership using the smallest boundary vertex in XY order.
     LexicographicMinVertex,
-    /// Legacy deterministic ownership policy; now uses a safe interior point.
-    CanonicalBoundaryHash,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -575,6 +573,15 @@ mod tests {
             serde_json::from_str::<PolygonizerOptions>(r#"{"noding":{"backend":"Advanced"}}"#)
                 .unwrap_err();
         assert!(error.to_string().contains("unknown variant `Advanced`"));
+    }
+
+    #[test]
+    fn retired_tile_ownership_policy_is_rejected() {
+        let error =
+            serde_json::from_str::<TileOwnershipPolicy>(r#""CanonicalBoundaryHash""#).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unknown variant `CanonicalBoundaryHash`"));
     }
 
     #[test]

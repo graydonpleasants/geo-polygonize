@@ -90,7 +90,6 @@ pub enum TileOwnershipPolicy {
 	Centroid,
 	RepresentativePointInsidePolygon,
 	LexicographicMinVertex,
-	CanonicalBoundaryHash,
 }
 ```
 
