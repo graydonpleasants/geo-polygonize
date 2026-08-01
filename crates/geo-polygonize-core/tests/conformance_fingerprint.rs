@@ -1,6 +1,9 @@
 use geo_polygonize_core::{
-    normalize_polygonize_error, polygonize, polygonize_line_strings, polygonize_with_workspace,
-    Coord3D, DeterminismOptions, DiagnosticsOptions, Line3D, NodingGuarantee, NodingOptions,
+    normalize_polygonize_error, polygonize, polygonize_line_strings,
+    polygonize_line_strings_with_execution_policy, polygonize_to_multi_polygon,
+    polygonize_with_execution_policy, polygonize_with_workspace,
+    polygonize_with_workspace_and_execution_policy, Coord3D, DeterminismOptions,
+    DiagnosticsOptions, ExecutionPolicy, Line3D, NodingGuarantee, NodingOptions,
     NodingValidationKind, Polygon3D, PolygonizeError, PolygonizerOptions, PolygonizerResult,
     PolygonizerWorkspace, ProvenanceOptions, TopologyFingerprintV1,
 };
@@ -241,16 +244,38 @@ fn one_shot_and_workspace_share_the_same_fingerprint() {
 }
 
 #[test]
-fn shared_adapter_fixture_matches_owned_workspace_and_borrowed_paths() {
+fn shared_adapter_fixture_matches_every_full_result_entrypoint() {
     let (lines, options, expected) = adapter_fixture();
-    let one_shot = fingerprint(&polygonize(lines.clone(), &options).unwrap(), &options);
+    let policy = ExecutionPolicy::default();
+    let one_shot_result = polygonize(lines.clone(), &options).unwrap();
+    let one_shot = fingerprint(&one_shot_result, &options);
     assert_eq!(serde_json::to_value(&one_shot).unwrap(), expected);
+    assert_eq!(
+        one_shot,
+        fingerprint(
+            &polygonize_with_execution_policy(lines.clone(), &options, &policy).unwrap(),
+            &options,
+        )
+    );
 
     let mut workspace = PolygonizerWorkspace::new();
     assert_eq!(
         one_shot,
         fingerprint(
             &polygonize_with_workspace(&lines, &options, &mut workspace).unwrap(),
+            &options,
+        )
+    );
+    assert_eq!(
+        one_shot,
+        fingerprint(
+            &polygonize_with_workspace_and_execution_policy(
+                &lines,
+                &options,
+                &mut workspace,
+                &policy,
+            )
+            .unwrap(),
             &options,
         )
     );
@@ -268,6 +293,19 @@ fn shared_adapter_fixture_matches_owned_workspace_and_borrowed_paths() {
             &polygonize_line_strings([&ring], &options).unwrap(),
             &options
         )
+    );
+    assert_eq!(
+        one_shot,
+        fingerprint(
+            &polygonize_line_strings_with_execution_policy([&ring], &options, &policy).unwrap(),
+            &options,
+        )
+    );
+
+    // This convenience entrypoint intentionally retains polygons in XY only.
+    assert_eq!(
+        polygonize_to_multi_polygon(lines, &options).unwrap(),
+        one_shot_result.into_multi_polygon(),
     );
 }
 

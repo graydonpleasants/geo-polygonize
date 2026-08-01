@@ -27,6 +27,31 @@ Direct `MultiPolygon` conversion is intentionally lossy: it discards dangles,
 cut edges, invalid rings, diagnostics, representative IDs, provenance, and Z.
 Adapter tests for such APIs compare only the polygon subset they can retain.
 
+## Stable entrypoint matrix
+
+Conformance fixtures are exercised at the strongest contract each supported
+entrypoint retains:
+
+| Surface | Stable entrypoints | Compared contract |
+| --- | --- | --- |
+| Rust | `polygonize`, `polygonize_with_execution_policy`, `polygonize_with_workspace`, `polygonize_with_workspace_and_execution_policy`, `polygonize_line_strings`, `polygonize_line_strings_with_execution_policy` | Exact `TopologyFingerprintV1` |
+| Rust XY projection | `polygonize_to_multi_polygon` | Polygon structure only; non-polygon outputs, IDs, provenance, diagnostics, and Z are discarded |
+| Python | `polygonize_with_options`, legacy `polygonize` with `output="report"` | Exact `topology_fingerprint` serialized by Rust |
+| Python projections | `output="buffers"`, `output="objects"`, and `return_polygons=True` | Only their exposed buffers or objects; these modes do not carry a topology fingerprint |
+| Wasm full-result | `polygonizeFingerprintWithOptions`, `polygonizeReportWithOptions`, `polygonizeTraceWithOptions`, `polygonizeWithOptionsBuffer`, legacy `polygonize_buffers`, and the async report/trace wrappers | Exact fingerprint, or the exact `topology` member for traces |
+| Wasm polygon projections | `polygonizeWithOptions`, legacy `polygonize`, and the async polygon wrapper | Polygon GeoJSON only |
+| Wasm Arrow IPC | `polygonizeGeoArrowWithOptions`, legacy `polygonize_geoarrow` | XY polygon structure only |
+| Arrow Rust API | `polygonize_arrow` | XY polygon structure only |
+| Arrow C Data Interface | `polygonize_with_options_ffi`, legacy `polygonize_ffi` | XY polygon structure only |
+
+Python and Wasm core failures expose the complete
+`NormalizedPolygonizeErrorV1`. The Rust Arrow API returns the core error, which
+is normalized by the conformance test. The version-1 C ABI last-error record is
+more limited: tests compare its stable status, family, stage, and witness and
+deliberately ignore `message`; it does not expose the normalized code or schema
+version. Adapter parsing failures that never reach the core are likewise
+binding-specific rather than cross-binding equality candidates.
+
 Future incompatible additions use `V2` rather than changing V1. Adapters must
 declare the highest schema they consume and retain V1 comparisons during a
 supported migration window.
