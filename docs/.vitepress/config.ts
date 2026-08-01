@@ -26,6 +26,7 @@ export default defineConfig({
           { text: 'Noding guarantees', link: '/guide/noding-guarantees' },
           { text: 'Z and provenance', link: '/guide/z-provenance' },
           { text: 'Compatibility', link: '/guide/compatibility' },
+          { text: 'Tiling', link: '/guide/tiling' },
           { text: 'WASM Integration', link: '/guide/wasm' },
         ]
       },
