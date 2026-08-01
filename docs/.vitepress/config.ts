@@ -36,6 +36,7 @@ export default defineConfig({
         items: [
           { text: 'Options', link: '/reference/options' },
           { text: 'WASM API', link: '/reference/wasm-api' },
+          { text: 'Arrow C ABI', link: '/C_ABI' },
         ]
       },
       {
