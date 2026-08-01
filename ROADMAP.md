@@ -447,7 +447,7 @@ Candidate events and snapshots:
 - [x] shell/hole classification and containment candidates;
 - [x] canonical ordering decisions;
 - [x] tile ownership and deduplication decisions;
-- [ ] tile retry and fallback decisions after those execution paths exist.
+- [x] tile retry and fallback decisions.
 
 Trace output must include byte limits, truncation metadata, schema version,
 library version, and canonical options.

@@ -814,6 +814,23 @@ mod tests {
         assert_eq!(fallback_events.len(), 1);
         assert_eq!(fallback_events[0].payload["input_geometry_count"], 5);
         assert_eq!(fallback_events[0].payload["output_polygon_count"], 2);
+        let recovery_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.kind.as_str(),
+                    "tile_halo_retry" | "tile_untiled_fallback"
+                )
+            })
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(recovery_events.len(), 5);
+        assert!(recovery_events[..4]
+            .iter()
+            .all(|kind| *kind == "tile_halo_retry"));
+        assert_eq!(recovery_events[4], "tile_untiled_fallback");
         let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
         assert!(bounded.trace.events.is_empty());
         assert!(bounded.trace.truncated);
