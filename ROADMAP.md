@@ -510,8 +510,14 @@ directly into the worker-backed debugger.
 - [x] Show phase timings, work counters, resource budgets, and validator witnesses.
 - [x] Compare two option profiles side by side.
 - [x] Encode small deterministic repros in shareable URLs.
-- [ ] Export an exact golden/compatibility fixture bundle.
-- [ ] Run differential minimization in a worker and visualize each reduction.
+- [x] Export an exact golden/compatibility fixture bundle.
+- [x] Run differential minimization in a worker and visualize each reduction.
+
+Exact minimized segments retain coordinate bit strings and source IDs in the
+downloaded fixture, together with both canonical profile outcomes, the preserved
+witness, and an explicit compatibility classification. The existing disposable
+worker streams every accepted segment/coordinate reduction to the selectable map
+overlay and terminates on completion or abort.
 
 **Done when:** a user can move from a failing input to a minimized, exportable
 fixture while seeing which topology stage changed the result.

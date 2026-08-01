@@ -27,10 +27,17 @@ import {
 import { appendLineString, parseGeojsonInput } from './input';
 import { comparePlaygroundProfiles, type ProfileComparison } from './compare';
 import { extractNormalizedError } from './error';
-import { createDebuggerEvidenceBundle, downloadDebuggerEvidence } from './evidence';
+import {
+  createDebuggerEvidenceBundle,
+  createDebuggerFixtureBundle,
+  downloadDebuggerEvidence,
+  downloadDebuggerFixture,
+  type CompatibilityClassification,
+} from './evidence';
 import {
   extractExactInputSegments,
   segmentsToGeojson,
+  type ExactInputSegment,
   type MinimizationReduction,
   type ProfileDifferenceSignature,
 } from './minimize';
@@ -164,8 +171,12 @@ function App() {
   const [minimizationBusy, setMinimizationBusy] = useState(false);
   const [minimizationError, setMinimizationError] = useState<string | null>(null);
   const [minimizationSignature, setMinimizationSignature] = useState<ProfileDifferenceSignature | null>(null);
+  const [minimizedSegments, setMinimizedSegments] = useState<ExactInputSegment[] | null>(null);
   const [reductions, setReductions] = useState<MinimizationReduction[]>([]);
   const [selectedReductionIndex, setSelectedReductionIndex] = useState(0);
+  const [fixtureCaseId, setFixtureCaseId] = useState('');
+  const [fixtureClassification, setFixtureClassification]
+    = useState<CompatibilityClassification>('expected_divergence');
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawEnabled, setDrawEnabled] = useState(false);
@@ -426,6 +437,9 @@ function App() {
     setComparisonBusy(true);
     setComparison(null);
     setComparisonError(null);
+    setMinimizationSignature(null);
+    setMinimizedSegments(null);
+    setReductions([]);
     void comparePlaygroundProfiles(
       JSON.stringify(inputGeojson),
       controller.signal,
@@ -461,6 +475,7 @@ function App() {
     setMinimizationBusy(true);
     setMinimizationError(null);
     setMinimizationSignature(null);
+    setMinimizedSegments(null);
     setReductions([{ phase: 'input', segments }]);
     setSelectedReductionIndex(0);
     void minimizeProfileDifference({
@@ -475,6 +490,7 @@ function App() {
       },
     }).then((result) => {
       setMinimizationSignature(result.signature);
+      setMinimizedSegments(result.segments);
     }).catch((e: Error) => {
       if (e.name !== 'AbortError') setMinimizationError(e.message);
     }).finally(() => {
@@ -888,17 +904,63 @@ function App() {
                     </FormControl>
                   )}
                   {minimizationSignature && (
-                    <TextField
-                      fullWidth
-                      multiline
-                      minRows={3}
-                      label={comparisonIncludesError
-                        ? 'Preserved normalized-error signature'
-                        : 'Preserved profile-difference witness'}
-                      value={JSON.stringify(minimizationSignature, null, 2)}
-                      InputProps={{ readOnly: true }}
-                      sx={{ mt: 2 }}
-                    />
+                    <>
+                      <TextField
+                        fullWidth
+                        multiline
+                        minRows={3}
+                        label={comparisonIncludesError
+                          ? 'Preserved normalized-error signature'
+                          : 'Preserved profile-difference witness'}
+                        value={JSON.stringify(minimizationSignature, null, 2)}
+                        InputProps={{ readOnly: true }}
+                        sx={{ mt: 2 }}
+                      />
+                      <TextField
+                        fullWidth
+                        label="Fixture case ID"
+                        value={fixtureCaseId}
+                        onChange={(event) => setFixtureCaseId(event.target.value)}
+                        sx={{ mt: 2 }}
+                      />
+                      <FormControl fullWidth sx={{ mt: 2 }}>
+                        <InputLabel id="fixture-classification-label">Classification</InputLabel>
+                        <Select
+                          labelId="fixture-classification-label"
+                          label="Classification"
+                          value={fixtureClassification}
+                          onChange={(event) => setFixtureClassification(
+                            event.target.value as CompatibilityClassification,
+                          )}
+                        >
+                          <MenuItem value="expected_parity">Expected parity</MenuItem>
+                          <MenuItem value="expected_divergence">Expected divergence</MenuItem>
+                          <MenuItem value="invalid_ambiguous">Invalid or ambiguous</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="outlined"
+                        sx={{ mt: 2 }}
+                        disabled={!minimizedSegments || !fixtureCaseId}
+                        onClick={() => {
+                          if (!comparison || !minimizedSegments) return;
+                          try {
+                            downloadDebuggerFixture(createDebuggerFixtureBundle({
+                              caseId: fixtureCaseId,
+                              classification: fixtureClassification,
+                              segments: minimizedSegments,
+                              profileComparison: comparison,
+                              witness: minimizationSignature,
+                            }));
+                            setMinimizationError(null);
+                          } catch (e) {
+                            setMinimizationError(e instanceof Error ? e.message : String(e));
+                          }
+                        }}
+                      >
+                        Export exact fixture
+                      </Button>
+                    </>
                   )}
                 </>
               )}
