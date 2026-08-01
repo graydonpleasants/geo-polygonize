@@ -739,6 +739,8 @@ When coverage cannot be proven:
 - [ ] fall back to untiled processing for the unresolved connected region;
   - [x] Pin the global-containment boundary where an excluded outer component
     spatially nests an already retained tile-local face.
+  - [x] Provide a caller-enabled whole-input untiled fallback that preserves
+    global containment when retries leave observed coverage unresolved.
 - [ ] merge the fallback result canonically with already validated regions;
 - [x] stop with a typed coverage error when the configured retry budget is
   exhausted;

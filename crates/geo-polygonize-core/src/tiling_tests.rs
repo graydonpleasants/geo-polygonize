@@ -734,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn documents_fallback_component_global_containment_boundary() {
+    fn untiled_fallback_preserves_global_containment() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
             Geometry::LineString(LineString::new(vec![
@@ -768,7 +768,8 @@ mod tests {
                 max_attempts: 1,
                 buffer_increment: 1.0,
                 max_buffer: 3.0,
-            });
+            })
+            .with_untiled_fallback();
         for geometry in &geometries {
             untiled.add_borrowed_geometry(geometry);
             tiled.add_geometry(geometry);
@@ -780,9 +781,22 @@ mod tests {
             .polygons
             .iter()
             .any(|polygon| !polygon.interiors.is_empty()));
-        let tiled = tiled.polygonize().unwrap();
-        assert_eq!(tiled.polygons.len(), 1);
-        assert!(tiled.polygons[0].interiors.is_empty());
+        let tiled = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            tiled
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            untiled
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>()
+        );
+        assert!(tiled.stitching_report.untiled_fallback_used);
         assert_eq!(tiled.stitching_report.retry_exhausted_tile_count, 4);
         assert!(tiled
             .tile_reports
