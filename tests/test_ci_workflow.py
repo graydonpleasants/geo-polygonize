@@ -48,3 +48,12 @@ def test_scheduled_differential_fuzzing_retains_review_candidates():
     assert "fuzz/artifacts/adapter_differential/*" in workflow
     assert "target/differential-fuzz-candidates/" in workflow
     assert "retention-days: 30" in workflow
+
+
+def test_miri_uses_a_pinned_no_default_feature_slice():
+    workflow = (ROOT / ".github/workflows/unsafe-boundaries.yml").read_text()
+
+    assert 'toolchain: "nightly-2026-07-15"' in workflow
+    assert "components: miri, rust-src" in workflow
+    assert "cargo miri test --locked -p geo-polygonize-core" in workflow
+    assert "--no-default-features --test execution_policy" in workflow

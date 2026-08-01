@@ -769,7 +769,10 @@ zero residual noding failures. Scheduled differential fuzzing now converts every
 retained adapter-differential failure into a deterministic minimized candidate,
 uploads the raw input and review candidate together for 30 days, and leaves
 classification and checked-in admission to the existing reviewed command. The
-error construction matrix is exhaustive, but
+selective Miri job runs the bounded-execution core tests without default
+parallel features under a pinned nightly; filesystem-backed corpus tests remain
+outside Miri rather than disabling its isolation. The error construction matrix
+is exhaustive, but
 the public-family row remains open: `TopologyFailure` and `NullPointer` have no
 production constructor, `InternalInvariantViolation` is a bug sentinel, and
 `Panic` is boundary-only.
