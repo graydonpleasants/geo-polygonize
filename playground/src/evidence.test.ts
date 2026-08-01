@@ -47,7 +47,15 @@ describe('debugger evidence bundles', () => {
       requestedOptions: { node_input: true },
       topology: report.topology,
       trace: report.trace,
-      comparison: { results: [{ label: 'test', report }], diverged: false },
+      comparison: {
+        results: [{
+          label: 'test',
+          options: { node_input: true },
+          status: 'success',
+          report,
+        }],
+        diverged: false,
+      },
       normalizedError: null,
     });
 

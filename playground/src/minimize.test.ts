@@ -4,6 +4,8 @@ import {
   extractExactInputSegments,
   fingerprintDifference,
   minimizeExactSegments,
+  profileDifferenceSignature,
+  sameProfileDifferenceSignature,
   type ExactInputSegment,
 } from './minimize';
 import type { TopologyTraceV1 } from 'geo-polygonize';
@@ -17,6 +19,18 @@ const segment = (x: number, sourceId: string, z: number): ExactInputSegment => (
   start: { x: bits(x), y: bits(5.5), z: bits(z) },
   end: { x: bits(x + 1), y: bits(5.5), z: bits(z + 1) },
   sourceId,
+});
+const normalizedError = (code: string, ids: string[] = []) => ({
+  schema_version: 1,
+  family: 'topology',
+  code,
+  stage: 'noding_validation',
+  field: null,
+  expected: null,
+  actual: null,
+  limit: null,
+  observed: null,
+  witness: ids.length > 0 ? { ids, coordinate: null } : null,
 });
 
 describe('profile minimization', () => {
@@ -56,6 +70,26 @@ describe('profile minimization', () => {
       { polygons: [{ exterior: ['a'] }] },
       { polygons: [{ exterior: ['b'] }] },
     )).toEqual({ path: '$.polygons[0].exterior[0]', expected: 'a', actual: 'b' });
+  });
+
+  it('keeps successful signatures unchanged and preserves complete normalized error pairs', () => {
+    expect(profileDifferenceSignature(
+      { status: 'success', value: { polygons: ['a'] } },
+      { status: 'success', value: { polygons: ['b'] } },
+    )).toEqual({ path: '$.polygons[0]', expected: 'a', actual: 'b' });
+
+    const baseline = normalizedError('interior_intersection', ['0x01', '0x02']);
+    const comparison = normalizedError('collinear_overlap', ['0x03', '0x04']);
+    const signature = profileDifferenceSignature(
+      { status: 'error', value: baseline },
+      { status: 'error', value: comparison },
+    );
+    expect(signature).toEqual({ kind: 'normalized_errors', baseline, comparison });
+    expect(sameProfileDifferenceSignature(signature!, { ...signature! })).toBe(true);
+    expect(profileDifferenceSignature(
+      { status: 'error', value: baseline },
+      { status: 'error', value: baseline },
+    )).toBeNull();
   });
 
   it('removes segments and simplifies shared XY without changing source IDs or Z', async () => {

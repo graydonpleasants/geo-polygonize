@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/benchmark-mismatch-candidate-v1.schema.json",
+  "title": "geo-polygonize benchmark mismatch candidate V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "producer",
+    "workload_id",
+    "lane",
+    "input",
+    "options",
+    "versions",
+    "baseline",
+    "comparison"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "producer": {"const": "benchmark_record"},
+    "workload_id": {"type": "string", "minLength": 1},
+    "lane": {
+      "enum": [
+        "already-noded-polygonization",
+        "floating-noding-plus-polygonization",
+        "certified-fixed-precision-noding-plus-polygonization"
+      ]
+    },
+    "input": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/input_line"}
+    },
+    "options": {"type": "object"},
+    "versions": {
+      "type": "object",
+      "minProperties": 2,
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "baseline": {"$ref": "#/$defs/run"},
+    "comparison": {"$ref": "#/$defs/run"}
+  },
+  "$defs": {
+    "coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"},
+        "y": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"},
+        "z": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"}
+      }
+    },
+    "input_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "line_id"],
+      "properties": {
+        "start": {"$ref": "#/$defs/coordinate"},
+        "end": {"$ref": "#/$defs/coordinate"},
+        "line_id": {"type": "string", "pattern": "^0x[0-9a-f]{8}$"}
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation", "outcome"],
+      "properties": {
+        "implementation": {"type": "string", "minLength": 1},
+        "outcome": {"$ref": "#/$defs/outcome"}
+      }
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "value"],
+          "properties": {
+            "status": {"const": "success"},
+            "value": {"$ref": "#/$defs/topology"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "value"],
+          "properties": {
+            "status": {"const": "error"},
+            "value": {"$ref": "#/$defs/failure"}
+          }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "error"],
+      "properties": {
+        "stage": {"type": "string", "minLength": 1},
+        "error": {"$ref": "#/$defs/normalized_error"}
+      }
+    },
+    "normalized_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "family",
+        "code",
+        "stage",
+        "field",
+        "expected",
+        "actual",
+        "limit",
+        "observed",
+        "witness"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "family": {"type": "string", "minLength": 1},
+        "code": {"type": "string", "minLength": 1},
+        "stage": {"type": "string", "minLength": 1},
+        "field": {"type": ["string", "null"]},
+        "expected": {"type": ["string", "null"]},
+        "actual": {"type": ["string", "null"]},
+        "limit": {"type": ["string", "null"]},
+        "observed": {"type": ["string", "null"]},
+        "witness": {"type": ["object", "null"]}
+      }
+    },
+    "xy_coordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"},
+        "y": {"type": "string", "pattern": "^0x[0-9a-f]{16}$"}
+      }
+    },
+    "line": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/xy_coordinate"}
+    },
+    "polygon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exterior", "interiors"],
+      "properties": {
+        "exterior": {"$ref": "#/$defs/line"},
+        "interiors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["polygons", "dangles", "cut_edges", "invalid_rings"],
+      "properties": {
+        "polygons": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/polygon"}
+        },
+        "dangles": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        },
+        "cut_edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        },
+        "invalid_rings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/line"}
+        }
+      }
+    }
+  }
+}

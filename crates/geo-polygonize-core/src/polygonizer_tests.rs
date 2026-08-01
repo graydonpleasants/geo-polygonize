@@ -771,4 +771,199 @@ mod tests {
         assert_eq!(result.polygons.len(), 2);
         assert!(result.invalid_rings.is_empty());
     }
+
+    mod serial_parallel_conformance {
+        use crate::utils::parallel::{par_flat_map_dispatches, reset_par_flat_map_dispatches};
+        use crate::{
+            normalize_polygonize_error, polygonize, Coord3D, DiagnosticsOptions, Line3D,
+            NodingGuarantee, NodingOptions, NormalizedPolygonizeErrorV1, PolygonizerOptions,
+            ProvenanceOptions, TopologyFingerprintV1, ZOptions, ZPolicy,
+        };
+        use serde::{Deserialize, Serialize};
+        use sha2::{Digest, Sha256};
+
+        #[derive(Deserialize)]
+        struct Fixture {
+            options: Option<PolygonizerOptions>,
+            #[serde(default)]
+            profile_id: Option<String>,
+            inputs: Vec<FixtureLine>,
+        }
+
+        #[derive(Deserialize)]
+        struct FixtureLine {
+            start: FixtureCoordinate,
+            end: FixtureCoordinate,
+            id: u32,
+        }
+
+        #[derive(Deserialize)]
+        struct FixtureCoordinate {
+            x: f64,
+            y: f64,
+            z: f64,
+        }
+
+        #[derive(Debug, Serialize)]
+        struct ConformanceEvidenceV1 {
+            schema_version: u32,
+            cases: Vec<CaseEvidenceV1>,
+        }
+
+        #[derive(Debug, Serialize)]
+        struct CaseEvidenceV1 {
+            name: &'static str,
+            outcome: OutcomeV1,
+        }
+
+        #[derive(Debug, Serialize)]
+        #[serde(tag = "status", rename_all = "snake_case")]
+        enum OutcomeV1 {
+            Success {
+                fingerprint_sha256: String,
+            },
+            Error {
+                normalized: Box<NormalizedPolygonizeErrorV1>,
+            },
+        }
+
+        fn fixture(source: &str) -> (Vec<Line3D>, PolygonizerOptions) {
+            let fixture: Fixture = serde_json::from_str(source).unwrap();
+            let mut options = fixture.options.unwrap_or_default();
+            options.diagnostics = DiagnosticsOptions {
+                enabled: true,
+                ..Default::default()
+            };
+            options.provenance = ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            };
+            options.input_profile_id = fixture.profile_id;
+            let lines = fixture
+                .inputs
+                .into_iter()
+                .map(|line| {
+                    Line3D::new(
+                        Coord3D::new(line.start.x, line.start.y, line.start.z),
+                        Coord3D::new(line.end.x, line.end.y, line.end.z),
+                        line.id,
+                    )
+                })
+                .collect();
+            (lines, options)
+        }
+
+        fn outcome(
+            name: &'static str,
+            lines: Vec<Line3D>,
+            options: PolygonizerOptions,
+        ) -> CaseEvidenceV1 {
+            let outcome = match polygonize(lines, &options) {
+                Ok(result) => {
+                    let fingerprint =
+                        TopologyFingerprintV1::try_from_result(&result, &options).unwrap();
+                    let bytes = serde_json::to_vec(&fingerprint).unwrap();
+                    OutcomeV1::Success {
+                        fingerprint_sha256: format!("{:x}", Sha256::digest(bytes)),
+                    }
+                }
+                Err(error) => OutcomeV1::Error {
+                    normalized: Box::new(normalize_polygonize_error(&error)),
+                },
+            };
+            CaseEvidenceV1 { name, outcome }
+        }
+
+        #[test]
+        fn representative_outcomes_match_the_shared_feature_build_snapshot() {
+            reset_par_flat_map_dispatches();
+
+            let mut cases = Vec::new();
+            for (name, source) in [
+                (
+                    "square_with_hole",
+                    include_str!("../tests/fixtures/basic/square_with_hole.json"),
+                ),
+                (
+                    "bowtie",
+                    include_str!("../tests/fixtures/dirty/bowtie.json"),
+                ),
+                (
+                    "reported_output_families",
+                    include_str!("../tests/fixtures/topology/reported_outputs.json"),
+                ),
+                (
+                    "provenance_with_profile",
+                    include_str!("../tests/fixtures/provenance/mixed_boundary_with_profile.json"),
+                ),
+                (
+                    "z_ignore_conflicts",
+                    include_str!("../tests/fixtures/z/ignore_conflicts.json"),
+                ),
+            ] {
+                let (lines, options) = fixture(source);
+                cases.push(outcome(name, lines, options));
+            }
+
+            let crossing = vec![
+                Line3D::new(Coord3D::new(-1.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 1),
+                Line3D::new(Coord3D::new(0.0, -1.0, 0.0), Coord3D::new(0.0, 1.0, 0.0), 2),
+            ];
+            cases.push(outcome(
+                "noding_validation_failure",
+                crossing,
+                PolygonizerOptions {
+                    noding: NodingOptions {
+                        guarantee: NodingGuarantee::Validate,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            ));
+            cases.push(outcome(
+                "invalid_option",
+                Vec::new(),
+                PolygonizerOptions {
+                    pre_snap_tolerance: -1.0,
+                    ..Default::default()
+                },
+            ));
+            let (z_conflicts, mut z_options) =
+                fixture(include_str!("../tests/fixtures/z/ignore_conflicts.json"));
+            z_options.z = ZOptions {
+                policy: ZPolicy::ErrorOnConflict,
+                conflict_tolerance: 0.0,
+            };
+            cases.push(outcome("z_conflict", z_conflicts, z_options));
+
+            let actual = serde_json::to_value(ConformanceEvidenceV1 {
+                schema_version: 1,
+                cases,
+            })
+            .unwrap();
+            let expected: serde_json::Value = serde_json::from_str(include_str!(
+                "../tests/fixtures/conformance/serial_parallel_outcomes_v1.json"
+            ))
+            .unwrap();
+            assert_eq!(
+                actual,
+                expected,
+                "feature-build conformance evidence changed:\n{}",
+                serde_json::to_string_pretty(&actual).unwrap()
+            );
+
+            if cfg!(feature = "parallel") && !cfg!(target_arch = "wasm32") {
+                assert!(
+                    par_flat_map_dispatches() > 0,
+                    "parallel feature build did not exercise the Rayon graph-construction path"
+                );
+            } else {
+                assert_eq!(
+                    par_flat_map_dispatches(),
+                    0,
+                    "serial feature build unexpectedly exercised the Rayon graph-construction path"
+                );
+            }
+        }
+    }
 }

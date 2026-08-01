@@ -303,7 +303,7 @@ fn borrowed_georust_input_retains_the_owned_contract() {
 }
 
 #[test]
-fn permutation_and_feature_builds_keep_the_canonical_fingerprint() {
+fn input_permutation_keeps_the_canonical_fingerprint() {
     let (lines, options) = fixture("topology/reported_outputs.json");
     let expected = fingerprint(&polygonize(lines.clone(), &options).unwrap(), &options);
     let mut permuted = lines;
