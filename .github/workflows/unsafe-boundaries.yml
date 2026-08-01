@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/unsafe-boundaries.yml"
       - "crates/geo-polygonize-core/**"
+      - "crates/geo-polygonize-arrow/**"
       - "tests/test_ci_workflow.py"
 
 permissions:
@@ -30,3 +31,22 @@ jobs:
           cargo miri setup
           cargo miri test --locked -p geo-polygonize-core \
             --no-default-features --test execution_policy
+
+  address-sanitizer-arrow-ffi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: "nightly-2026-07-15"
+          components: rust-src
+
+      - name: Check Arrow C ownership with AddressSanitizer
+        run: |
+          cargo test -Zbuild-std --locked \
+            --target x86_64-unknown-linux-gnu \
+            --config 'build.rustflags=["-Zsanitizer=address"]' \
+            -p geo-polygonize-arrow \
+            --test arrow_integration --test test_ffi_errors

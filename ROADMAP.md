@@ -752,7 +752,7 @@ shortcuts.
 - [x] Run cross-binding conformance on every stable entrypoint.
 - [x] Run the certified corpus with zero residual noding failures.
 - [x] Run scheduled differential fuzzing and persist novel minimized cases.
-- [ ] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
+- [x] Add selective Miri and sanitizer jobs for unsafe/FFI boundaries where the
   dependencies support them.
 - [x] Test minimal, default, all-feature, Wasm scalar/SIMD/threaded, and supported
   Python ABI combinations.
@@ -771,8 +771,9 @@ uploads the raw input and review candidate together for 30 days, and leaves
 classification and checked-in admission to the existing reviewed command. The
 selective Miri job runs the bounded-execution core tests without default
 parallel features under a pinned nightly; filesystem-backed corpus tests remain
-outside Miri rather than disabling its isolation. The error construction matrix
-is exhaustive, but
+outside Miri rather than disabling its isolation. A pinned AddressSanitizer job
+checks Arrow integration and raw C ownership/error paths on Linux. The error
+construction matrix is exhaustive, but
 the public-family row remains open: `TopologyFailure` and `NullPointer` have no
 production constructor, `InternalInvariantViolation` is a bug sentinel, and
 `Panic` is boundary-only.

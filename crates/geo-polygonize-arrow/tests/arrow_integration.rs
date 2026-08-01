@@ -132,9 +132,8 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let (input, field) = conformance_input(&fixture);
     let input = input.into_array_ref();
     let (input_array, _) = arrow::ffi::to_ffi(&input.to_data()).unwrap();
-    let input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
+    let mut input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
     let mut input_array = std::mem::ManuallyDrop::new(input_array);
-    let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
     let legacy_options = PolygonizerOptions {
@@ -146,7 +145,7 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let status = unsafe {
         polygonize_ffi(
             &mut *input_array,
-            &mut *input_schema,
+            &mut input_schema,
             &mut output_array,
             &mut output_schema,
             &legacy_options,
@@ -158,16 +157,15 @@ fn arrow_and_c_data_retain_the_shared_conformance_polygon() {
     let (input, field) = conformance_input(&fixture);
     let input = input.into_array_ref();
     let (input_array, _) = arrow::ffi::to_ffi(&input.to_data()).unwrap();
-    let input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
+    let mut input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
     let mut input_array = std::mem::ManuallyDrop::new(input_array);
-    let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
     let options = serde_json::to_vec(&canonical_options_fixture()["options"]).unwrap();
     let status = unsafe {
         polygonize_with_options_ffi(
             &mut *input_array,
-            &mut *input_schema,
+            &mut input_schema,
             &mut output_array,
             &mut output_schema,
             options.as_ptr(),
@@ -215,9 +213,8 @@ fn arrow_and_c_data_expose_normalized_non_finite_errors_without_message_equality
         let field = input.data_type().to_field("geometry", true);
         let input = input.into_array_ref();
         let (input_array, _) = arrow::ffi::to_ffi(&input.to_data()).unwrap();
-        let input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
+        let mut input_schema = FFI_ArrowSchema::try_from(&field).unwrap();
         let mut input_array = std::mem::ManuallyDrop::new(input_array);
-        let mut input_schema = std::mem::ManuallyDrop::new(input_schema);
         let mut output_array = FFI_ArrowArray::empty();
         let mut output_schema = FFI_ArrowSchema::empty();
         let status = if canonical_options {
@@ -225,7 +222,7 @@ fn arrow_and_c_data_expose_normalized_non_finite_errors_without_message_equality
             unsafe {
                 polygonize_with_options_ffi(
                     &mut *input_array,
-                    &mut *input_schema,
+                    &mut input_schema,
                     &mut output_array,
                     &mut output_schema,
                     options.as_ptr(),
@@ -242,7 +239,7 @@ fn arrow_and_c_data_expose_normalized_non_finite_errors_without_message_equality
             unsafe {
                 polygonize_ffi(
                     &mut *input_array,
-                    &mut *input_schema,
+                    &mut input_schema,
                     &mut output_array,
                     &mut output_schema,
                     &options,
@@ -275,11 +272,10 @@ fn test_ffi_arrow_integration_square() {
     let arrow_array = input_array.into_array_ref();
     let (input_array_ffi, _) =
         arrow::ffi::to_ffi(&arrow_array.to_data()).expect("Failed to export input array to FFI");
-    let input_schema_ffi =
+    let mut input_schema_ffi =
         FFI_ArrowSchema::try_from(&input_field).expect("Failed to export GeoArrow input field");
 
     let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array_ffi);
-    let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema_ffi);
 
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
@@ -295,7 +291,7 @@ fn test_ffi_arrow_integration_square() {
     let status = unsafe {
         polygonize_ffi(
             &mut *input_array_ffi,
-            &mut *input_schema_ffi,
+            &mut input_schema_ffi,
             &mut output_array,
             &mut output_schema,
             &options,
@@ -332,11 +328,10 @@ fn test_ffi_arrow_integration_empty() {
     let input_array = builder.finish();
 
     let arrow_array = input_array.into_array_ref();
-    let (input_array_ffi, input_schema_ffi) =
+    let (input_array_ffi, mut input_schema_ffi) =
         arrow::ffi::to_ffi(&arrow_array.to_data()).expect("Failed to export input array to FFI");
 
     let mut input_array_ffi = std::mem::ManuallyDrop::new(input_array_ffi);
-    let mut input_schema_ffi = std::mem::ManuallyDrop::new(input_schema_ffi);
 
     let mut output_array = FFI_ArrowArray::empty();
     let mut output_schema = FFI_ArrowSchema::empty();
@@ -351,7 +346,7 @@ fn test_ffi_arrow_integration_empty() {
     let status = unsafe {
         polygonize_ffi(
             &mut *input_array_ffi,
-            &mut *input_schema_ffi,
+            &mut input_schema_ffi,
             &mut output_array,
             &mut output_schema,
             &options,
