@@ -1,6 +1,6 @@
 use geo_polygonize_core::{
-    polygonize, Coord3D, DedupPolicy, Line3D, PolygonizerOptions, TileOwnershipPolicy,
-    TiledPolygonizer,
+    polygonize, Coord3D, DedupPolicy, Line3D, PolygonizerOptions, TileCoverageGuarantee,
+    TileOwnershipPolicy, TiledPolygonizer,
 };
 use geo_types::{Coord, Geometry, LineString, Rect};
 
@@ -10,6 +10,68 @@ struct Case {
     bbox: Rect<f64>,
     tile_size: f64,
     buffer: f64,
+}
+
+#[test]
+fn sufficient_halos_survive_deterministic_grid_and_input_permutations() {
+    let mut lines = ring(&[(2.0, 2.0), (18.0, 2.0), (18.0, 18.0), (2.0, 18.0)]);
+    lines.extend(ring(&[(7.0, 7.0), (13.0, 7.0), (13.0, 13.0), (7.0, 13.0)]));
+    lines.extend(ring(&[(20.0, 3.0), (23.0, 3.0), (23.0, 6.0), (20.0, 6.0)]));
+
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let expected = polygonize(lines.iter().copied(), &options).unwrap();
+
+    let mut state = 0x5eed_u64;
+    for case_index in 0..24 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let offset = (state % 5) as f64;
+        let tile_size = 5.0 + ((state >> 8) % 10) as f64;
+        let bbox = Rect::new(
+            Coord {
+                x: -offset,
+                y: -(4.0 - offset),
+            },
+            Coord {
+                x: 28.0 - offset,
+                y: 24.0 + offset,
+            },
+        );
+        let mut geometries: Vec<_> = lines
+            .iter()
+            .map(|line| {
+                Geometry::LineString(LineString::new(vec![
+                    line.start.to_coord_2d(),
+                    line.end.to_coord_2d(),
+                ]))
+            })
+            .collect();
+        let geometry_count = geometries.len();
+        geometries.rotate_left((state as usize) % geometry_count);
+        if state & 1 != 0 {
+            geometries.reverse();
+        }
+
+        let mut tiler = TiledPolygonizer::new(bbox, tile_size)
+            .with_buffer(40.0)
+            .with_options(options.clone())
+            .with_ownership_policy(TileOwnershipPolicy::RepresentativePointInsidePolygon)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+        for geometry in &geometries {
+            tiler.add_geometry(geometry);
+        }
+        let actual = tiler
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
+            .unwrap_or_else(|error| panic!("permutation {case_index}: {error}"));
+
+        assert_eq!(actual.polygons.len(), expected.polygons.len());
+        for (actual, expected) in actual.polygons.iter().zip(&expected.polygons) {
+            assert_eq!(actual.exterior, expected.exterior, "case {case_index}");
+            assert_eq!(actual.interiors, expected.interiors, "case {case_index}");
+        }
+    }
 }
 
 fn ring(points: &[(f64, f64)]) -> Vec<Line3D> {
