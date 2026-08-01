@@ -52,12 +52,14 @@ mod tests {
 
         let mut graph = PlanarGraph::new();
         assert!(matches!(
-            graph.delete_cut_edges_with_execution_policy(&policy),
+            graph.delete_cut_edges_with_execution_policy(&policy, false),
             Err(PolygonizeError::Cancelled { stage }) if stage == "ring_extraction"
         ));
 
         assert!(matches!(
-            graph.get_edge_rings_with_graph_ids_and_execution_policy(false, false, &policy),
+            graph.get_edge_rings_with_graph_ids_and_execution_policy(
+                false, false, &policy, false
+            ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "ring_extraction"
         ));
     }
@@ -428,6 +430,7 @@ mod tests {
                 false,
                 &ExecutionPolicy::default(),
                 0,
+                false,
             )
             .unwrap();
 
