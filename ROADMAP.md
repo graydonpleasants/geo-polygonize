@@ -703,6 +703,9 @@ coverage-detection rows remain open.
 - [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
+  - [x] Cover nested disconnected rings, long faces, narrow concavities,
+    boundary-crossing holes, overlaps, and dirty crossings under sufficient
+    halos; exact retained-family evidence for dangles and cut edges remains open.
 
 ### P3.2 Deterministic recovery
 
