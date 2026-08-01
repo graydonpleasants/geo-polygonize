@@ -704,6 +704,8 @@ the coverage-detection rows remain open.
   - [x] Report conservative excluded-component evidence for separate input
     geometries connected by exact shared endpoints; intersection-connected
     components remain open.
+  - [x] Pin the excluded-component gap for separate input geometries connected
+    only through segment-interior intersections.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
