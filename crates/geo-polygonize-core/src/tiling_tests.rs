@@ -3,7 +3,8 @@
 mod tests {
     use crate::{
         trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, PolygonizerOptions,
-        ProvenanceOptions, TileBoundarySide, TiledPolygonizer,
+        ProvenanceOptions, TileBoundarySide, TileCoverageGuarantee, TiledPolygonizeError,
+        TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -344,6 +345,41 @@ mod tests {
             .next()
             .unwrap();
         assert!(!issue.aggregate_source_line_ids.is_empty());
+    }
+
+    #[test]
+    fn validated_owned_face_coverage_rejects_reported_halo_escape() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 2.0 },
+            Coord { x: 19.0, y: 2.0 },
+            Coord { x: 19.0, y: 8.0 },
+            Coord { x: 1.0, y: 8.0 },
+            Coord { x: 1.0, y: 2.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 10.0).with_buffer(2.0);
+        tiler.add_geometry(&face);
+
+        assert!(tiler
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::BestEffort)
+            .is_ok());
+        let error = tiler
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
+            .unwrap_err();
+        assert!(matches!(
+            &error,
+            TiledPolygonizeError::CoverageIncomplete {
+                unresolved_tile_count: 1,
+                unresolved_owned_polygon_count: 1,
+                tile_reports,
+            } if tile_reports.iter().any(|report| !report.coverage_issues.is_empty())
+        ));
+
+        let mut sufficient = TiledPolygonizer::new(bbox, 10.0).with_buffer(10.0);
+        sufficient.add_geometry(&face);
+        assert!(sufficient
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces)
+            .is_ok());
     }
 
     #[test]

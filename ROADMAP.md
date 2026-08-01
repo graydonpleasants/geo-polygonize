@@ -696,6 +696,8 @@ coverage-detection rows remain open.
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
   `ValidateCoverage`; do not rename best effort as certified.
+  - [x] Add `BestEffort` and `ValidateOwnedFaces` for the reconstructed-face
+    subset; missing-region coverage certification remains open.
 - [ ] Randomize tile origins, sizes, and traversal orders in metamorphic tests.
 - [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
