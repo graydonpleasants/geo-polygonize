@@ -103,8 +103,9 @@ evidence. Each attempt adds `buffer_increment` up to `max_attempts` and
 `max_buffer`, replaces that tile's earlier polygons and report, and records the
 attempt in `TileReport` and `StitchingReport`. Strict validation returns the
 typed coverage error with retry counts when the bounded schedule is exhausted.
-Retries reuse the same execution policy independently per attempt. Retry trace
-events, unresolved-component untiled fallback, and cross-region result merging
+Retries reuse the same execution policy independently per attempt. Full output
+traces record bounded `tile_halo_retry` events directly from the physical retry
+history. Unresolved-component untiled fallback and cross-region result merging
 remain unavailable.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is

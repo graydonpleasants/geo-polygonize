@@ -909,6 +909,11 @@ impl<'a> TiledPolygonizer<'a> {
                 let (polygons, report, ownership_decisions, capture_truncated) =
                     self.process_tile_with_retries(tile, input_components, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
+                for attempt in &report.retry_attempts {
+                    if !trace.record_tile_halo_retry(tile_index, attempt) {
+                        break;
+                    }
+                }
                 for issue in &report.excluded_component_issues {
                     let recorded = match issue.connection {
                         TileComponentConnection::ExactEndpoint => {

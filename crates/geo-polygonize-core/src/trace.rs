@@ -304,6 +304,17 @@ pub struct TileExcludedSegmentComponentTraceV1 {
     pub component_max: CoordinateFingerprintV1,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TileHaloRetryTraceV1 {
+    pub tile_index: usize,
+    pub attempt: usize,
+    pub buffer: f64,
+    pub unresolved_owned_polygon_count: usize,
+    pub unresolved_input_geometry_count: usize,
+    pub unresolved_component_count: usize,
+    pub resolved: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileOwnedFaceBoundaryTraceV1 {
     pub tile_index: usize,
@@ -1151,6 +1162,27 @@ impl TraceRecorderV1 {
             })
             .expect("tile excluded segment-component trace event serializes"),
         ))
+    }
+
+    pub(crate) fn record_tile_halo_retry(
+        &mut self,
+        tile_index: usize,
+        attempt: &crate::tiling::TileRetryAttempt,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Output,
+            "tile_halo_retry",
+            serde_json::to_value(TileHaloRetryTraceV1 {
+                tile_index,
+                attempt: attempt.attempt,
+                buffer: attempt.buffer,
+                unresolved_owned_polygon_count: attempt.unresolved_owned_polygon_count,
+                unresolved_input_geometry_count: attempt.unresolved_input_geometry_count,
+                unresolved_component_count: attempt.unresolved_component_count,
+                resolved: attempt.resolved,
+            })
+            .expect("tile halo-retry trace event serializes"),
+        )
     }
 
     pub(crate) fn record_tile_dedup(&mut self, polygon_index: usize, retained: bool) {

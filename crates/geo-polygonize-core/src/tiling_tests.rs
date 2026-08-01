@@ -691,6 +691,24 @@ mod tests {
                 && report.retry_attempts[0].buffer == 42.0
                 && report.retry_attempts[0].resolved
         }));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let retry_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_halo_retry")
+            .collect::<Vec<_>>();
+        assert_eq!(retry_events.len(), 4);
+        assert_eq!(retry_events[0].payload["tile_index"], 0);
+        assert_eq!(retry_events[0].payload["attempt"], 1);
+        assert_eq!(retry_events[0].payload["buffer"], 42.0);
+        assert_eq!(retry_events[0].payload["resolved"], true);
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert_eq!(bounded.result.stitching_report.retry_attempt_count, 4);
 
         let mut exhausted = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)
