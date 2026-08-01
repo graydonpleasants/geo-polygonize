@@ -83,13 +83,12 @@ returned to the caller.
 - `BestEffort` preserves the existing output behavior and reports detected issues.
 - `ValidateOwnedFaces` returns `TiledPolygonizeError::CoverageIncomplete` instead
   of polygons when a reconstructed owned face reaches an internal halo boundary.
-- `ValidateObservedCoverage` returns that typed error when either owned-face or
-  conservative input-boundary evidence is present.
+- `ValidateObservedCoverage` returns that typed error when owned-face,
+  conservative input-boundary, or excluded exact-endpoint component evidence is
+  present.
 
 Both validation modes are deliberately narrower than coverage certification.
-Excluded exact-endpoint component evidence is reported but is not yet rejected
-by either mode. Connections created at mid-segment intersections also remain
-outside the detector.
+Connections created at mid-segment intersections remain outside the detector.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.
