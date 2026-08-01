@@ -694,7 +694,10 @@ input noding is enabled, exact segment intersections now produce conservative
 excluded-component evidence when their combined envelope intersects a halo but
 no member geometry does. Bounded full traces distinguish endpoint-only and
 segment-intersection component evidence, so this specific missing-region gap is
-covered while the broader coverage-detection rows remain open.
+covered while the broader coverage-detection rows remain open. A minimized
+pre-snap fixture also pins the remaining boundary: separate inputs that connect
+only after caller-enabled `pre_snap_tolerance` are not exact-linework components
+in the tiled preflight and can remain absent without observed evidence.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -710,6 +713,8 @@ covered while the broader coverage-detection rows remain open.
   - [x] Trace excluded segment-intersection components without rescanning input.
   - [x] Apply execution-policy segment, candidate, exact-predicate, and
     cancellation bounds during the indexed component preflight.
+  - [x] Pin the undetected connected-region case where separate inputs connect
+    only after caller-enabled pre-snap; detection remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
