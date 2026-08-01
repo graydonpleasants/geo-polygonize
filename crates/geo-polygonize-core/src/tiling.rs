@@ -13,6 +13,7 @@ use geo_types::{Coord, Geometry, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashSet;
+use thiserror::Error;
 
 fn canonical_ring_key(ring: &[Coord3D]) -> Vec<[u64; 3]> {
     let key = |mut ring: Vec<Coord3D>| {
@@ -88,6 +89,34 @@ pub struct TiledPolygonizeResult {
     pub polygons: Vec<Polygon3D>,
     pub tile_reports: Vec<TileReport>,
     pub stitching_report: StitchingReport,
+}
+
+/// Coverage contract requested for experimental tiled polygonization.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TileCoverageGuarantee {
+    /// Return output with any detected coverage issues in the tile reports.
+    #[default]
+    BestEffort,
+    /// Reject output when an owned face reaches an internal buffered-tile boundary.
+    ///
+    /// This validates reconstructed owned faces only. It cannot detect a region
+    /// that is absent because its closing linework fell outside every tile halo.
+    ValidateOwnedFaces,
+}
+
+/// Failure from experimental tiled polygonization with coverage validation.
+#[derive(Debug, Error)]
+pub enum TiledPolygonizeError {
+    #[error(transparent)]
+    Polygonize(#[from] PolygonizeError),
+    #[error(
+        "tiled owned-face coverage validation failed for {unresolved_owned_polygon_count} polygons across {unresolved_tile_count} tiles"
+    )]
+    CoverageIncomplete {
+        unresolved_tile_count: usize,
+        unresolved_owned_polygon_count: usize,
+        tile_reports: Vec<TileReport>,
+    },
 }
 
 /// Experimental tiled output paired with a bounded topology trace.
@@ -344,6 +373,25 @@ impl<'a> TiledPolygonizer<'a> {
 
     pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
         self.polygonize_impl(None)
+    }
+
+    pub fn polygonize_with_coverage_guarantee(
+        &self,
+        guarantee: TileCoverageGuarantee,
+    ) -> std::result::Result<TiledPolygonizeResult, TiledPolygonizeError> {
+        let result = self.polygonize_impl(None)?;
+        if guarantee == TileCoverageGuarantee::ValidateOwnedFaces
+            && result.stitching_report.unresolved_owned_polygon_count != 0
+        {
+            return Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_tile_count: result.stitching_report.unresolved_tile_count,
+                unresolved_owned_polygon_count: result
+                    .stitching_report
+                    .unresolved_owned_polygon_count,
+                tile_reports: result.tile_reports,
+            });
+        }
+        Ok(result)
     }
 
     pub fn polygonize_with_trace(

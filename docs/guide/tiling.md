@@ -59,10 +59,17 @@ The implementation validates the tile size, buffer, bounding box, and semantic
 polygonizer options. A per-tile polygonization error stops the whole call and is
 returned to the caller.
 
-There is currently no opt-in coverage validator, halo retry, unresolved-region
-retry, untiled fallback, retry budget, or typed coverage-exhaustion error. No
-retry or fallback trace event is emitted because those execution paths do not
-exist.
+`polygonize_with_coverage_guarantee` provides two explicit modes:
+
+- `BestEffort` preserves the existing output behavior and reports detected issues.
+- `ValidateOwnedFaces` returns `TiledPolygonizeError::CoverageIncomplete` instead
+  of polygons when a reconstructed owned face reaches an internal halo boundary.
+
+The validation is deliberately scoped to reconstructed owned faces. It cannot
+certify missing regions whose closing linework was excluded from every halo.
+There is currently no halo retry, unresolved-region retry, untiled fallback, or
+retry budget. No retry or fallback trace event is emitted because those execution
+paths do not exist.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.
