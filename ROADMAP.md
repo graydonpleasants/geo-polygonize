@@ -736,7 +736,7 @@ Add or finish dedicated guides for:
 - [x] floating, fixed, validated, and certified noding guarantees;
 - [x] Z and provenance behavior;
 - [x] compatibility profiles and known divergences;
-- [ ] tiling guarantees and fallback behavior;
+- [x] tiling guarantees and fallback behavior;
 - [ ] Wasm memory lifetime, workers, threads, and cancellation;
 - [ ] Python memory/GIL behavior;
 - [ ] Arrow C ABI ownership and error retrieval;
