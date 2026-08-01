@@ -1,3 +1,4 @@
+use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
@@ -207,46 +208,75 @@ fn line_string_segments(
     line: &LineString<f64>,
     geometry_index: usize,
     segments: &mut Vec<InputSegment>,
-) {
-    segments.extend(line.lines().map(|line| InputSegment {
-        line,
-        geometry_index,
-    }));
+    execution_policy: &ExecutionPolicy,
+) -> Result<()> {
+    for line in line.lines() {
+        let observed = segments.len().checked_add(1).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "tiled component segment counter overflow".to_string(),
+            }
+        })?;
+        execution_policy.check(
+            "input_segments",
+            execution_policy.max_input_segments,
+            observed,
+        )?;
+        execution_policy.check_cancelled_every("tile_component_preflight", observed)?;
+        segments.push(InputSegment {
+            line,
+            geometry_index,
+        });
+    }
+    Ok(())
 }
 
 fn geometry_segments(
     geometry: &Geometry<f64>,
     geometry_index: usize,
     segments: &mut Vec<InputSegment>,
-) {
+    execution_policy: &ExecutionPolicy,
+) -> Result<()> {
     match geometry {
-        Geometry::LineString(line) => line_string_segments(line, geometry_index, segments),
+        Geometry::LineString(line) => {
+            line_string_segments(line, geometry_index, segments, execution_policy)?
+        }
         Geometry::MultiLineString(lines) => {
             for line in lines {
-                line_string_segments(line, geometry_index, segments);
+                line_string_segments(line, geometry_index, segments, execution_policy)?;
             }
         }
         Geometry::Polygon(polygon) => {
-            line_string_segments(polygon.exterior(), geometry_index, segments);
+            line_string_segments(
+                polygon.exterior(),
+                geometry_index,
+                segments,
+                execution_policy,
+            )?;
             for ring in polygon.interiors() {
-                line_string_segments(ring, geometry_index, segments);
+                line_string_segments(ring, geometry_index, segments, execution_policy)?;
             }
         }
         Geometry::MultiPolygon(polygons) => {
             for polygon in polygons {
-                line_string_segments(polygon.exterior(), geometry_index, segments);
+                line_string_segments(
+                    polygon.exterior(),
+                    geometry_index,
+                    segments,
+                    execution_policy,
+                )?;
                 for ring in polygon.interiors() {
-                    line_string_segments(ring, geometry_index, segments);
+                    line_string_segments(ring, geometry_index, segments, execution_policy)?;
                 }
             }
         }
         Geometry::GeometryCollection(collection) => {
             for member in collection {
-                geometry_segments(member, geometry_index, segments);
+                geometry_segments(member, geometry_index, segments, execution_policy)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 fn component_root(parents: &mut [usize], index: usize) -> usize {
@@ -282,6 +312,7 @@ pub struct TiledPolygonizer<'a> {
     ownership_policy: TileOwnershipPolicy,
     dedup_policy: DedupPolicy,
     options: PolygonizerOptions,
+    execution_policy: ExecutionPolicy,
 }
 
 impl<'a> TiledPolygonizer<'a> {
@@ -298,6 +329,7 @@ impl<'a> TiledPolygonizer<'a> {
             ownership_policy: TileOwnershipPolicy::Centroid,
             dedup_policy: DedupPolicy::KeepAll,
             options,
+            execution_policy: ExecutionPolicy::default(),
         }
     }
 
@@ -321,6 +353,12 @@ impl<'a> TiledPolygonizer<'a> {
         self
     }
 
+    /// Sets non-semantic limits for the component preflight and each tile polygonization.
+    pub fn with_execution_policy(mut self, execution_policy: ExecutionPolicy) -> Self {
+        self.execution_policy = execution_policy;
+        self
+    }
+
     pub fn add_geometry(&mut self, geom: &'a Geometry<f64>) {
         let bbox = geom.bounding_rect();
         self.geometries.push((geom, bbox));
@@ -333,7 +371,8 @@ impl<'a> TiledPolygonizer<'a> {
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
         let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
-        let mut local_poly = Polygonizer::with_options(self.options.clone());
+        let mut local_poly = Polygonizer::with_options(self.options.clone())
+            .with_execution_policy(self.execution_policy.clone());
 
         // Define buffered bbox
         let buffered_bbox = Rect::new(
@@ -561,12 +600,19 @@ impl<'a> TiledPolygonizer<'a> {
         tiles
     }
 
-    fn input_components(&self) -> Vec<InputComponent> {
+    fn input_components(&self) -> Result<Vec<InputComponent>> {
+        self.execution_policy
+            .check_cancelled("tile_component_preflight")?;
         let mut parents = (0..self.geometries.len()).collect::<Vec<_>>();
         let mut endpoint_owners = HashMap::new();
         let mut segments = Vec::new();
         for (geometry_index, (geometry, _)) in self.geometries.iter().enumerate() {
-            geometry_segments(geometry, geometry_index, &mut segments);
+            geometry_segments(
+                geometry,
+                geometry_index,
+                &mut segments,
+                &self.execution_policy,
+            )?;
         }
         for segment in &segments {
             for endpoint in [segment.line.start, segment.line.end] {
@@ -600,8 +646,7 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .collect();
             let index = RStarBackend::new(envelopes);
-            // ponytail: this exact preflight can have quadratic dense candidates; thread an
-            // execution policy through the experimental tiled API before certification.
+            let mut work = ExecutionWorkTracker::new(Some(&self.execution_policy), None);
             for (segment_index, segment) in segments.iter().enumerate() {
                 let envelope = AABB::from_corners(
                     [
@@ -618,9 +663,12 @@ impl<'a> TiledPolygonizer<'a> {
                         continue;
                     }
                     let candidate = segments[candidate_index];
-                    if candidate.geometry_index == segment.geometry_index
-                        || line_intersection(segment.line, candidate.line).is_none()
-                    {
+                    if candidate.geometry_index == segment.geometry_index {
+                        work.candidate(false)?;
+                        continue;
+                    }
+                    work.candidate(true)?;
+                    if line_intersection(segment.line, candidate.line).is_none() {
                         continue;
                     }
                     if endpoint_roots[segment.geometry_index]
@@ -683,7 +731,7 @@ impl<'a> TiledPolygonizer<'a> {
             })
             .collect::<Vec<_>>();
         components.sort_unstable_by_key(|component| component.input_geometry_indices[0]);
-        components
+        Ok(components)
     }
 
     pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
@@ -754,7 +802,7 @@ impl<'a> TiledPolygonizer<'a> {
     ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
-        let input_components = self.input_components();
+        let input_components = self.input_components()?;
         self.polygonize_tiles(tiles, &input_components, trace)
     }
 

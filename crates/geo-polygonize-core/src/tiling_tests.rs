@@ -2,9 +2,9 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::{
-        trace::TraceLevelV1, Coord3D, DedupPolicy, PolygonizeError, Polygonizer,
-        PolygonizerOptions, ProvenanceOptions, TileBoundarySide, TileComponentConnection,
-        TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer,
+        trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
+        PolygonizeError, Polygonizer, PolygonizerOptions, ProvenanceOptions, TileBoundarySide,
+        TileComponentConnection, TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -615,6 +615,56 @@ mod tests {
                 .unresolved_component_count,
             0
         );
+
+        let mut limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_execution_policy(ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            });
+        for boundary in &boundaries {
+            limited.add_geometry(boundary);
+        }
+        assert!(matches!(
+            limited.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "candidate_pairs"
+        ));
+    }
+
+    #[test]
+    fn tiled_component_preflight_observes_midflight_cancellation() {
+        let bbox = Rect::new(Coord { x: -2.0, y: -2.0 }, Coord { x: 2.0, y: 2.0 });
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        let lines = (0..24)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 24.0;
+                Geometry::LineString(LineString::new(vec![
+                    Coord { x: 0.0, y: 0.0 },
+                    Coord {
+                        x: angle.cos(),
+                        y: angle.sin(),
+                    },
+                ]))
+            })
+            .collect::<Vec<_>>();
+        let mut tiled = TiledPolygonizer::new(bbox, 2.0).with_execution_policy(policy);
+        for line in &lines {
+            tiled.add_geometry(line);
+        }
+
+        assert!(matches!(
+            tiled.polygonize(),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
     }
 
     #[test]
@@ -675,7 +725,7 @@ mod tests {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
             tiles.swap(upper, (state as usize) % (upper + 1));
         }
-        let input_components = tiler.input_components();
+        let input_components = tiler.input_components().unwrap();
         let permuted = tiler
             .polygonize_tiles(tiles, &input_components, None)
             .unwrap();

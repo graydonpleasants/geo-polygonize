@@ -708,6 +708,8 @@ covered while the broader coverage-detection rows remain open.
   - [x] Classify exact segment-intersection components with one indexed global
     candidate pass when input noding is enabled.
   - [x] Trace excluded segment-intersection components without rescanning input.
+  - [x] Apply execution-policy segment, candidate, exact-predicate, and
+    cancellation bounds during the indexed component preflight.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
