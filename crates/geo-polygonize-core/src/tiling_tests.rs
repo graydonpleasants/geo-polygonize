@@ -734,6 +734,63 @@ mod tests {
     }
 
     #[test]
+    fn documents_fallback_component_global_containment_boundary() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: -10.0 },
+                Coord { x: 30.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: -10.0 },
+                Coord { x: 30.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 30.0 },
+                Coord { x: -10.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 30.0 },
+                Coord { x: -10.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 2.0 },
+                Coord { x: 4.0, y: 2.0 },
+                Coord { x: 4.0, y: 4.0 },
+                Coord { x: 2.0, y: 4.0 },
+                Coord { x: 2.0, y: 2.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::new();
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_retry_policy(TileRetryPolicy {
+                max_attempts: 1,
+                buffer_increment: 1.0,
+                max_buffer: 3.0,
+            });
+        for geometry in &geometries {
+            untiled.add_borrowed_geometry(geometry);
+            tiled.add_geometry(geometry);
+        }
+
+        let untiled = untiled.polygonize().unwrap();
+        assert_eq!(untiled.polygons.len(), 2);
+        assert!(untiled
+            .polygons
+            .iter()
+            .any(|polygon| !polygon.interiors.is_empty()));
+        let tiled = tiled.polygonize().unwrap();
+        assert_eq!(tiled.polygons.len(), 1);
+        assert!(tiled.polygons[0].interiors.is_empty());
+        assert_eq!(tiled.stitching_report.retry_exhausted_tile_count, 4);
+        assert!(tiled
+            .tile_reports
+            .iter()
+            .any(|report| !report.excluded_component_issues.is_empty()));
+    }
+
+    #[test]
     fn tiled_component_preflight_observes_midflight_cancellation() {
         let bbox = Rect::new(Coord { x: -2.0, y: -2.0 }, Coord { x: 2.0, y: 2.0 });
         let token = CancellationToken::new();
