@@ -741,6 +741,8 @@ When coverage cannot be proven:
     spatially nests an already retained tile-local face.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
+  - [x] Verify whole-input fallback equality with untiled output across tile
+    sizes and input-order permutations.
 - [ ] merge the fallback result canonically with already validated regions;
 - [x] stop with a typed coverage error when the configured retry budget is
   exhausted;
