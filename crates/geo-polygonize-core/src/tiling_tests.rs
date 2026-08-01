@@ -407,6 +407,29 @@ mod tests {
                 ..
             })
         ));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let boundary_events: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_input_boundary")
+            .collect();
+        assert_eq!(boundary_events.len(), 4);
+        assert_eq!(boundary_events[0].payload["tile_index"], 0);
+        assert_eq!(boundary_events[0].payload["input_geometry_index"], 0);
+        assert_eq!(boundary_events[0].payload["unresolved_sides"][0], "max_x");
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert_eq!(
+            bounded
+                .result
+                .stitching_report
+                .unresolved_input_geometry_count,
+            4
+        );
     }
 
     #[test]

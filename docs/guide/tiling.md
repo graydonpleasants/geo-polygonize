@@ -38,7 +38,8 @@ reaches beyond that halo. This conservative witness remains available when no
 local face is reconstructed, so it catches split-boundary cases that face-only
 evidence cannot see. It reports unresolved connectivity, not a confirmed missing
 face: whole input geometries are replicated and may already contain everything
-needed locally.
+needed locally. Full output traces record the same evidence as bounded
+`tile_input_boundary` events without rescanning inputs.
 
 ## Ownership and deduplication
 
