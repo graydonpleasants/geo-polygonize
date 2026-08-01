@@ -358,17 +358,6 @@ impl Polygonizer {
         &mut self.options
     }
 
-    /// Compatibility shorthand for setting floating or fixed precision.
-    ///
-    /// # Arguments
-    ///
-    /// * `grid_size` - Zero selects floating precision; a positive value selects a fixed grid.
-    #[deprecated(note = "use with_precision_model")]
-    pub fn with_snap_grid(mut self, grid_size: f64) -> Self {
-        self.options.precision_model = PrecisionModel::from_grid_size(grid_size);
-        self
-    }
-
     pub fn with_precision_model(mut self, precision_model: PrecisionModel) -> Self {
         self.options.precision_model = precision_model;
         self
