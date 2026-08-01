@@ -45,14 +45,17 @@ inputs or reconstructed faces.
 `TileReport::excluded_component_issues` covers one additional missing-input
 case. Separate input geometries that share exact endpoints are grouped. When
 input noding is enabled, an indexed exact-intersection pass also groups geometry
-connected through segment interiors. A tile reports the component when its
-combined envelope intersects the buffered tile but no member geometry envelope
-does. This catches an enclosing component that is excluded from every halo. It
-remains conservative: an envelope does not prove that the component contains a
-face. `TileComponentConnection` distinguishes endpoint-only and
-segment-intersection evidence, and `StitchingReport` counts affected tiles and
-issue instances. Full output traces distinguish bounded
-`tile_excluded_endpoint_component` and `tile_excluded_segment_component` events.
+connected through segment interiors. When `pre_snap_tolerance` is enabled, the
+same bounded preflight applies that caller-selected transformation before
+grouping, and reports those components as `PreSnap`. A tile reports the
+component when its combined envelope intersects the buffered tile but no member
+geometry envelope does. This catches an enclosing component that is excluded
+from every halo. It remains conservative: an envelope does not prove that the
+component contains a face. `TileComponentConnection` distinguishes endpoint,
+segment-intersection, and pre-snap evidence, and `StitchingReport` counts
+affected tiles and issue instances. Full output traces distinguish bounded
+`tile_excluded_endpoint_component`, `tile_excluded_segment_component`, and
+`tile_excluded_pre_snap_component` events.
 
 ## Ownership and deduplication
 
@@ -92,11 +95,11 @@ returned to the caller.
 
 Both validation modes are deliberately narrower than coverage certification.
 `with_execution_policy` applies segment, candidate, exact-predicate, and
-cancellation bounds to the indexed component preflight and passes the same
-policy to each tile polygonization. Numeric work limits apply independently to
-the preflight and to each tile, not as one aggregate budget across the tiled
-call. The component envelope remains conservative evidence rather than proof of
-a face.
+cancellation bounds to the indexed component preflight, including the optional
+pre-snap pass, and passes the same policy to each tile polygonization. Numeric
+work limits apply independently to the preflight and to each tile, not as one
+aggregate budget across the tiled call. The component envelope remains
+conservative evidence rather than proof of a face.
 `with_retry_policy` enables deterministic tile-local halo growth for tiles whose
 final report still contains owned-face, input-boundary, or excluded-component
 evidence. Each attempt adds `buffer_increment` up to `max_attempts` and

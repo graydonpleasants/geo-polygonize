@@ -1,12 +1,13 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
+use crate::noding::snap::SnapNoder;
 use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
 use crate::trace::{
     TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
     TraceStageV1,
 };
-use crate::types::{Coord3D, Polygon3D};
+use crate::types::{Coord3D, Line3D, Polygon3D};
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::algorithm::line_intersection::line_intersection;
 use geo::bounding_rect::BoundingRect;
@@ -77,6 +78,7 @@ pub struct TileInputBoundaryIssue {
 pub enum TileComponentConnection {
     ExactEndpoint,
     SegmentIntersection,
+    PreSnap,
 }
 
 /// An exact-linework-connected input component excluded from a tile halo.
@@ -712,6 +714,46 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
             )?;
         }
+        if self.options.pre_snap_tolerance > 0.0 {
+            let source_segments = segments;
+            let lines = source_segments
+                .iter()
+                .enumerate()
+                .map(|(segment_index, segment)| {
+                    let line_id = u32::try_from(segment_index).map_err(|_| {
+                        PolygonizeError::InvalidGeometry {
+                            reason: "more than u32::MAX tiled component pre-snap segments"
+                                .to_string(),
+                        }
+                    })?;
+                    Ok(Line3D::new(
+                        segment.line.start.into(),
+                        segment.line.end.into(),
+                        line_id,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let (snapped, _) = SnapNoder::pre_snap_to_reference_vertices_with_stats(
+                &lines,
+                self.options.pre_snap_tolerance,
+                self.options.z.policy,
+                &self.execution_policy,
+            )?;
+            segments = snapped
+                .into_iter()
+                .map(|line| {
+                    let source = source_segments.get(line.line_id as usize).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "tiled pre-snap source segment is missing".to_string(),
+                        }
+                    })?;
+                    Ok(InputSegment {
+                        line: line.to_line_2d(),
+                        geometry_index: source.geometry_index,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+        }
         for segment in &segments {
             for endpoint in [segment.line.start, segment.line.end] {
                 let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
@@ -820,7 +862,9 @@ impl<'a> TiledPolygonizer<'a> {
                 Some(InputComponent {
                     input_geometry_indices,
                     bbox,
-                    connection: if intersection_roots.contains(&root) {
+                    connection: if self.options.pre_snap_tolerance > 0.0 {
+                        TileComponentConnection::PreSnap
+                    } else if intersection_roots.contains(&root) {
                         TileComponentConnection::SegmentIntersection
                     } else {
                         TileComponentConnection::ExactEndpoint
@@ -942,6 +986,9 @@ impl<'a> TiledPolygonizer<'a> {
                         }
                         TileComponentConnection::SegmentIntersection => {
                             trace.record_tile_excluded_segment_component(tile_index, issue)?
+                        }
+                        TileComponentConnection::PreSnap => {
+                            trace.record_tile_excluded_pre_snap_component(tile_index, issue)?
                         }
                     };
                     if !recorded {

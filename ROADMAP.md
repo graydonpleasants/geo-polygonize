@@ -696,8 +696,9 @@ no member geometry does. Bounded full traces distinguish endpoint-only and
 segment-intersection component evidence, so this specific missing-region gap is
 covered while the broader coverage-detection rows remain open. A minimized
 pre-snap fixture also pins the remaining boundary: separate inputs that connect
-only after caller-enabled `pre_snap_tolerance` are not exact-linework components
-in the tiled preflight and can remain absent without observed evidence.
+only after caller-enabled `pre_snap_tolerance` are now grouped as conservative
+pre-snap component evidence; region coverage remains observational rather than
+certified.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -714,7 +715,9 @@ in the tiled preflight and can remain absent without observed evidence.
   - [x] Apply execution-policy segment, candidate, exact-predicate, and
     cancellation bounds during the indexed component preflight.
   - [x] Pin the undetected connected-region case where separate inputs connect
-    only after caller-enabled pre-snap; detection remains open.
+    only after caller-enabled pre-snap.
+  - [x] Report caller-enabled pre-snap-connected components distinctly in tile
+    reports and bounded traces; broader region coverage detection remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary

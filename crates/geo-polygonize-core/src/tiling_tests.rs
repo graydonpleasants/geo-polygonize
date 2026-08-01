@@ -686,7 +686,7 @@ mod tests {
         }
 
         assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
-        assert!(tiled.input_components().unwrap().is_empty());
+        assert_eq!(tiled.input_components().unwrap().len(), 1);
         let observed = tiled.polygonize().unwrap();
         assert!(observed.polygons.is_empty());
         assert!(observed
@@ -694,10 +694,38 @@ mod tests {
             .iter()
             .all(|report| report.input_geometry_count == 0));
         assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
-        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
-        assert!(tiled
-            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
-            .is_ok());
+        assert_eq!(observed.stitching_report.unresolved_component_tile_count, 4);
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        assert!(observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::PreSnap
+        }));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_pre_snap_component")
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].payload["tile_index"], 0);
+        assert_eq!(
+            events[0].payload["input_geometry_indices"],
+            serde_json::json!([0, 1, 2, 3])
+        );
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_tile_count: 4,
+                unresolved_component_count: 4,
+                ..
+            })
+        ));
     }
 
     #[test]
