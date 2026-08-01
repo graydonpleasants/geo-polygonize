@@ -57,3 +57,12 @@ def test_miri_uses_a_pinned_no_default_feature_slice():
     assert "components: miri, rust-src" in workflow
     assert "cargo miri test --locked -p geo-polygonize-core" in workflow
     assert "--no-default-features --test execution_policy" in workflow
+
+
+def test_address_sanitizer_covers_the_arrow_c_ownership_boundary():
+    workflow = (ROOT / ".github/workflows/unsafe-boundaries.yml").read_text()
+
+    assert "address-sanitizer-arrow-ffi:" in workflow
+    assert "-Zsanitizer=address" in workflow
+    assert "--target x86_64-unknown-linux-gnu" in workflow
+    assert "--test arrow_integration --test test_ffi_errors" in workflow
