@@ -280,6 +280,15 @@ pub struct TileOwnershipTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileInputBoundaryTraceV1 {
+    pub tile_index: usize,
+    pub input_geometry_index: usize,
+    pub geometry_min: CoordinateFingerprintV1,
+    pub geometry_max: CoordinateFingerprintV1,
+    pub unresolved_sides: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileDedupTraceV1 {
     pub polygon_index: usize,
     pub retained: bool,
@@ -1018,6 +1027,39 @@ impl TraceRecorderV1 {
             .expect("tile ownership trace event serializes"),
         );
         Ok(())
+    }
+
+    pub(crate) fn record_tile_input_boundary(
+        &mut self,
+        tile_index: usize,
+        issue: &crate::tiling::TileInputBoundaryIssue,
+    ) -> crate::Result<bool> {
+        let side = |side| match side {
+            crate::tiling::TileBoundarySide::MinX => "min_x",
+            crate::tiling::TileBoundarySide::MaxX => "max_x",
+            crate::tiling::TileBoundarySide::MinY => "min_y",
+            crate::tiling::TileBoundarySide::MaxY => "max_y",
+        };
+        let min = issue.geometry_bbox.min();
+        let max = issue.geometry_bbox.max();
+        Ok(self.record(
+            TraceStageV1::Output,
+            "tile_input_boundary",
+            serde_json::to_value(TileInputBoundaryTraceV1 {
+                tile_index,
+                input_geometry_index: issue.input_geometry_index,
+                geometry_min: coordinate_fingerprint(crate::Coord3D::new(min.x, min.y, 0.0))?,
+                geometry_max: coordinate_fingerprint(crate::Coord3D::new(max.x, max.y, 0.0))?,
+                unresolved_sides: issue
+                    .unresolved_sides
+                    .iter()
+                    .copied()
+                    .map(side)
+                    .map(str::to_string)
+                    .collect(),
+            })
+            .expect("tile input-boundary trace event serializes"),
+        ))
     }
 
     pub(crate) fn record_tile_dedup(&mut self, polygon_index: usize, retained: bool) {

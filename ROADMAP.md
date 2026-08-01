@@ -689,8 +689,9 @@ with internal boundary sides, polygon envelopes, representative edge source IDs,
 and complete aggregate source IDs when provenance is enabled. Conservative
 input-boundary evidence now retains stable input geometry indexes, envelopes,
 and internal halo sides even when no local face was reconstructed. Missing
-connected regions are not yet classified conclusively, so the coverage-detection
-rows remain open.
+connected regions are not yet classified conclusively. Bounded full traces reuse
+that physical-pass evidence as `tile_input_boundary` events, so the
+coverage-detection rows remain open.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.

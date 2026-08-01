@@ -511,6 +511,11 @@ impl<'a> TiledPolygonizer<'a> {
                 let (polygons, report, ownership_decisions, capture_truncated) =
                     self.process_tile(tile, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
+                for issue in &report.input_boundary_issues {
+                    if !trace.record_tile_input_boundary(tile_index, issue)? {
+                        break;
+                    }
+                }
                 for (polygon_index, ownership_point, owned) in ownership_decisions {
                     trace.record_tile_ownership(
                         tile_index,
