@@ -781,11 +781,11 @@ mod tests {
             .polygons
             .iter()
             .any(|polygon| !polygon.interiors.is_empty()));
-        let tiled = tiled
+        let result = tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
             .unwrap();
         assert_eq!(
-            tiled
+            result
                 .polygons
                 .iter()
                 .map(crate::tiling::canonical_polygon_key)
@@ -796,12 +796,28 @@ mod tests {
                 .map(crate::tiling::canonical_polygon_key)
                 .collect::<Vec<_>>()
         );
-        assert!(tiled.stitching_report.untiled_fallback_used);
-        assert_eq!(tiled.stitching_report.retry_exhausted_tile_count, 4);
-        assert!(tiled
+        assert!(result.stitching_report.untiled_fallback_used);
+        assert_eq!(result.stitching_report.retry_exhausted_tile_count, 4);
+        assert!(result
             .tile_reports
             .iter()
             .any(|report| !report.excluded_component_issues.is_empty()));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let fallback_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_untiled_fallback")
+            .collect::<Vec<_>>();
+        assert_eq!(fallback_events.len(), 1);
+        assert_eq!(fallback_events[0].payload["input_geometry_count"], 5);
+        assert_eq!(fallback_events[0].payload["output_polygon_count"], 2);
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert!(bounded.result.stitching_report.untiled_fallback_used);
     }
 
     #[test]

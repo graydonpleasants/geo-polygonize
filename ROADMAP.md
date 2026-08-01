@@ -746,8 +746,9 @@ When coverage cannot be proven:
   exhausted;
 - [ ] record every retry and fallback in the stitching report and topology trace.
   - [x] Record deterministic retry attempts and exhausted tiles in tile and
-    stitching reports and bounded `tile_halo_retry` trace events; fallback
-    remains open.
+    stitching reports and bounded `tile_halo_retry` trace events.
+  - [x] Record whole-input fallback use in the stitching report and a bounded
+    `tile_untiled_fallback` trace event; component-local fallback remains open.
 
 ### P3.3 True graph stitching
 
