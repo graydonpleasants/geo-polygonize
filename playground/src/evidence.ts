@@ -5,8 +5,33 @@ import type {
   TopologyTraceV1,
 } from 'geo-polygonize';
 import type { ProfileComparison } from './compare';
+import type { ExactInputSegment, ProfileDifferenceSignature } from './minimize';
 
 export const DEBUGGER_EVIDENCE_FILENAME = 'geo-polygonize-debugger-evidence-v1.json';
+
+export type CompatibilityClassification =
+  | 'expected_parity'
+  | 'expected_divergence'
+  | 'invalid_ambiguous';
+
+type FixtureProfileOutcome = {
+  label: string;
+  options: Partial<PolygonizerOptions>;
+} & (
+  | { status: 'success'; topology: TopologyFingerprintV1 }
+  | { status: 'error'; error: NormalizedPolygonizeErrorV1 }
+);
+
+export type DebuggerFixtureBundleV1 = {
+  schema_version: 1;
+  kind: 'geo_polygonize_compatibility_fixture';
+  case_id: string;
+  classification: CompatibilityClassification;
+  input: ExactInputSegment[];
+  baseline: FixtureProfileOutcome;
+  comparison: FixtureProfileOutcome;
+  witness: ProfileDifferenceSignature;
+};
 
 export type DebuggerEvidenceBundleV1 = {
   schema_version: 1;
@@ -64,14 +89,59 @@ export function serializeDebuggerEvidence(bundle: DebuggerEvidenceBundleV1): str
   return `${JSON.stringify(canonicalize(bundle), null, 2)}\n`;
 }
 
-export function downloadDebuggerEvidence(bundle: DebuggerEvidenceBundleV1) {
-  const url = URL.createObjectURL(new Blob(
-    [serializeDebuggerEvidence(bundle)],
-    { type: 'application/json' },
-  ));
+export function createDebuggerFixtureBundle({
+  caseId,
+  classification,
+  segments,
+  profileComparison,
+  witness,
+}: {
+  caseId: string;
+  classification: CompatibilityClassification;
+  segments: ExactInputSegment[];
+  profileComparison: ProfileComparison;
+  witness: ProfileDifferenceSignature;
+}): DebuggerFixtureBundleV1 {
+  if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(caseId)) {
+    throw new Error('Fixture case ID must be lowercase and filesystem-safe');
+  }
+  if (!profileComparison.diverged || profileComparison.results.length !== 2 || segments.length === 0) {
+    throw new Error('Fixture export requires a minimized two-profile difference');
+  }
+  const outcome = (result: ProfileComparison['results'][number]): FixtureProfileOutcome => (
+    result.status === 'success'
+      ? { label: result.label, options: result.options, status: 'success', topology: result.report.topology }
+      : { label: result.label, options: result.options, status: 'error', error: result.error }
+  );
+  return {
+    schema_version: 1,
+    kind: 'geo_polygonize_compatibility_fixture',
+    case_id: caseId,
+    classification,
+    input: segments,
+    baseline: outcome(profileComparison.results[0]),
+    comparison: outcome(profileComparison.results[1]),
+    witness,
+  };
+}
+
+export function serializeDebuggerFixture(bundle: DebuggerFixtureBundleV1): string {
+  return `${JSON.stringify(canonicalize(bundle), null, 2)}\n`;
+}
+
+function downloadJson(filename: string, value: string) {
+  const url = URL.createObjectURL(new Blob([value], { type: 'application/json' }));
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = DEBUGGER_EVIDENCE_FILENAME;
+  anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadDebuggerEvidence(bundle: DebuggerEvidenceBundleV1) {
+  downloadJson(DEBUGGER_EVIDENCE_FILENAME, serializeDebuggerEvidence(bundle));
+}
+
+export function downloadDebuggerFixture(bundle: DebuggerFixtureBundleV1) {
+  downloadJson(`${bundle.case_id}.json`, serializeDebuggerFixture(bundle));
 }

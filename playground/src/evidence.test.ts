@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { PolygonizeTraceReportV1 } from 'geo-polygonize';
 import {
   createDebuggerEvidenceBundle,
+  createDebuggerFixtureBundle,
   serializeDebuggerEvidence,
+  serializeDebuggerFixture,
 } from './evidence';
+import type { ExactInputSegment } from './minimize';
 
 const report: PolygonizeTraceReportV1 = {
   schema_version: 1,
@@ -83,5 +86,65 @@ describe('debugger evidence bundles', () => {
       comparison: null,
       normalizedError: null,
     })).toThrow('requires topology and trace together');
+  });
+
+  it('exports exact minimized compatibility fixtures deterministically', () => {
+    const segments: ExactInputSegment[] = [{
+      start: { x: '0x0000000000000000', y: '0x0000000000000000', z: '0x4024000000000000' },
+      end: { x: '0x3ff0000000000000', y: '0x0000000000000000', z: '0x4034000000000000' },
+      sourceId: '7',
+    }];
+    const comparison = {
+      results: [
+        { label: 'baseline', options: { node_input: true }, status: 'success' as const, report },
+        {
+          label: 'comparison',
+          options: { node_input: true },
+          status: 'error' as const,
+          error: {
+            schema_version: 1,
+            family: 'topology',
+            code: 'interior_intersection',
+            stage: 'noding_validation',
+          },
+        },
+      ],
+      diverged: true,
+    };
+    const bundle = createDebuggerFixtureBundle({
+      caseId: 'profile-crossing-001',
+      classification: 'expected_divergence',
+      segments,
+      profileComparison: comparison,
+      witness: { kind: 'outcome_kinds', baseline: 'success', comparison: 'error' },
+    });
+
+    const encoded = serializeDebuggerFixture(bundle);
+    expect(JSON.parse(encoded)).toMatchObject({
+      schema_version: 1,
+      kind: 'geo_polygonize_compatibility_fixture',
+      case_id: 'profile-crossing-001',
+      classification: 'expected_divergence',
+      input: [{ sourceId: '7', start: { z: '0x4024000000000000' } }],
+      baseline: { status: 'success' },
+      comparison: { status: 'error' },
+    });
+    expect(encoded).not.toContain('trace_run');
+    expect(encoded).not.toContain('normalized_input_segment');
+    expect(serializeDebuggerFixture(JSON.parse(encoded))).toBe(encoded);
+  });
+
+  it('rejects unsafe fixture IDs and non-differences', () => {
+    expect(() => createDebuggerFixtureBundle({
+      caseId: '../fixture',
+      classification: 'invalid_ambiguous',
+      segments: [{
+        start: { x: '0x0', y: '0x0', z: '0x0' },
+        end: { x: '0x0', y: '0x0', z: '0x0' },
+        sourceId: '1',
+      }],
+      profileComparison: { results: [], diverged: false },
+      witness: { kind: 'outcome_kinds', baseline: 'success', comparison: 'error' },
+    })).toThrow('lowercase and filesystem-safe');
   });
 });
