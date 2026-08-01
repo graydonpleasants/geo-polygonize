@@ -15,12 +15,10 @@ pub enum PolygonizeErrorKind {
     ResourceLimitExceeded,
     Cancelled,
     UnsupportedOptionCombination,
-    TopologyFailure,
     ZConflict,
     NodingValidationFailure(NodingValidationKind),
     InternalInvariantViolation,
     ArrowError,
-    NullPointer,
     Panic,
 }
 
@@ -55,9 +53,6 @@ pub enum PolygonizeError {
     #[error("Unsupported option combination: {reason}")]
     UnsupportedOptionCombination { reason: String },
 
-    #[error("Topology failure: {reason}")]
-    TopologyFailure { reason: String },
-
     #[error("Z conflict at ({x}, {y}) from input lines {line_ids:?}")]
     ZConflict { x: f64, y: f64, line_ids: Vec<u32> },
 
@@ -77,9 +72,6 @@ pub enum PolygonizeError {
     #[error("Arrow array conversion failed: {0}")]
     ArrowError(String),
 
-    #[error("Null pointer provided to FFI function: {0}")]
-    NullPointer(String),
-
     #[error("Panic occurred across FFI/WASM boundary: {0}")]
     Panic(String),
 }
@@ -97,7 +89,6 @@ impl PolygonizeError {
             Self::UnsupportedOptionCombination { .. } => {
                 PolygonizeErrorKind::UnsupportedOptionCombination
             }
-            Self::TopologyFailure { .. } => PolygonizeErrorKind::TopologyFailure,
             Self::ZConflict { .. } => PolygonizeErrorKind::ZConflict,
             Self::NodingValidationFailure { kind, .. } => {
                 PolygonizeErrorKind::NodingValidationFailure(*kind)
@@ -106,7 +97,6 @@ impl PolygonizeError {
                 PolygonizeErrorKind::InternalInvariantViolation
             }
             Self::ArrowError { .. } => PolygonizeErrorKind::ArrowError,
-            Self::NullPointer { .. } => PolygonizeErrorKind::NullPointer,
             Self::Panic { .. } => PolygonizeErrorKind::Panic,
         }
     }

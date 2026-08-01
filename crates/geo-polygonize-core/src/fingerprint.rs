@@ -257,7 +257,6 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             "unsupported_option_combination",
             "options",
         ),
-        PolygonizeError::TopologyFailure { .. } => base("topology", "topology_failure", "topology"),
         PolygonizeError::ZConflict { x, y, line_ids } => {
             let mut ids: Vec<_> = line_ids.iter().copied().map(id32).collect();
             ids.sort();
@@ -298,7 +297,6 @@ pub fn normalize_polygonize_error(error: &PolygonizeError) -> NormalizedPolygoni
             base("internal", "invariant_violation", "internal")
         }
         PolygonizeError::ArrowError { .. } => base("adapter", "arrow_error", "adapter"),
-        PolygonizeError::NullPointer { .. } => base("adapter", "null_pointer", "adapter"),
         PolygonizeError::Panic { .. } => base("internal", "panic", "boundary"),
     }
 }
