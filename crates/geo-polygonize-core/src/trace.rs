@@ -289,6 +289,17 @@ pub struct TileInputBoundaryTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileOwnedFaceBoundaryTraceV1 {
+    pub tile_index: usize,
+    pub polygon_index: usize,
+    pub polygon_min: CoordinateFingerprintV1,
+    pub polygon_max: CoordinateFingerprintV1,
+    pub unresolved_sides: Vec<String>,
+    pub representative_source_line_ids: Vec<String>,
+    pub aggregate_source_line_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileDedupTraceV1 {
     pub polygon_index: usize,
     pub retained: bool,
@@ -1034,12 +1045,6 @@ impl TraceRecorderV1 {
         tile_index: usize,
         issue: &crate::tiling::TileInputBoundaryIssue,
     ) -> crate::Result<bool> {
-        let side = |side| match side {
-            crate::tiling::TileBoundarySide::MinX => "min_x",
-            crate::tiling::TileBoundarySide::MaxX => "max_x",
-            crate::tiling::TileBoundarySide::MinY => "min_y",
-            crate::tiling::TileBoundarySide::MaxY => "max_y",
-        };
         let min = issue.geometry_bbox.min();
         let max = issue.geometry_bbox.max();
         Ok(self.record(
@@ -1054,11 +1059,41 @@ impl TraceRecorderV1 {
                     .unresolved_sides
                     .iter()
                     .copied()
-                    .map(side)
+                    .map(tile_boundary_side_name)
                     .map(str::to_string)
                     .collect(),
             })
             .expect("tile input-boundary trace event serializes"),
+        ))
+    }
+
+    pub(crate) fn record_tile_owned_face_boundary(
+        &mut self,
+        tile_index: usize,
+        issue: &crate::tiling::TileCoverageIssue,
+    ) -> crate::Result<bool> {
+        let min = issue.polygon_bbox.min();
+        let max = issue.polygon_bbox.max();
+        let source_ids = |ids: &[u32]| ids.iter().map(|id| format!("0x{id:08x}")).collect();
+        Ok(self.record(
+            TraceStageV1::Output,
+            "tile_owned_face_boundary",
+            serde_json::to_value(TileOwnedFaceBoundaryTraceV1 {
+                tile_index,
+                polygon_index: issue.polygon_index,
+                polygon_min: coordinate_fingerprint(crate::Coord3D::new(min.x, min.y, 0.0))?,
+                polygon_max: coordinate_fingerprint(crate::Coord3D::new(max.x, max.y, 0.0))?,
+                unresolved_sides: issue
+                    .unresolved_sides
+                    .iter()
+                    .copied()
+                    .map(tile_boundary_side_name)
+                    .map(str::to_string)
+                    .collect(),
+                representative_source_line_ids: source_ids(&issue.representative_source_line_ids),
+                aggregate_source_line_ids: source_ids(&issue.aggregate_source_line_ids),
+            })
+            .expect("tile owned-face boundary trace event serializes"),
         ))
     }
 
@@ -1080,6 +1115,15 @@ impl TraceRecorderV1 {
             kind,
             serde_json::to_value(ring).expect("ring trace event serializes"),
         )
+    }
+}
+
+fn tile_boundary_side_name(side: crate::tiling::TileBoundarySide) -> &'static str {
+    match side {
+        crate::tiling::TileBoundarySide::MinX => "min_x",
+        crate::tiling::TileBoundarySide::MaxX => "max_x",
+        crate::tiling::TileBoundarySide::MinY => "min_y",
+        crate::tiling::TileBoundarySide::MaxY => "max_y",
     }
 }
 
