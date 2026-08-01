@@ -51,9 +51,8 @@ does. This catches an enclosing component that is excluded from every halo. It
 remains conservative: an envelope does not prove that the component contains a
 face. `TileComponentConnection` distinguishes endpoint-only and
 segment-intersection evidence, and `StitchingReport` counts affected tiles and
-issue instances. Full output traces currently record endpoint-only evidence as
-bounded `tile_excluded_endpoint_component` events; intersection events are a
-separate pending trace slice.
+issue instances. Full output traces distinguish bounded
+`tile_excluded_endpoint_component` and `tile_excluded_segment_component` events.
 
 ## Ownership and deduplication
 

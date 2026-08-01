@@ -780,12 +780,16 @@ impl<'a> TiledPolygonizer<'a> {
                 let (polygons, report, ownership_decisions, capture_truncated) =
                     self.process_tile(tile, input_components, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
-                for issue in report
-                    .excluded_component_issues
-                    .iter()
-                    .filter(|issue| issue.connection == TileComponentConnection::ExactEndpoint)
-                {
-                    if !trace.record_tile_excluded_endpoint_component(tile_index, issue)? {
+                for issue in &report.excluded_component_issues {
+                    let recorded = match issue.connection {
+                        TileComponentConnection::ExactEndpoint => {
+                            trace.record_tile_excluded_endpoint_component(tile_index, issue)?
+                        }
+                        TileComponentConnection::SegmentIntersection => {
+                            trace.record_tile_excluded_segment_component(tile_index, issue)?
+                        }
+                    };
+                    if !recorded {
                         break;
                     }
                 }

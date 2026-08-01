@@ -692,9 +692,9 @@ and internal halo sides even when no local face was reconstructed. Missing
 regions formed by separate input geometries that share exact endpoints or, when
 input noding is enabled, exact segment intersections now produce conservative
 excluded-component evidence when their combined envelope intersects a halo but
-no member geometry does. Endpoint-only components retain bounded full trace
-evidence; segment-intersection trace evidence remains open, so the
-coverage-detection rows remain open.
+no member geometry does. Bounded full traces distinguish endpoint-only and
+segment-intersection component evidence, so this specific missing-region gap is
+covered while the broader coverage-detection rows remain open.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -707,6 +707,7 @@ coverage-detection rows remain open.
     only through segment-interior intersections.
   - [x] Classify exact segment-intersection components with one indexed global
     candidate pass when input noding is enabled.
+  - [x] Trace excluded segment-intersection components without rescanning input.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
