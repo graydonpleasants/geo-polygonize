@@ -418,10 +418,18 @@ impl<'a> TiledPolygonizer<'a> {
 
     fn polygonize_impl(
         &self,
-        mut trace: Option<&mut TraceRecorderV1>,
+        trace: Option<&mut TraceRecorderV1>,
     ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
         let tiles = self.generate_tiles();
+        self.polygonize_tiles(tiles, trace)
+    }
+
+    fn polygonize_tiles(
+        &self,
+        tiles: Vec<Rect<f64>>,
+        mut trace: Option<&mut TraceRecorderV1>,
+    ) -> Result<TiledPolygonizeResult> {
         let trace_ownership = trace
             .as_ref()
             .is_some_and(|trace| trace.records_stage(TraceStageV1::Output));

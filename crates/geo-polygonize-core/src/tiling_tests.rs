@@ -383,6 +383,38 @@ mod tests {
     }
 
     #[test]
+    fn permuted_tile_traversal_preserves_canonical_output() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 18.0, y: 2.0 },
+            Coord { x: 18.0, y: 18.0 },
+            Coord { x: 2.0, y: 18.0 },
+            Coord { x: 2.0, y: 2.0 },
+        ]));
+        let mut tiler = TiledPolygonizer::new(bbox, 7.0)
+            .with_buffer(20.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+        tiler.add_geometry(&face);
+
+        let forward = tiler.polygonize().unwrap();
+        let mut tiles = tiler.generate_tiles();
+        let mut state = 0x71_1e_u64;
+        for upper in (1..tiles.len()).rev() {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            tiles.swap(upper, (state as usize) % (upper + 1));
+        }
+        let permuted = tiler.polygonize_tiles(tiles, None).unwrap();
+
+        assert_eq!(permuted.polygons.len(), forward.polygons.len());
+        assert_eq!(permuted.polygons[0].exterior, forward.polygons[0].exterior);
+        assert_eq!(
+            permuted.stitching_report.output_polygon_count,
+            forward.stitching_report.output_polygon_count
+        );
+    }
+
+    #[test]
     fn trace_records_physical_tile_ownership_and_dedup_decisions() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let square = Geometry::LineString(LineString::new(vec![

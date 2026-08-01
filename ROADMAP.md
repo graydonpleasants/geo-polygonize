@@ -698,10 +698,8 @@ coverage-detection rows remain open.
   `ValidateCoverage`; do not rename best effort as certified.
   - [x] Add `BestEffort` and `ValidateOwnedFaces` for the reconstructed-face
     subset; missing-region coverage certification remains open.
-- [ ] Randomize tile origins, sizes, and traversal orders in metamorphic tests.
-  - [x] Cover deterministic pseudo-random tile origins, sizes, and input orders
-    when the configured halo contains every owned face; tile traversal order
-    remains open.
+- [x] Randomize tile origins, sizes, input orders, and tile traversal order in
+  deterministic metamorphic tests with sufficient halos.
 - [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
