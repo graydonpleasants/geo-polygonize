@@ -1446,6 +1446,54 @@ impl PlanarGraph {
         Ok(cycle_count)
     }
 
+    /// Assigns stable component IDs to nodes incident to active edges.
+    #[cfg(any(test, debug_assertions))]
+    pub(crate) fn active_component_ids(&self) -> Vec<Option<usize>> {
+        let is_active = |directed_idx: DirEdgeId| {
+            let directed = &self.directed_edges[directed_idx];
+            !directed.is_marked && !self.edges[directed.edge_idx].deleted
+        };
+        let mut seeds: Vec<_> = (0..self.nodes_x.len())
+            .filter(|&node| {
+                self.nodes_outgoing[node]
+                    .iter()
+                    .any(|&directed| is_active(directed))
+            })
+            .collect();
+        seeds.sort_unstable_by(|&a, &b| {
+            self.nodes_x[a]
+                .total_cmp(&self.nodes_x[b])
+                .then_with(|| self.nodes_y[a].total_cmp(&self.nodes_y[b]))
+                .then(a.cmp(&b))
+        });
+
+        let mut component_ids = vec![None; self.nodes_x.len()];
+        let mut stack = Vec::new();
+        let mut next_component_id = 0;
+        for seed in seeds {
+            if component_ids[seed].is_some() {
+                continue;
+            }
+            let component_id = next_component_id;
+            next_component_id += 1;
+            component_ids[seed] = Some(component_id);
+            stack.push(seed);
+            while let Some(node) = stack.pop() {
+                for &directed_idx in &self.nodes_outgoing[node] {
+                    if !is_active(directed_idx) {
+                        continue;
+                    }
+                    let neighbor = self.directed_edges[directed_idx].dst;
+                    if component_ids[neighbor].is_none() {
+                        component_ids[neighbor] = Some(component_id);
+                        stack.push(neighbor);
+                    }
+                }
+            }
+        }
+        component_ids
+    }
+
     /// Validates Euler's planar relation for the active maximal-ring graph.
     #[cfg(any(test, debug_assertions))]
     pub(crate) fn validate_arrangement_euler(
@@ -1455,17 +1503,8 @@ impl PlanarGraph {
     ) -> crate::Result<()> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
         let boundary_cycles = self.validate_arrangement_ring_cycles(next_pointers, phase)?;
-        let mut active_nodes = vec![false; self.nodes_x.len()];
-        let mut parents: Vec<_> = (0..self.nodes_x.len()).collect();
+        let component_ids = self.active_component_ids();
         let mut edge_count = 0usize;
-
-        fn root(parents: &mut [usize], mut node: usize) -> usize {
-            while parents[node] != node {
-                parents[node] = parents[parents[node]];
-                node = parents[node];
-            }
-            node
-        }
 
         for edge in &self.edges {
             let [forward_idx, reverse_idx] = edge.dir_edges;
@@ -1476,27 +1515,14 @@ impl PlanarGraph {
                 continue;
             }
             edge_count += 1;
-            let forward = &self.directed_edges[forward_idx];
-            active_nodes[forward.src] = true;
-            active_nodes[forward.dst] = true;
-            let src_root = root(&mut parents, forward.src);
-            let dst_root = root(&mut parents, forward.dst);
-            if src_root != dst_root {
-                let (smaller, larger) = if src_root < dst_root {
-                    (src_root, dst_root)
-                } else {
-                    (dst_root, src_root)
-                };
-                parents[larger] = smaller;
-            }
         }
 
-        let vertex_count = active_nodes.iter().filter(|&&active| active).count();
-        let component_count = active_nodes
+        let vertex_count = component_ids.iter().flatten().count();
+        let component_count = component_ids
             .iter()
-            .enumerate()
-            .filter(|&(node, active)| *active && root(&mut parents, node) == node)
-            .count();
+            .flatten()
+            .max()
+            .map_or(0, |component| component + 1);
         let face_count = boundary_cycles
             .checked_sub(component_count)
             .and_then(|count| count.checked_add(1))
@@ -1757,6 +1783,23 @@ mod arrangement_ring_invariant_tests {
         }
     }
 
+    fn component_snapshot(lines: &[Line3D]) -> Vec<(f64, f64, usize)> {
+        let mut graph = PlanarGraph::new();
+        for &line in lines {
+            graph.add_line(line);
+        }
+        let component_ids = graph.active_component_ids();
+        let mut snapshot: Vec<_> = component_ids
+            .into_iter()
+            .enumerate()
+            .filter_map(|(node, component)| {
+                component.map(|component| (graph.nodes_x[node], graph.nodes_y[node], component))
+            })
+            .collect();
+        snapshot.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+        snapshot
+    }
+
     fn invariant_reason(graph: &PlanarGraph, links: &[DirEdgeId], phase: &str) -> String {
         match graph
             .validate_arrangement_ring_cycles(links, phase)
@@ -1870,6 +1913,38 @@ mod arrangement_ring_invariant_tests {
         graph
             .validate_arrangement_euler(&next_links(&graph), "maximal")
             .unwrap();
+    }
+
+    #[test]
+    fn active_component_ids_are_stable_across_insertion_order() {
+        let a = [
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+            Coord3D::new(1.0, 1.0, 0.0),
+        ];
+        let b = [
+            Coord3D::new(10.0, 0.0, 0.0),
+            Coord3D::new(12.0, 0.0, 0.0),
+            Coord3D::new(11.0, 1.0, 0.0),
+        ];
+        let mut lines = Vec::new();
+        for (line_id, points) in [(10, a), (20, b)] {
+            for offset in 0..3 {
+                lines.push(Line3D::new(
+                    points[offset],
+                    points[(offset + 1) % 3],
+                    line_id + offset as u32,
+                ));
+            }
+        }
+        let expected = component_snapshot(&lines);
+        lines.reverse();
+
+        assert_eq!(component_snapshot(&lines), expected);
+        assert!(expected
+            .iter()
+            .all(|(x, _, component)| (*x < 10.0 && *component == 0)
+                || (*x >= 10.0 && *component == 1)));
     }
 
     #[test]

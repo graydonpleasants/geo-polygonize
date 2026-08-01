@@ -564,12 +564,17 @@ to a specific graph representation.
 
 Decompose the fully noded, dissolved graph before expensive graph-local work:
 
-- [ ] identify connected components deterministically;
+- [x] identify connected components deterministically;
 - [ ] perform component-local dangle pruning, cut-edge classification, edge
   sorting, and ring extraction in parallel;
 - [ ] merge component results into deterministic global order;
 - [ ] reuse component-local scratch buffers and measure peak memory;
 - [ ] evaluate flat/CSR adjacency versus `Vec<Vec<_>>` using real workloads.
+
+Debug/test active nodes now receive component IDs ordered by each component's
+lexicographically smallest XY coordinate, independent of insertion order. The
+Euler validator reuses this identification; promoting it into graph-local
+execution remains a separate slice.
 
 Important: disconnected graph components can still be spatially nested. Shell
 and hole containment must remain global unless components are grouped by a
