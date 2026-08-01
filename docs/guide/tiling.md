@@ -91,8 +91,12 @@ returned to the caller.
   present.
 
 Both validation modes are deliberately narrower than coverage certification.
-The indexed component preflight is not yet execution-policy bounded, and the
-component envelope remains conservative evidence rather than proof of a face.
+`with_execution_policy` applies segment, candidate, exact-predicate, and
+cancellation bounds to the indexed component preflight and passes the same
+policy to each tile polygonization. Numeric work limits apply independently to
+the preflight and to each tile, not as one aggregate budget across the tiled
+call. The component envelope remains conservative evidence rather than proof of
+a face.
 There is currently no halo retry, unresolved-region retry, untiled fallback, or
 retry budget. No retry or fallback trace event is emitted because those execution
 paths do not exist.
