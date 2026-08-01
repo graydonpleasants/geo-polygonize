@@ -49,7 +49,8 @@ tile but no member geometry envelope does. This catches an enclosing component
 that is excluded from every halo. It remains conservative: an envelope does not
 prove that the component contains a face, and connections created only by
 mid-segment intersections are not grouped. `StitchingReport` counts affected
-tiles and issue instances.
+tiles and issue instances. Full output traces reuse the report as bounded
+`tile_excluded_endpoint_component` events without rescanning input.
 
 ## Ownership and deduplication
 
