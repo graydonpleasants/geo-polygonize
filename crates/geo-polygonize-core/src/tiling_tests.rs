@@ -326,6 +326,21 @@ mod tests {
         assert!(issues[0].aggregate_source_line_ids.is_empty());
         assert_eq!(result.stitching_report.unresolved_tile_count, 1);
         assert_eq!(result.stitching_report.unresolved_owned_polygon_count, 1);
+        let traced = tiler
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let event = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tile_owned_face_boundary")
+            .unwrap();
+        assert_eq!(event.payload["polygon_index"], 0);
+        assert_eq!(event.payload["unresolved_sides"][0], "min_x");
+        assert!(!event.payload["representative_source_line_ids"]
+            .as_array()
+            .unwrap()
+            .is_empty());
 
         let mut tiler = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)

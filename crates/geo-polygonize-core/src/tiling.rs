@@ -516,6 +516,11 @@ impl<'a> TiledPolygonizer<'a> {
                         break;
                     }
                 }
+                for issue in &report.coverage_issues {
+                    if !trace.record_tile_owned_face_boundary(tile_index, issue)? {
+                        break;
+                    }
+                }
                 for (polygon_index, ownership_point, owned) in ownership_decisions {
                     trace.record_tile_ownership(
                         tile_index,
