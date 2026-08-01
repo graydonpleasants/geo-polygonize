@@ -743,6 +743,8 @@ When coverage cannot be proven:
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile
     sizes and input-order permutations.
+  - [x] Apply the configured execution policy to whole-input fallback and pin
+    exact resource-limit evidence.
 - [ ] merge the fallback result canonically with already validated regions;
 - [x] stop with a typed coverage error when the configured retry budget is
   exhausted;
