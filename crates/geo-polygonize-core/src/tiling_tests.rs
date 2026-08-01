@@ -818,6 +818,29 @@ mod tests {
         assert!(bounded.trace.events.is_empty());
         assert!(bounded.trace.truncated);
         assert!(bounded.result.stitching_report.untiled_fallback_used);
+
+        let mut limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_execution_policy(ExecutionPolicy {
+                max_input_segments: Some(4),
+                ..Default::default()
+            })
+            .with_untiled_fallback();
+        for geometry in &geometries {
+            limited.add_geometry(geometry);
+        }
+        let limited_error = limited.polygonize().unwrap_err();
+        assert!(
+            matches!(
+                limited_error,
+                PolygonizeError::ResourceLimitExceeded {
+                    ref stage,
+                    limit: 4,
+                    observed: 5,
+                } if stage == "input_segments"
+            ),
+            "{limited_error:?}"
+        );
     }
 
     #[test]
