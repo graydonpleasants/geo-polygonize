@@ -689,13 +689,12 @@ with internal boundary sides, polygon envelopes, representative edge source IDs,
 and complete aggregate source IDs when provenance is enabled. Conservative
 input-boundary evidence now retains stable input geometry indexes, envelopes,
 and internal halo sides even when no local face was reconstructed. Missing
-regions formed by separate input geometries that share exact endpoints now
-produce conservative excluded-component evidence when their combined envelope
-intersects a halo but no member geometry does. Connections created at
-mid-segment intersections are not yet classified. Bounded full traces reuse
-that physical-pass evidence as `tile_input_boundary`,
-`tile_owned_face_boundary`, and `tile_excluded_endpoint_component` events, so
-the coverage-detection rows remain open.
+regions formed by separate input geometries that share exact endpoints or, when
+input noding is enabled, exact segment intersections now produce conservative
+excluded-component evidence when their combined envelope intersects a halo but
+no member geometry does. Endpoint-only components retain bounded full trace
+evidence; segment-intersection trace evidence remains open, so the
+coverage-detection rows remain open.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -706,6 +705,8 @@ the coverage-detection rows remain open.
     components remain open.
   - [x] Pin the excluded-component gap for separate input geometries connected
     only through segment-interior intersections.
+  - [x] Classify exact segment-intersection components with one indexed global
+    candidate pass when input noding is enabled.
 - [ ] Report source IDs and boundary evidence that were required but not fully
   observed.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
@@ -716,6 +717,8 @@ the coverage-detection rows remain open.
     conservative input-boundary evidence without claiming certification.
   - [x] Extend `ValidateObservedCoverage` to reject conservative excluded
     exact-endpoint component evidence without claiming certification.
+  - [x] Reject conservative excluded exact-intersection component evidence
+    without claiming certification.
 - [x] Randomize tile origins, sizes, input orders, and tile traversal order in
   deterministic metamorphic tests with sufficient halos.
 - [ ] Expand exact tiled/untiled fixtures for nested disconnected rings, long
