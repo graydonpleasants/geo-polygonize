@@ -67,5 +67,5 @@ Invalid options, non-finite coordinates, unsupported option combinations,
 noding validation failures, topology failures, resource limits, and
 cancellation return typed errors. A successful call means the selected pipeline
 completed; unchecked noding does not certify that the input or produced segments
-are fully noded. The [getting-started guide](./getting-started.md) summarizes the
-available validation levels and precision contracts.
+are fully noded. The [noding guide](./noding-guarantees.md) defines the available
+validation levels and precision contracts.
