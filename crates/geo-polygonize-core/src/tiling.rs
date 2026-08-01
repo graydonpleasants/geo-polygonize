@@ -55,6 +55,17 @@ pub struct TileCoverageIssue {
     pub aggregate_source_line_ids: Vec<u32>,
 }
 
+/// Input geometry that reaches an internal buffered-tile boundary.
+///
+/// This is conservative evidence that topology may continue through linework
+/// outside the halo, including when no local face was reconstructed.
+#[derive(Clone, Debug)]
+pub struct TileInputBoundaryIssue {
+    pub input_geometry_index: usize,
+    pub geometry_bbox: Rect<f64>,
+    pub unresolved_sides: Vec<TileBoundarySide>,
+}
+
 /// Observed work and topology output for one tile.
 #[derive(Debug)]
 pub struct TileReport {
@@ -69,6 +80,8 @@ pub struct TileReport {
     pub invalid_ring_count: usize,
     /// Definite halo insufficiency observed for owned faces in this tile.
     pub coverage_issues: Vec<TileCoverageIssue>,
+    /// Inputs that may connect to linework beyond this tile's halo.
+    pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
 }
 
 /// Counts from merging and deduplicating owned tile polygons.
@@ -81,6 +94,9 @@ pub struct StitchingReport {
     pub output_polygon_count: usize,
     pub unresolved_tile_count: usize,
     pub unresolved_owned_polygon_count: usize,
+    pub unresolved_input_tile_count: usize,
+    /// Input-boundary issue instances across tiles; a geometry may occur more than once.
+    pub unresolved_input_geometry_count: usize,
 }
 
 /// Experimental tiled output with per-tile and merge diagnostics.
@@ -206,10 +222,22 @@ impl<'a> TiledPolygonizer<'a> {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
-        for (geom, bbox) in &self.geometries {
-            if bbox.map(|b| b.intersects(&buffered_bbox)).unwrap_or(false) {
+        let mut input_boundary_issues = Vec::new();
+        for (input_geometry_index, (geom, bbox)) in self.geometries.iter().enumerate() {
+            if let Some(geometry_bbox) = bbox
+                .as_ref()
+                .filter(|geometry_bbox| geometry_bbox.intersects(&buffered_bbox))
+            {
                 local_poly.add_borrowed_geometry(geom);
                 relevant_lines += 1;
+                let unresolved_sides = self.unresolved_sides(*geometry_bbox, buffered_bbox);
+                if !unresolved_sides.is_empty() {
+                    input_boundary_issues.push(TileInputBoundaryIssue {
+                        input_geometry_index,
+                        geometry_bbox: *geometry_bbox,
+                        unresolved_sides,
+                    });
+                }
             }
         }
 
@@ -222,6 +250,7 @@ impl<'a> TiledPolygonizer<'a> {
             cut_edge_count: 0,
             invalid_ring_count: 0,
             coverage_issues: Vec::new(),
+            input_boundary_issues,
         };
         if relevant_lines == 0 {
             return Ok((Vec::new(), report, Vec::new(), false));
@@ -315,19 +344,7 @@ impl<'a> TiledPolygonizer<'a> {
             max_y = max_y.max(coordinate.y);
         }
         let polygon_bbox = Rect::new(Coord { x: min_x, y: min_y }, Coord { x: max_x, y: max_y });
-        let mut unresolved_sides = Vec::new();
-        if buffered_bbox.min().x > self.bbox.min().x && min_x <= buffered_bbox.min().x {
-            unresolved_sides.push(TileBoundarySide::MinX);
-        }
-        if buffered_bbox.max().x < self.bbox.max().x && max_x >= buffered_bbox.max().x {
-            unresolved_sides.push(TileBoundarySide::MaxX);
-        }
-        if buffered_bbox.min().y > self.bbox.min().y && min_y <= buffered_bbox.min().y {
-            unresolved_sides.push(TileBoundarySide::MinY);
-        }
-        if buffered_bbox.max().y < self.bbox.max().y && max_y >= buffered_bbox.max().y {
-            unresolved_sides.push(TileBoundarySide::MaxY);
-        }
+        let unresolved_sides = self.unresolved_sides(polygon_bbox, buffered_bbox);
         if unresolved_sides.is_empty() {
             return None;
         }
@@ -346,6 +363,35 @@ impl<'a> TiledPolygonizer<'a> {
             representative_source_line_ids,
             aggregate_source_line_ids: poly.boundary_source_line_ids.clone(),
         })
+    }
+
+    fn unresolved_sides(
+        &self,
+        geometry_bbox: Rect<f64>,
+        buffered_bbox: Rect<f64>,
+    ) -> Vec<TileBoundarySide> {
+        let mut unresolved_sides = Vec::new();
+        if buffered_bbox.min().x > self.bbox.min().x
+            && geometry_bbox.min().x <= buffered_bbox.min().x
+        {
+            unresolved_sides.push(TileBoundarySide::MinX);
+        }
+        if buffered_bbox.max().x < self.bbox.max().x
+            && geometry_bbox.max().x >= buffered_bbox.max().x
+        {
+            unresolved_sides.push(TileBoundarySide::MaxX);
+        }
+        if buffered_bbox.min().y > self.bbox.min().y
+            && geometry_bbox.min().y <= buffered_bbox.min().y
+        {
+            unresolved_sides.push(TileBoundarySide::MinY);
+        }
+        if buffered_bbox.max().y < self.bbox.max().y
+            && geometry_bbox.max().y >= buffered_bbox.max().y
+        {
+            unresolved_sides.push(TileBoundarySide::MaxY);
+        }
+        unresolved_sides
     }
 
     fn generate_tiles(&self) -> Vec<Rect<f64>> {
@@ -529,6 +575,13 @@ impl<'a> TiledPolygonizer<'a> {
             .iter()
             .map(|report| report.coverage_issues.len())
             .sum();
+        let unresolved_input_tile_count = tile_reports
+            .iter()
+            .filter(|report| !report.input_boundary_issues.is_empty())
+            .count();
+        let unresolved_input_geometry_count = tile_reports.iter().fold(0usize, |total, report| {
+            total.saturating_add(report.input_boundary_issues.len())
+        });
         Ok(TiledPolygonizeResult {
             polygons,
             tile_reports,
@@ -538,6 +591,8 @@ impl<'a> TiledPolygonizer<'a> {
                 output_polygon_count,
                 unresolved_tile_count,
                 unresolved_owned_polygon_count,
+                unresolved_input_tile_count,
+                unresolved_input_geometry_count,
             },
         })
     }

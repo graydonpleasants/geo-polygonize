@@ -686,9 +686,11 @@ Treat two different algorithms separately:
 
 Progress: tile and stitching reports now retain definite owned-face halo escapes
 with internal boundary sides, polygon envelopes, representative edge source IDs,
-and complete aggregate source IDs when provenance is enabled. This does not yet
-detect missing connected regions that produced no local face, so the
-coverage-detection rows remain open.
+and complete aggregate source IDs when provenance is enabled. Conservative
+input-boundary evidence now retains stable input geometry indexes, envelopes,
+and internal halo sides even when no local face was reconstructed. Missing
+connected regions are not yet classified conclusively, so the coverage-detection
+rows remain open.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
