@@ -24,8 +24,13 @@ intersections, and exterior dangles. Those fixtures use:
 - a buffer chosen large enough for the complete owned face.
 
 This is evidence for that input class, not a general proof that an arbitrary
-buffer is sufficient. `TileReport` and `StitchingReport` contain observed counts;
-they do not detect missing boundary evidence or certify coverage.
+buffer is sufficient. `TileReport::coverage_issues` reports an owned face whose
+envelope reaches an internal buffered-tile boundary, including the affected
+sides, face envelope, representative edge source IDs, and complete aggregate
+source IDs when provenance was requested. `StitchingReport` summarizes the
+affected tiles and faces. Absence of this definite witness does not certify
+coverage because missing external linework may leave no reconstructed face to
+inspect.
 
 ## Ownership and deduplication
 
@@ -54,9 +59,10 @@ The implementation validates the tile size, buffer, bounding box, and semantic
 polygonizer options. A per-tile polygonization error stops the whole call and is
 returned to the caller.
 
-There is currently no coverage validator, halo retry, unresolved-region retry,
-untiled fallback, retry budget, or typed coverage-exhaustion error. No retry or
-fallback trace event is emitted because those execution paths do not exist.
+There is currently no opt-in coverage validator, halo retry, unresolved-region
+retry, untiled fallback, retry budget, or typed coverage-exhaustion error. No
+retry or fallback trace event is emitted because those execution paths do not
+exist.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.
