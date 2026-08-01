@@ -97,9 +97,15 @@ policy to each tile polygonization. Numeric work limits apply independently to
 the preflight and to each tile, not as one aggregate budget across the tiled
 call. The component envelope remains conservative evidence rather than proof of
 a face.
-There is currently no halo retry, unresolved-region retry, untiled fallback, or
-retry budget. No retry or fallback trace event is emitted because those execution
-paths do not exist.
+`with_retry_policy` enables deterministic tile-local halo growth for tiles whose
+final report still contains owned-face, input-boundary, or excluded-component
+evidence. Each attempt adds `buffer_increment` up to `max_attempts` and
+`max_buffer`, replaces that tile's earlier polygons and report, and records the
+attempt in `TileReport` and `StitchingReport`. Strict validation returns the
+typed coverage error with retry counts when the bounded schedule is exhausted.
+Retries reuse the same execution policy independently per attempt. Retry trace
+events, unresolved-component untiled fallback, and cross-region result merging
+remain unavailable.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.

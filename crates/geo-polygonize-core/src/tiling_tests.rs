@@ -4,7 +4,8 @@ mod tests {
     use crate::{
         trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
         PolygonizeError, Polygonizer, PolygonizerOptions, ProvenanceOptions, TileBoundarySide,
-        TileComponentConnection, TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer,
+        TileComponentConnection, TileCoverageGuarantee, TileRetryPolicy, TiledPolygonizeError,
+        TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -231,6 +232,17 @@ mod tests {
                 .with_buffer(f64::NAN)
                 .polygonize(),
             Err(PolygonizeError::InvalidArgumentType { field, .. }) if field == "buffer"
+        ));
+        assert!(matches!(
+            TiledPolygonizer::new(bbox, 1.0)
+                .with_retry_policy(TileRetryPolicy {
+                    max_attempts: 0,
+                    buffer_increment: 1.0,
+                    max_buffer: 2.0,
+                })
+                .polygonize(),
+            Err(PolygonizeError::InvalidArgumentType { field, .. })
+                if field == "retry_policy.max_attempts"
         ));
         assert!(matches!(
             TiledPolygonizer::new(
@@ -632,6 +644,74 @@ mod tests {
                 limit: 0,
                 observed: 1,
             }) if stage == "candidate_pairs"
+        ));
+    }
+
+    #[test]
+    fn bounded_halo_retry_resolves_an_excluded_component() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let boundaries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: -10.0 },
+                Coord { x: 30.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: -10.0 },
+                Coord { x: 30.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 30.0 },
+                Coord { x: -10.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 30.0 },
+                Coord { x: -10.0, y: -10.0 },
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_retry_policy(TileRetryPolicy {
+                max_attempts: 1,
+                buffer_increment: 40.0,
+                max_buffer: 42.0,
+            });
+        for boundary in &boundaries {
+            tiled.add_geometry(boundary);
+        }
+
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(result.polygons.len(), 1);
+        assert_eq!(result.stitching_report.retried_tile_count, 4);
+        assert_eq!(result.stitching_report.retry_attempt_count, 4);
+        assert_eq!(result.stitching_report.retry_exhausted_tile_count, 0);
+        assert!(result.tile_reports.iter().all(|report| {
+            report.retry_attempts.len() == 1
+                && report.retry_attempts[0].buffer == 42.0
+                && report.retry_attempts[0].resolved
+        }));
+
+        let mut exhausted = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_retry_policy(TileRetryPolicy {
+                max_attempts: 1,
+                buffer_increment: 1.0,
+                max_buffer: 3.0,
+            });
+        for boundary in &boundaries {
+            exhausted.add_geometry(boundary);
+        }
+        assert!(matches!(
+            exhausted.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                retry_attempt_count: 4,
+                retry_exhausted_tile_count: 4,
+                tile_reports,
+                ..
+            }) if tile_reports.iter().all(|report| report.retry_exhausted)
         ));
     }
 

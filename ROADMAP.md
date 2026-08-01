@@ -735,12 +735,14 @@ covered while the broader coverage-detection rows remain open.
 
 When coverage cannot be proven:
 
-- [ ] retry only the unresolved tile region with a larger halo;
+- [x] retry only the unresolved tile region with a caller-bounded larger halo;
 - [ ] fall back to untiled processing for the unresolved connected region;
 - [ ] merge the fallback result canonically with already validated regions;
-- [ ] stop with a typed resource/coverage error when the configured budget is
+- [x] stop with a typed coverage error when the configured retry budget is
   exhausted;
 - [ ] record every retry and fallback in the stitching report and topology trace.
+  - [x] Record deterministic retry attempts and exhausted tiles in tile and
+    stitching reports; bounded retry trace events remain open.
 
 ### P3.3 True graph stitching
 

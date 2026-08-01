@@ -89,6 +89,25 @@ pub struct TileExcludedComponentIssue {
     pub connection: TileComponentConnection,
 }
 
+/// Deterministic bounded halo growth for unresolved tiles.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileRetryPolicy {
+    pub max_attempts: usize,
+    pub buffer_increment: f64,
+    pub max_buffer: f64,
+}
+
+/// Result of one larger-halo retry for a tile.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TileRetryAttempt {
+    pub attempt: usize,
+    pub buffer: f64,
+    pub unresolved_owned_polygon_count: usize,
+    pub unresolved_input_geometry_count: usize,
+    pub unresolved_component_count: usize,
+    pub resolved: bool,
+}
+
 /// Observed work and topology output for one tile.
 #[derive(Debug)]
 pub struct TileReport {
@@ -107,6 +126,8 @@ pub struct TileReport {
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
     /// Exact-linework-connected components excluded from this tile's halo.
     pub excluded_component_issues: Vec<TileExcludedComponentIssue>,
+    pub retry_attempts: Vec<TileRetryAttempt>,
+    pub retry_exhausted: bool,
 }
 
 /// Counts from merging and deduplicating owned tile polygons.
@@ -125,6 +146,9 @@ pub struct StitchingReport {
     pub unresolved_component_tile_count: usize,
     /// Excluded-component issue instances across tiles; a component may occur more than once.
     pub unresolved_component_count: usize,
+    pub retried_tile_count: usize,
+    pub retry_attempt_count: usize,
+    pub retry_exhausted_tile_count: usize,
 }
 
 /// Experimental tiled output with per-tile and merge diagnostics.
@@ -169,6 +193,8 @@ pub enum TiledPolygonizeError {
         unresolved_input_geometry_count: usize,
         unresolved_component_tile_count: usize,
         unresolved_component_count: usize,
+        retry_attempt_count: usize,
+        retry_exhausted_tile_count: usize,
         tile_reports: Vec<TileReport>,
     },
 }
@@ -313,6 +339,7 @@ pub struct TiledPolygonizer<'a> {
     dedup_policy: DedupPolicy,
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
+    retry_policy: Option<TileRetryPolicy>,
 }
 
 impl<'a> TiledPolygonizer<'a> {
@@ -330,6 +357,7 @@ impl<'a> TiledPolygonizer<'a> {
             dedup_policy: DedupPolicy::KeepAll,
             options,
             execution_policy: ExecutionPolicy::default(),
+            retry_policy: None,
         }
     }
 
@@ -359,6 +387,11 @@ impl<'a> TiledPolygonizer<'a> {
         self
     }
 
+    pub fn with_retry_policy(mut self, retry_policy: TileRetryPolicy) -> Self {
+        self.retry_policy = Some(retry_policy);
+        self
+    }
+
     pub fn add_geometry(&mut self, geom: &'a Geometry<f64>) {
         let bbox = geom.bounding_rect();
         self.geometries.push((geom, bbox));
@@ -368,6 +401,7 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         tile_bbox: Rect<f64>,
         input_components: &[InputComponent],
+        buffer: f64,
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
         let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
@@ -377,12 +411,12 @@ impl<'a> TiledPolygonizer<'a> {
         // Define buffered bbox
         let buffered_bbox = Rect::new(
             Coord {
-                x: tile_bbox.min().x - self.buffer,
-                y: tile_bbox.min().y - self.buffer,
+                x: tile_bbox.min().x - buffer,
+                y: tile_bbox.min().y - buffer,
             },
             Coord {
-                x: tile_bbox.max().x + self.buffer,
-                y: tile_bbox.max().y + self.buffer,
+                x: tile_bbox.max().x + buffer,
+                y: tile_bbox.max().y + buffer,
             },
         );
 
@@ -434,6 +468,8 @@ impl<'a> TiledPolygonizer<'a> {
             coverage_issues: Vec::new(),
             input_boundary_issues,
             excluded_component_issues,
+            retry_attempts: Vec::new(),
+            retry_exhausted: false,
         };
         if relevant_lines == 0 {
             return Ok((Vec::new(), report, Vec::new(), false));
@@ -493,6 +529,49 @@ impl<'a> TiledPolygonizer<'a> {
             ownership_decisions,
             capture_budget.is_some_and(|budget| budget.truncated()),
         ))
+    }
+
+    fn report_is_unresolved(report: &TileReport) -> bool {
+        !report.coverage_issues.is_empty()
+            || !report.input_boundary_issues.is_empty()
+            || !report.excluded_component_issues.is_empty()
+    }
+
+    fn process_tile_with_retries(
+        &self,
+        tile_bbox: Rect<f64>,
+        input_components: &[InputComponent],
+        capture_byte_limit: Option<usize>,
+    ) -> Result<TileProcessResult> {
+        let mut buffer = self.buffer;
+        let mut result =
+            self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
+        let Some(policy) = self.retry_policy else {
+            return Ok(result);
+        };
+        let mut retry_attempts = Vec::new();
+        let mut capture_truncated = result.3;
+        for attempt in 1..=policy.max_attempts {
+            if !Self::report_is_unresolved(&result.1) || buffer >= policy.max_buffer {
+                break;
+            }
+            buffer = (buffer + policy.buffer_increment).min(policy.max_buffer);
+            result = self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
+            capture_truncated |= result.3;
+            let resolved = !Self::report_is_unresolved(&result.1);
+            retry_attempts.push(TileRetryAttempt {
+                attempt,
+                buffer,
+                unresolved_owned_polygon_count: result.1.coverage_issues.len(),
+                unresolved_input_geometry_count: result.1.input_boundary_issues.len(),
+                unresolved_component_count: result.1.excluded_component_issues.len(),
+                resolved,
+            });
+        }
+        result.1.retry_exhausted = Self::report_is_unresolved(&result.1);
+        result.1.retry_attempts = retry_attempts;
+        result.3 = capture_truncated;
+        Ok(result)
     }
 
     fn ownership_point(&self, poly: &Polygon3D) -> Option<Point<f64>> {
@@ -768,6 +847,8 @@ impl<'a> TiledPolygonizer<'a> {
                     .stitching_report
                     .unresolved_component_tile_count,
                 unresolved_component_count: result.stitching_report.unresolved_component_count,
+                retry_attempt_count: result.stitching_report.retry_attempt_count,
+                retry_exhausted_tile_count: result.stitching_report.retry_exhausted_tile_count,
                 tile_reports: result.tile_reports,
             });
         }
@@ -826,7 +907,7 @@ impl<'a> TiledPolygonizer<'a> {
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
                 let (polygons, report, ownership_decisions, capture_truncated) =
-                    self.process_tile(tile, input_components, capture_byte_limit)?;
+                    self.process_tile_with_retries(tile, input_components, capture_byte_limit)?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
                 for issue in &report.excluded_component_issues {
                     let recorded = match issue.connection {
@@ -869,12 +950,12 @@ impl<'a> TiledPolygonizer<'a> {
             #[cfg(feature = "parallel")]
             let tile_results: Vec<_> = tiles
                 .into_par_iter()
-                .map(|tile| self.process_tile(tile, input_components, None))
+                .map(|tile| self.process_tile_with_retries(tile, input_components, None))
                 .collect();
             #[cfg(not(feature = "parallel"))]
             let tile_results: Vec<_> = tiles
                 .into_iter()
-                .map(|tile| self.process_tile(tile, input_components, None))
+                .map(|tile| self.process_tile_with_retries(tile, input_components, None))
                 .collect();
 
             for result in tile_results {
@@ -948,6 +1029,17 @@ impl<'a> TiledPolygonizer<'a> {
         let unresolved_component_count = tile_reports.iter().fold(0usize, |total, report| {
             total.saturating_add(report.excluded_component_issues.len())
         });
+        let retried_tile_count = tile_reports
+            .iter()
+            .filter(|report| !report.retry_attempts.is_empty())
+            .count();
+        let retry_attempt_count = tile_reports.iter().fold(0usize, |total, report| {
+            total.saturating_add(report.retry_attempts.len())
+        });
+        let retry_exhausted_tile_count = tile_reports
+            .iter()
+            .filter(|report| report.retry_exhausted)
+            .count();
         Ok(TiledPolygonizeResult {
             polygons,
             tile_reports,
@@ -961,6 +1053,9 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_input_geometry_count,
                 unresolved_component_tile_count,
                 unresolved_component_count,
+                retried_tile_count,
+                retry_attempt_count,
+                retry_exhausted_tile_count,
             },
         })
     }
@@ -980,6 +1075,29 @@ impl<'a> TiledPolygonizer<'a> {
                 expected: "a finite non-negative number".to_string(),
                 actual: self.buffer.to_string(),
             });
+        }
+        if let Some(policy) = self.retry_policy {
+            if policy.max_attempts == 0 {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: "retry_policy.max_attempts".to_string(),
+                    expected: "a positive integer".to_string(),
+                    actual: policy.max_attempts.to_string(),
+                });
+            }
+            if !policy.buffer_increment.is_finite() || policy.buffer_increment <= 0.0 {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: "retry_policy.buffer_increment".to_string(),
+                    expected: "a finite positive number".to_string(),
+                    actual: policy.buffer_increment.to_string(),
+                });
+            }
+            if !policy.max_buffer.is_finite() || policy.max_buffer <= self.buffer {
+                return Err(PolygonizeError::InvalidArgumentType {
+                    field: "retry_policy.max_buffer".to_string(),
+                    expected: "a finite number greater than the initial buffer".to_string(),
+                    actual: policy.max_buffer.to_string(),
+                });
+            }
         }
         let min = self.bbox.min();
         let max = self.bbox.max();
