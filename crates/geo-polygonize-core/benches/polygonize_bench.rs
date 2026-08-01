@@ -62,11 +62,13 @@ fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
         group.bench_with_input(BenchmarkId::new("grid", size), &size, |b, &size| {
             let lines = generate_grid(size);
             b.iter(|| {
-                let mut poly = Polygonizer::new();
+                let mut poly = Polygonizer::with_options(PolygonizerOptions {
+                    node_input: true,
+                    ..Default::default()
+                });
                 for line in &lines {
                     poly.add_geometry(line.clone().into());
                 }
-                poly.options_mut().node_input = true;
                 poly.polygonize().unwrap();
             });
         });
@@ -169,11 +171,13 @@ fn bench_random_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
         group.bench_with_input(BenchmarkId::new("random", count), &count, |b, &count| {
             let lines = generate_random_lines(count, 42);
             b.iter(|| {
-                let mut poly = Polygonizer::new();
+                let mut poly = Polygonizer::with_options(PolygonizerOptions {
+                    node_input: true,
+                    ..Default::default()
+                });
                 for line in &lines {
                     poly.add_geometry(line.clone().into());
                 }
-                poly.options_mut().node_input = true;
                 poly.polygonize().unwrap();
             });
         });

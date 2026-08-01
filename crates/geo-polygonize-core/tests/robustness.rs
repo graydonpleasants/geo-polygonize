@@ -1,6 +1,14 @@
 use geo::Geometry;
-use geo_polygonize_core::{Coord3D, Line3D, Polygonizer};
+use geo_polygonize_core::{Coord3D, Line3D, Polygonizer, PolygonizerOptions, PrecisionModel};
 use geo_types::{Coord, LineString};
+
+fn fixed_noding_polygonizer() -> Polygonizer {
+    Polygonizer::with_options(PolygonizerOptions {
+        node_input: true,
+        precision_model: PrecisionModel::FixedGrid { grid_size: 1e-6 },
+        ..Default::default()
+    })
+}
 
 #[test]
 fn test_bowtie_noding() {
@@ -14,10 +22,7 @@ fn test_bowtie_noding() {
         Coord { x: 0.0, y: 0.0 },
     ]);
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
-    poly.options_mut().precision_model =
-        geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: 1e-6 };
+    let mut poly = fixed_noding_polygonizer();
     poly.add_geometry(Geometry::LineString(ls));
 
     let results = poly.polygonize().expect("Polygonization failed").polygons;
@@ -32,10 +37,7 @@ fn test_bowtie_noding() {
 
 #[test]
 fn test_duplicate_edge_removal() {
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
-    poly.options_mut().precision_model =
-        geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: 1e-6 };
+    let mut poly = fixed_noding_polygonizer();
 
     // Triangle edge 1
     poly.add_geometry(Geometry::LineString(LineString(vec![

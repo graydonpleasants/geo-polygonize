@@ -354,7 +354,8 @@ impl Polygonizer {
         &self.options
     }
 
-    pub fn options_mut(&mut self) -> &mut PolygonizerOptions {
+    #[cfg(test)]
+    pub(crate) fn options_mut(&mut self) -> &mut PolygonizerOptions {
         &mut self.options
     }
 

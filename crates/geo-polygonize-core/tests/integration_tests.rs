@@ -1,7 +1,15 @@
 use geo::Area;
-use geo_polygonize_core::Polygonizer;
+use geo_polygonize_core::{Polygonizer, PolygonizerOptions, PrecisionModel};
 use geo_types::{Coord, LineString};
 use std::f64::consts::PI;
+
+fn noding_polygonizer(precision_model: PrecisionModel) -> Polygonizer {
+    Polygonizer::with_options(PolygonizerOptions {
+        node_input: true,
+        precision_model,
+        ..Default::default()
+    })
+}
 
 #[test]
 fn test_nested_holes() {
@@ -74,8 +82,7 @@ fn test_nested_holes() {
 #[test]
 
 fn test_touching_polygons() {
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true; // Required to deduplicate the shared edge
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     // Square 1: (0,0)-(50,0)-(50,50)-(0,50)
     poly.add_geometry(
@@ -144,8 +151,7 @@ fn test_dangles() {
 
 #[test]
 fn test_bowtie() {
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     // Bowtie: (0,0)->(10,10)->(0,10)->(10,0)->(0,0)
     // Intersects at (5,5)
@@ -191,10 +197,7 @@ fn create_circle(x: f64, y: f64, r: f64, points: usize) -> LineString<f64> {
 
 #[test]
 fn test_overlapping_circles() {
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
-    poly.options_mut().precision_model =
-        geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: 1e-10 };
+    let mut poly = noding_polygonizer(PrecisionModel::FixedGrid { grid_size: 1e-10 });
 
     // 1. Overlapping Circles
     let c1 = create_circle(30.0, 30.0, 30.0, 100);
@@ -220,10 +223,7 @@ fn test_overlapping_circles() {
 
 #[test]
 fn test_curved_holes() {
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
-    poly.options_mut().precision_model =
-        geo_polygonize_core::PrecisionModel::FixedGrid { grid_size: 1e-10 };
+    let mut poly = noding_polygonizer(PrecisionModel::FixedGrid { grid_size: 1e-10 });
 
     // 2. Curved Holes
     let outer = create_circle(50.0, 50.0, 50.0, 200);
@@ -251,8 +251,7 @@ fn test_touching_full_edge() {
     // Square 2: (10,0)-(20,0)-(20,10)-(10,10)-(10,0)
     // Shared edge: (10,0)-(10,10)
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     poly.add_geometry(
         LineString::from(vec![
@@ -291,8 +290,7 @@ fn test_touching_partial_edge() {
     // (10,5)-(20,5)-(20,15)-(10,15)-(10,5)
     // Shared segment: (10,5)-(10,10)
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     poly.add_geometry(
         LineString::from(vec![
@@ -334,8 +332,7 @@ fn test_touching_vertex() {
     // Square 1: (0,0)-(10,0)-(10,10)-(0,10)-(0,0)
     // Square 2: (10,10)-(20,10)-(20,20)-(10,20)-(10,10)
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     poly.add_geometry(
         LineString::from(vec![
@@ -370,8 +367,7 @@ fn test_touching_t_junction() {
     // (2, -10)-(8, -10)-(8, 0)-(2, 0)-(2, -10)
     // Touches at segment (2,0)-(8,0) which is part of S1's bottom edge (0,0)-(10,0)
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     poly.add_geometry(
         LineString::from(vec![
@@ -417,8 +413,7 @@ fn test_grid_2x2() {
     // Split at x=10, y=10
     // Lines provided as 4 separate squares to force deduplication/noding
 
-    let mut poly = Polygonizer::new();
-    poly.options_mut().node_input = true;
+    let mut poly = noding_polygonizer(PrecisionModel::Floating);
 
     // Bottom-Left
     poly.add_geometry(
