@@ -568,6 +568,28 @@ mod tests {
                 && report.excluded_component_issues[0].connection
                     == TileComponentConnection::SegmentIntersection
         }));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_segment_component")
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].payload["tile_index"], 0);
+        assert_eq!(
+            events[0].payload["input_geometry_indices"],
+            serde_json::json!([0, 1, 2, 3])
+        );
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert_eq!(
+            bounded.result.stitching_report.unresolved_component_count,
+            4
+        );
         let error = tiled
             .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
             .unwrap_err();
