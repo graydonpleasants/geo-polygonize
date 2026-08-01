@@ -740,7 +740,7 @@ Add or finish dedicated guides for:
 - [x] Wasm memory lifetime, workers, threads, and cancellation;
 - [x] Python memory/GIL behavior;
 - [x] Arrow C ABI ownership and error retrieval;
-- [ ] benchmark methodology and how to reproduce claims.
+- [x] benchmark methodology and how to reproduce claims.
 
 Compile examples, run rustdoc with warnings denied, check links, and ensure the
 interactive debugger uses the published package rather than repository-only

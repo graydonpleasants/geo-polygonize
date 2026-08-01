@@ -29,6 +29,7 @@ export default defineConfig({
           { text: 'Tiling', link: '/guide/tiling' },
           { text: 'WASM Integration', link: '/guide/wasm' },
           { text: 'Python Integration', link: '/guide/python' },
+          { text: 'Benchmark methodology', link: '/guide/benchmark-methodology' },
         ]
       },
       {
