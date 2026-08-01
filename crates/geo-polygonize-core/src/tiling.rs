@@ -57,6 +57,8 @@ pub struct TileCoverageIssue {
     pub representative_source_line_ids: Vec<u32>,
     /// Complete source IDs when aggregate provenance was requested.
     pub aggregate_source_line_ids: Vec<u32>,
+    /// Whether `aggregate_source_line_ids` contains the complete boundary source set.
+    pub aggregate_source_line_ids_complete: bool,
 }
 
 /// Input geometry that reaches an internal buffered-tile boundary.
@@ -639,6 +641,8 @@ impl<'a> TiledPolygonizer<'a> {
             unresolved_sides,
             representative_source_line_ids,
             aggregate_source_line_ids: poly.boundary_source_line_ids.clone(),
+            aggregate_source_line_ids_complete: self.options.provenance.enabled
+                && self.options.provenance.include_boundary_line_ids,
         })
     }
 

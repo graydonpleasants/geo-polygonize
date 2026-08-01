@@ -336,6 +336,7 @@ mod tests {
         assert_eq!(issues[0].polygon_bbox.max().x, 19.0);
         assert!(!issues[0].representative_source_line_ids.is_empty());
         assert!(issues[0].aggregate_source_line_ids.is_empty());
+        assert!(!issues[0].aggregate_source_line_ids_complete);
         assert_eq!(result.stitching_report.unresolved_tile_count, 1);
         assert_eq!(result.stitching_report.unresolved_owned_polygon_count, 1);
         let traced = tiler
@@ -353,6 +354,7 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        assert_eq!(event.payload["aggregate_source_line_ids_complete"], false);
 
         let mut tiler = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)
@@ -372,6 +374,7 @@ mod tests {
             .next()
             .unwrap();
         assert!(!issue.aggregate_source_line_ids.is_empty());
+        assert!(issue.aggregate_source_line_ids_complete);
     }
 
     #[test]

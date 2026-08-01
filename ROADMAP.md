@@ -710,8 +710,10 @@ covered while the broader coverage-detection rows remain open.
   - [x] Trace excluded segment-intersection components without rescanning input.
   - [x] Apply execution-policy segment, candidate, exact-predicate, and
     cancellation bounds during the indexed component preflight.
-- [ ] Report source IDs and boundary evidence that were required but not fully
+- [x] Report source IDs and boundary evidence that were required but not fully
   observed.
+  - [x] Distinguish representative edge IDs from complete aggregate boundary
+    source IDs explicitly in tile reports and bounded traces.
 - [ ] Add explicit guarantee levels such as `BestEffort` and
   `ValidateCoverage`; do not rename best effort as certified.
   - [x] Add `BestEffort` and `ValidateOwnedFaces` for the reconstructed-face

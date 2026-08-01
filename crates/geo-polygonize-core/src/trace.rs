@@ -333,6 +333,7 @@ pub struct TileOwnedFaceBoundaryTraceV1 {
     pub unresolved_sides: Vec<String>,
     pub representative_source_line_ids: Vec<String>,
     pub aggregate_source_line_ids: Vec<String>,
+    pub aggregate_source_line_ids_complete: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1128,6 +1129,7 @@ impl TraceRecorderV1 {
                     .collect(),
                 representative_source_line_ids: source_ids(&issue.representative_source_line_ids),
                 aggregate_source_line_ids: source_ids(&issue.aggregate_source_line_ids),
+                aggregate_source_line_ids_complete: issue.aggregate_source_line_ids_complete,
             })
             .expect("tile owned-face boundary trace event serializes"),
         ))
