@@ -260,6 +260,7 @@ enum ComponentFallbackDeclineReason {
     OwnedFaceCoverageEvidence,
     IndexedComponentMissing,
     InputBoundaryOutsideRecoveryRegion,
+    NonClosedRecoveryRegion,
     EmptyRecoveryOutput,
 }
 
@@ -270,6 +271,7 @@ impl ComponentFallbackDeclineReason {
             Self::OwnedFaceCoverageEvidence => "owned_face_coverage_evidence",
             Self::IndexedComponentMissing => "indexed_component_missing",
             Self::InputBoundaryOutsideRecoveryRegion => "input_boundary_outside_recovery_region",
+            Self::NonClosedRecoveryRegion => "non_closed_recovery_region",
             Self::EmptyRecoveryOutput => "empty_recovery_output",
         }
     }
@@ -367,6 +369,43 @@ fn geometry_segments(
         _ => {}
     }
     Ok(())
+}
+
+fn line_string_has_closed_boundary(line: &LineString<f64>) -> bool {
+    let Some((first, last)) = line.0.first().zip(line.0.last()) else {
+        return false;
+    };
+    line.0.len() >= 4 && first.x == last.x && first.y == last.y
+}
+
+fn geometry_has_closed_boundary(geometry: &Geometry<f64>) -> bool {
+    match geometry {
+        Geometry::LineString(line) => line_string_has_closed_boundary(line),
+        Geometry::MultiLineString(lines) => {
+            !lines.0.is_empty() && lines.0.iter().all(line_string_has_closed_boundary)
+        }
+        Geometry::Polygon(polygon) => {
+            line_string_has_closed_boundary(polygon.exterior())
+                && polygon
+                    .interiors()
+                    .iter()
+                    .all(line_string_has_closed_boundary)
+        }
+        Geometry::MultiPolygon(polygons) => {
+            !polygons.0.is_empty()
+                && polygons.iter().all(|polygon| {
+                    line_string_has_closed_boundary(polygon.exterior())
+                        && polygon
+                            .interiors()
+                            .iter()
+                            .all(line_string_has_closed_boundary)
+                })
+        }
+        Geometry::GeometryCollection(collection) => {
+            !collection.0.is_empty() && collection.0.iter().all(geometry_has_closed_boundary)
+        }
+        _ => false,
+    }
 }
 
 fn component_root(parents: &mut [usize], index: usize) -> usize {
@@ -655,6 +694,136 @@ impl<'a> TiledPolygonizer<'a> {
             || !report.excluded_component_issues.is_empty()
     }
 
+    fn try_closed_boundary_fallback(
+        &self,
+        tile_polygons: &[Vec<Polygon3D>],
+        tile_reports: &[TileReport],
+    ) -> Result<ComponentFallbackDecision> {
+        self.execution_policy
+            .check_cancelled("tile_component_fallback")?;
+        let Some(mut region_bbox) = tile_reports
+            .iter()
+            .flat_map(|report| {
+                report
+                    .coverage_issues
+                    .iter()
+                    .map(|issue| issue.polygon_bbox)
+                    .chain(
+                        report
+                            .input_boundary_issues
+                            .iter()
+                            .map(|issue| issue.geometry_bbox),
+                    )
+            })
+            .next()
+        else {
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::NoIndexedComponentEvidence,
+            ));
+        };
+        for bbox in tile_reports.iter().flat_map(|report| {
+            report
+                .coverage_issues
+                .iter()
+                .map(|issue| issue.polygon_bbox)
+                .chain(
+                    report
+                        .input_boundary_issues
+                        .iter()
+                        .map(|issue| issue.geometry_bbox),
+                )
+        }) {
+            expand_rect(&mut region_bbox, bbox);
+        }
+
+        let retained_polygon_bboxes = tile_polygons
+            .iter()
+            .flat_map(|polygons| polygons.iter())
+            .filter_map(Self::polygon_bbox)
+            .collect::<Vec<_>>();
+        let mut selected_geometry_indices = HashSet::new();
+        loop {
+            self.execution_policy
+                .check_cancelled("tile_component_fallback")?;
+            let previous_region_bbox = region_bbox;
+            for (geometry_index, (geometry, geometry_bbox)) in self.geometries.iter().enumerate() {
+                self.execution_policy
+                    .check_cancelled_every("tile_component_fallback", geometry_index)?;
+                let Some(geometry_bbox) = *geometry_bbox else {
+                    continue;
+                };
+                if selected_geometry_indices.contains(&geometry_index)
+                    || !geometry_bbox.intersects(&region_bbox)
+                {
+                    continue;
+                }
+                if !geometry_has_closed_boundary(geometry) {
+                    return Ok(ComponentFallbackDecision::Declined(
+                        ComponentFallbackDeclineReason::NonClosedRecoveryRegion,
+                    ));
+                }
+                selected_geometry_indices.insert(geometry_index);
+                expand_rect(&mut region_bbox, geometry_bbox);
+            }
+            for (polygon_index, polygon_bbox) in retained_polygon_bboxes.iter().enumerate() {
+                self.execution_policy
+                    .check_cancelled_every("tile_component_fallback", polygon_index)?;
+                if polygon_bbox.intersects(&region_bbox) {
+                    expand_rect(&mut region_bbox, *polygon_bbox);
+                }
+            }
+            if region_bbox == previous_region_bbox {
+                break;
+            }
+        }
+
+        if selected_geometry_indices.is_empty()
+            || tile_reports.iter().any(|report| {
+                report
+                    .input_boundary_issues
+                    .iter()
+                    .any(|issue| !selected_geometry_indices.contains(&issue.input_geometry_index))
+            })
+        {
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::InputBoundaryOutsideRecoveryRegion,
+            ));
+        }
+
+        let mut input_geometry_indices = selected_geometry_indices.into_iter().collect::<Vec<_>>();
+        input_geometry_indices.sort_unstable();
+        self.execution_policy
+            .check_cancelled("tile_component_fallback")?;
+        let mut polygonizer = Polygonizer::with_options(self.options.clone())
+            .with_execution_policy(self.execution_policy.clone());
+        for &geometry_index in &input_geometry_indices {
+            polygonizer.add_borrowed_geometry(self.geometries[geometry_index].0);
+        }
+        let polygons = polygonizer.polygonize()?.polygons;
+        if polygons.is_empty() {
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::EmptyRecoveryOutput,
+            ));
+        }
+        let output_polygon_count = polygons.len();
+        let replaced_retained_polygon_count = retained_polygon_bboxes
+            .iter()
+            .filter(|polygon_bbox| polygon_bbox.intersects(&region_bbox))
+            .count();
+        Ok(ComponentFallbackDecision::Recovered(
+            ComponentFallbackResult {
+                polygons,
+                events: vec![ComponentFallbackEvent {
+                    input_geometry_indices,
+                    output_polygon_count,
+                    recovered_component_count: 1,
+                    replaced_retained_polygon_count,
+                }],
+                region_bboxes: vec![region_bbox],
+            },
+        ))
+    }
+
     fn try_component_fallback(
         &self,
         tile_polygons: &[Vec<Polygon3D>],
@@ -684,15 +853,21 @@ impl<'a> TiledPolygonizer<'a> {
                 component_keys.insert(component.input_geometry_indices.clone());
             }
         }
+        let has_coverage_evidence = tile_reports
+            .iter()
+            .any(|report| !report.coverage_issues.is_empty());
+        let has_input_boundary_evidence = tile_reports
+            .iter()
+            .any(|report| !report.input_boundary_issues.is_empty());
         if component_keys.is_empty() {
+            if has_coverage_evidence || has_input_boundary_evidence {
+                return self.try_closed_boundary_fallback(tile_polygons, tile_reports);
+            }
             return Ok(ComponentFallbackDecision::Declined(
                 ComponentFallbackDeclineReason::NoIndexedComponentEvidence,
             ));
         }
-        if tile_reports
-            .iter()
-            .any(|report| !report.coverage_issues.is_empty())
-        {
+        if has_coverage_evidence {
             return Ok(ComponentFallbackDecision::Declined(
                 ComponentFallbackDeclineReason::OwnedFaceCoverageEvidence,
             ));

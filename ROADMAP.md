@@ -706,6 +706,10 @@ observed evidence. The preflight now reuses the bounded certified noder for
 that same connectivity case. A partially observed transformed-connected
 component, where one member geometry intersects a halo and other members do
 not, is now reported as conservative excluded-component evidence.
+Opt-in component fallback also recovers a closed single-input boundary region
+when retained-face or input-boundary evidence reaches a halo; mixed or open
+single-geometry boundaries decline conservatively, so broad missing-region
+coverage detection remains observational.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -772,6 +776,9 @@ When coverage cannot be proven:
   - [x] Add opt-in envelope-closed component fallback that groups interacting
     input, retained-face, and connected-component envelopes and records the
     recovery, including input-boundary-seeded components.
+  - [x] Recover a halo-crossing region seeded by a caller-owned closed input
+    geometry; decline mixed or open single-geometry regions with deterministic
+    evidence rather than appending an unsafe partial result.
   - [x] Recover a nested retained face by polygonizing the closed region once;
     whole-input fallback remains the escape hatch for evidence outside that
     region.
