@@ -823,6 +823,9 @@ When coverage cannot be proven:
 - [ ] merge the fallback result canonically with already validated regions;
   - [x] Replace retained polygons intersecting an envelope-closed recovery
     region before canonical deduplication and deterministic ordering.
+  - [x] Route non-envelope-closed recovery evidence through the caller-enabled
+    whole-input fallback, preserving global containment and tracing the decline;
+    region-local reconciliation remains open.
   - [ ] Reconcile fallback regions whose topology crosses a partition boundary
     without a conservative envelope closure.
 - [x] stop with a typed coverage error when the configured retry budget is

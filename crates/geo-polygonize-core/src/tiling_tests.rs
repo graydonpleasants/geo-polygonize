@@ -3039,7 +3039,9 @@ fn component_fallback_recovers_mixed_owned_face_and_component_evidence() {
 
 #[test]
 fn component_fallback_declines_unclosed_coverage_region_outside_component() {
-    use crate::{DedupPolicy, TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer};
+    use crate::{
+        DedupPolicy, Polygonizer, TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer,
+    };
     use geo::{Coord, Geometry, LineString, Rect};
 
     let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 60.0, y: 60.0 });
@@ -3085,4 +3087,60 @@ fn component_fallback_declines_unclosed_coverage_region_outside_component() {
             ..
         })
     ));
+
+    let mut expected = Polygonizer::new();
+    for geometry in &geometries {
+        expected.add_borrowed_geometry(geometry);
+    }
+    let expected = expected
+        .polygonize()
+        .unwrap()
+        .polygons
+        .into_iter()
+        .map(|polygon| crate::tiling::canonical_polygon_key(&polygon))
+        .collect::<Vec<_>>();
+    let mut globally_fallback = TiledPolygonizer::new(bbox, 10.0)
+        .with_buffer(2.0)
+        .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+        .with_component_fallback()
+        .with_untiled_fallback();
+    for geometry in &geometries {
+        globally_fallback.add_geometry(geometry);
+    }
+    let result = globally_fallback
+        .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+        .unwrap();
+    assert_eq!(
+        result
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert!(result.stitching_report.component_fallback_attempted);
+    assert!(!result.stitching_report.component_fallback_used);
+    assert_eq!(
+        result.stitching_report.component_fallback_decline_reason,
+        Some("input_boundary_outside_recovery_region")
+    );
+    assert!(result.stitching_report.untiled_fallback_used);
+    let traced = globally_fallback
+        .polygonize_with_trace(crate::trace::TraceLevelV1::Full, usize::MAX)
+        .unwrap();
+    let recovery_events = traced
+        .trace
+        .events
+        .iter()
+        .filter_map(|event| match event.kind.as_str() {
+            "tile_component_fallback_declined" | "tile_untiled_fallback" => {
+                Some(event.kind.as_str())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        recovery_events,
+        vec!["tile_component_fallback_declined", "tile_untiled_fallback"]
+    );
 }
