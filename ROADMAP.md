@@ -753,6 +753,8 @@ When coverage cannot be proven:
     spatially nests an already retained tile-local face.
   - [x] Add opt-in envelope-disjoint component fallback that declines nested,
     overlapping, or previously included linework and records the recovery.
+  - [x] Verify declined nested component recovery hands off to the
+    containment-safe whole-input fallback when both are enabled.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile
