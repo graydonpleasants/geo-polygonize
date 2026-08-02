@@ -174,6 +174,43 @@ pub struct TileReport {
     pub retry_exhausted: bool,
 }
 
+/// Outcome of resolving the observed coverage evidence for one tiled call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TileCoverageResolution {
+    pub observed_issue_count: usize,
+    pub resolved_issue_count: usize,
+    pub unresolved_issue_count: usize,
+    pub resolution: TileCoverageResolutionKind,
+    /// Deterministic indexes of component-fallback regions that contributed to
+    /// the resolution. Untiled fallback does not use region indexes.
+    pub recovered_region_ids: Vec<usize>,
+}
+
+/// Classification of the tiled coverage-resolution ledger.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TileCoverageResolutionKind {
+    NoIssues,
+    ComponentFallback,
+    UntiledFallback,
+    Partial,
+    Unresolved,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+enum TileCoverageIssueKind {
+    OwnedFace,
+    OwnershipDomain,
+    InputBoundary,
+    ExcludedComponent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct TileCoverageIssueId {
+    tile_index: usize,
+    kind: TileCoverageIssueKind,
+    issue_index: usize,
+}
+
 /// Counts from merging and deduplicating owned tile polygons.
 ///
 /// These counts do not certify that the configured buffer was sufficient.
@@ -208,9 +245,17 @@ pub struct StitchingReport {
     pub retry_attempt_count: usize,
     pub retry_exhausted_tile_count: usize,
     /// Whether indexed components were recovered by component or region fallback.
+    /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
-    /// Whether unresolved tiled output was replaced by one untiled pass over all input.
+    /// Whether the whole-input fallback was selected for execution.
+    pub untiled_fallback_attempted: bool,
+    /// Whether the whole-input fallback completed and is authoritative.
+    pub untiled_fallback_authoritative: bool,
+    /// Polygon count produced by an authoritative whole-input fallback.
+    pub untiled_fallback_output_polygon_count: usize,
+    /// Backward-compatible alias for `untiled_fallback_authoritative`.
     pub untiled_fallback_used: bool,
+    pub coverage_resolution: TileCoverageResolution,
 }
 
 /// Experimental tiled output with per-tile and merge diagnostics.
@@ -262,7 +307,8 @@ pub enum TiledPolygonizeError {
         retry_attempt_count: usize,
         retry_exhausted_tile_count: usize,
         component_fallback_decline_reason: Option<&'static str>,
-        tile_reports: Vec<TileReport>,
+        coverage_resolution: Box<TileCoverageResolution>,
+        tile_reports: Box<Vec<TileReport>>,
     },
 }
 
@@ -322,6 +368,96 @@ impl ComponentFallbackDeclineReason {
 enum ComponentFallbackDecision {
     Recovered(ComponentFallbackResult),
     Declined(ComponentFallbackDeclineReason),
+}
+
+fn build_coverage_resolution(
+    tile_reports: &[TileReport],
+    component_fallback_used: bool,
+    region_bboxes: &[Rect<f64>],
+    untiled_fallback_authoritative: bool,
+) -> TileCoverageResolution {
+    let mut observed_issue_ids = HashSet::new();
+    let mut resolved_issue_ids = HashSet::new();
+    let mut record_issue =
+        |tile_index: usize, kind: TileCoverageIssueKind, issue_index: usize, bbox: Rect<f64>| {
+            let issue_id = TileCoverageIssueId {
+                tile_index,
+                kind,
+                issue_index,
+            };
+            observed_issue_ids.insert(issue_id);
+            let resolved = untiled_fallback_authoritative
+                || (component_fallback_used
+                    && kind != TileCoverageIssueKind::OwnershipDomain
+                    && region_bboxes
+                        .iter()
+                        .any(|region_bbox| bbox.intersects(region_bbox)));
+            if resolved {
+                resolved_issue_ids.insert(issue_id);
+            }
+        };
+
+    for (tile_index, report) in tile_reports.iter().enumerate() {
+        for (issue_index, issue) in report.coverage_issues.iter().enumerate() {
+            record_issue(
+                tile_index,
+                TileCoverageIssueKind::OwnedFace,
+                issue_index,
+                issue.polygon_bbox,
+            );
+        }
+        for (issue_index, issue) in report.ownership_domain_issues.iter().enumerate() {
+            record_issue(
+                tile_index,
+                TileCoverageIssueKind::OwnershipDomain,
+                issue_index,
+                issue.polygon_bbox,
+            );
+        }
+        for (issue_index, issue) in report.input_boundary_issues.iter().enumerate() {
+            record_issue(
+                tile_index,
+                TileCoverageIssueKind::InputBoundary,
+                issue_index,
+                issue.geometry_bbox,
+            );
+        }
+        for (issue_index, issue) in report.excluded_component_issues.iter().enumerate() {
+            record_issue(
+                tile_index,
+                TileCoverageIssueKind::ExcludedComponent,
+                issue_index,
+                issue.component_bbox,
+            );
+        }
+    }
+
+    let observed_issue_count = observed_issue_ids.len();
+    let resolved_issue_count = resolved_issue_ids.len();
+    let unresolved_issue_count = observed_issue_count - resolved_issue_count;
+    let resolution = match (observed_issue_count, resolved_issue_count) {
+        (0, _) => TileCoverageResolutionKind::NoIssues,
+        (_, 0) => TileCoverageResolutionKind::Unresolved,
+        (_, resolved) if resolved == observed_issue_count => {
+            if untiled_fallback_authoritative {
+                TileCoverageResolutionKind::UntiledFallback
+            } else {
+                TileCoverageResolutionKind::ComponentFallback
+            }
+        }
+        _ => TileCoverageResolutionKind::Partial,
+    };
+    TileCoverageResolution {
+        observed_issue_count,
+        resolved_issue_count,
+        unresolved_issue_count,
+        resolution,
+        recovered_region_ids: if component_fallback_used {
+            (0..region_bboxes.len()).collect()
+        } else {
+            Vec::new()
+        },
+    }
 }
 
 fn account_polygon_output(
@@ -1770,16 +1906,15 @@ impl<'a> TiledPolygonizer<'a> {
         let reject = match guarantee {
             TileCoverageGuarantee::BestEffort => false,
             TileCoverageGuarantee::ValidateOwnedFaces => {
-                !result.stitching_report.untiled_fallback_used
+                !result.stitching_report.untiled_fallback_authoritative
                     && result.stitching_report.unresolved_owned_polygon_count != 0
             }
             TileCoverageGuarantee::ValidateObservedCoverage => {
-                !result.stitching_report.untiled_fallback_used
-                    && !result.stitching_report.component_fallback_used
-                    && (result.stitching_report.unresolved_owned_polygon_count != 0
-                        || result.stitching_report.unresolved_ownership_domain_count != 0
-                        || result.stitching_report.unresolved_input_geometry_count != 0
-                        || result.stitching_report.unresolved_component_count != 0)
+                result
+                    .stitching_report
+                    .coverage_resolution
+                    .unresolved_issue_count
+                    != 0
             }
         };
         if reject {
@@ -1807,7 +1942,8 @@ impl<'a> TiledPolygonizer<'a> {
                 component_fallback_decline_reason: result
                     .stitching_report
                     .component_fallback_decline_reason,
-                tile_reports: result.tile_reports,
+                coverage_resolution: Box::new(result.stitching_report.coverage_resolution.clone()),
+                tile_reports: Box::new(result.tile_reports),
             });
         }
         Ok(result)
@@ -2018,32 +2154,49 @@ impl<'a> TiledPolygonizer<'a> {
             .iter()
             .map(|event| event.replaced_retained_polygon_count)
             .sum();
-        let untiled_fallback_used = self.untiled_fallback && unresolved && !component_fallback_used;
-        let result_polygons: Vec<Polygon3D> = if untiled_fallback_used {
-            let mut polygonizer = Polygonizer::with_options(self.options.clone())
-                .with_execution_policy(self.execution_policy.clone());
-            for (geometry, _) in &self.geometries {
-                polygonizer.add_borrowed_geometry(geometry);
-            }
-            let polygons = polygonizer.polygonize()?.polygons;
-            let mut polygon_count = 0;
-            let mut coordinate_count = 0;
-            for polygon in &polygons {
-                account_polygon_output(
-                    &self.execution_policy,
-                    &mut polygon_count,
-                    &mut coordinate_count,
-                    polygon,
-                )?;
-            }
-            polygons
+        let untiled_fallback_attempted =
+            self.untiled_fallback && unresolved && !component_fallback_used;
+        let (result_polygons, untiled_fallback_authoritative): (Vec<Polygon3D>, bool) =
+            if untiled_fallback_attempted {
+                let mut polygonizer = Polygonizer::with_options(self.options.clone())
+                    .with_execution_policy(self.execution_policy.clone());
+                for (geometry, _) in &self.geometries {
+                    polygonizer.add_borrowed_geometry(geometry);
+                }
+                let polygons = polygonizer.polygonize()?.polygons;
+                let mut polygon_count = 0;
+                let mut coordinate_count = 0;
+                for polygon in &polygons {
+                    account_polygon_output(
+                        &self.execution_policy,
+                        &mut polygon_count,
+                        &mut coordinate_count,
+                        polygon,
+                    )?;
+                }
+                (polygons, true)
+            } else {
+                (
+                    self.merge_fallback_polygons(
+                        tile_polygons,
+                        &region_bboxes,
+                        component_fallback_polygons,
+                    )?,
+                    false,
+                )
+            };
+        let untiled_fallback_output_polygon_count = if untiled_fallback_authoritative {
+            result_polygons.len()
         } else {
-            self.merge_fallback_polygons(
-                tile_polygons,
-                &region_bboxes,
-                component_fallback_polygons,
-            )?
+            0
         };
+        let untiled_fallback_used = untiled_fallback_authoritative;
+        let coverage_resolution = build_coverage_resolution(
+            &tile_reports,
+            component_fallback_used,
+            &region_bboxes,
+            untiled_fallback_authoritative,
+        );
         let merged_polygon_count = result_polygons.len();
 
         let polygons = if untiled_fallback_used {
@@ -2184,7 +2337,11 @@ impl<'a> TiledPolygonizer<'a> {
                 retry_attempt_count,
                 retry_exhausted_tile_count,
                 component_fallback_used,
+                untiled_fallback_attempted,
+                untiled_fallback_authoritative,
+                untiled_fallback_output_polygon_count,
                 untiled_fallback_used,
+                coverage_resolution,
             },
         };
         if let Some(reason) = component_fallback_decline_reason {
