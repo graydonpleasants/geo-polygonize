@@ -758,13 +758,15 @@ When coverage cannot be proven:
 - [ ] fall back to untiled processing for the unresolved connected region;
   - [x] Pin the global-containment boundary where an excluded outer component
     spatially nests an already retained tile-local face.
-  - [x] Add opt-in envelope-disjoint component fallback that declines nested,
-    overlapping, or retained-face-interacting linework and records the
+  - [x] Add opt-in envelope-closed component fallback that groups interacting
+    input, retained-face, and connected-component envelopes and records the
     recovery.
-  - [x] Verify declined nested component recovery hands off to the
-    containment-safe whole-input fallback when both are enabled.
+  - [x] Recover a nested retained face by polygonizing the closed region once;
+    whole-input fallback remains the escape hatch for evidence outside that
+    region.
   - [x] Merge one envelope-disjoint recovered component with retained tile
-    output; general region-local partial merging remains open.
+    output; envelope-closed region replacement now covers interacting retained
+    output.
   - [x] Merge multiple pairwise envelope-disjoint recovered components with
     retained tile output; cross-component overlap and graph stitching remain
     open.
@@ -773,7 +775,7 @@ When coverage cannot be proven:
     broader fallback cancellation coverage remains open.
   - [x] Record retained tile polygon counts in component-fallback trace events
     and expose retained/recovered aggregate counts in `StitchingReport`;
-    canonical partial merging remains open.
+    expose replaced-retained counts for canonical region replacement.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile
@@ -781,14 +783,21 @@ When coverage cannot be proven:
   - [x] Apply the configured execution policy to whole-input fallback and pin
     exact resource-limit evidence.
 - [ ] merge the fallback result canonically with already validated regions;
+  - [x] Replace retained polygons intersecting an envelope-closed recovery
+    region before canonical deduplication and deterministic ordering.
+  - [ ] Reconcile fallback regions whose topology crosses a partition boundary
+    without a conservative envelope closure.
 - [x] stop with a typed coverage error when the configured retry budget is
   exhausted;
 - [ ] record every retry and fallback in the stitching report and topology trace.
   - [x] Record deterministic retry attempts and exhausted tiles in tile and
     stitching reports and bounded `tile_halo_retry` trace events.
   - [x] Record whole-input fallback use in the stitching report and a bounded
-    `tile_untiled_fallback` trace event; broader partial-merge coverage remains
-    open.
+    `tile_untiled_fallback` trace event; broader declined-fallback coverage
+    remains open.
+  - [x] Record envelope-closed component/region recovery and retained-polygon
+    replacement counts in the stitching report and bounded component-fallback
+    trace events.
 
 ### P3.3 True graph stitching
 

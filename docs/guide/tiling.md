@@ -102,9 +102,10 @@ Both validation modes are deliberately narrower than coverage certification.
 `with_execution_policy` applies segment, candidate, exact-predicate, and
 cancellation bounds to the indexed component preflight, including the optional
 pre-snap and fixed-grid endpoint passes, and passes the same policy to each tile
-polygonization. Numeric work limits apply independently to the preflight and to
-each tile, not as one aggregate budget across the tiled call. The component
-envelope remains conservative evidence rather than proof of a face.
+polygonization and recovery region. Numeric work limits apply independently to
+the preflight, each tile, and each recovery region, not as one aggregate budget
+across the tiled call. The component envelope remains conservative evidence
+rather than proof of a face.
 `with_retry_policy` enables deterministic tile-local halo growth for tiles whose
 final report still contains owned-face, input-boundary, or excluded-component
 evidence. Each attempt adds `buffer_increment` up to `max_attempts` and
@@ -113,23 +114,22 @@ attempt in `TileReport` and `StitchingReport`. Strict validation returns the
 typed coverage error with retry counts when the bounded schedule is exhausted.
 Retries reuse the same execution policy independently per attempt. Full output
 traces record bounded `tile_halo_retry` events directly from the physical retry
-history. `with_component_fallback` enables a narrower recovery path for excluded
-components whose envelope is disjoint from every non-member input envelope,
-retained tile polygon, and other recovered component. Member linework may have
-appeared in a tile halo; if that produced a retained face intersecting the
-component envelope, recovery declines. Otherwise it polygonizes the complete
-component with the same options, merges the result deterministically, records
-`component_fallback_used` and a bounded `tile_component_fallback` event. The
-event includes the recovered polygon count and the number of retained tile
-polygons present at the merge boundary. `StitchingReport` also exposes the
-retained tile polygon count, recovered component count, and recovered polygon
-count before final deduplication. Recovery declines when any envelope
-overlaps or nests. `with_untiled_fallback`
-remains the containment-safe escape hatch for those declined cases. General
-cross-region graph merging remains unavailable. Component fallback also checks
-the execution policy before selecting recovery and before each recovered
-component, so cancellation does not get lost between tile processing and the
-bounded component polygonizer.
+history. `with_component_fallback` enables conservative recovery for excluded
+components. It starts with each excluded component, closes the region over
+intersecting input envelopes, interacting retained polygon envelopes, and other
+connected component envelopes, then polygonizes that complete region once.
+Retained polygons intersecting the recovered region are replaced before the
+existing canonical deduplication and ordering pass, preserving containment for
+the envelope-closed class without independently appending nested output. The
+recovery records `component_fallback_used`, retained/recovered/replaced counts
+in `StitchingReport`, and a bounded `tile_component_fallback` event containing
+the region input indexes, recovered component count, and replacement count.
+Coverage issues or unresolved input evidence outside the closed regions still
+decline component recovery. `with_untiled_fallback` remains the containment-safe
+escape hatch for those cases. General boundary-graph stitching remains
+unavailable. Component fallback checks the execution policy before region
+selection and before each recovery region, so cancellation does not get lost
+between tile processing and the bounded region polygonizer.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.
