@@ -117,8 +117,10 @@ retained tile polygon, and other recovered component. Member linework may have
 appeared in a tile halo; if that produced a retained face intersecting the
 component envelope, recovery declines. Otherwise it polygonizes the complete
 component with the same options, merges the result deterministically, records
-`component_fallback_used` and a bounded `tile_component_fallback` event, and
-declines recovery when any envelope overlaps or nests. `with_untiled_fallback`
+`component_fallback_used` and a bounded `tile_component_fallback` event. The
+event includes the recovered polygon count and the number of retained tile
+polygons present at the merge boundary. Recovery declines when any envelope
+overlaps or nests. `with_untiled_fallback`
 remains the containment-safe escape hatch for those declined cases. General
 cross-region graph merging remains unavailable.
 Applications that require correctness must run an untiled equivalence check for

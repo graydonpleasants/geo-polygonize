@@ -601,6 +601,7 @@ mod tests {
             serde_json::json!([0, 1, 2, 3])
         );
         assert_eq!(events[0].payload["output_polygon_count"], 1);
+        assert_eq!(events[0].payload["retained_tile_polygon_count"], 0);
 
         let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
         assert!(bounded.trace.events.is_empty());
@@ -849,6 +850,9 @@ mod tests {
         assert!(fallback_events
             .iter()
             .all(|event| event.payload["output_polygon_count"] == 1));
+        assert!(fallback_events
+            .iter()
+            .all(|event| event.payload["retained_tile_polygon_count"] == 2));
 
         let mut reversed = TiledPolygonizer::new(bbox, 10.0)
             .with_dedup_policy(DedupPolicy::CanonicalRingHash)
