@@ -219,6 +219,7 @@ pub enum TiledPolygonizeError {
         unresolved_component_count: usize,
         retry_attempt_count: usize,
         retry_exhausted_tile_count: usize,
+        component_fallback_decline_reason: Option<&'static str>,
         tile_reports: Vec<TileReport>,
     },
 }
@@ -1317,6 +1318,9 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_component_count: result.stitching_report.unresolved_component_count,
                 retry_attempt_count: result.stitching_report.retry_attempt_count,
                 retry_exhausted_tile_count: result.stitching_report.retry_exhausted_tile_count,
+                component_fallback_decline_reason: result
+                    .stitching_report
+                    .component_fallback_decline_reason,
                 tile_reports: result.tile_reports,
             });
         }

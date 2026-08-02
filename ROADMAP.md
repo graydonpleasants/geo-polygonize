@@ -825,6 +825,7 @@ When coverage cannot be proven:
     deterministic reason.
   - [x] Expose the deterministic component-fallback decline reason directly in
     `StitchingReport` as well as the bounded trace event.
+  - [x] Preserve that decline reason in typed `CoverageIncomplete` errors.
 
 ### P3.3 True graph stitching
 

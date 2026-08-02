@@ -459,6 +459,17 @@ mod tests {
             result.stitching_report.unresolved_input_geometry_count
         );
         assert_eq!(declined.payload["unresolved_component_count"], 0);
+
+        let error = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TiledPolygonizeError::CoverageIncomplete {
+                component_fallback_decline_reason: Some("no_indexed_component_evidence"),
+                ..
+            }
+        ));
     }
 
     #[test]
