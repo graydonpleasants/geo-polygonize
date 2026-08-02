@@ -784,6 +784,9 @@ opt-in whole-input fallback handle the evidence explicitly.
   - [x] Exercise the scheduled tiled differential probe with `MultiLineString`
     containers as well as per-segment geometries; a topology mismatch without
     observed evidence fails the target.
+  - [x] Exercise bounded ownership-domain-overlap cases in the tiled
+    differential target; ownership-domain evidence is accepted only when every
+    expected face still overlaps the configured domain.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
