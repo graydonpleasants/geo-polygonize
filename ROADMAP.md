@@ -777,8 +777,8 @@ When coverage cannot be proven:
     open.
   - [x] Apply the configured output limit to component recovery and observe
     cancellation before fallback selection and each recovered component;
-    envelope-closure region-selection cancellation is now pinned; cancellation
-    coverage for later fallback stages remains open.
+    envelope-closure region-selection and retained-region replacement,
+    recovered-output merge, and deduplication cancellation are now pinned.
   - [x] Enforce the configured aggregate output limit and cancellation during
     the final canonical merge after tile and region recovery.
   - [x] Record retained tile polygon counts in component-fallback trace events
