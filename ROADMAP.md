@@ -787,6 +787,9 @@ opt-in whole-input fallback handle the evidence explicitly.
   - [x] Exercise bounded ownership-domain-overlap cases in the tiled
     differential target; ownership-domain evidence is accepted only when every
     expected face still overlaps the configured domain.
+  - [x] Exercise independent, fully grouped, and partially grouped line
+    containers in the tiled differential contract; mismatches without any
+    observed evidence remain fatal.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.

@@ -15,6 +15,7 @@ struct FuzzInput {
     buffer: u8,
     reverse_input: bool,
     group_lines: bool,
+    geometry_grouping: u8,
     ownership_domain_gap: bool,
 }
 
@@ -120,8 +121,17 @@ fuzz_target!(|input: FuzzInput| {
             ])
         })
         .collect::<Vec<_>>();
-    let geometries = if input.group_lines {
-        vec![Geometry::MultiLineString(MultiLineString::new(parts))]
+    let geometries: Vec<Geometry<f64>> = if input.group_lines {
+        let group_count = (1 + usize::from(input.geometry_grouping % 8)).min(parts.len().max(1));
+        let mut groups = vec![Vec::new(); group_count];
+        for (part_index, part) in parts.into_iter().enumerate() {
+            groups[part_index % group_count].push(part);
+        }
+        groups
+            .into_iter()
+            .filter(|parts| !parts.is_empty())
+            .map(|parts| Geometry::MultiLineString(MultiLineString::new(parts)))
+            .collect()
     } else {
         parts.into_iter().map(Geometry::LineString).collect()
     };
