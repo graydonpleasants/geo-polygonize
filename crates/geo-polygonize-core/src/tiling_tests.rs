@@ -420,6 +420,51 @@ mod tests {
     }
 
     #[test]
+    fn grouped_line_containers_preserve_observed_coverage_contract() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let grouped = [
+            Geometry::MultiLineString(MultiLineString::new(vec![
+                LineString::new(vec![Coord { x: 1.0, y: 2.0 }, Coord { x: 19.0, y: 2.0 }]),
+                LineString::new(vec![Coord { x: 19.0, y: 8.0 }, Coord { x: 1.0, y: 8.0 }]),
+            ])),
+            Geometry::MultiLineString(MultiLineString::new(vec![
+                LineString::new(vec![Coord { x: 19.0, y: 2.0 }, Coord { x: 19.0, y: 8.0 }]),
+                LineString::new(vec![Coord { x: 1.0, y: 8.0 }, Coord { x: 1.0, y: 2.0 }]),
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(2.0);
+        for geometry in &grouped {
+            tiled.add_geometry(geometry);
+        }
+
+        let result = tiled.polygonize().unwrap();
+        assert_eq!(result.polygons.len(), 1);
+        assert_eq!(result.tile_reports.len(), 2);
+        assert!(result
+            .tile_reports
+            .iter()
+            .all(|report| report.input_geometry_count == grouped.len()));
+        assert!(result
+            .tile_reports
+            .iter()
+            .any(|report| !report.coverage_issues.is_empty()));
+
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateOwnedFaces),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_owned_polygon_count: 1,
+                ..
+            })
+        ));
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete { .. })
+        ));
+    }
+
+    #[test]
     fn component_fallback_recovers_closed_boundary_region() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let face = Geometry::LineString(LineString::new(vec![
