@@ -709,7 +709,10 @@ not, is now reported as conservative excluded-component evidence.
 Opt-in component fallback also recovers a closed single-input boundary region
 when retained-face or input-boundary evidence reaches a halo; mixed or open
 single-geometry boundaries decline conservatively, so broad missing-region
-coverage detection remains observational.
+coverage detection remains observational. A single closed geometry whose
+envelope only grazes the ownership domain can also remain absent when its
+ownership point falls outside every tile; this pins the remaining envelope-only
+boundary without adding an implicit clipping contract.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -742,6 +745,9 @@ coverage detection remains observational.
   - [x] Pin the partially observed fixed-grid-connected component contract,
     including certified fixed-grid noding; broader transformed-region coverage
     remains observational.
+  - [x] Pin the single-geometry envelope-only gap where an untiled face's
+    ownership point falls outside the configured ownership domain; broad
+    missing-region detection remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary

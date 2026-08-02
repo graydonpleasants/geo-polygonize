@@ -2837,3 +2837,41 @@ fn canonical_dedup_key_compares_exact_geometry() {
     assert_eq!(key, canonical_polygon_key(&equivalent));
     assert_ne!(key, canonical_polygon_key(&polygon(2.0)));
 }
+
+#[test]
+fn documents_single_geometry_region_excluded_from_every_halo() {
+    use crate::{Polygonizer, TiledPolygonizer};
+    use geo::{Coord, Geometry, LineString, Rect};
+
+    let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 32.0, y: 32.0 });
+    let boundary = Geometry::LineString(LineString::new(vec![
+        Coord { x: 25.0, y: 17.0 },
+        Coord { x: 45.0, y: 17.0 },
+        Coord { x: 45.0, y: 41.0 },
+        Coord { x: 25.0, y: 41.0 },
+        Coord { x: 25.0, y: 17.0 },
+    ]));
+    let mut untiled = Polygonizer::new();
+    untiled.add_borrowed_geometry(&boundary);
+    let mut tiled = TiledPolygonizer::new(bbox, 16.0).with_buffer(0.0);
+    tiled.add_geometry(&boundary);
+
+    assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+    assert!(tiled.input_components().unwrap().is_empty());
+    let observed = tiled.polygonize().unwrap();
+    assert!(observed.polygons.is_empty());
+    assert!(observed
+        .tile_reports
+        .iter()
+        .any(|report| report.input_geometry_count == 1));
+    assert!(observed.tile_reports.iter().all(|report| {
+        report.coverage_issues.is_empty()
+            && report.input_boundary_issues.is_empty()
+            && report.excluded_component_issues.is_empty()
+    }));
+    assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
+    assert_eq!(observed.stitching_report.unresolved_component_count, 0);
+    assert!(tiled
+        .polygonize_with_coverage_guarantee(crate::TileCoverageGuarantee::ValidateObservedCoverage)
+        .is_ok());
+}
