@@ -2485,6 +2485,29 @@ mod tests {
                 ..
             }) if tile_reports.iter().all(|report| report.retry_exhausted)
         ));
+
+        let mut budgeted = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_retry_policy(TileRetryPolicy {
+                max_attempts: 2,
+                buffer_increment: 1.0,
+                max_buffer: 4.0,
+            })
+            .with_execution_policy(ExecutionPolicy {
+                max_tile_retry_attempts: Some(1),
+                ..Default::default()
+            });
+        for boundary in &boundaries {
+            budgeted.add_geometry(boundary);
+        }
+        assert!(matches!(
+            budgeted.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            }) if stage == "tile_retry_attempts"
+        ));
     }
 
     #[test]

@@ -57,6 +57,11 @@ pub struct ExecutionPolicy {
     pub max_rings: Option<usize>,
     pub max_output_polygons: Option<usize>,
     pub max_output_coordinates: Option<usize>,
+    /// Maximum halo retry attempts allowed for each tiled region.
+    ///
+    /// This bounds retry work in addition to the topology and halo schedule
+    /// configured by `TileRetryPolicy`.
+    pub max_tile_retry_attempts: Option<usize>,
 }
 
 impl ExecutionPolicy {

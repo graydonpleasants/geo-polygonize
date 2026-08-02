@@ -1154,6 +1154,11 @@ impl<'a> TiledPolygonizer<'a> {
             if !Self::report_has_retry_evidence(&result.1) || buffer >= policy.max_buffer {
                 break;
             }
+            self.execution_policy.check(
+                "tile_retry_attempts",
+                self.execution_policy.max_tile_retry_attempts,
+                attempt,
+            )?;
             buffer = (buffer + policy.buffer_increment).min(policy.max_buffer);
             result = self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
             capture_truncated |= result.3;

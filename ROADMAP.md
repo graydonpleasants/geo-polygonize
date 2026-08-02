@@ -807,6 +807,8 @@ opt-in whole-input fallback handle the evidence explicitly.
 When coverage cannot be proven:
 
 - [x] retry only the unresolved tile region with a caller-bounded larger halo;
+  - [x] bound per-tile halo retries with `ExecutionPolicy` and return a typed
+    resource-limit error before exceeding the operational budget;
 - [ ] fall back to untiled processing for the unresolved connected region;
   - [x] Pin the global-containment boundary where an excluded outer component
     spatially nests an already retained tile-local face.
