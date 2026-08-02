@@ -575,16 +575,19 @@ and shared-face grouping remain part of P2.3.
 Decompose the fully noded, dissolved graph before expensive graph-local work:
 
 - [x] identify connected components deterministically;
-- [ ] perform component-local dangle pruning, cut-edge classification, edge
+- [x] perform component-local dangle pruning, cut-edge classification, edge
   sorting, and ring extraction in parallel;
-- [ ] merge component results into deterministic global order;
+- [x] merge component results into deterministic global order;
 - [ ] reuse component-local scratch buffers and measure peak memory;
 - [ ] evaluate flat/CSR adjacency versus `Vec<Vec<_>>` using real workloads.
 
 Debug/test active nodes now receive component IDs ordered by each component's
 lexicographically smallest XY coordinate, independent of insertion order. The
-Euler validator reuses this identification; promoting it into graph-local
-execution remains a separate slice.
+Euler validator and production graph pipeline reuse this identification. The
+normal ring path processes independent components in parallel and merges them
+by component order; traced ring capture remains sequential so its byte budget
+stays global. Component-local scratch reuse and peak-memory measurement remain
+open.
 
 Important: disconnected graph components can still be spatially nested. Shell
 and hole containment must remain global unless components are grouped by a

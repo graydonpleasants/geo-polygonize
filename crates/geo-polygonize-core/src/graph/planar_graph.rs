@@ -108,6 +108,30 @@ struct FaceCycleCandidate {
     signed_area: f64,
 }
 
+type ComponentOutput = (
+    Vec<Vec<Coord3D>>,
+    Vec<Vec<Coord3D>>,
+    Vec<ExtractedRing>,
+    Vec<ExtractedRing>,
+);
+
+struct ComponentPartition {
+    nodes: Vec<NodeId>,
+    edges: Vec<EdgeId>,
+}
+
+struct ComponentGraph {
+    graph: PlanarGraph,
+    global_node_ids: Vec<NodeId>,
+}
+
+fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput) {
+    target.0.extend(output.0);
+    target.1.extend(output.1);
+    target.2.extend(output.2);
+    target.3.extend(output.3);
+}
+
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub(crate) struct NodeKey(i64, i64);
@@ -1106,6 +1130,7 @@ impl PlanarGraph {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn get_edge_rings_with_maximal_and_execution_policy(
         &mut self,
         include_graph_ids: bool,
@@ -1114,14 +1139,31 @@ impl PlanarGraph {
         capture_byte_limit: usize,
         noding_postcondition_validated: bool,
     ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>, bool)> {
-        let mut maximal = Vec::new();
         let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
+        self.get_edge_rings_with_maximal_and_execution_policy_with_budget(
+            include_graph_ids,
+            include_source_ids,
+            execution_policy,
+            &mut capture_budget,
+            noding_postcondition_validated,
+        )
+    }
+
+    fn get_edge_rings_with_maximal_and_execution_policy_with_budget(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+        capture_budget: &mut TraceCaptureBudget,
+        noding_postcondition_validated: bool,
+    ) -> crate::Result<(Vec<ExtractedRing>, Vec<ExtractedRing>, bool)> {
+        let mut maximal = Vec::new();
         let minimal = self.get_edge_rings_with_graph_ids_impl(
             include_graph_ids,
             include_source_ids,
             Some(execution_policy),
             Some(&mut maximal),
-            Some(&mut capture_budget),
+            Some(capture_budget),
             noding_postcondition_validated,
         )?;
         Ok((maximal, minimal, capture_budget.truncated()))
@@ -1585,19 +1627,36 @@ impl PlanarGraph {
     }
 
     /// Assigns stable component IDs to nodes incident to active edges.
-    #[cfg(any(test, debug_assertions))]
     pub(crate) fn active_component_ids(&self) -> Vec<Option<usize>> {
+        self.active_component_ids_with_execution_policy(None)
+            .expect("unlimited component identification cannot fail")
+    }
+
+    fn active_component_ids_with_execution_policy(
+        &self,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<Vec<Option<usize>>> {
         let is_active = |directed_idx: DirEdgeId| {
             let directed = &self.directed_edges[directed_idx];
             !directed.is_marked && !self.edges[directed.edge_idx].deleted
         };
-        let mut seeds: Vec<_> = (0..self.nodes_x.len())
-            .filter(|&node| {
-                self.nodes_outgoing[node]
-                    .iter()
-                    .any(|&directed| is_active(directed))
-            })
-            .collect();
+        let mut work_items = 0;
+        let mut seeds = Vec::new();
+        for node in 0..self.nodes_x.len() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_components", work_items)?;
+            }
+            work_items += 1;
+            if self.nodes_outgoing[node]
+                .iter()
+                .any(|&directed| is_active(directed))
+            {
+                seeds.push(node);
+            }
+        }
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("graph_component_seed_sort", seeds.len())?;
+        }
         seeds.sort_unstable_by(|&a, &b| {
             self.nodes_x[a]
                 .total_cmp(&self.nodes_x[b])
@@ -1609,6 +1668,10 @@ impl PlanarGraph {
         let mut stack = Vec::new();
         let mut next_component_id = 0;
         for seed in seeds {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("graph_components", work_items)?;
+            }
+            work_items += 1;
             if component_ids[seed].is_some() {
                 continue;
             }
@@ -1618,6 +1681,10 @@ impl PlanarGraph {
             stack.push(seed);
             while let Some(node) = stack.pop() {
                 for &directed_idx in &self.nodes_outgoing[node] {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check_cancelled_every("graph_components", work_items)?;
+                    }
+                    work_items += 1;
                     if !is_active(directed_idx) {
                         continue;
                     }
@@ -1629,7 +1696,197 @@ impl PlanarGraph {
                 }
             }
         }
-        component_ids
+        Ok(component_ids)
+    }
+
+    fn active_component_partitions(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<ComponentPartition>> {
+        let component_ids =
+            self.active_component_ids_with_execution_policy(Some(execution_policy))?;
+        let component_count = component_ids
+            .iter()
+            .flatten()
+            .max()
+            .map_or(0, |component| component + 1);
+        let mut nodes = vec![Vec::new(); component_count];
+        for (node_idx, component_id) in component_ids.iter().enumerate() {
+            if let Some(component_id) = component_id {
+                nodes[*component_id].push(node_idx);
+            }
+        }
+        for (component_id, component_nodes) in nodes.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", component_id)?;
+            execution_policy
+                .check_uncancellable_sort("graph_component_node_sort", component_nodes.len())?;
+            component_nodes.sort_unstable_by(|&left, &right| {
+                self.nodes_x[left]
+                    .total_cmp(&self.nodes_x[right])
+                    .then(self.nodes_y[left].total_cmp(&self.nodes_y[right]))
+                    .then(left.cmp(&right))
+            });
+        }
+
+        let mut edges = vec![Vec::new(); component_count];
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", edge_idx)?;
+            let [forward_idx, reverse_idx] = edge.dir_edges;
+            if edge.deleted
+                || self.directed_edges[forward_idx].is_marked
+                || self.directed_edges[reverse_idx].is_marked
+            {
+                continue;
+            }
+            let source_node = self.directed_edges[forward_idx].src;
+            let component_id = component_ids[source_node].ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "active graph edge {edge_idx} has no connected-component assignment"
+                    ),
+                }
+            })?;
+            edges[component_id].push(edge_idx);
+        }
+        for (component_id, component_edges) in edges.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", component_id)?;
+            execution_policy
+                .check_uncancellable_sort("graph_component_edge_sort", component_edges.len())?;
+            component_edges.sort_unstable();
+        }
+
+        Ok(nodes
+            .into_iter()
+            .zip(edges)
+            .map(|(nodes, edges)| ComponentPartition { nodes, edges })
+            .collect())
+    }
+
+    fn component_graphs_with_execution_policy(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Vec<ComponentGraph>> {
+        let partitions = self.active_component_partitions(execution_policy)?;
+        let mut components = Vec::with_capacity(partitions.len());
+        for (component_id, partition) in partitions.into_iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", component_id)?;
+            let mut graph = PlanarGraph::new();
+            let mut local_node_ids = HashMap::with_capacity(partition.nodes.len());
+            let mut global_node_ids = Vec::with_capacity(partition.nodes.len());
+            for (node_offset, global_node_id) in partition.nodes.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("graph_components", node_offset)?;
+                let local_node_id = graph.add_node(Coord3D {
+                    x: self.nodes_x[global_node_id],
+                    y: self.nodes_y[global_node_id],
+                    z: self.nodes_z[global_node_id],
+                });
+                local_node_ids.insert(global_node_id, local_node_id);
+                global_node_ids.push(global_node_id);
+            }
+
+            for (edge_offset, global_edge_id) in partition.edges.into_iter().enumerate() {
+                execution_policy.check_cancelled_every("graph_components", edge_offset)?;
+                let edge = &self.edges[global_edge_id];
+                let [forward_idx, _] = edge.dir_edges;
+                let global_src = self.directed_edges[forward_idx].src;
+                let global_dst = self.directed_edges[forward_idx].dst;
+                let local_src = *local_node_ids.get(&global_src).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "component edge {global_edge_id} source node {global_src} is missing"
+                        ),
+                    }
+                })?;
+                let local_dst = *local_node_ids.get(&global_dst).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "component edge {global_edge_id} destination node {global_dst} is missing"
+                        ),
+                    }
+                })?;
+                let local_edge_id = graph.add_line(edge.line);
+                graph.edges[local_edge_id].sources = edge.sources.clone();
+                graph.edges[local_edge_id].line.line_id = edge.line.line_id;
+                debug_assert_eq!(
+                    graph.directed_edges[graph.edges[local_edge_id].dir_edges[0]].src,
+                    local_src
+                );
+                debug_assert_eq!(
+                    graph.directed_edges[graph.edges[local_edge_id].dir_edges[0]].dst,
+                    local_dst
+                );
+            }
+            components.push(ComponentGraph {
+                graph,
+                global_node_ids,
+            });
+        }
+        Ok(components)
+    }
+
+    pub(crate) fn process_components_with_execution_policy(
+        &self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+        noding_postcondition_validated: bool,
+        capture_byte_limit: Option<usize>,
+    ) -> crate::Result<(ComponentOutput, bool)> {
+        // ponytail: materialize local graphs for simple parallel ownership; scratch reuse and
+        // peak-memory measurement remain the next P2.3 optimization slice.
+        let mut components = self.component_graphs_with_execution_policy(execution_policy)?;
+        let mut merged = ComponentOutput::default();
+
+        let capture_truncated = if let Some(capture_byte_limit) = capture_byte_limit {
+            let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
+            for component in &mut components {
+                append_component_output(
+                    &mut merged,
+                    component.process(
+                        include_graph_ids,
+                        include_source_ids,
+                        execution_policy,
+                        noding_postcondition_validated,
+                        Some(&mut capture_budget),
+                    )?,
+                );
+            }
+            capture_budget.truncated()
+        } else {
+            #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+            let outputs: Vec<_> = components
+                .par_iter_mut()
+                .map(|component| {
+                    component.process(
+                        include_graph_ids,
+                        include_source_ids,
+                        execution_policy,
+                        noding_postcondition_validated,
+                        None,
+                    )
+                })
+                .collect();
+            #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+            let outputs: Vec<_> = components
+                .iter_mut()
+                .map(|component| {
+                    component.process(
+                        include_graph_ids,
+                        include_source_ids,
+                        execution_policy,
+                        noding_postcondition_validated,
+                        None,
+                    )
+                })
+                .collect();
+
+            for output in outputs {
+                append_component_output(&mut merged, output?);
+            }
+            false
+        };
+
+        Ok((merged, capture_truncated))
     }
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
@@ -1900,6 +2157,85 @@ impl PlanarGraph {
             }
         }
         Ok(rings)
+    }
+}
+
+impl ComponentGraph {
+    fn process(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+        noding_postcondition_validated: bool,
+        capture_budget: Option<&mut TraceCaptureBudget>,
+    ) -> crate::Result<ComponentOutput> {
+        self.graph
+            .sort_edges_with_execution_policy(execution_policy)?;
+        let dangles = self
+            .graph
+            .prune_dangles_with_execution_policy(execution_policy)?;
+        let cut_edges = self.graph.delete_cut_edges_with_execution_policy(
+            execution_policy,
+            noding_postcondition_validated,
+        )?;
+        let (mut maximal, mut minimal) = if let Some(capture_budget) = capture_budget {
+            let (maximal, minimal, _) = self
+                .graph
+                .get_edge_rings_with_maximal_and_execution_policy_with_budget(
+                    include_graph_ids,
+                    include_source_ids,
+                    execution_policy,
+                    capture_budget,
+                    noding_postcondition_validated,
+                )?;
+            (maximal, minimal)
+        } else {
+            (
+                Vec::new(),
+                self.graph
+                    .get_edge_rings_with_graph_ids_and_execution_policy(
+                        include_graph_ids,
+                        include_source_ids,
+                        execution_policy,
+                        noding_postcondition_validated,
+                    )?,
+            )
+        };
+        self.remap_rings(&mut maximal, include_graph_ids)?;
+        self.remap_rings(&mut minimal, include_graph_ids)?;
+        Ok((dangles, cut_edges, maximal, minimal))
+    }
+
+    fn remap_rings(
+        &self,
+        rings: &mut [ExtractedRing],
+        include_graph_ids: bool,
+    ) -> crate::Result<()> {
+        if !include_graph_ids {
+            return Ok(());
+        }
+        for ring in rings {
+            for (start, end) in &mut ring.edge_keys {
+                *start = *self.global_node_ids.get(*start).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "component ring edge key references missing local node".to_string(),
+                    }
+                })?;
+                *end = *self.global_node_ids.get(*end).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "component ring edge key references missing local node".to_string(),
+                    }
+                })?;
+            }
+            for node_id in &mut ring.node_ids {
+                *node_id = *self.global_node_ids.get(*node_id).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "component ring references missing local node".to_string(),
+                    }
+                })?;
+            }
+        }
+        Ok(())
     }
 }
 
