@@ -104,8 +104,9 @@ cancellation bounds to the indexed component preflight, including the optional
 pre-snap and fixed-grid endpoint passes, and passes the same policy to each tile
 polygonization and recovery region. Numeric work limits apply independently to
 the preflight, each tile, and each recovery region, not as one aggregate budget
-across the tiled call. The component envelope remains conservative evidence
-rather than proof of a face.
+across the tiled call; the final canonical merge also enforces the configured
+aggregate output-polygon limit and observes cancellation. The component
+envelope remains conservative evidence rather than proof of a face.
 `with_retry_policy` enables deterministic tile-local halo growth for tiles whose
 final report still contains owned-face, input-boundary, or excluded-component
 evidence. Each attempt adds `buffer_increment` up to `max_attempts` and

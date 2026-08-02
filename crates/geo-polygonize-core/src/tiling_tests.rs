@@ -313,6 +313,43 @@ mod tests {
     }
 
     #[test]
+    fn tiled_merge_applies_aggregate_output_limit() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let squares = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 1.0 },
+                Coord { x: 3.0, y: 1.0 },
+                Coord { x: 3.0, y: 3.0 },
+                Coord { x: 1.0, y: 3.0 },
+                Coord { x: 1.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.0, y: 1.0 },
+                Coord { x: 13.0, y: 1.0 },
+                Coord { x: 13.0, y: 3.0 },
+                Coord { x: 11.0, y: 3.0 },
+                Coord { x: 11.0, y: 1.0 },
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(ExecutionPolicy {
+            max_output_polygons: Some(1),
+            ..Default::default()
+        });
+        for square in &squares {
+            tiled.add_geometry(square);
+        }
+
+        assert!(matches!(
+            tiled.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            }) if stage == "output_polygons"
+        ));
+    }
+
+    #[test]
     fn reports_owned_faces_that_escape_an_internal_halo() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let face = Geometry::LineString(LineString::new(vec![
