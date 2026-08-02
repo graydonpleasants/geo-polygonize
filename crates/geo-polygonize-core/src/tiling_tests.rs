@@ -719,6 +719,56 @@ mod tests {
         assert_eq!(reversed_keys, forward_keys);
         assert!(reversed.stitching_report.component_fallback_used);
         assert_eq!(reversed.stitching_report.output_polygon_count, 1);
+
+        for (options, connection) in [
+            (
+                PolygonizerOptions {
+                    node_input: true,
+                    pre_snap_tolerance: 0.5,
+                    ..Default::default()
+                },
+                TileComponentConnection::PreSnap,
+            ),
+            (
+                PolygonizerOptions {
+                    node_input: true,
+                    precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+                    ..Default::default()
+                },
+                TileComponentConnection::FixedGrid,
+            ),
+        ] {
+            let mut configured_untiled = Polygonizer::with_options(options.clone());
+            let mut configured_tiled = TiledPolygonizer::new(bbox, 10.0)
+                .with_buffer(2.0)
+                .with_options(options)
+                .with_component_fallback();
+            for geometry in &geometries {
+                configured_untiled.add_borrowed_geometry(geometry);
+                configured_tiled.add_geometry(geometry);
+            }
+            let expected = configured_untiled
+                .polygonize()
+                .unwrap()
+                .polygons
+                .into_iter()
+                .map(|polygon| crate::tiling::canonical_polygon_key(&polygon))
+                .collect::<Vec<_>>();
+            let result = configured_tiled
+                .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+                .unwrap();
+            let actual = result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected);
+            assert!(result.stitching_report.component_fallback_used);
+            assert!(result.tile_reports.iter().all(|report| {
+                report.excluded_component_issues.len() == 1
+                    && report.excluded_component_issues[0].connection == connection
+            }));
+        }
     }
 
     #[test]
