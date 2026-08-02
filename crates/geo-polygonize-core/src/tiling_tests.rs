@@ -601,6 +601,12 @@ mod tests {
             serde_json::json!([0, 1, 2, 3])
         );
         assert_eq!(events[0].payload["output_polygon_count"], 1);
+
+        let bounded = tiled.polygonize_with_trace(TraceLevelV1::Full, 0).unwrap();
+        assert!(bounded.trace.events.is_empty());
+        assert!(bounded.trace.truncated);
+        assert!(bounded.result.stitching_report.component_fallback_used);
+        assert_eq!(bounded.result.polygons.len(), 1);
     }
 
     #[test]
