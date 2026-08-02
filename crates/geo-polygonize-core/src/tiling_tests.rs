@@ -3,9 +3,9 @@
 mod tests {
     use crate::{
         trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
-        PolygonizeError, Polygonizer, PolygonizerOptions, PrecisionModel, ProvenanceOptions,
-        TileBoundarySide, TileComponentConnection, TileCoverageGuarantee, TileRetryPolicy,
-        TiledPolygonizeError, TiledPolygonizer,
+        NodingGuarantee, NodingOptions, PolygonizeError, Polygonizer, PolygonizerOptions,
+        PrecisionModel, ProvenanceOptions, TileBoundarySide, TileComponentConnection,
+        TileCoverageGuarantee, TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -1334,6 +1334,63 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn documents_certified_fixed_grid_hot_pixel_region_excluded_from_every_halo() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            noding: NodingOptions {
+                guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let boundaries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord {
+                    x: -200.0,
+                    y: -11.0,
+                },
+                Coord { x: 100.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: -10.0 },
+                Coord { x: 30.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 100.0, y: 30.0 },
+                Coord { x: -200.0, y: 31.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 30.0 },
+                Coord { x: -10.0, y: -10.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::with_options(options.clone());
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(options);
+        for boundary in &boundaries {
+            untiled.add_borrowed_geometry(boundary);
+            tiled.add_geometry(boundary);
+        }
+
+        assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+        assert!(tiled.input_components().unwrap().is_empty());
+        let observed = tiled.polygonize().unwrap();
+        assert!(observed.polygons.is_empty());
+        assert!(observed
+            .tile_reports
+            .iter()
+            .all(|report| report.input_geometry_count == 0));
+        assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
+        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
+        assert!(tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .is_ok());
     }
 
     #[test]

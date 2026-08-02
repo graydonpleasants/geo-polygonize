@@ -698,7 +698,11 @@ covered while the broader coverage-detection rows remain open. Minimized
 pre-snap and fixed-grid fixtures also pin the remaining transformation boundary:
 separate inputs that connect only after caller-selected precision transformations
 are now grouped as conservative component evidence; region coverage remains
-observational rather than certified.
+observational rather than certified. A minimized certified fixed-grid fixture
+also pins a hot-pixel boundary: the noder can connect a segment through an
+endpoint hot pixel even when the tiled preflight's transformed straight
+segments have no exact intersection, so this region can remain absent without
+observed evidence.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -720,6 +724,8 @@ observational rather than certified.
     reports and bounded traces; broader region coverage detection remains open.
   - [x] Pin and report the corresponding fixed-grid-connected component case
     with bounded trace evidence; broader region coverage detection remains open.
+  - [x] Pin the certified fixed-grid hot-pixel connected-region gap; detection
+    remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
