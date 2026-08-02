@@ -9,7 +9,7 @@ mod tests {
         TileComponentConnection, TileCoverageGuarantee, TileExcludedComponentIssue, TileReport,
         TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
     };
-    use geo::{Contains, Coord, Geometry, LineString, Rect};
+    use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
 
     #[test]
     fn test_tiled_polygonization_grid() {
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn records_declined_component_fallback_for_owned_face_evidence() {
+    fn component_fallback_recovers_closed_boundary_region() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let face = Geometry::LineString(LineString::new(vec![
             Coord { x: 1.0, y: 2.0 },
@@ -426,19 +426,141 @@ mod tests {
             Coord { x: 1.0, y: 8.0 },
             Coord { x: 1.0, y: 2.0 },
         ]));
+        let mut untiled = Polygonizer::new();
+        untiled.add_borrowed_geometry(&face);
         let mut tiled = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)
             .with_component_fallback();
         tiled.add_geometry(&face);
+
+        let expected = untiled
+            .polygonize()
+            .unwrap()
+            .polygons
+            .into_iter()
+            .map(|polygon| crate::tiling::canonical_polygon_key(&polygon))
+            .collect::<Vec<_>>();
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(result.polygons.len(), 1);
+        assert!(result.stitching_report.component_fallback_attempted);
+        assert!(result.stitching_report.component_fallback_used);
+        assert_eq!(result.stitching_report.component_fallback_count, 1);
+        assert_eq!(result.stitching_report.component_fallback_polygon_count, 1);
+        assert_eq!(
+            result
+                .stitching_report
+                .component_fallback_replaced_polygon_count,
+            1
+        );
+
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let recovered = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tile_component_fallback")
+            .unwrap();
+        assert_eq!(
+            recovered.payload["input_geometry_indices"],
+            serde_json::json!([0])
+        );
+        assert_eq!(recovered.payload["output_polygon_count"], 1);
+        assert_eq!(recovered.payload["recovered_component_count"], 1);
+        assert!(!traced
+            .trace
+            .events
+            .iter()
+            .any(|event| event.kind == "tile_component_fallback_declined"));
+    }
+
+    #[test]
+    fn component_fallback_preserves_nested_closed_boundary_containment() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 1.0 },
+                Coord { x: 19.0, y: 1.0 },
+                Coord { x: 19.0, y: 9.0 },
+                Coord { x: 1.0, y: 9.0 },
+                Coord { x: 1.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 4.0, y: 3.0 },
+                Coord { x: 16.0, y: 3.0 },
+                Coord { x: 16.0, y: 7.0 },
+                Coord { x: 4.0, y: 7.0 },
+                Coord { x: 4.0, y: 3.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::new();
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+            .with_component_fallback();
+        for geometry in &geometries {
+            untiled.add_borrowed_geometry(geometry);
+            tiled.add_geometry(geometry);
+        }
+
+        let expected = untiled
+            .polygonize()
+            .unwrap()
+            .polygons
+            .into_iter()
+            .map(|polygon| crate::tiling::canonical_polygon_key(&polygon))
+            .collect::<Vec<_>>();
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(result.polygons.len(), 2);
+        assert!(result
+            .polygons
+            .iter()
+            .any(|polygon| !polygon.interiors.is_empty()));
+        assert_eq!(result.stitching_report.component_fallback_count, 1);
+    }
+
+    #[test]
+    fn declines_closed_boundary_fallback_for_open_single_geometry() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let open_boundary = Geometry::MultiLineString(MultiLineString::new(vec![
+            LineString::new(vec![Coord { x: 1.0, y: 2.0 }, Coord { x: 19.0, y: 2.0 }]),
+            LineString::new(vec![Coord { x: 19.0, y: 2.0 }, Coord { x: 19.0, y: 8.0 }]),
+            LineString::new(vec![Coord { x: 19.0, y: 8.0 }, Coord { x: 1.0, y: 8.0 }]),
+            LineString::new(vec![Coord { x: 1.0, y: 8.0 }, Coord { x: 1.0, y: 2.0 }]),
+        ]));
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_component_fallback();
+        tiled.add_geometry(&open_boundary);
 
         let result = tiled.polygonize().unwrap();
         assert!(result.stitching_report.component_fallback_attempted);
         assert!(!result.stitching_report.component_fallback_used);
         assert_eq!(
             result.stitching_report.component_fallback_decline_reason,
-            Some("no_indexed_component_evidence")
+            Some("non_closed_recovery_region")
         );
-        assert!(result.stitching_report.unresolved_owned_polygon_count > 0);
 
         let traced = tiled
             .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
@@ -449,7 +571,7 @@ mod tests {
             .iter()
             .find(|event| event.kind == "tile_component_fallback_declined")
             .unwrap();
-        assert_eq!(declined.payload["reason"], "no_indexed_component_evidence");
+        assert_eq!(declined.payload["reason"], "non_closed_recovery_region");
         assert_eq!(
             declined.payload["unresolved_owned_polygon_count"],
             result.stitching_report.unresolved_owned_polygon_count
@@ -466,7 +588,7 @@ mod tests {
         assert!(matches!(
             error,
             TiledPolygonizeError::CoverageIncomplete {
-                component_fallback_decline_reason: Some("no_indexed_component_evidence"),
+                component_fallback_decline_reason: Some("non_closed_recovery_region"),
                 ..
             }
         ));
