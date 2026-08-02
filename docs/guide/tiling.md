@@ -124,7 +124,10 @@ event includes the recovered polygon count and the number of retained tile
 polygons present at the merge boundary. Recovery declines when any envelope
 overlaps or nests. `with_untiled_fallback`
 remains the containment-safe escape hatch for those declined cases. General
-cross-region graph merging remains unavailable.
+cross-region graph merging remains unavailable. Component fallback also checks
+the execution policy before selecting recovery and before each recovered
+component, so cancellation does not get lost between tile processing and the
+bounded component polygonizer.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.

@@ -580,6 +580,8 @@ impl<'a> TiledPolygonizer<'a> {
         tile_reports: &[TileReport],
         input_components: &[InputComponent],
     ) -> Result<Option<ComponentFallbackResult>> {
+        self.execution_policy
+            .check_cancelled("tile_component_fallback")?;
         let component_keys = tile_reports
             .iter()
             .flat_map(|report| &report.excluded_component_issues)
@@ -639,6 +641,8 @@ impl<'a> TiledPolygonizer<'a> {
         let mut recovered = Vec::new();
         let mut events = Vec::with_capacity(components.len());
         for component in components {
+            self.execution_policy
+                .check_cancelled("tile_component_fallback")?;
             let mut polygonizer = Polygonizer::with_options(self.options.clone())
                 .with_execution_policy(self.execution_policy.clone());
             for &geometry_index in &component.input_geometry_indices {
