@@ -703,7 +703,9 @@ also pinned a hot-pixel boundary: the noder could connect a segment through an
 endpoint hot pixel even when the tiled preflight's transformed straight
 segments had no exact intersection, so that region could remain absent without
 observed evidence. The preflight now reuses the bounded certified noder for
-that same connectivity case.
+that same connectivity case. A partially observed transformed-connected
+component, where one member geometry intersects a halo and other members do
+not, also remains undetected without a conservative component-boundary check.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -729,6 +731,9 @@ that same connectivity case.
     and bounded evidence now reuse the certified noder.
   - [x] Use indexed connected-component evidence to identify a component that
     is only partially observed in a tile halo; broad undetected-region coverage
+    remains open.
+  - [x] Pin the partially observed transformed-connected component case where
+    one member intersects a halo and other members remain outside; detection
     remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.

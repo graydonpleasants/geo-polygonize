@@ -1743,6 +1743,69 @@ mod tests {
     }
 
     #[test]
+    fn documents_partially_observed_pre_snap_component_without_boundary_evidence() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let x_ranges = [
+            (-10.0, -2.25),
+            (-1.75, 7.75),
+            (8.25, 11.75),
+            (12.25, 17.75),
+            (18.25, 21.75),
+            (22.25, 30.0),
+        ];
+        let mut boundaries = Vec::new();
+        for y in [5.0, 15.0] {
+            for &(min_x, max_x) in &x_ranges {
+                boundaries.push(Geometry::LineString(LineString::new(vec![
+                    Coord { x: min_x, y },
+                    Coord { x: max_x, y },
+                ])));
+            }
+        }
+        boundaries.extend([
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 5.0 },
+                Coord { x: -10.0, y: 15.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 15.0 },
+                Coord { x: 30.0, y: 5.0 },
+            ])),
+        ]);
+        let options = PolygonizerOptions {
+            node_input: true,
+            pre_snap_tolerance: 1.0,
+            ..Default::default()
+        };
+        let mut untiled = Polygonizer::with_options(options.clone());
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(options);
+        for boundary in &boundaries {
+            untiled.add_borrowed_geometry(boundary);
+            tiled.add_geometry(boundary);
+        }
+
+        assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+        assert_eq!(tiled.input_components().unwrap().len(), 1);
+        let observed = tiled.polygonize().unwrap();
+        assert!(observed.polygons.is_empty());
+        assert!(observed
+            .tile_reports
+            .iter()
+            .all(|report| report.input_boundary_issues.is_empty()));
+        assert!(observed
+            .tile_reports
+            .iter()
+            .all(|report| report.excluded_component_issues.is_empty()));
+        assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
+        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
+        assert!(tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .is_ok());
+    }
+
+    #[test]
     fn bounded_halo_retry_resolves_an_excluded_component() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let boundaries = [
