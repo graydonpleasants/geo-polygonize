@@ -3,6 +3,7 @@
 //! This is intentionally `#[doc(hidden)]`: it is a shared contract for the
 //! repository's adapters, not an additional stable polygonization entrypoint.
 
+use crate::utils::canonical_coordinate_bits;
 use crate::{
     Coord3D, NodingValidationKind, PolygonizeError, PolygonizerOptions, PolygonizerResult,
 };
@@ -439,10 +440,7 @@ pub(crate) fn float_bits(value: f64) -> crate::Result<String> {
             reason: "fingerprint coordinates must be finite".to_string(),
         });
     }
-    Ok(format!(
-        "0x{:016x}",
-        if value == 0.0 { 0 } else { value.to_bits() }
-    ))
+    Ok(format!("0x{:016x}", canonical_coordinate_bits(value)))
 }
 
 fn id32(value: u32) -> String {

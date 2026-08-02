@@ -85,9 +85,9 @@ for that test:
 
 `KeepAll` performs no duplicate removal. `CanonicalRingHash` removes exact
 duplicate polygon geometry after canonicalizing ring direction and start; its
-key contains exact XYZ bits, not a tolerance. It does not merge distinct
-provenance payloads, so callers requiring provenance equivalence must verify the
-retained polygon against untiled output.
+key contains exact XYZ bits with signed zero normalized, not a tolerance. It
+does not merge distinct provenance payloads, so callers requiring provenance
+equivalence must verify the retained polygon against untiled output.
 
 Canonical output options apply the normal final ordering pass after tile merge.
 The untraced path may process tiles in parallel, while bounded tracing processes
@@ -118,6 +118,11 @@ and each recovery region, not as one aggregate budget
 across the tiled call; the final canonical merge also enforces the configured
 aggregate output-polygon limit and observes cancellation. The component
 envelope remains conservative evidence rather than proof of a face.
+`with_tile_execution_policy` adds call-level guards for tile count, input
+geometry count, replicated geometry assignments, total retry attempts,
+fallback-region count, and optional per-call rayon parallelism. Tile generation
+checks cancellation before materialization and reserves the validated tile
+count exactly; tile failures use a result-aware parallel reduction.
 `with_retry_policy` enables deterministic tile-local halo growth for tiles whose
 final report still contains owned-face, input-boundary, or excluded-component
 evidence. Each attempt adds `buffer_increment` up to `max_attempts` and

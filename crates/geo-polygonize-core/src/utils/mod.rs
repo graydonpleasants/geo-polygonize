@@ -6,6 +6,15 @@ pub mod parallel;
 pub mod simd;
 pub mod soa;
 
+#[inline]
+pub(crate) fn canonical_coordinate_bits(value: f64) -> u64 {
+    if value == 0.0 {
+        0
+    } else {
+        value.to_bits()
+    }
+}
+
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
 /// This preserves locality: points close in 2D space are likely close in Z-order.

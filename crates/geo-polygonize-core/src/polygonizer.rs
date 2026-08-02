@@ -16,7 +16,7 @@ use crate::trace::{
 };
 use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
 use crate::utils::simd::SimdRing;
-use crate::utils::z_order_index;
+use crate::utils::{canonical_coordinate_bits, z_order_index};
 use float_next_after::NextAfter;
 use geo::Contains;
 use geo_traits::{CoordTrait, LineStringTrait};
@@ -1203,9 +1203,10 @@ fn restored_coordinates(
 }
 
 fn coordinate_key(coord: Coord3D) -> (u64, u64) {
-    let x = if coord.x == 0.0 { 0.0 } else { coord.x };
-    let y = if coord.y == 0.0 { 0.0 } else { coord.y };
-    (x.to_bits(), y.to_bits())
+    (
+        canonical_coordinate_bits(coord.x),
+        canonical_coordinate_bits(coord.y),
+    )
 }
 
 fn restore_noded_coordinates(
