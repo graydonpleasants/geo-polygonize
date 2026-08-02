@@ -3258,6 +3258,41 @@ fn canonical_dedup_key_compares_exact_geometry() {
 }
 
 #[test]
+fn canonical_dedup_merges_duplicate_provenance() {
+    use super::merge_duplicate_polygon_provenance;
+    use crate::types::PolygonProvenance;
+    use crate::{Coord3D, Polygon3D};
+
+    let exterior = vec![
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1.0, 0.0, 0.0),
+        Coord3D::new(1.0, 1.0, 0.0),
+        Coord3D::new(0.0, 1.0, 0.0),
+        Coord3D::new(0.0, 0.0, 0.0),
+    ];
+    let mut retained = Polygon3D::new(exterior.clone(), vec![], vec![10, 11], vec![]);
+    retained.set_boundary_source_line_ids(vec![3, 1]);
+    retained.provenance = Some(PolygonProvenance {
+        boundary_line_ids: vec![3, 1],
+        input_profile_id: Some("profile-a".to_string()),
+    });
+    let mut duplicate = Polygon3D::new(exterior, vec![], vec![20, 21], vec![]);
+    duplicate.set_boundary_source_line_ids(vec![2, 3]);
+    duplicate.provenance = Some(PolygonProvenance {
+        boundary_line_ids: vec![4, 2],
+        input_profile_id: Some("profile-b".to_string()),
+    });
+
+    merge_duplicate_polygon_provenance(&mut retained, &duplicate, false);
+
+    assert_eq!(retained.boundary_source_line_ids, vec![1, 2, 3]);
+    let provenance = retained.provenance.unwrap();
+    assert_eq!(provenance.boundary_line_ids, vec![1, 2, 3, 4]);
+    assert_eq!(provenance.input_profile_id, None);
+    assert_eq!(retained.exterior_ids, vec![10, 11]);
+}
+
+#[test]
 fn reports_single_geometry_face_outside_ownership_domain() {
     use crate::{
         Polygonizer, TileCoverageGuarantee, TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
