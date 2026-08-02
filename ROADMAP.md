@@ -772,7 +772,8 @@ When coverage cannot be proven:
     open.
   - [x] Apply the configured output limit to component recovery and observe
     cancellation before fallback selection and each recovered component;
-    broader fallback cancellation coverage remains open.
+    envelope-closure region-selection cancellation is now pinned; cancellation
+    coverage for later fallback stages remains open.
   - [x] Record retained tile polygon counts in component-fallback trace events
     and expose retained/recovered aggregate counts in `StitchingReport`;
     expose replaced-retained counts for canonical region replacement.

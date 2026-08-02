@@ -927,6 +927,58 @@ mod tests {
     }
 
     #[test]
+    fn component_fallback_observes_region_selection_cancellation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let geometries = (0..=256)
+            .map(|_| {
+                Geometry::LineString(LineString::new(vec![
+                    Coord { x: 0.0, y: 0.0 },
+                    Coord { x: 1.0, y: 0.0 },
+                ]))
+            })
+            .collect::<Vec<_>>();
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(policy);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let component_indices = vec![0, 1];
+        let report = TileReport {
+            tile_bbox: bbox,
+            input_geometry_count: 0,
+            polygon_count: 0,
+            owned_polygon_count: 0,
+            dangle_count: 0,
+            cut_edge_count: 0,
+            invalid_ring_count: 0,
+            coverage_issues: Vec::new(),
+            input_boundary_issues: Vec::new(),
+            excluded_component_issues: vec![TileExcludedComponentIssue {
+                input_geometry_indices: component_indices.clone(),
+                component_bbox: Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+                connection: TileComponentConnection::ExactEndpoint,
+            }],
+            retry_attempts: Vec::new(),
+            retry_exhausted: false,
+        };
+        let component = InputComponent {
+            input_geometry_indices: component_indices,
+            bbox: Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 1.0 }),
+            connection: TileComponentConnection::ExactEndpoint,
+        };
+
+        assert!(matches!(
+            tiled.try_component_fallback(&[Vec::new()], &[report], &[component]),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_component_fallback"
+        ));
+    }
+
+    #[test]
     fn component_fallback_keeps_recovered_output_deterministic() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
