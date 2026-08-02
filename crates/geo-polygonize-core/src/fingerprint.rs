@@ -3,7 +3,7 @@
 //! This is intentionally `#[doc(hidden)]`: it is a shared contract for the
 //! repository's adapters, not an additional stable polygonization entrypoint.
 
-use crate::utils::canonical_coordinate_bits;
+use crate::utils::{canonical_coordinate_bits, minimum_rotation_index};
 use crate::{
     Coord3D, NodingValidationKind, PolygonizeError, PolygonizerOptions, PolygonizerResult,
 };
@@ -391,35 +391,6 @@ fn rotate_minimum<T: Clone + Ord>(ring: &[T]) -> Vec<T> {
         .chain(&ring[..start])
         .cloned()
         .collect()
-}
-
-// Booth's algorithm: linear comparisons and one final linear clone.
-fn minimum_rotation_index<T: Ord>(ring: &[T]) -> usize {
-    let n = ring.len();
-    if n < 2 {
-        return 0;
-    }
-    let (mut left, mut right, mut offset) = (0, 1, 0);
-    while left < n && right < n && offset < n {
-        match ring[(left + offset) % n].cmp(&ring[(right + offset) % n]) {
-            std::cmp::Ordering::Equal => offset += 1,
-            std::cmp::Ordering::Less => {
-                right += offset + 1;
-                if right == left {
-                    right += 1;
-                }
-                offset = 0;
-            }
-            std::cmp::Ordering::Greater => {
-                left += offset + 1;
-                if left == right {
-                    left += 1;
-                }
-                offset = 0;
-            }
-        }
-    }
-    left.min(right)
 }
 
 fn coordinates(points: &[Coord3D]) -> crate::Result<Vec<CoordinateFingerprintV1>> {

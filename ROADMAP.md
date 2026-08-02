@@ -556,9 +556,9 @@ default release hot path.
 
 ### P2.2 Explicit `next` and face identity
 
-- [ ] Derive and store directed-edge `next` links after angular ordering.
-- [ ] Assign deterministic face/cycle IDs.
-- [ ] Identify the unbounded face explicitly.
+- [x] Derive and store directed-edge `next` links after angular ordering.
+- [x] Assign deterministic face/cycle IDs.
+- [x] Identify component-local unbounded face cycles explicitly.
 - [ ] Retain mappings from faces to boundary source sets and Z decisions.
 - [ ] Compare the explicit face walk against the current ring extractor on the
   entire golden corpus before replacing anything.
@@ -566,6 +566,9 @@ default release hot path.
 
 This creates a DCEL-like internal arrangement without committing the public API
 to a specific graph representation.
+
+The current unbounded markers are intentionally component-local; global nesting
+and shared-face grouping remain part of P2.3.
 
 ### P2.3 Connected-component decomposition
 
