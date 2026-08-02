@@ -792,6 +792,9 @@ opt-in whole-input fallback handle the evidence explicitly.
     observed evidence remain fatal.
   - [x] Exercise nested `GeometryCollection` line containers in the same
     bounded tiled differential contract.
+  - [x] Sweep bounded single-geometry envelope placements across tile sizes
+    and buffers; any in-domain mismatch without observed evidence remains
+    fatal.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
