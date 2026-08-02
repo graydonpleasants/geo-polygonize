@@ -50,7 +50,9 @@ same bounded preflight applies that caller-selected transformation before
 grouping, and reports those components as `PreSnap`. When a fixed-grid precision
 model is enabled, it applies the selected snap strategy to the same preflight
 endpoints and reports those components as `FixedGrid` unless pre-snap evidence
-takes precedence. A tile reports the
+takes precedence. With `NodingGuarantee::CertifiedFixedPrecision`, the
+preflight reuses the bounded hot-pixel noder so snap-created shared vertices
+are included in the same `FixedGrid` component evidence. A tile reports the
 component when its combined envelope intersects the buffered tile but no member
 geometry envelope does. This catches an enclosing component that is excluded
 from every halo. It remains conservative: an envelope does not prove that the
