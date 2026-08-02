@@ -1557,48 +1557,6 @@ mod tests {
                 ..
             })
         ));
-
-        let certified_options = PolygonizerOptions {
-            node_input: true,
-            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
-            noding: NodingOptions {
-                guarantee: NodingGuarantee::CertifiedFixedPrecision,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let mut certified_untiled = Polygonizer::with_options(certified_options.clone());
-        let mut certified_tiled = TiledPolygonizer::new(bbox, 10.0)
-            .with_buffer(2.0)
-            .with_options(certified_options);
-        for boundary in &boundaries {
-            certified_untiled.add_borrowed_geometry(boundary);
-            certified_tiled.add_geometry(boundary);
-        }
-        assert_eq!(certified_untiled.polygonize().unwrap().polygons.len(), 1);
-        let certified_components = certified_tiled.input_components().unwrap();
-        assert_eq!(certified_components.len(), 1);
-        assert_eq!(
-            certified_components[0].connection,
-            TileComponentConnection::FixedGrid
-        );
-        let certified_observed = certified_tiled.polygonize().unwrap();
-        assert!(certified_observed.polygons.is_empty());
-        assert!(certified_observed
-            .tile_reports
-            .iter()
-            .all(|report| report.input_boundary_issues.is_empty()));
-        assert!(certified_observed.tile_reports.iter().all(|report| {
-            report.excluded_component_issues.len() == 1
-                && report.excluded_component_issues[0].connection
-                    == TileComponentConnection::FixedGrid
-        }));
-        assert_eq!(
-            certified_observed
-                .stitching_report
-                .unresolved_component_count,
-            4
-        );
     }
 
     #[test]
@@ -2022,6 +1980,63 @@ mod tests {
                 ..
             })
         ));
+
+        let certified_options = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            noding: NodingOptions {
+                guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut certified_untiled = Polygonizer::with_options(certified_options.clone());
+        let mut certified_tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(certified_options);
+        for boundary in &boundaries {
+            certified_untiled.add_borrowed_geometry(boundary);
+            certified_tiled.add_geometry(boundary);
+        }
+        assert_eq!(certified_untiled.polygonize().unwrap().polygons.len(), 1);
+        let certified_components = certified_tiled.input_components().unwrap();
+        assert_eq!(certified_components.len(), 1);
+        assert_eq!(
+            certified_components[0].connection,
+            TileComponentConnection::FixedGrid
+        );
+        let certified_observed = certified_tiled.polygonize().unwrap();
+        assert!(certified_observed.polygons.is_empty());
+        assert!(certified_observed
+            .tile_reports
+            .iter()
+            .all(|report| report.input_boundary_issues.is_empty()));
+        assert!(certified_observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::FixedGrid
+        }));
+        assert_eq!(
+            certified_observed
+                .stitching_report
+                .unresolved_component_count,
+            4
+        );
+        let traced = certified_tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_fixed_grid_component")
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].payload["tile_index"], 0);
+        assert_eq!(
+            events[0].payload["input_geometry_indices"],
+            serde_json::json!([1, 3, 4, 5, 6, 7, 8, 9])
+        );
     }
 
     #[test]
