@@ -124,6 +124,61 @@ fn untiled_fallback_matches_global_output_across_tile_and_input_permutations() {
 }
 
 #[test]
+fn in_domain_tiled_mismatches_have_observed_coverage_evidence() {
+    let mut lines = ring(&[(2.0, 2.0), (18.0, 2.0), (18.0, 18.0), (2.0, 18.0)]);
+    lines.extend(ring(&[(6.0, 6.0), (14.0, 6.0), (14.0, 14.0), (6.0, 14.0)]));
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let expected = polygonize(lines.iter().copied(), &options).unwrap();
+    let geometries = lines
+        .iter()
+        .map(|line| {
+            Geometry::LineString(LineString::new(vec![
+                line.start.to_coord_2d(),
+                line.end.to_coord_2d(),
+            ]))
+        })
+        .collect::<Vec<_>>();
+
+    for tile_size in [4.0, 7.0, 10.0] {
+        for buffer in [0.0, 1.0, 4.0] {
+            let mut tiled = TiledPolygonizer::new(world(20.0), tile_size)
+                .with_buffer(buffer)
+                .with_options(options.clone())
+                .with_ownership_policy(TileOwnershipPolicy::RepresentativePointInsidePolygon)
+                .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let actual = tiled
+                .polygonize()
+                .unwrap_or_else(|error| panic!("tile size {tile_size}, buffer {buffer}: {error}"));
+            let equivalent = actual.polygons.len() == expected.polygons.len()
+                && actual
+                    .polygons
+                    .iter()
+                    .zip(&expected.polygons)
+                    .all(|(actual, expected)| {
+                        actual.exterior == expected.exterior
+                            && actual.interiors == expected.interiors
+                    });
+            if !equivalent {
+                assert!(
+                    actual.tile_reports.iter().any(|report| {
+                        !report.coverage_issues.is_empty()
+                            || !report.input_boundary_issues.is_empty()
+                            || !report.excluded_component_issues.is_empty()
+                    }),
+                    "undetected in-domain mismatch for tile size {tile_size}, buffer {buffer}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn tiled_report_matches_untiled_dangle_and_cut_edge_families() {
     let mut lines = ring(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
     lines.push(line((10.0, 10.0), (15.0, 15.0)));

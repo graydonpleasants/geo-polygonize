@@ -767,6 +767,9 @@ boundary without adding an implicit clipping contract.
     without claiming certification.
 - [x] Randomize tile origins, sizes, input orders, and tile traversal order in
   deterministic metamorphic tests with sufficient halos.
+  - [x] Exercise bounded in-domain tiled-vs-untiled ownership and deduplication
+    inputs in the scheduled fuzz target; a mismatch without observed coverage
+    evidence fails the target rather than being silently accepted.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
