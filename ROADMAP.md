@@ -752,9 +752,12 @@ When coverage cannot be proven:
   - [x] Pin the global-containment boundary where an excluded outer component
     spatially nests an already retained tile-local face.
   - [x] Add opt-in envelope-disjoint component fallback that declines nested,
-    overlapping, or previously included linework and records the recovery.
+    overlapping, or retained-face-interacting linework and records the
+    recovery.
   - [x] Verify declined nested component recovery hands off to the
     containment-safe whole-input fallback when both are enabled.
+  - [x] Merge one envelope-disjoint recovered component with retained tile
+    output; general region-local partial merging remains open.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile

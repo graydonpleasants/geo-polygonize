@@ -610,6 +610,94 @@ mod tests {
     }
 
     #[test]
+    fn component_fallback_merges_disjoint_retained_output() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 60.0, y: 60.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: -10.0 },
+                Coord { x: 30.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: -10.0 },
+                Coord { x: 30.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 30.0 },
+                Coord { x: -10.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 30.0 },
+                Coord { x: -10.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 52.0, y: 52.0 },
+                Coord { x: 58.0, y: 52.0 },
+                Coord { x: 58.0, y: 58.0 },
+                Coord { x: 52.0, y: 58.0 },
+                Coord { x: 52.0, y: 52.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::new();
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(0.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+            .with_component_fallback();
+        for geometry in &geometries {
+            untiled.add_borrowed_geometry(geometry);
+            tiled.add_geometry(geometry);
+        }
+
+        let expected = untiled.polygonize().unwrap();
+        assert_eq!(expected.polygons.len(), 2);
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            expected
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>()
+        );
+        assert!(result.stitching_report.component_fallback_used);
+        assert!(!result.stitching_report.untiled_fallback_used);
+        assert!(result.stitching_report.unresolved_input_geometry_count > 0);
+        assert!(result
+            .tile_reports
+            .iter()
+            .flat_map(|report| &report.input_boundary_issues)
+            .all(|issue| issue.input_geometry_index < 4));
+
+        let mut reversed = TiledPolygonizer::new(bbox, 10.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+            .with_component_fallback();
+        for geometry in geometries.iter().rev() {
+            reversed.add_geometry(geometry);
+        }
+        let reversed = reversed
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            reversed
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>()
+        );
+        assert!(reversed.stitching_report.component_fallback_used);
+    }
+
+    #[test]
     fn component_fallback_declines_nested_retained_output() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
