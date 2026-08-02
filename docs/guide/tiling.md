@@ -131,9 +131,10 @@ escape hatch for those cases. General boundary-graph stitching remains
 unavailable. When enabled for unresolved output, a declined component recovery
 is marked in `StitchingReport` and recorded as a bounded
 `tile_component_fallback_declined` trace event with the remaining evidence
-counts. Component fallback checks the execution policy before region selection
-and before each recovery region, so cancellation does not get lost between tile
-processing and the bounded region polygonizer.
+counts and a deterministic decline reason. Component fallback checks the
+execution policy before region selection and before each recovery region, so
+cancellation does not get lost between tile processing and the bounded region
+polygonizer.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.

@@ -408,6 +408,7 @@ mod tests {
             .iter()
             .find(|event| event.kind == "tile_component_fallback_declined")
             .unwrap();
+        assert_eq!(declined.payload["reason"], "no_indexed_component_evidence");
         assert_eq!(
             declined.payload["unresolved_owned_polygon_count"],
             result.stitching_report.unresolved_owned_polygon_count

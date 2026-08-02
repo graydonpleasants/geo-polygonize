@@ -351,6 +351,7 @@ pub struct TileComponentFallbackTraceV1 {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileComponentFallbackDeclinedTraceV1 {
+    pub reason: String,
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_geometry_count: usize,
     pub unresolved_component_count: usize,
@@ -1317,11 +1318,13 @@ impl TraceRecorderV1 {
         unresolved_owned_polygon_count: usize,
         unresolved_input_geometry_count: usize,
         unresolved_component_count: usize,
+        reason: &str,
     ) -> bool {
         self.record(
             TraceStageV1::Output,
             "tile_component_fallback_declined",
             serde_json::to_value(TileComponentFallbackDeclinedTraceV1 {
+                reason: reason.to_string(),
                 unresolved_owned_polygon_count,
                 unresolved_input_geometry_count,
                 unresolved_component_count,

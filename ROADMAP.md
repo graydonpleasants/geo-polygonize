@@ -805,7 +805,8 @@ When coverage cannot be proven:
     replacement counts in the stitching report and bounded component-fallback
     trace events.
   - [x] Record enabled-but-declined component recovery in the stitching report
-    and bounded `tile_component_fallback_declined` trace events.
+    and bounded `tile_component_fallback_declined` trace events with a
+    deterministic reason.
 
 ### P3.3 True graph stitching
 

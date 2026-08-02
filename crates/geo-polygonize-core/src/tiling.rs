@@ -251,6 +251,32 @@ struct ComponentFallbackEvent {
     replaced_retained_polygon_count: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComponentFallbackDeclineReason {
+    NoIndexedComponentEvidence,
+    OwnedFaceCoverageEvidence,
+    IndexedComponentMissing,
+    InputBoundaryOutsideRecoveryRegion,
+    EmptyRecoveryOutput,
+}
+
+impl ComponentFallbackDeclineReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NoIndexedComponentEvidence => "no_indexed_component_evidence",
+            Self::OwnedFaceCoverageEvidence => "owned_face_coverage_evidence",
+            Self::IndexedComponentMissing => "indexed_component_missing",
+            Self::InputBoundaryOutsideRecoveryRegion => "input_boundary_outside_recovery_region",
+            Self::EmptyRecoveryOutput => "empty_recovery_output",
+        }
+    }
+}
+
+enum ComponentFallbackDecision {
+    Recovered(ComponentFallbackResult),
+    Declined(ComponentFallbackDeclineReason),
+}
+
 #[derive(Clone, Copy, Debug)]
 struct InputSegment {
     line: Line<f64>,
@@ -610,7 +636,7 @@ impl<'a> TiledPolygonizer<'a> {
         tile_polygons: &[Vec<Polygon3D>],
         tile_reports: &[TileReport],
         input_components: &[InputComponent],
-    ) -> Result<Option<ComponentFallbackResult>> {
+    ) -> Result<ComponentFallbackDecision> {
         self.execution_policy
             .check_cancelled("tile_component_fallback")?;
         let mut component_keys = tile_reports
@@ -635,13 +661,17 @@ impl<'a> TiledPolygonizer<'a> {
             }
         }
         if component_keys.is_empty() {
-            return Ok(None);
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::NoIndexedComponentEvidence,
+            ));
         }
         if tile_reports
             .iter()
             .any(|report| !report.coverage_issues.is_empty())
         {
-            return Ok(None);
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::OwnedFaceCoverageEvidence,
+            ));
         }
 
         let retained_polygon_bboxes = tile_polygons
@@ -657,7 +687,9 @@ impl<'a> TiledPolygonizer<'a> {
             .filter(|component| component_keys.contains(&component.input_geometry_indices))
             .count();
         if seed_component_count != component_keys.len() {
-            return Ok(None);
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::IndexedComponentMissing,
+            ));
         }
         for (component_index, seed) in input_components.iter().enumerate() {
             if !component_keys.contains(&seed.input_geometry_indices)
@@ -739,7 +771,9 @@ impl<'a> TiledPolygonizer<'a> {
                 .iter()
                 .any(|issue| !recoverable_geometry_indices.contains(&issue.input_geometry_index))
         }) {
-            return Ok(None);
+            return Ok(ComponentFallbackDecision::Declined(
+                ComponentFallbackDeclineReason::InputBoundaryOutsideRecoveryRegion,
+            ));
         }
 
         let mut recovered = Vec::new();
@@ -755,7 +789,9 @@ impl<'a> TiledPolygonizer<'a> {
             }
             let polygons = polygonizer.polygonize()?.polygons;
             if polygons.is_empty() {
-                return Ok(None);
+                return Ok(ComponentFallbackDecision::Declined(
+                    ComponentFallbackDeclineReason::EmptyRecoveryOutput,
+                ));
             }
             let replaced_retained_polygon_count = retained_polygon_bboxes
                 .iter()
@@ -770,11 +806,13 @@ impl<'a> TiledPolygonizer<'a> {
             region_bboxes.push(region_bbox);
             recovered.extend(polygons);
         }
-        Ok(Some(ComponentFallbackResult {
-            polygons: recovered,
-            events,
-            region_bboxes,
-        }))
+        Ok(ComponentFallbackDecision::Recovered(
+            ComponentFallbackResult {
+                polygons: recovered,
+                events,
+                region_bboxes,
+            },
+        ))
     }
 
     fn polygon_bbox(poly: &Polygon3D) -> Option<Rect<f64>> {
@@ -1343,11 +1381,19 @@ impl<'a> TiledPolygonizer<'a> {
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
-        let component_fallback = if component_fallback_attempted {
-            self.try_component_fallback(&tile_polygons, &tile_reports, input_components)?
-        } else {
-            None
-        };
+        let (component_fallback, component_fallback_decline_reason) =
+            if component_fallback_attempted {
+                match self.try_component_fallback(
+                    &tile_polygons,
+                    &tile_reports,
+                    input_components,
+                )? {
+                    ComponentFallbackDecision::Recovered(result) => (Some(result), None),
+                    ComponentFallbackDecision::Declined(reason) => (None, Some(reason.as_str())),
+                }
+            } else {
+                (None, None)
+            };
         let component_fallback_used = component_fallback.is_some();
         let (component_fallback_polygons, component_fallback_events, region_bboxes) =
             component_fallback
@@ -1488,12 +1534,13 @@ impl<'a> TiledPolygonizer<'a> {
                 untiled_fallback_used,
             },
         };
-        if component_fallback_attempted && !component_fallback_used {
+        if let Some(reason) = component_fallback_decline_reason {
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record_tile_component_fallback_declined(
                     result.stitching_report.unresolved_owned_polygon_count,
                     result.stitching_report.unresolved_input_geometry_count,
                     result.stitching_report.unresolved_component_count,
+                    reason,
                 );
             }
         }
