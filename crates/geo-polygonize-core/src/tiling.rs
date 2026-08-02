@@ -83,11 +83,11 @@ pub enum TileComponentConnection {
     FixedGrid,
 }
 
-/// A transformed-connected input component excluded from a tile halo.
+/// A transformed-connected input component not fully observed in a tile halo.
 ///
-/// The component envelope intersects the buffered tile, but none of its member
-/// geometry envelopes do. This is conservative evidence, not proof that the
-/// component contains a face.
+/// The component envelope intersects the buffered tile, but its member geometry
+/// envelopes are not fully observed there. This is conservative evidence, not
+/// proof that the component contains a face.
 #[derive(Clone, Debug)]
 pub struct TileExcludedComponentIssue {
     pub input_geometry_indices: Vec<usize>,
@@ -130,7 +130,7 @@ pub struct TileReport {
     pub coverage_issues: Vec<TileCoverageIssue>,
     /// Inputs that may connect to linework beyond this tile's halo.
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
-    /// Transformed-connected components excluded from this tile's halo.
+    /// Transformed-connected components not fully observed in this tile's halo.
     pub excluded_component_issues: Vec<TileExcludedComponentIssue>,
     pub retry_attempts: Vec<TileRetryAttempt>,
     pub retry_exhausted: bool,
@@ -146,7 +146,7 @@ pub struct StitchingReport {
     pub output_polygon_count: usize,
     /// Polygon count retained from tile-local ownership before fallback merge.
     pub retained_tile_polygon_count: usize,
-    /// Number of excluded components recovered by component or region fallback.
+    /// Number of indexed components recovered by component or region fallback.
     pub component_fallback_count: usize,
     /// Polygon count produced by component fallback before final deduplication.
     pub component_fallback_polygon_count: usize,
@@ -163,7 +163,7 @@ pub struct StitchingReport {
     pub retried_tile_count: usize,
     pub retry_attempt_count: usize,
     pub retry_exhausted_tile_count: usize,
-    /// Whether excluded components were recovered by component or region fallback.
+    /// Whether indexed components were recovered by component or region fallback.
     pub component_fallback_used: bool,
     /// Whether unresolved tiled output was replaced by one untiled pass over all input.
     pub untiled_fallback_used: bool,
@@ -611,11 +611,27 @@ impl<'a> TiledPolygonizer<'a> {
     ) -> Result<Option<ComponentFallbackResult>> {
         self.execution_policy
             .check_cancelled("tile_component_fallback")?;
-        let component_keys = tile_reports
+        let mut component_keys = tile_reports
             .iter()
             .flat_map(|report| &report.excluded_component_issues)
             .map(|issue| issue.input_geometry_indices.clone())
             .collect::<HashSet<_>>();
+        let input_boundary_geometry_indices = tile_reports
+            .iter()
+            .flat_map(|report| &report.input_boundary_issues)
+            .map(|issue| issue.input_geometry_index)
+            .collect::<HashSet<_>>();
+        for (component_index, component) in input_components.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("tile_component_fallback", component_index)?;
+            if component
+                .input_geometry_indices
+                .iter()
+                .any(|index| input_boundary_geometry_indices.contains(index))
+            {
+                component_keys.insert(component.input_geometry_indices.clone());
+            }
+        }
         if component_keys.is_empty() {
             return Ok(None);
         }
