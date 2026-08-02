@@ -867,12 +867,6 @@ impl<'a> TiledPolygonizer<'a> {
                 ComponentFallbackDeclineReason::NoIndexedComponentEvidence,
             ));
         }
-        if has_coverage_evidence {
-            return Ok(ComponentFallbackDecision::Declined(
-                ComponentFallbackDeclineReason::OwnedFaceCoverageEvidence,
-            ));
-        }
-
         let retained_polygon_bboxes = tile_polygons
             .iter()
             .flat_map(|polygons| polygons.iter())
@@ -973,6 +967,27 @@ impl<'a> TiledPolygonizer<'a> {
             return Ok(ComponentFallbackDecision::Declined(
                 ComponentFallbackDeclineReason::InputBoundaryOutsideRecoveryRegion,
             ));
+        }
+        if has_coverage_evidence {
+            let mut coverage_region_closed = true;
+            'coverage: for report in tile_reports {
+                for issue in &report.coverage_issues {
+                    self.execution_policy
+                        .check_cancelled("tile_component_fallback")?;
+                    if !regions
+                        .iter()
+                        .any(|(_, region_bbox, _)| issue.polygon_bbox.intersects(region_bbox))
+                    {
+                        coverage_region_closed = false;
+                        break 'coverage;
+                    }
+                }
+            }
+            if !coverage_region_closed {
+                return Ok(ComponentFallbackDecision::Declined(
+                    ComponentFallbackDeclineReason::OwnedFaceCoverageEvidence,
+                ));
+            }
         }
 
         let mut recovered = Vec::new();

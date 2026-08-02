@@ -792,6 +792,9 @@ When coverage cannot be proven:
     the indexed connected component is only partially visible in a halo.
   - [x] Recover an indexed component with mixed observed and unobserved
     members while replacing nested retained output before canonical merge.
+  - [x] Recover mixed owned-face and indexed component/input-boundary evidence
+    only when every owned-face witness lies inside an envelope-closed recovery
+    region; decline conservatively when any witness is outside that region.
   - [x] Merge one envelope-disjoint recovered component with retained tile
     output; envelope-closed region replacement now covers interacting retained
     output.
