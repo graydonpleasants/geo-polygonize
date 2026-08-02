@@ -79,6 +79,7 @@ impl PythonExecutionLimits {
             max_rings: self.max_rings,
             max_output_polygons: self.max_output_polygons,
             max_output_coordinates: self.max_output_coordinates,
+            max_tile_retry_attempts: None,
         }
     }
 }

@@ -128,7 +128,11 @@ Ownership-domain evidence is not retried because increasing a halo cannot move
 an ownership point into the configured domain.
 Retries reuse the same execution policy independently per attempt. Full output
 traces record bounded `tile_halo_retry` events directly from the physical retry
-history. `with_component_fallback` enables conservative recovery for excluded
+history. `ExecutionPolicy::max_tile_retry_attempts` optionally caps retry
+attempts per tile; exceeding that operational budget returns the typed
+`ResourceLimitExceeded` error before the next tile attempt. The retry policy
+still controls the halo schedule. `with_component_fallback` enables
+conservative recovery for excluded
 or partially observed indexed components. It starts with each component
 identified by excluded-component or input-boundary evidence, closes the region
 over intersecting input envelopes, interacting retained polygon envelopes, and
