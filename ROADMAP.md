@@ -735,6 +735,8 @@ not, is now reported as conservative excluded-component evidence.
   - [x] Report conservative excluded-component evidence when one
     transformed-connected member intersects a halo and other members remain
     outside it.
+  - [x] Pin the partially observed fixed-grid-connected component contract;
+    broader transformed-region coverage remains observational.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
