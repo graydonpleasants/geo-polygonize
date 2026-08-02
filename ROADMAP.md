@@ -905,6 +905,9 @@ After the explicit arrangement model exists:
     half-edge observations retaining provenance, face, partition, side, and Z
     evidence. Twin matching and reconciliation remain open.
 - [ ] match and reconcile twin boundary halfedges;
+  - [x] Match only unambiguous opposite-direction observations from two
+    distinct partitions; same-partition and ambiguous buckets remain
+    unmatched until an explicit reconciliation policy exists.
 - [ ] merge source sets and Z decisions across partitions;
 - [ ] reconcile connected components before face extraction;
 - [ ] validate the stitched arrangement and its unbounded face;
