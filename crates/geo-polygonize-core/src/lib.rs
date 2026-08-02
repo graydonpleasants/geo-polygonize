@@ -66,8 +66,8 @@ pub use polygonizer::{
 #[doc(hidden)]
 pub use tiling::{
     StitchingReport, TileBoundarySide, TileComponentConnection, TileCoverageGuarantee,
-    TileCoverageIssue, TileExcludedComponentIssue, TileInputBoundaryIssue, TileReport,
-    TileRetryAttempt, TileRetryPolicy, TiledPolygonizeError, TiledPolygonizeResult,
-    TiledPolygonizer, TracedTiledPolygonizeResultV1,
+    TileCoverageIssue, TileExcludedComponentIssue, TileInputBoundaryIssue,
+    TileOwnershipDomainIssue, TileReport, TileRetryAttempt, TileRetryPolicy, TiledPolygonizeError,
+    TiledPolygonizeResult, TiledPolygonizer, TracedTiledPolygonizeResultV1,
 };
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};

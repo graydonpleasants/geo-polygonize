@@ -712,7 +712,11 @@ single-geometry boundaries decline conservatively, so broad missing-region
 coverage detection remains observational. A single closed geometry whose
 envelope only grazes the ownership domain can also remain absent when its
 ownership point falls outside every tile; this pins the remaining envelope-only
-boundary without adding an implicit clipping contract.
+boundary without adding an implicit clipping contract. Reconstructed faces
+whose ownership points fall outside the configured domain are now reported as
+definite ownership-domain evidence when their envelopes overlap that domain;
+BestEffort remains domain-scoped, while strict observed validation and the
+opt-in whole-input fallback handle the evidence explicitly.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -748,6 +752,9 @@ boundary without adding an implicit clipping contract.
   - [x] Pin the single-geometry envelope-only gap where an untiled face's
     ownership point falls outside the configured ownership domain; broad
     missing-region detection remains open.
+  - [x] Report reconstructed faces that overlap the ownership domain but have
+    no tile-owned ownership point; this remains evidence rather than implicit
+    clipping.
   - [x] Pin that caller-enabled whole-input fallback cannot repair the same
     single-geometry ownership-domain gap without observed evidence; no implicit
     clipping is introduced.

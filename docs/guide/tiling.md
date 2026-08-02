@@ -32,15 +32,24 @@ affected tiles and faces. Absence of this definite witness does not certify
 coverage because missing external linework may leave no reconstructed face to
 inspect.
 
+`TileReport::ownership_domain_issues` reports a reconstructed face whose
+selected ownership point falls outside the configured ownership bounding box
+while the face envelope overlaps that box. No generated tile can own that
+face. This is evidence only: tiled BestEffort output remains domain-scoped and
+does not clip or append the face implicitly. `ValidateObservedCoverage`
+rejects the evidence, while `with_untiled_fallback` can opt into the existing
+whole-input result, which preserves the complete untiled face.
+
 `TileReport::input_boundary_issues` also records the stable input geometry index,
 envelope, and internal halo sides for each included geometry whose envelope
 reaches beyond that halo. This conservative witness remains available when no
 local face is reconstructed, so it catches split-boundary cases that face-only
 evidence cannot see. It reports unresolved connectivity, not a confirmed missing
 face: whole input geometries are replicated and may already contain everything
-needed locally. Full output traces record both evidence families as bounded
-`tile_input_boundary` and `tile_owned_face_boundary` events without rescanning
-inputs or reconstructed faces.
+needed locally. Full output traces record the three evidence families as
+bounded `tile_input_boundary`, `tile_owned_face_boundary`, and
+`tile_ownership_domain` events without rescanning inputs or reconstructed
+faces.
 
 `TileReport::excluded_component_issues` covers one additional missing-input
 case. Separate input geometries that share exact endpoints are grouped. When
@@ -96,7 +105,8 @@ returned to the caller.
 - `ValidateOwnedFaces` returns `TiledPolygonizeError::CoverageIncomplete` instead
   of polygons when a reconstructed owned face reaches an internal halo boundary.
 - `ValidateObservedCoverage` returns that typed error when owned-face,
-  conservative input-boundary, or excluded component evidence is present.
+  ownership-domain, conservative input-boundary, or excluded component
+  evidence is present.
 
 Both validation modes are deliberately narrower than coverage certification.
 `with_execution_policy` applies segment, candidate, exact-predicate, and
@@ -114,6 +124,8 @@ evidence. Each attempt adds `buffer_increment` up to `max_attempts` and
 `max_buffer`, replaces that tile's earlier polygons and report, and records the
 attempt in `TileReport` and `StitchingReport`. Strict validation returns the
 typed coverage error with retry counts when the bounded schedule is exhausted.
+Ownership-domain evidence is not retried because increasing a halo cannot move
+an ownership point into the configured domain.
 Retries reuse the same execution policy independently per attempt. Full output
 traces record bounded `tile_halo_retry` events directly from the physical retry
 history. `with_component_fallback` enables conservative recovery for excluded
@@ -132,14 +144,15 @@ input-boundary evidence, every owned-face witness must intersect an
 envelope-closed recovery region; a witness outside those regions declines
 component recovery rather than replacing unrelated retained output.
 `with_untiled_fallback` remains the containment-safe escape hatch for observed
-cases that decline region-local recovery. General boundary-graph stitching
-remains unavailable. When enabled for unresolved output, a declined component
-recovery is marked in `StitchingReport` and recorded as a bounded
+cases that decline region-local recovery, including a reconstructed face that
+cannot be owned by any tile. General boundary-graph stitching remains
+unavailable. When enabled for unresolved output, a declined component recovery
+is marked in `StitchingReport` and recorded as a bounded
 `tile_component_fallback_declined` trace event before the
 `tile_untiled_fallback` event. The whole-input fallback only runs when tile
 reports contain observed unresolved evidence. It cannot detect an unowned
-single-geometry face whose representative ownership point falls outside the
-configured ownership domain, and it never clips that input implicitly.
+single-geometry face whose envelope never overlaps the configured ownership
+domain, and it never clips that input implicitly.
 Component fallback checks the execution policy before region selection and
 before each recovery region, so cancellation does not get lost between tile
 processing and the bounded region polygonizer. The same policy is checked while
