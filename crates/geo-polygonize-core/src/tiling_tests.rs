@@ -607,6 +607,25 @@ mod tests {
         assert!(bounded.trace.truncated);
         assert!(bounded.result.stitching_report.component_fallback_used);
         assert_eq!(bounded.result.polygons.len(), 1);
+
+        let mut limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_execution_policy(ExecutionPolicy {
+                max_output_polygons: Some(0),
+                ..Default::default()
+            })
+            .with_component_fallback();
+        for boundary in &boundaries {
+            limited.add_geometry(boundary);
+        }
+        assert!(matches!(
+            limited.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "output_polygons"
+        ));
     }
 
     #[test]

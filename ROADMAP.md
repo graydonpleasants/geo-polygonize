@@ -761,6 +761,8 @@ When coverage cannot be proven:
   - [x] Merge multiple pairwise envelope-disjoint recovered components with
     retained tile output; cross-component overlap and graph stitching remain
     open.
+  - [x] Apply the configured output limit to component recovery; broader
+    fallback cancellation coverage remains open.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile
