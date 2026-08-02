@@ -380,6 +380,46 @@ mod tests {
     }
 
     #[test]
+    fn records_declined_component_fallback_for_owned_face_evidence() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 2.0 },
+            Coord { x: 19.0, y: 2.0 },
+            Coord { x: 19.0, y: 8.0 },
+            Coord { x: 1.0, y: 8.0 },
+            Coord { x: 1.0, y: 2.0 },
+        ]));
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_component_fallback();
+        tiled.add_geometry(&face);
+
+        let result = tiled.polygonize().unwrap();
+        assert!(result.stitching_report.component_fallback_attempted);
+        assert!(!result.stitching_report.component_fallback_used);
+        assert!(result.stitching_report.unresolved_owned_polygon_count > 0);
+
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let declined = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tile_component_fallback_declined")
+            .unwrap();
+        assert_eq!(
+            declined.payload["unresolved_owned_polygon_count"],
+            result.stitching_report.unresolved_owned_polygon_count
+        );
+        assert_eq!(
+            declined.payload["unresolved_input_geometry_count"],
+            result.stitching_report.unresolved_input_geometry_count
+        );
+        assert_eq!(declined.payload["unresolved_component_count"], 0);
+    }
+
+    #[test]
     fn reports_boundary_inputs_when_no_local_face_is_reconstructed() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
         let boundaries = [
