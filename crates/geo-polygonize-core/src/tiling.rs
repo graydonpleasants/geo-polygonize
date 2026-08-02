@@ -498,6 +498,7 @@ impl<'a> TiledPolygonizer<'a> {
         buffer: f64,
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
+        self.execution_policy.check_cancelled("tile_processing")?;
         let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
         let mut local_poly = Polygonizer::with_options(self.options.clone())
             .with_execution_policy(self.execution_policy.clone());
@@ -518,6 +519,8 @@ impl<'a> TiledPolygonizer<'a> {
         let mut relevant_lines = 0;
         let mut input_boundary_issues = Vec::new();
         for (input_geometry_index, (geom, bbox)) in self.geometries.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("tile_processing", input_geometry_index)?;
             if let Some(geometry_bbox) = bbox
                 .as_ref()
                 .filter(|geometry_bbox| geometry_bbox.intersects(&buffered_bbox))
@@ -534,22 +537,24 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
-        let excluded_component_issues = input_components
-            .iter()
-            .filter(|component| {
-                component.bbox.intersects(&buffered_bbox)
-                    && component.input_geometry_indices.iter().all(|&index| {
-                        self.geometries[index]
-                            .1
-                            .is_none_or(|bbox| !bbox.intersects(&buffered_bbox))
-                    })
-            })
-            .map(|component| TileExcludedComponentIssue {
-                input_geometry_indices: component.input_geometry_indices.clone(),
-                component_bbox: component.bbox,
-                connection: component.connection,
-            })
-            .collect();
+        let mut excluded_component_issues = Vec::new();
+        for (component_index, component) in input_components.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("tile_processing", component_index)?;
+            if component.bbox.intersects(&buffered_bbox)
+                && component.input_geometry_indices.iter().all(|&index| {
+                    self.geometries[index]
+                        .1
+                        .is_none_or(|bbox| !bbox.intersects(&buffered_bbox))
+                })
+            {
+                excluded_component_issues.push(TileExcludedComponentIssue {
+                    input_geometry_indices: component.input_geometry_indices.clone(),
+                    component_bbox: component.bbox,
+                    connection: component.connection,
+                });
+            }
+        }
 
         let mut report = TileReport {
             tile_bbox,
@@ -579,6 +584,8 @@ impl<'a> TiledPolygonizer<'a> {
         let mut valid_polys = Vec::new();
         let mut ownership_decisions = Vec::new();
         for (polygon_index, poly) in result.polygons.into_iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("tile_processing", polygon_index)?;
             let ownership_point = self.ownership_point(&poly);
             let owned = ownership_point.is_some_and(|c| {
                 // Check inclusion [min, max)
