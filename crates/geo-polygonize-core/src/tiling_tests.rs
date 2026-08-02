@@ -1896,6 +1896,150 @@ mod tests {
     }
 
     #[test]
+    fn reports_partially_observed_fixed_grid_component() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let boundaries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.6, y: 5.0 },
+                Coord { x: 11.8, y: 5.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 12.2, y: 5.0 },
+                Coord { x: 15.0, y: 5.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.6, y: 15.0 },
+                Coord { x: 11.8, y: 15.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 12.2, y: 15.0 },
+                Coord { x: 15.0, y: 15.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.6, y: 5.0 },
+                Coord { x: 11.6, y: 7.6 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.6, y: 8.4 },
+                Coord { x: 11.6, y: 11.6 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.6, y: 12.4 },
+                Coord { x: 11.6, y: 15.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 15.0, y: 5.0 },
+                Coord { x: 15.0, y: 7.6 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 15.0, y: 8.4 },
+                Coord { x: 15.0, y: 11.6 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 15.0, y: 12.4 },
+                Coord { x: 15.0, y: 15.0 },
+            ])),
+        ];
+        let options = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            ..Default::default()
+        };
+        let mut untiled = Polygonizer::with_options(options.clone());
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(options);
+        for boundary in &boundaries {
+            untiled.add_borrowed_geometry(boundary);
+            tiled.add_geometry(boundary);
+        }
+
+        assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+        let components = tiled.input_components().unwrap();
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].connection, TileComponentConnection::FixedGrid);
+        let observed = tiled.polygonize().unwrap();
+        assert!(observed.polygons.is_empty());
+        assert!(observed
+            .tile_reports
+            .iter()
+            .all(|report| report.input_boundary_issues.is_empty()));
+        assert!(observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::FixedGrid
+        }));
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_tile_count: 4,
+                unresolved_component_count: 4,
+                ..
+            })
+        ));
+
+        let certified_options = PolygonizerOptions {
+            node_input: true,
+            precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+            noding: NodingOptions {
+                guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut certified_untiled = Polygonizer::with_options(certified_options.clone());
+        let mut certified_tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(certified_options);
+        for boundary in &boundaries {
+            certified_untiled.add_borrowed_geometry(boundary);
+            certified_tiled.add_geometry(boundary);
+        }
+        assert_eq!(certified_untiled.polygonize().unwrap().polygons.len(), 1);
+        let certified_components = certified_tiled.input_components().unwrap();
+        assert_eq!(certified_components.len(), 1);
+        assert_eq!(
+            certified_components[0].connection,
+            TileComponentConnection::FixedGrid
+        );
+        let certified_observed = certified_tiled.polygonize().unwrap();
+        assert!(certified_observed.polygons.is_empty());
+        assert!(certified_observed
+            .tile_reports
+            .iter()
+            .all(|report| report.input_boundary_issues.is_empty()));
+        assert!(certified_observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::FixedGrid
+        }));
+        assert_eq!(
+            certified_observed
+                .stitching_report
+                .unresolved_component_count,
+            4
+        );
+        let traced = certified_tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_fixed_grid_component")
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].payload["tile_index"], 0);
+        assert_eq!(
+            events[0].payload["input_geometry_indices"],
+            serde_json::json!([1, 3, 4, 5, 6, 7, 8, 9])
+        );
+    }
+
+    #[test]
     fn bounded_halo_retry_resolves_an_excluded_component() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let boundaries = [
