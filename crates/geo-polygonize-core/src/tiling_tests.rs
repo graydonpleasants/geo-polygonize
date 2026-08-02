@@ -1794,15 +1794,23 @@ mod tests {
             .tile_reports
             .iter()
             .all(|report| report.input_boundary_issues.is_empty()));
-        assert!(observed
-            .tile_reports
-            .iter()
-            .all(|report| report.excluded_component_issues.is_empty()));
+        assert!(observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::PreSnap
+        }));
         assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
-        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
-        assert!(tiled
-            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
-            .is_ok());
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_tile_count: 4,
+                unresolved_component_count: 4,
+                ..
+            })
+        ));
     }
 
     #[test]

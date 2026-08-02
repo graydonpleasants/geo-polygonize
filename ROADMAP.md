@@ -705,7 +705,7 @@ segments had no exact intersection, so that region could remain absent without
 observed evidence. The preflight now reuses the bounded certified noder for
 that same connectivity case. A partially observed transformed-connected
 component, where one member geometry intersects a halo and other members do
-not, also remains undetected without a conservative component-boundary check.
+not, is now reported as conservative excluded-component evidence.
 
 - [ ] Detect owned faces or connected regions that touch an unresolved halo or
   partition boundary.
@@ -732,9 +732,9 @@ not, also remains undetected without a conservative component-boundary check.
   - [x] Use indexed connected-component evidence to identify a component that
     is only partially observed in a tile halo; broad undetected-region coverage
     remains open.
-  - [x] Pin the partially observed transformed-connected component case where
-    one member intersects a halo and other members remain outside; detection
-    remains open.
+  - [x] Report conservative excluded-component evidence when one
+    transformed-connected member intersects a halo and other members remain
+    outside it.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary

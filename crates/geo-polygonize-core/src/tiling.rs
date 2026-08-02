@@ -537,16 +537,24 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
+        let input_boundary_geometry_indices = input_boundary_issues
+            .iter()
+            .map(|issue| issue.input_geometry_index)
+            .collect::<HashSet<_>>();
         let mut excluded_component_issues = Vec::new();
         for (component_index, component) in input_components.iter().enumerate() {
             self.execution_policy
                 .check_cancelled_every("tile_processing", component_index)?;
             if component.bbox.intersects(&buffered_bbox)
-                && component.input_geometry_indices.iter().all(|&index| {
+                && component.input_geometry_indices.iter().any(|&index| {
                     self.geometries[index]
                         .1
                         .is_none_or(|bbox| !bbox.intersects(&buffered_bbox))
                 })
+                && component
+                    .input_geometry_indices
+                    .iter()
+                    .all(|index| !input_boundary_geometry_indices.contains(index))
             {
                 excluded_component_issues.push(TileExcludedComponentIssue {
                     input_geometry_indices: component.input_geometry_indices.clone(),
