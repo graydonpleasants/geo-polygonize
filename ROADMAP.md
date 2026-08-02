@@ -758,6 +758,9 @@ When coverage cannot be proven:
     containment-safe whole-input fallback when both are enabled.
   - [x] Merge one envelope-disjoint recovered component with retained tile
     output; general region-local partial merging remains open.
+  - [x] Merge multiple pairwise envelope-disjoint recovered components with
+    retained tile output; cross-component overlap and graph stitching remain
+    open.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile

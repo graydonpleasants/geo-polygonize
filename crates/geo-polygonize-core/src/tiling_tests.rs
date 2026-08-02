@@ -698,6 +698,125 @@ mod tests {
     }
 
     #[test]
+    fn component_fallback_merges_multiple_disjoint_components() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 100.0, y: 100.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: -10.0 },
+                Coord { x: 30.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: -10.0 },
+                Coord { x: 30.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 30.0 },
+                Coord { x: -10.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 30.0 },
+                Coord { x: -10.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 70.0, y: -10.0 },
+                Coord { x: 110.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 110.0, y: -10.0 },
+                Coord { x: 110.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 110.0, y: 30.0 },
+                Coord { x: 70.0, y: 30.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 70.0, y: 30.0 },
+                Coord { x: 70.0, y: -10.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 42.0, y: 42.0 },
+                Coord { x: 48.0, y: 42.0 },
+                Coord { x: 48.0, y: 48.0 },
+                Coord { x: 42.0, y: 48.0 },
+                Coord { x: 42.0, y: 42.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 52.0, y: 52.0 },
+                Coord { x: 58.0, y: 52.0 },
+                Coord { x: 58.0, y: 58.0 },
+                Coord { x: 52.0, y: 58.0 },
+                Coord { x: 52.0, y: 52.0 },
+            ])),
+        ];
+        let mut untiled = Polygonizer::new();
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+            .with_component_fallback();
+        for geometry in &geometries {
+            untiled.add_borrowed_geometry(geometry);
+            tiled.add_geometry(geometry);
+        }
+
+        let expected = untiled.polygonize().unwrap();
+        assert_eq!(expected.polygons.len(), 4);
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(result.polygons.len(), 4);
+        assert_eq!(
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            expected
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>()
+        );
+        assert!(result.stitching_report.component_fallback_used);
+        assert!(!result.stitching_report.untiled_fallback_used);
+
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let fallback_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_component_fallback")
+            .collect::<Vec<_>>();
+        assert_eq!(fallback_events.len(), 2);
+        assert!(fallback_events
+            .iter()
+            .all(|event| event.payload["output_polygon_count"] == 1));
+
+        let mut reversed = TiledPolygonizer::new(bbox, 10.0)
+            .with_dedup_policy(DedupPolicy::CanonicalRingHash)
+            .with_component_fallback();
+        for geometry in geometries.iter().rev() {
+            reversed.add_geometry(geometry);
+        }
+        let reversed = reversed
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        assert_eq!(
+            reversed
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>(),
+            result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>()
+        );
+        assert!(reversed.stitching_report.component_fallback_used);
+    }
+
+    #[test]
     fn component_fallback_declines_nested_retained_output() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
