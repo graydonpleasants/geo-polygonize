@@ -135,7 +135,9 @@ is marked in `StitchingReport` and recorded as a bounded
 counts and a deterministic decline reason. Component fallback checks the
 execution policy before region selection and before each recovery region, so
 cancellation does not get lost between tile processing and the bounded region
-polygonizer.
+polygonizer. The same policy is checked while replacing retained polygons,
+appending recovered output, and deduplicating the fallback merge, so a
+cancellation request is not lost after recovery finishes.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.

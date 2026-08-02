@@ -4,10 +4,10 @@ mod tests {
     use crate::tiling::InputComponent;
     use crate::{
         trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
-        NodingGuarantee, NodingOptions, PolygonizeError, Polygonizer, PolygonizerOptions,
-        PrecisionModel, ProvenanceOptions, TileBoundarySide, TileComponentConnection,
-        TileCoverageGuarantee, TileExcludedComponentIssue, TileReport, TileRetryPolicy,
-        TiledPolygonizeError, TiledPolygonizer,
+        NodingGuarantee, NodingOptions, Polygon3D, PolygonizeError, Polygonizer,
+        PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
+        TileComponentConnection, TileCoverageGuarantee, TileExcludedComponentIssue, TileReport,
+        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -1146,6 +1146,40 @@ mod tests {
         assert!(matches!(
             tiled.try_component_fallback(&[Vec::new()], &[report], &[component]),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_component_fallback"
+        ));
+    }
+
+    #[test]
+    fn fallback_merge_observes_cancellation_during_recovery_output() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        let tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(policy);
+        let fallback_polygons = (0..=256)
+            .map(|index| {
+                let x = index as f64;
+                Polygon3D::new(
+                    vec![
+                        Coord3D::new(x, 0.0, 0.0),
+                        Coord3D::new(x + 1.0, 0.0, 0.0),
+                        Coord3D::new(x + 1.0, 1.0, 0.0),
+                        Coord3D::new(x, 1.0, 0.0),
+                        Coord3D::new(x, 0.0, 0.0),
+                    ],
+                    vec![],
+                    vec![],
+                    vec![],
+                )
+            })
+            .collect();
+
+        assert!(matches!(
+            tiled.merge_fallback_polygons(Vec::new(), &[], fallback_polygons),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_fallback_merge"
         ));
     }
 

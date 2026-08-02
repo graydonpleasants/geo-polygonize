@@ -830,6 +830,47 @@ impl<'a> TiledPolygonizer<'a> {
         ))
     }
 
+    fn merge_fallback_polygons(
+        &self,
+        tile_polygons: Vec<Vec<Polygon3D>>,
+        region_bboxes: &[Rect<f64>],
+        component_fallback_polygons: Vec<Polygon3D>,
+    ) -> Result<Vec<Polygon3D>> {
+        self.execution_policy
+            .check_cancelled("tile_fallback_merge")?;
+        let mut result = Vec::new();
+        let mut work_items = 0;
+        for polygons in tile_polygons {
+            for polygon in polygons {
+                self.execution_policy
+                    .check_cancelled_every("tile_fallback_merge", work_items)?;
+                work_items = work_items.saturating_add(1);
+                let polygon_bbox = Self::polygon_bbox(&polygon);
+                let mut replaced = false;
+                for region_bbox in region_bboxes {
+                    self.execution_policy
+                        .check_cancelled_every("tile_fallback_merge", work_items)?;
+                    work_items = work_items.saturating_add(1);
+                    if polygon_bbox.is_some_and(|polygon_bbox| polygon_bbox.intersects(region_bbox))
+                    {
+                        replaced = true;
+                        break;
+                    }
+                }
+                if !replaced {
+                    result.push(polygon);
+                }
+            }
+        }
+        for polygon in component_fallback_polygons {
+            self.execution_policy
+                .check_cancelled_every("tile_fallback_merge", work_items)?;
+            work_items = work_items.saturating_add(1);
+            result.push(polygon);
+        }
+        Ok(result)
+    }
+
     fn process_tile_with_retries(
         &self,
         tile_bbox: Rect<f64>,
@@ -1418,27 +1459,25 @@ impl<'a> TiledPolygonizer<'a> {
             }
             polygonizer.polygonize()?.polygons
         } else {
-            tile_polygons
-                .into_iter()
-                .flatten()
-                .filter(|polygon| {
-                    !region_bboxes.iter().any(|region_bbox| {
-                        Self::polygon_bbox(polygon)
-                            .is_some_and(|polygon_bbox| polygon_bbox.intersects(region_bbox))
-                    })
-                })
-                .chain(component_fallback_polygons)
-                .collect()
+            self.merge_fallback_polygons(
+                tile_polygons,
+                &region_bboxes,
+                component_fallback_polygons,
+            )?
         };
         let merged_polygon_count = result_polygons.len();
 
         let polygons = if untiled_fallback_used {
             result_polygons
         } else {
+            self.execution_policy
+                .check_cancelled("tile_deduplication")?;
             match self.dedup_policy {
                 DedupPolicy::KeepAll => {
                     if let Some(trace) = trace.as_deref_mut() {
                         for polygon_index in 0..result_polygons.len() {
+                            self.execution_policy
+                                .check_cancelled_every("tile_deduplication", polygon_index)?;
                             trace.record_tile_dedup(polygon_index, true);
                         }
                     }
@@ -1449,6 +1488,8 @@ impl<'a> TiledPolygonizer<'a> {
                     let mut seen = HashSet::new();
 
                     for (polygon_index, poly) in result_polygons.into_iter().enumerate() {
+                        self.execution_policy
+                            .check_cancelled_every("tile_deduplication", polygon_index)?;
                         let retained = seen.insert(canonical_polygon_key(&poly));
                         if let Some(trace) = trace.as_deref_mut() {
                             trace.record_tile_dedup(polygon_index, retained);
