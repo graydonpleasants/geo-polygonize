@@ -15,6 +15,7 @@ struct FuzzInput {
     buffer: u8,
     reverse_input: bool,
     group_lines: bool,
+    ownership_domain_gap: bool,
 }
 
 fn world() -> Rect<f64> {
@@ -24,8 +25,8 @@ fn world() -> Rect<f64> {
     )
 }
 
-fn bounded_coordinate(value: i8) -> f64 {
-    f64::from(value.clamp(-24, 24))
+fn bounded_coordinate(value: i8, x_offset: f64) -> f64 {
+    f64::from(value.clamp(-24, 24)) + x_offset
 }
 
 fn same_polygons(left: &[Polygon3D], right: &[Polygon3D]) -> bool {
@@ -40,7 +41,27 @@ fn has_coverage_evidence(result: &geo_polygonize_core::TiledPolygonizeResult) ->
         !report.coverage_issues.is_empty()
             || !report.input_boundary_issues.is_empty()
             || !report.excluded_component_issues.is_empty()
+            || !report.ownership_domain_issues.is_empty()
     })
+}
+
+fn polygon_overlaps_world(polygon: &Polygon3D) -> bool {
+    let Some(first) = polygon.exterior.first() else {
+        return false;
+    };
+    let (mut min_x, mut min_y, mut max_x, mut max_y) =
+        (first.x, first.y, first.x, first.y);
+    for coordinate in &polygon.exterior[1..] {
+        min_x = min_x.min(coordinate.x);
+        min_y = min_y.min(coordinate.y);
+        max_x = max_x.max(coordinate.x);
+        max_y = max_y.max(coordinate.y);
+    }
+    let bounds = world();
+    min_x <= bounds.max().x
+        && max_x >= bounds.min().x
+        && min_y <= bounds.max().y
+        && max_y >= bounds.min().y
 }
 
 fuzz_target!(|input: FuzzInput| {
@@ -48,14 +69,23 @@ fuzz_target!(|input: FuzzInput| {
         return;
     }
 
+    let x_offset = if input.ownership_domain_gap { 24.0 } else { 0.0 };
     let mut lines = input
         .lines
         .into_iter()
         .enumerate()
         .map(|(line_id, (sx, sy, ex, ey))| {
             Line3D::new(
-                Coord3D::new(bounded_coordinate(sx), bounded_coordinate(sy), 0.0),
-                Coord3D::new(bounded_coordinate(ex), bounded_coordinate(ey), 0.0),
+                Coord3D::new(
+                    bounded_coordinate(sx, x_offset),
+                    bounded_coordinate(sy, 0.0),
+                    0.0,
+                ),
+                Coord3D::new(
+                    bounded_coordinate(ex, x_offset),
+                    bounded_coordinate(ey, 0.0),
+                    0.0,
+                ),
                 u32::try_from(line_id).unwrap(),
             )
         })
@@ -71,6 +101,15 @@ fuzz_target!(|input: FuzzInput| {
     let Ok(expected) = polygonize(lines.iter().copied(), &options) else {
         return;
     };
+    if input.ownership_domain_gap
+        && !expected.polygons.is_empty()
+        && expected
+            .polygons
+            .iter()
+            .any(|polygon| !polygon_overlaps_world(polygon))
+    {
+        return;
+    }
 
     let parts = lines
         .iter()
