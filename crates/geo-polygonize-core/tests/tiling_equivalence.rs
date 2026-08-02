@@ -179,6 +179,112 @@ fn in_domain_tiled_mismatches_have_observed_coverage_evidence() {
 }
 
 #[test]
+fn adversarial_in_domain_mismatches_keep_coverage_evidence_under_permutations() {
+    let mut concave = ring(&[
+        (3.0, 3.0),
+        (21.0, 3.0),
+        (21.0, 21.0),
+        (19.0, 21.0),
+        (19.0, 6.0),
+        (5.0, 6.0),
+        (5.0, 21.0),
+        (3.0, 21.0),
+    ]);
+    concave.push(line((1.0, 12.0), (23.0, 12.0)));
+
+    let mut boundary_crossing_hole = ring(&[(1.0, 1.0), (23.0, 1.0), (23.0, 23.0), (1.0, 23.0)]);
+    boundary_crossing_hole.extend(ring(&[(6.0, 6.0), (18.0, 6.0), (18.0, 18.0), (6.0, 18.0)]));
+
+    let mut dirty_overlap = ring(&[(3.0, 3.0), (21.0, 3.0), (21.0, 21.0), (3.0, 21.0)]);
+    dirty_overlap.extend([
+        line((1.0, 12.0), (23.0, 12.0)),
+        line((12.0, 1.0), (12.0, 23.0)),
+    ]);
+    dirty_overlap.extend(ring(&[
+        (12.0, 8.0),
+        (23.0, 8.0),
+        (23.0, 20.0),
+        (12.0, 20.0),
+    ]));
+
+    let cases = [
+        (
+            "shifted concavity",
+            concave,
+            Rect::new(Coord { x: -2.0, y: -1.0 }, Coord { x: 25.0, y: 24.0 }),
+        ),
+        (
+            "boundary-crossing hole",
+            boundary_crossing_hole,
+            Rect::new(Coord { x: -1.0, y: -2.0 }, Coord { x: 25.0, y: 26.0 }),
+        ),
+        ("dirty overlap", dirty_overlap, world(24.0)),
+    ];
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+
+    for (case_index, (name, lines, bbox)) in cases.into_iter().enumerate() {
+        let expected = polygonize(lines.iter().copied(), &options)
+            .unwrap_or_else(|error| panic!("{name} untiled: {error}"));
+        let base_geometries = lines
+            .iter()
+            .map(|line| {
+                Geometry::LineString(LineString::new(vec![
+                    line.start.to_coord_2d(),
+                    line.end.to_coord_2d(),
+                ]))
+            })
+            .collect::<Vec<_>>();
+
+        for (tile_index, tile_size) in [5.0, 7.0, 10.0].into_iter().enumerate() {
+            for buffer in [0.0, 1.0, 3.0] {
+                for permutation in 0..2 {
+                    let mut geometries = base_geometries.clone();
+                    let rotation = (case_index + tile_index + permutation) % geometries.len();
+                    geometries.rotate_left(rotation);
+                    if permutation == 1 {
+                        geometries.reverse();
+                    }
+
+                    let mut tiled = TiledPolygonizer::new(bbox, tile_size)
+                        .with_buffer(buffer)
+                        .with_options(options.clone())
+                        .with_ownership_policy(
+                            TileOwnershipPolicy::RepresentativePointInsidePolygon,
+                        )
+                        .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let actual = tiled.polygonize().unwrap_or_else(|error| {
+                        panic!("{name}, tile size {tile_size}, buffer {buffer}: {error}")
+                    });
+                    let equivalent = actual.polygons.len() == expected.polygons.len()
+                        && actual.polygons.iter().zip(&expected.polygons).all(
+                            |(actual, expected)| {
+                                actual.exterior == expected.exterior
+                                    && actual.interiors == expected.interiors
+                            },
+                        );
+                    if !equivalent {
+                        assert!(
+                            actual.tile_reports.iter().any(|report| {
+                                !report.coverage_issues.is_empty()
+                                    || !report.input_boundary_issues.is_empty()
+                                    || !report.excluded_component_issues.is_empty()
+                            }),
+                            "undetected {name} mismatch for tile size {tile_size}, buffer {buffer}, permutation {permutation}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn tiled_report_matches_untiled_dangle_and_cut_edge_families() {
     let mut lines = ring(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]);
     lines.push(line((10.0, 10.0), (15.0, 15.0)));
