@@ -344,6 +344,7 @@ pub struct TileUntiledFallbackTraceV1 {
 pub struct TileComponentFallbackTraceV1 {
     pub input_geometry_indices: Vec<usize>,
     pub output_polygon_count: usize,
+    pub retained_tile_polygon_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1284,6 +1285,7 @@ impl TraceRecorderV1 {
         &mut self,
         input_geometry_indices: &[usize],
         output_polygon_count: usize,
+        retained_tile_polygon_count: usize,
     ) -> bool {
         self.record(
             TraceStageV1::Output,
@@ -1291,6 +1293,7 @@ impl TraceRecorderV1 {
             serde_json::to_value(TileComponentFallbackTraceV1 {
                 input_geometry_indices: input_geometry_indices.to_vec(),
                 output_polygon_count,
+                retained_tile_polygon_count,
             })
             .expect("tile component-fallback trace event serializes"),
         )

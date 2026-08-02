@@ -763,6 +763,8 @@ When coverage cannot be proven:
     open.
   - [x] Apply the configured output limit to component recovery; broader
     fallback cancellation coverage remains open.
+  - [x] Record retained tile polygon counts in component-fallback trace events;
+    aggregate partial-merge accounting remains open.
   - [x] Provide a caller-enabled whole-input untiled fallback that preserves
     global containment when retries leave observed coverage unresolved.
   - [x] Verify whole-input fallback equality with untiled output across tile

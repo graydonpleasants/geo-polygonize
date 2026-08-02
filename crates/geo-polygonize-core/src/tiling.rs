@@ -1184,6 +1184,7 @@ impl<'a> TiledPolygonizer<'a> {
         let (component_fallback_polygons, component_fallback_events) = component_fallback
             .map(|fallback| (fallback.polygons, fallback.events))
             .unwrap_or_default();
+        let retained_tile_polygon_count = tile_polygons.iter().map(Vec::len).sum();
         let untiled_fallback_used = self.untiled_fallback && unresolved && !component_fallback_used;
         let result_polygons: Vec<Polygon3D> = if untiled_fallback_used {
             let mut polygonizer = Polygonizer::with_options(self.options.clone())
@@ -1304,6 +1305,7 @@ impl<'a> TiledPolygonizer<'a> {
                     trace.record_tile_component_fallback(
                         &input_geometry_indices,
                         output_polygon_count,
+                        retained_tile_polygon_count,
                     );
                 }
             }
