@@ -1372,14 +1372,16 @@ mod tests {
         let mut untiled = Polygonizer::with_options(options.clone());
         let mut tiled = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)
-            .with_options(options);
+            .with_options(options.clone());
         for boundary in &boundaries {
             untiled.add_borrowed_geometry(boundary);
             tiled.add_geometry(boundary);
         }
 
         assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
-        assert!(tiled.input_components().unwrap().is_empty());
+        let components = tiled.input_components().unwrap();
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].input_geometry_indices, vec![0, 1, 2, 3]);
         let observed = tiled.polygonize().unwrap();
         assert!(observed.polygons.is_empty());
         assert!(observed
@@ -1387,10 +1389,56 @@ mod tests {
             .iter()
             .all(|report| report.input_geometry_count == 0));
         assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
-        assert_eq!(observed.stitching_report.unresolved_component_count, 0);
-        assert!(tiled
-            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
-            .is_ok());
+        assert_eq!(observed.stitching_report.unresolved_component_tile_count, 4);
+        assert_eq!(observed.stitching_report.unresolved_component_count, 4);
+        assert!(observed.tile_reports.iter().all(|report| {
+            report.excluded_component_issues.len() == 1
+                && report.excluded_component_issues[0].connection
+                    == TileComponentConnection::FixedGrid
+        }));
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_excluded_fixed_grid_component")
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert_eq!(
+            events[0].payload["input_geometry_indices"],
+            serde_json::json!([0, 1, 2, 3])
+        );
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(
+                TileCoverageGuarantee::ValidateObservedCoverage
+            ),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                unresolved_component_tile_count: 4,
+                unresolved_component_count: 4,
+                ..
+            })
+        ));
+
+        let mut limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(options)
+            .with_execution_policy(ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            });
+        for boundary in &boundaries {
+            limited.add_geometry(boundary);
+        }
+        assert!(matches!(
+            limited.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "candidate_pairs"
+        ));
     }
 
     #[test]

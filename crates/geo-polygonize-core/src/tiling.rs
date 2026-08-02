@@ -1,7 +1,8 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
+use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
-use crate::options::{DedupPolicy, ExecutionPolicy, TileOwnershipPolicy};
+use crate::options::{DedupPolicy, ExecutionPolicy, NodingGuarantee, TileOwnershipPolicy};
 use crate::polygonizer::{apply_determinism, canonicalize_ring};
 use crate::trace::{
     TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
@@ -885,6 +886,52 @@ impl<'a> TiledPolygonizer<'a> {
                 );
             }
         }
+        let certified_fixed_precision = matches!(
+            self.options.noding.guarantee,
+            NodingGuarantee::CertifiedFixedPrecision
+        );
+        if certified_fixed_precision {
+            // Certified fixed precision can add shared hot-pixel vertices to
+            // lines whose transformed straight segments do not intersect.
+            // Reuse the bounded production noder so component evidence follows
+            // the same connectivity contract as untiled polygonization.
+            let source_segments = segments;
+            let lines = source_segments
+                .iter()
+                .enumerate()
+                .map(|(segment_index, segment)| {
+                    let line_id = u32::try_from(segment_index).map_err(|_| {
+                        PolygonizeError::InvalidGeometry {
+                            reason: "more than u32::MAX tiled certified fixed-grid segments"
+                                .to_string(),
+                        }
+                    })?;
+                    Ok(Line3D::new(
+                        segment.line.start.into(),
+                        segment.line.end.into(),
+                        line_id,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let noded = HotPixelNoder::new(grid_size)?
+                .with_z_policy(self.options.z.policy)
+                .node_with_execution_policy(lines, &self.execution_policy)?;
+            segments = noded
+                .into_iter()
+                .map(|line| {
+                    let source = source_segments.get(line.line_id as usize).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "tiled certified fixed-grid source segment is missing"
+                                .to_string(),
+                        }
+                    })?;
+                    Ok(InputSegment {
+                        line: line.to_line_2d(),
+                        geometry_index: source.geometry_index,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+        }
         for segment in &segments {
             for endpoint in [segment.line.start, segment.line.end] {
                 let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
@@ -898,7 +945,7 @@ impl<'a> TiledPolygonizer<'a> {
             .map(|index| component_root(&mut parents, index))
             .collect::<Vec<_>>();
         let mut intersection_connected = vec![false; self.geometries.len()];
-        if self.options.node_input {
+        if self.options.node_input && !certified_fixed_precision {
             let envelopes = segments
                 .iter()
                 .enumerate()
