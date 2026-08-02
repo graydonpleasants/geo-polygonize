@@ -6,13 +6,8 @@ use crate::utils::{compare_angular, z_order_index};
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-
-thread_local! {
-    static NEXT_POINTERS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-}
 
 /// Index of a node in the graph.
 pub type NodeId = usize;
@@ -58,6 +53,8 @@ pub(crate) struct DirectedEdge {
     pub(crate) edge_idx: EdgeId,
     /// Index of the symmetric (reverse) edge.
     pub(crate) sym_idx: DirEdgeId,
+    /// Directed edge reached by the arrangement's clockwise face walk.
+    pub(crate) next_idx: Option<DirEdgeId>,
     /// Traversal state: has this edge been processed into a ring?
     pub(crate) is_visited: bool,
     /// Is this edge explicitly marked (e.g. as part of a dangle).
@@ -161,6 +158,7 @@ fn create_edge_components(
         dst: v,
         edge_idx,
         sym_idx: de_v_u_idx,
+        next_idx: None,
         is_visited: false,
         is_marked: false,
     };
@@ -170,6 +168,7 @@ fn create_edge_components(
         dst: u,
         edge_idx,
         sym_idx: de_u_v_idx,
+        next_idx: None,
         is_visited: false,
         is_marked: false,
     };
@@ -217,6 +216,12 @@ impl PlanarGraph {
         self.edges.clear();
         self.directed_edges.clear();
         self.node_map.clear();
+    }
+
+    fn clear_next_links(&mut self) {
+        for directed_edge in &mut self.directed_edges {
+            directed_edge.next_idx = None;
+        }
     }
 
     /// Adds a node at the given coordinate, returning its NodeId.
@@ -491,6 +496,7 @@ impl PlanarGraph {
             dst: v,
             edge_idx,
             sym_idx: de_v_u_idx,
+            next_idx: None,
             is_visited: false,
             is_marked: false,
         };
@@ -500,6 +506,7 @@ impl PlanarGraph {
             dst: u,
             edge_idx,
             sym_idx: de_u_v_idx,
+            next_idx: None,
             is_visited: false,
             is_marked: false,
         };
@@ -558,6 +565,7 @@ impl PlanarGraph {
             *m = false;
         }
         for de in &mut self.directed_edges {
+            de.next_idx = None;
             de.is_visited = false;
             de.is_marked = false;
         }
@@ -589,6 +597,7 @@ impl PlanarGraph {
 
     /// Sorts all outgoing edges of all nodes by angle.
     pub fn sort_edges(&mut self) {
+        self.clear_next_links();
         let nodes_x = &self.nodes_x;
         let nodes_y = &self.nodes_y;
         let directed_edges = &self.directed_edges;
@@ -674,6 +683,7 @@ impl PlanarGraph {
         execution_policy: &ExecutionPolicy,
     ) -> crate::Result<()> {
         execution_policy.check_cancelled("graph_construction")?;
+        self.clear_next_links();
         let nodes_x = &self.nodes_x;
         let nodes_y = &self.nodes_y;
         let directed_edges = &self.directed_edges;
@@ -989,42 +999,37 @@ impl PlanarGraph {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
         }
-        NEXT_POINTERS.with(|cell| {
-            let mut next_pointers = cell.borrow_mut();
-            next_pointers.clear();
-            next_pointers.resize(self.directed_edges.len(), usize::MAX);
-            self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
+        self.compute_next_cw_edges(execution_policy)?;
 
-            #[cfg(any(test, debug_assertions))]
-            if _noding_postcondition_validated {
-                self.validate_arrangement_euler(&next_pointers, "maximal")?;
-            } else {
-                self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
+        #[cfg(any(test, debug_assertions))]
+        if _noding_postcondition_validated {
+            self.validate_arrangement_euler("maximal")?;
+        } else {
+            self.validate_arrangement_ring_cycles("maximal")?;
+        }
+
+        let mut labels = vec![-1_i64; self.directed_edges.len()];
+        self.find_and_label_maximal_rings(&mut labels, execution_policy)?;
+
+        let mut cuts = Vec::new();
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", edge_idx)?;
+            }
+            let [forward, reverse] = edge.dir_edges;
+            if edge.deleted
+                || self.directed_edges[forward].is_marked
+                || self.directed_edges[reverse].is_marked
+                || labels[forward] != labels[reverse]
+            {
+                continue;
             }
 
-            let mut labels = vec![-1_i64; self.directed_edges.len()];
-            self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
-
-            let mut cuts = Vec::new();
-            for (edge_idx, edge) in self.edges.iter().enumerate() {
-                if let Some(execution_policy) = execution_policy {
-                    execution_policy.check_cancelled_every("ring_extraction", edge_idx)?;
-                }
-                let [forward, reverse] = edge.dir_edges;
-                if edge.deleted
-                    || self.directed_edges[forward].is_marked
-                    || self.directed_edges[reverse].is_marked
-                    || labels[forward] != labels[reverse]
-                {
-                    continue;
-                }
-
-                self.directed_edges[forward].is_marked = true;
-                self.directed_edges[reverse].is_marked = true;
-                cuts.push(vec![edge.line.start, edge.line.end]);
-            }
-            Ok(cuts)
-        })
+            self.directed_edges[forward].is_marked = true;
+            self.directed_edges[reverse].is_marked = true;
+            cuts.push(vec![edge.line.start, edge.line.end]);
+        }
+        Ok(cuts)
     }
 
     /// Extracts rings from the graph following the GEOS flow.
@@ -1101,64 +1106,46 @@ impl PlanarGraph {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("ring_extraction")?;
         }
-        NEXT_POINTERS.with(|cell| {
-            let mut next_pointers = cell.borrow_mut();
-            next_pointers.clear();
-            next_pointers.resize(self.directed_edges.len(), usize::MAX);
+        let mut labels = vec![-1_i64; self.directed_edges.len()];
 
-            let mut labels = vec![-1_i64; self.directed_edges.len()];
+        // Step 1: computeNextCWEdges over every node.
+        self.compute_next_cw_edges(execution_policy)?;
 
-            // Step 1: computeNextCWEdges over every node.
-            self.compute_next_cw_edges(&mut next_pointers, execution_policy)?;
+        #[cfg(any(test, debug_assertions))]
+        if _noding_postcondition_validated {
+            self.validate_arrangement_euler("maximal")?;
+        } else {
+            self.validate_arrangement_ring_cycles("maximal")?;
+        }
 
-            #[cfg(any(test, debug_assertions))]
-            if _noding_postcondition_validated {
-                self.validate_arrangement_euler(&next_pointers, "maximal")?;
-            } else {
-                self.validate_arrangement_ring_cycles(&next_pointers, "maximal")?;
-            }
-
-            // Step 2: find and label maximal rings.
-            let maximal_ring_starts =
-                self.find_and_label_maximal_rings(&next_pointers, &mut labels, execution_policy)?;
-            if let (Some(maximal_trace), Some(maximal_trace_budget)) =
-                (maximal_trace, maximal_trace_budget)
-            {
-                *maximal_trace = self.extract_rings_from_starts(
-                    &maximal_ring_starts,
-                    &next_pointers,
-                    include_graph_ids,
-                    include_source_ids,
-                    execution_policy,
-                    maximal_trace_budget,
-                )?;
-            }
-
-            // Step 3: convert maximal to minimal rings by relinking intersection nodes.
-            self.convert_maximal_to_minimal_rings(
+        // Step 2: find and label maximal rings.
+        let maximal_ring_starts =
+            self.find_and_label_maximal_rings(&mut labels, execution_policy)?;
+        if let (Some(maximal_trace), Some(maximal_trace_budget)) =
+            (maximal_trace, maximal_trace_budget)
+        {
+            *maximal_trace = self.extract_rings_from_starts(
                 &maximal_ring_starts,
-                &mut next_pointers,
-                &labels,
-                execution_policy,
-            )?;
-
-            #[cfg(any(test, debug_assertions))]
-            self.validate_arrangement_ring_cycles(&next_pointers, "minimal")?;
-
-            // Extract the minimal rings from the graph.
-            self.extract_valid_rings(
-                &next_pointers,
                 include_graph_ids,
                 include_source_ids,
                 execution_policy,
-            )
-        })
+                maximal_trace_budget,
+            )?;
+        }
+
+        // Step 3: convert maximal to minimal rings by relinking intersection nodes.
+        self.convert_maximal_to_minimal_rings(&maximal_ring_starts, &labels, execution_policy)?;
+
+        #[cfg(any(test, debug_assertions))]
+        self.validate_arrangement_ring_cycles("minimal")?;
+
+        // Extract the minimal rings from the graph.
+        self.extract_valid_rings(include_graph_ids, include_source_ids, execution_policy)
     }
 
     fn extract_rings_from_starts(
         &self,
         starts: &[DirEdgeId],
-        next_pointers: &[usize],
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: Option<&ExecutionPolicy>,
@@ -1182,11 +1169,11 @@ impl PlanarGraph {
                     break;
                 }
                 ring_edges.push(current);
-                let next = next_pointers[directed.sym_idx];
-                if next == usize::MAX {
+                let next = self.directed_edges[directed.sym_idx].next_idx;
+                let Some(next) = next else {
                     valid = false;
                     break;
-                }
+                };
                 if next == start {
                     break;
                 }
@@ -1323,10 +1310,10 @@ impl PlanarGraph {
     /// Edges in nodes_outgoing are in CCW order. For each pair of consecutive outgoing
     /// edges (prev, curr), set next(sym(prev)) = curr, and close the cycle.
     fn compute_next_cw_edges(
-        &self,
-        next_pointers: &mut [usize],
+        &mut self,
         execution_policy: Option<&ExecutionPolicy>,
     ) -> crate::Result<()> {
+        self.clear_next_links();
         let mut valid_edges = Vec::new();
         let mut work_items = 0;
         for outgoing in &self.nodes_outgoing {
@@ -1348,7 +1335,7 @@ impl PlanarGraph {
 
             let mut next = *valid_edges.last().unwrap();
             for &curr in &valid_edges {
-                next_pointers[curr] = next;
+                self.directed_edges[curr].next_idx = Some(next);
                 next = curr;
             }
         }
@@ -1356,21 +1343,10 @@ impl PlanarGraph {
     }
 
     /// Validates that active half-edges form disjoint closed cycles through
-    /// the current ephemeral ring links.
+    /// the current persisted `next_idx` links.
     #[cfg(any(test, debug_assertions))]
-    pub(crate) fn validate_arrangement_ring_cycles(
-        &self,
-        next_pointers: &[usize],
-        phase: &str,
-    ) -> crate::Result<usize> {
+    pub(crate) fn validate_arrangement_ring_cycles(&self, phase: &str) -> crate::Result<usize> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
-        if next_pointers.len() != self.directed_edges.len() {
-            return Err(invariant(format!(
-                "arrangement {phase} ring invariant link count mismatch: links={}, directed_edges={}",
-                next_pointers.len(),
-                self.directed_edges.len()
-            )));
-        }
 
         let is_active = |directed_idx: DirEdgeId| {
             let directed = &self.directed_edges[directed_idx];
@@ -1381,18 +1357,12 @@ impl PlanarGraph {
             if !is_active(directed_idx) {
                 continue;
             }
-            let Some(&successor_idx) = next_pointers.get(directed.sym_idx) else {
-                return Err(invariant(format!(
-                    "arrangement {phase} ring invariant directed edge {directed_idx} has missing twin link {}",
-                    directed.sym_idx
-                )));
-            };
-            if successor_idx == usize::MAX {
+            let Some(successor_idx) = self.directed_edges[directed.sym_idx].next_idx else {
                 return Err(invariant(format!(
                     "arrangement {phase} ring invariant directed edge {directed_idx} has no successor at twin link {}",
                     directed.sym_idx
                 )));
-            }
+            };
             let Some(successor) = self.directed_edges.get(successor_idx) else {
                 return Err(invariant(format!(
                     "arrangement {phase} ring invariant directed edge {directed_idx} successor {successor_idx} is out of bounds"
@@ -1431,7 +1401,12 @@ impl PlanarGraph {
                 }
                 assigned_cycle[current_idx] = Some(start_idx);
                 let twin_idx = self.directed_edges[current_idx].sym_idx;
-                current_idx = next_pointers[twin_idx];
+                let Some(next_idx) = self.directed_edges[twin_idx].next_idx else {
+                    return Err(invariant(format!(
+                        "arrangement {phase} ring invariant directed edge {current_idx} has no successor at twin link {twin_idx}"
+                    )));
+                };
+                current_idx = next_idx;
             }
         }
 
@@ -1496,13 +1471,9 @@ impl PlanarGraph {
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
     #[cfg(any(test, debug_assertions))]
-    pub(crate) fn validate_arrangement_euler(
-        &self,
-        next_pointers: &[usize],
-        phase: &str,
-    ) -> crate::Result<()> {
+    pub(crate) fn validate_arrangement_euler(&self, phase: &str) -> crate::Result<()> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
-        let boundary_cycles = self.validate_arrangement_ring_cycles(next_pointers, phase)?;
+        let boundary_cycles = self.validate_arrangement_ring_cycles(phase)?;
         let component_ids = self.active_component_ids();
         let mut edge_count = 0usize;
 
@@ -1544,7 +1515,6 @@ impl PlanarGraph {
     /// Step 2: find and label maximal rings.
     fn find_and_label_maximal_rings(
         &self,
-        next_pointers: &[usize],
         labels: &mut [i64],
         execution_policy: Option<&ExecutionPolicy>,
     ) -> crate::Result<Vec<DirEdgeId>> {
@@ -1572,8 +1542,11 @@ impl PlanarGraph {
                 }
                 labels[curr] = curr_label;
 
-                let next = next_pointers[self.directed_edges[curr].sym_idx];
-                if next == usize::MAX || next == start_de_idx {
+                let Some(next) = self.directed_edges[self.directed_edges[curr].sym_idx].next_idx
+                else {
+                    break;
+                };
+                if next == start_de_idx {
                     break;
                 }
                 curr = next;
@@ -1586,9 +1559,8 @@ impl PlanarGraph {
     /// Step 3: convert maximal to minimal rings by relinking intersection nodes.
     /// findIntersectionNodes + computeNextCCWEdges, scoped by ring label.
     fn convert_maximal_to_minimal_rings(
-        &self,
+        &mut self,
         maximal_ring_starts: &[DirEdgeId],
-        next_pointers: &mut [usize],
         labels: &[i64],
         execution_policy: Option<&ExecutionPolicy>,
     ) -> crate::Result<()> {
@@ -1630,8 +1602,11 @@ impl PlanarGraph {
                     intersection_nodes.push(node);
                 }
 
-                let next = next_pointers[self.directed_edges[curr].sym_idx];
-                if next == usize::MAX || next == start_de_idx {
+                let Some(next) = self.directed_edges[self.directed_edges[curr].sym_idx].next_idx
+                else {
+                    break;
+                };
+                if next == start_de_idx {
                     break;
                 }
                 curr = next;
@@ -1664,7 +1639,8 @@ impl PlanarGraph {
 
                     if let Some(out_de_idx) = out_de {
                         if let Some(prev_in_idx) = prev_in.take() {
-                            next_pointers[self.directed_edges[prev_in_idx].sym_idx] = out_de_idx;
+                            let link_idx = self.directed_edges[prev_in_idx].sym_idx;
+                            self.directed_edges[link_idx].next_idx = Some(out_de_idx);
                         }
                         if first_out.is_none() {
                             first_out = Some(out_de_idx);
@@ -1673,7 +1649,8 @@ impl PlanarGraph {
                 }
 
                 if let (Some(prev_in_idx), Some(first_out_idx)) = (prev_in, first_out) {
-                    next_pointers[self.directed_edges[prev_in_idx].sym_idx] = first_out_idx;
+                    let link_idx = self.directed_edges[prev_in_idx].sym_idx;
+                    self.directed_edges[link_idx].next_idx = Some(first_out_idx);
                 }
 
                 seen_intersection_nodes[node] = false;
@@ -1682,10 +1659,9 @@ impl PlanarGraph {
         Ok(())
     }
 
-    /// Extracts valid rings by following `next_pointers`.
+    /// Extracts valid rings by following persisted directed-edge `next_idx` links.
     fn extract_valid_rings(
         &mut self,
-        next_pointers: &[usize],
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: Option<&ExecutionPolicy>,
@@ -1730,12 +1706,12 @@ impl PlanarGraph {
                 curr_de.is_visited = true;
                 ring_edges.push(curr_de_idx);
 
-                let next_de_idx = next_pointers[self.directed_edges[curr_de_idx].sym_idx];
-
-                if next_de_idx == usize::MAX {
+                let Some(next_de_idx) =
+                    self.directed_edges[self.directed_edges[curr_de_idx].sym_idx].next_idx
+                else {
                     is_valid_ring = false;
                     break;
-                }
+                };
 
                 curr_de_idx = next_de_idx;
 
@@ -1767,10 +1743,13 @@ impl PlanarGraph {
 mod arrangement_ring_invariant_tests {
     use super::*;
 
-    fn next_links(graph: &PlanarGraph) -> Vec<DirEdgeId> {
-        let mut links = vec![usize::MAX; graph.directed_edges.len()];
-        graph.compute_next_cw_edges(&mut links, None).unwrap();
-        links
+    fn next_links(graph: &mut PlanarGraph) -> Vec<DirEdgeId> {
+        graph.compute_next_cw_edges(None).unwrap();
+        graph
+            .directed_edges
+            .iter()
+            .map(|directed| directed.next_idx.unwrap_or(usize::MAX))
+            .collect()
     }
 
     fn add_triangle(graph: &mut PlanarGraph, points: [Coord3D; 3], first_line_id: u32) {
@@ -1800,11 +1779,8 @@ mod arrangement_ring_invariant_tests {
         snapshot
     }
 
-    fn invariant_reason(graph: &PlanarGraph, links: &[DirEdgeId], phase: &str) -> String {
-        match graph
-            .validate_arrangement_ring_cycles(links, phase)
-            .unwrap_err()
-        {
+    fn invariant_reason(graph: &PlanarGraph, phase: &str) -> String {
+        match graph.validate_arrangement_ring_cycles(phase).unwrap_err() {
             crate::PolygonizeError::InternalInvariantViolation { reason } => reason,
             error => panic!("unexpected validation error: {error}"),
         }
@@ -1834,21 +1810,61 @@ mod arrangement_ring_invariant_tests {
         );
         graph.sort_edges();
 
-        let mut links = next_links(&graph);
-        graph
-            .validate_arrangement_ring_cycles(&links, "maximal")
-            .unwrap();
+        next_links(&mut graph);
+        graph.validate_arrangement_ring_cycles("maximal").unwrap();
 
         let mut labels = vec![-1_i64; graph.directed_edges.len()];
         let starts = graph
-            .find_and_label_maximal_rings(&links, &mut labels, None)
+            .find_and_label_maximal_rings(&mut labels, None)
             .unwrap();
         graph
-            .convert_maximal_to_minimal_rings(&starts, &mut links, &labels, None)
+            .convert_maximal_to_minimal_rings(&starts, &labels, None)
             .unwrap();
-        graph
-            .validate_arrangement_ring_cycles(&links, "minimal")
-            .unwrap();
+        graph.validate_arrangement_ring_cycles("minimal").unwrap();
+    }
+
+    #[test]
+    fn directed_edge_next_links_persist_and_are_deterministic() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 10),
+            Line3D::new(Coord3D::new(2.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 11),
+            Line3D::new(Coord3D::new(2.0, 2.0, 0.0), Coord3D::new(0.0, 2.0, 0.0), 12),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 13),
+        ];
+
+        let mut first = PlanarGraph::new();
+        first.bulk_load(lines.clone());
+        first.sort_edges();
+        assert!(first
+            .directed_edges
+            .iter()
+            .all(|directed| directed.next_idx.is_none()));
+        first.compute_next_cw_edges(None).unwrap();
+        let first_links: Vec<_> = first
+            .directed_edges
+            .iter()
+            .map(|directed| directed.next_idx)
+            .collect();
+        assert!(first_links.iter().all(Option::is_some));
+
+        let mut reversed = lines;
+        reversed.reverse();
+        let mut second = PlanarGraph::new();
+        second.bulk_load(reversed);
+        second.sort_edges();
+        second.compute_next_cw_edges(None).unwrap();
+        let second_links: Vec<_> = second
+            .directed_edges
+            .iter()
+            .map(|directed| directed.next_idx)
+            .collect();
+        assert_eq!(first_links, second_links);
+
+        first.reset_traversal_state();
+        assert!(first
+            .directed_edges
+            .iter()
+            .all(|directed| directed.next_idx.is_none()));
     }
 
     #[test]
@@ -1863,26 +1879,30 @@ mod arrangement_ring_invariant_tests {
             graph.add_line(Line3D::new(center, end, line_id));
         }
         graph.sort_edges();
-        let links = next_links(&graph);
+        let links = next_links(&mut graph);
+        let twin_of_zero = graph.directed_edges[0].sym_idx;
 
-        let mut broken = links.clone();
-        broken[graph.directed_edges[0].sym_idx] = usize::MAX;
+        graph.directed_edges[twin_of_zero].next_idx = None;
         assert_eq!(
-            invariant_reason(&graph, &broken, "maximal"),
+            invariant_reason(&graph, "maximal"),
             "arrangement maximal ring invariant directed edge 0 has no successor at twin link 1"
         );
 
-        let mut broken = links.clone();
-        broken[graph.directed_edges[0].sym_idx] = 0;
+        for (directed, &next) in graph.directed_edges.iter_mut().zip(&links) {
+            directed.next_idx = (next != usize::MAX).then_some(next);
+        }
+        graph.directed_edges[twin_of_zero].next_idx = Some(0);
         assert_eq!(
-            invariant_reason(&graph, &broken, "maximal"),
+            invariant_reason(&graph, "maximal"),
             "arrangement maximal ring invariant continuity mismatch: directed edge 0 ends at 1, successor 0 starts at 0"
         );
 
-        let mut broken = links;
-        broken[2] = 4;
+        for (directed, &next) in graph.directed_edges.iter_mut().zip(&links) {
+            directed.next_idx = (next != usize::MAX).then_some(next);
+        }
+        graph.directed_edges[2].next_idx = Some(4);
         assert_eq!(
-            invariant_reason(&graph, &broken, "maximal"),
+            invariant_reason(&graph, "maximal"),
             "arrangement maximal ring invariant cycle 0 reuses directed edge 4 assigned to cycle 0 before closure"
         );
     }
@@ -1910,9 +1930,8 @@ mod arrangement_ring_invariant_tests {
         );
         graph.sort_edges();
 
-        graph
-            .validate_arrangement_euler(&next_links(&graph), "maximal")
-            .unwrap();
+        next_links(&mut graph);
+        graph.validate_arrangement_euler("maximal").unwrap();
     }
 
     #[test]
@@ -1967,10 +1986,8 @@ mod arrangement_ring_invariant_tests {
         graph.add_line(Line3D::new(points[1], points[3], 5));
         graph.sort_edges();
 
-        let reason = match graph
-            .validate_arrangement_euler(&next_links(&graph), "maximal")
-            .unwrap_err()
-        {
+        next_links(&mut graph);
+        let reason = match graph.validate_arrangement_euler("maximal").unwrap_err() {
             crate::PolygonizeError::InternalInvariantViolation { reason } => reason,
             error => panic!("unexpected validation error: {error}"),
         };
