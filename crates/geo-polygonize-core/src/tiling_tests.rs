@@ -1510,7 +1510,7 @@ mod tests {
         let mut untiled = Polygonizer::with_options(options.clone());
         let mut tiled = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(2.0)
-            .with_options(options.clone());
+            .with_options(options);
         for boundary in &boundaries {
             untiled.add_borrowed_geometry(boundary);
             tiled.add_geometry(boundary);
