@@ -1,5 +1,6 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::noding::snap::{FloatingIntersectionTrace, SnapNoder};
+use crate::noding::CandidatePair;
 use crate::options::ExecutionPolicy;
 use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Coord3D, Line3D};
@@ -682,6 +683,102 @@ impl UniformGrid {
         Ok(splits)
     }
 
+    // Broad phase: enumerate AABB-overlapping global-line pairs without calling
+    // the exact intersection predicate.
+    fn enumerate_global_candidates_for_line(
+        &self,
+        g_idx: usize,
+        lines: &[Line3D],
+        soa: &SoALines,
+        mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+    ) -> crate::Result<Vec<CandidatePair>> {
+        let global_lines = &self.global_lines;
+        let query_line = lines[g_idx];
+        let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
+        let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
+        let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
+        let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
+        let mut candidates = Vec::new();
+
+        for block_idx in (0..soa.len()).step_by(4) {
+            let mask =
+                soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, block_idx);
+            for k in 0..4 {
+                let target_idx = block_idx + k;
+                if target_idx >= lines.len()
+                    || target_idx == g_idx
+                    || (global_lines.binary_search(&target_idx).is_ok() && target_idx < g_idx)
+                {
+                    continue;
+                }
+                let overlaps = (mask & (1 << k)) != 0;
+                if let Some(tracker) = tracker.as_deref_mut() {
+                    tracker.candidate(overlaps)?;
+                }
+                if overlaps {
+                    candidates.push(CandidatePair {
+                        first: g_idx,
+                        second: target_idx,
+                    });
+                }
+            }
+        }
+
+        if let Some(tracker) = tracker {
+            tracker.check_cancelled()?;
+        }
+        Ok(candidates)
+    }
+
+    // Exact phase: robust intersection, optional trace capture, and split accumulation.
+    fn process_global_candidate(
+        &self,
+        candidate: CandidatePair,
+        lines: &[Line3D],
+        snap_noder: &SnapNoder,
+        iteration_index: usize,
+        trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
+    ) -> Vec<(usize, Coord3D)> {
+        let first = lines[candidate.first];
+        let second = lines[candidate.second];
+        let intersection = line_intersection(first.to_line_2d(), second.to_line_2d());
+        let witness = intersection.map(|intersection| match intersection {
+            LineIntersection::SinglePoint { intersection, .. } => {
+                FloatingIntersectionTrace::Point(Coord3D::new(intersection.x, intersection.y, 0.0))
+            }
+            LineIntersection::Collinear { intersection } => FloatingIntersectionTrace::Collinear(
+                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
+                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
+            ),
+        });
+        if let Some(trace_candidates) = trace_candidates {
+            trace_candidates.push(UniformGridCandidateTrace {
+                iteration_index,
+                scan: "global_line",
+                row: None,
+                column: None,
+                first_segment: candidate.first,
+                second_segment: candidate.second,
+                first_source_id: first.line_id,
+                second_source_id: second.line_id,
+                witness,
+                owned_by_cell: None,
+            });
+        }
+        let mut splits = Vec::new();
+        if let Some(intersection) = intersection {
+            snap_noder.handle_intersection(
+                intersection,
+                candidate.first,
+                candidate.second,
+                first,
+                second,
+                |idx, point| splits.push((idx, point)),
+            );
+        }
+        splits
+    }
+
     fn process_global_lines(
         &self,
         lines: &[Line3D],
@@ -689,55 +786,16 @@ impl UniformGrid {
         soa: &SoALines,
     ) -> Vec<(usize, Coord3D)> {
         let global_lines = &self.global_lines;
-
-        // Helper to process a single global line against all others
         let process_one_global = |g_idx: usize| -> Vec<(usize, Coord3D)> {
-            let mut events = Vec::new();
-            let query_line = lines[g_idx];
-
-            // Pre-calculate query BBox splats
-            let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
-            let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
-            let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
-            let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
-
-            for block_idx in (0..soa.len()).step_by(4) {
-                let mask = soa
-                    .intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, block_idx);
-
-                if mask != 0 {
-                    for k in 0..4 {
-                        if (mask & (1 << k)) != 0 {
-                            let target_idx = block_idx + k;
-                            if target_idx >= lines.len() {
-                                continue;
-                            }
-
-                            // Avoid self-intersection check
-                            if target_idx == g_idx {
-                                continue;
-                            }
-
-                            // Deduplicate Global-Global checks
-                            // If target is also global, enforce index ordering (only check if g_idx < target_idx)
-                            if global_lines.binary_search(&target_idx).is_ok() && target_idx < g_idx
-                            {
-                                continue;
-                            }
-
-                            // Process intersection
-                            snap_noder.process_intersection(
-                                query_line,
-                                lines[target_idx],
-                                g_idx,
-                                target_idx,
-                                |idx, pt| events.push((idx, pt)),
-                            );
-                        }
-                    }
-                }
-            }
-            events
+            let candidates = self
+                .enumerate_global_candidates_for_line(g_idx, lines, soa, None)
+                .expect("unlimited noding cannot fail");
+            candidates
+                .into_iter()
+                .flat_map(|candidate| {
+                    self.process_global_candidate(candidate, lines, snap_noder, 0, None)
+                })
+                .collect()
         };
 
         #[cfg(feature = "parallel")]
@@ -771,61 +829,18 @@ impl UniformGrid {
         mut trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
     ) -> crate::Result<Vec<(usize, Coord3D)>> {
         let mut events = Vec::new();
+        let soa = SoALines::new(lines);
         for &left_idx in &self.global_lines {
-            for (right_idx, right) in lines.iter().enumerate() {
-                if right_idx == left_idx
-                    || (right_idx < left_idx && self.global_lines.binary_search(&right_idx).is_ok())
-                {
-                    continue;
-                }
-                let left = &lines[left_idx];
-                let overlaps = left.start.x.max(left.end.x) >= right.start.x.min(right.end.x)
-                    && left.start.x.min(left.end.x) <= right.start.x.max(right.end.x)
-                    && left.start.y.max(left.end.y) >= right.start.y.min(right.end.y)
-                    && left.start.y.min(left.end.y) <= right.start.y.max(right.end.y);
-                tracker.candidate(overlaps)?;
-                if overlaps {
-                    let intersection = line_intersection(left.to_line_2d(), right.to_line_2d());
-                    let witness = intersection.map(|intersection| match intersection {
-                        LineIntersection::SinglePoint { intersection, .. } => {
-                            FloatingIntersectionTrace::Point(Coord3D::new(
-                                intersection.x,
-                                intersection.y,
-                                0.0,
-                            ))
-                        }
-                        LineIntersection::Collinear { intersection } => {
-                            FloatingIntersectionTrace::Collinear(
-                                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
-                                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
-                            )
-                        }
-                    });
-                    if let Some(intersection) = intersection {
-                        snap_noder.handle_intersection(
-                            intersection,
-                            left_idx,
-                            right_idx,
-                            *left,
-                            *right,
-                            |idx, point| events.push((idx, point)),
-                        );
-                    }
-                    if let Some(trace_candidates) = trace_candidates.as_deref_mut() {
-                        trace_candidates.push(UniformGridCandidateTrace {
-                            iteration_index,
-                            scan: "global_line",
-                            row: None,
-                            column: None,
-                            first_segment: left_idx,
-                            second_segment: right_idx,
-                            first_source_id: left.line_id,
-                            second_source_id: right.line_id,
-                            witness,
-                            owned_by_cell: None,
-                        });
-                    }
-                }
+            let candidates =
+                self.enumerate_global_candidates_for_line(left_idx, lines, &soa, Some(tracker))?;
+            for candidate in candidates {
+                events.extend(self.process_global_candidate(
+                    candidate,
+                    lines,
+                    snap_noder,
+                    iteration_index,
+                    trace_candidates.as_deref_mut(),
+                ));
             }
         }
         Ok(events)
@@ -869,6 +884,111 @@ impl UniformGrid {
         }
     }
 
+    // Broad phase: enumerate AABB-overlapping pairs that share a grid cell.
+    fn enumerate_cell_candidates(
+        &self,
+        cell_indices: &[u32],
+        soa: &SoALines,
+        mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+    ) -> crate::Result<Vec<CandidatePair>> {
+        let mut candidates = Vec::new();
+        for i in 0..cell_indices.len() {
+            for j in (i + 1)..cell_indices.len() {
+                let first = cell_indices[i] as usize;
+                let second = cell_indices[j] as usize;
+                let overlaps = soa.max_x[first] >= soa.min_x[second]
+                    && soa.min_x[first] <= soa.max_x[second]
+                    && soa.max_y[first] >= soa.min_y[second]
+                    && soa.min_y[first] <= soa.max_y[second];
+                if let Some(tracker) = tracker.as_deref_mut() {
+                    tracker.candidate(overlaps)?;
+                }
+                if overlaps {
+                    candidates.push(CandidatePair { first, second });
+                }
+            }
+        }
+        Ok(candidates)
+    }
+
+    // Exact phase: robust intersection, cell ownership, trace capture, and
+    // split accumulation.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn process_cell_candidate(
+        &self,
+        r: usize,
+        c: usize,
+        candidate: CandidatePair,
+        lines: &[Line3D],
+        snap_noder: &SnapNoder,
+        splits: &mut Vec<(usize, Coord3D)>,
+        iteration_index: usize,
+        trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
+    ) {
+        let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
+        let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
+        let cell_max_x = cell_min_x + self.cell_size;
+        let cell_max_y = cell_min_y + self.cell_size;
+        let idx1 = candidate.first;
+        let idx2 = candidate.second;
+        let l1 = lines[idx1];
+        let l2 = lines[idx2];
+        let intersection = line_intersection(l1.to_line_2d(), l2.to_line_2d());
+        let witness = intersection.map(|intersection| match intersection {
+            LineIntersection::SinglePoint { intersection, .. } => {
+                FloatingIntersectionTrace::Point(Coord3D::new(intersection.x, intersection.y, 0.0))
+            }
+            LineIntersection::Collinear { intersection } => FloatingIntersectionTrace::Collinear(
+                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
+                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
+            ),
+        });
+        let mut owned_by_cell = false;
+        if let Some(res) = intersection {
+            match res {
+                LineIntersection::SinglePoint {
+                    intersection: pt, ..
+                } => {
+                    // A pair may occur in multiple cells; only its owning cell
+                    // contributes the exact split events.
+                    let is_in_x = pt.x >= cell_min_x
+                        && (pt.x < cell_max_x || (c == self.cols - 1 && pt.x <= cell_max_x));
+                    let is_in_y = pt.y >= cell_min_y
+                        && (pt.y < cell_max_y || (r == self.rows - 1 && pt.y <= cell_max_y));
+                    if is_in_x && is_in_y {
+                        owned_by_cell = true;
+                        snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
+                            splits.push((idx, pt));
+                        });
+                    }
+                }
+                LineIntersection::Collinear {
+                    intersection: overlap,
+                } => {
+                    owned_by_cell = self.handle_collinear(
+                        c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap, snap_noder,
+                        res, idx1, idx2, l1, l2, splits,
+                    );
+                }
+            }
+        }
+        if let Some(trace_candidates) = trace_candidates {
+            trace_candidates.push(UniformGridCandidateTrace {
+                iteration_index,
+                scan: "cell",
+                row: Some(r),
+                column: Some(c),
+                first_segment: idx1,
+                second_segment: idx2,
+                first_source_id: l1.line_id,
+                second_source_id: l2.line_id,
+                witness,
+                owned_by_cell: Some(owned_by_cell),
+            });
+        }
+    }
+
     #[inline]
     #[allow(clippy::too_many_arguments)]
     fn process_cell(
@@ -880,7 +1000,7 @@ impl UniformGrid {
         snap_noder: &SnapNoder,
         soa: &SoALines,
         splits: &mut Vec<(usize, Coord3D)>,
-        mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
+        tracker: Option<&mut ExecutionWorkTracker<'_>>,
         iteration_index: usize,
         mut trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
     ) -> crate::Result<()> {
@@ -888,119 +1008,18 @@ impl UniformGrid {
             return Ok(());
         }
 
-        // Define current cell bounds
-        let cell_min_x = self.bounds_min.x + c as f64 * self.cell_size;
-        let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
-        let cell_max_x = cell_min_x + self.cell_size;
-        let cell_max_y = cell_min_y + self.cell_size;
-
-        // Brute force pairs within the cell
-        for i in 0..cell_indices.len() {
-            for j in (i + 1)..cell_indices.len() {
-                let idx1 = cell_indices[i] as usize;
-                let idx2 = cell_indices[j] as usize;
-
-                // Fast AABB rejection using SoA
-                // Check if idx1 and idx2 AABBs overlap
-                // Overlap exists if (RectA.min <= RectB.max) && (RectA.max >= RectB.min)
-                // We read directly from SoA vectors
-
-                let min_x1 = soa.min_x[idx1];
-                let max_x1 = soa.max_x[idx1];
-                let min_y1 = soa.min_y[idx1];
-                let max_y1 = soa.max_y[idx1];
-
-                let min_x2 = soa.min_x[idx2];
-                let max_x2 = soa.max_x[idx2];
-                let min_y2 = soa.min_y[idx2];
-                let max_y2 = soa.max_y[idx2];
-
-                // Scalar overlap check
-                let overlaps =
-                    max_x1 >= min_x2 && min_x1 <= max_x2 && max_y1 >= min_y2 && min_y1 <= max_y2;
-                if let Some(tracker) = tracker.as_deref_mut() {
-                    tracker.candidate(overlaps)?;
-                }
-                if overlaps {
-                    let l1 = lines[idx1];
-                    let l2 = lines[idx2];
-
-                    let l1_2d = l1.to_line_2d();
-                    let l2_2d = l2.to_line_2d();
-
-                    let intersection = line_intersection(l1_2d, l2_2d);
-                    let witness = intersection.map(|intersection| match intersection {
-                        LineIntersection::SinglePoint { intersection, .. } => {
-                            FloatingIntersectionTrace::Point(Coord3D::new(
-                                intersection.x,
-                                intersection.y,
-                                0.0,
-                            ))
-                        }
-                        LineIntersection::Collinear { intersection } => {
-                            FloatingIntersectionTrace::Collinear(
-                                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
-                                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
-                            )
-                        }
-                    });
-                    let mut owned_by_cell = false;
-                    if let Some(res) = intersection {
-                        match res {
-                            LineIntersection::SinglePoint {
-                                intersection: pt, ..
-                            } => {
-                                // OWNERSHIP CHECK:
-                                // A line pair might exist in multiple cells.
-                                // To avoid Duplicate Work: only process if the intersection point
-                                // falls strictly within THIS cell's responsibility.
-                                let is_in_x = pt.x >= cell_min_x
-                                    && (pt.x < cell_max_x
-                                        || (c == self.cols - 1 && pt.x <= cell_max_x));
-                                let is_in_y = pt.y >= cell_min_y
-                                    && (pt.y < cell_max_y
-                                        || (r == self.rows - 1 && pt.y <= cell_max_y));
-
-                                if is_in_x && is_in_y {
-                                    owned_by_cell = true;
-                                    snap_noder.handle_intersection(
-                                        res,
-                                        idx1,
-                                        idx2,
-                                        l1,
-                                        l2,
-                                        |idx, pt| {
-                                            splits.push((idx, pt));
-                                        },
-                                    );
-                                }
-                            }
-                            LineIntersection::Collinear {
-                                intersection: overlap,
-                            } => {
-                                owned_by_cell = self.handle_collinear(
-                                    c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap,
-                                    snap_noder, res, idx1, idx2, l1, l2, splits,
-                                );
-                            }
-                        }
-                    }
-                    if let Some(trace_candidates) = trace_candidates.as_deref_mut() {
-                        trace_candidates.push(UniformGridCandidateTrace {
-                            iteration_index,
-                            scan: "cell",
-                            row: Some(r),
-                            column: Some(c),
-                            first_segment: idx1,
-                            second_segment: idx2,
-                            first_source_id: l1.line_id,
-                            second_source_id: l2.line_id,
-                            witness,
-                            owned_by_cell: Some(owned_by_cell),
-                        });
-                    }
-                }
-            }
+        let candidates = self.enumerate_cell_candidates(cell_indices, soa, tracker)?;
+        for candidate in candidates {
+            self.process_cell_candidate(
+                r,
+                c,
+                candidate,
+                lines,
+                snap_noder,
+                splits,
+                iteration_index,
+                trace_candidates.as_deref_mut(),
+            );
         }
         Ok(())
     }

@@ -603,7 +603,7 @@ Certified fixed precision remains the hot-pixel contract.
 
 ### P2.4 Candidate-enumeration boundary
 
-- [ ] Separate broad-phase candidate enumeration from robust exact
+- [x] Separate broad-phase candidate enumeration from robust exact
   intersection, split accumulation, normalization, and dissolve.
 - [ ] Preserve source line-string/segment-string boundaries internally; flattened
   independent segments discard the monotone-chain structure needed by some
@@ -617,6 +617,11 @@ Certified fixed precision remains the hot-pixel contract.
   - coordinate span and grid scale.
 - [ ] Feed all experimental candidates through the independent validator and the
   same split/dissolve path.
+
+Floating SIMD and uniform-grid noding now expose an internal candidate-pair
+boundary before exact intersection and split accumulation. Certified hot-pixel
+noding already follows the same indexed-candidate-then-exact shape; preserving
+line-string boundaries and adding workload descriptors remain open.
 
 ### P2.5 Evaluate sparse and long-line backends
 
