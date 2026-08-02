@@ -855,6 +855,9 @@ When coverage cannot be proven:
   - [x] Record enabled-but-declined component recovery in the stitching report
     and bounded `tile_component_fallback_declined` trace events with a
     deterministic reason.
+  - [x] Pin an envelope-closed recovery decline for empty polygonization output,
+    including report, trace, typed error, and global-fallback ordering; broader
+    declined-fallback coverage remains open.
   - [x] Expose the deterministic component-fallback decline reason directly in
     `StitchingReport` as well as the bounded trace event.
   - [x] Preserve that decline reason in typed `CoverageIncomplete` errors.
