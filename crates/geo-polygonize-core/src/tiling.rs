@@ -1471,10 +1471,14 @@ impl<'a> TiledPolygonizer<'a> {
             &mut cut_edges,
             &mut invalid_rings,
             &self.options,
-            &ExecutionPolicy::default(),
+            &self.execution_policy,
             None,
-        )
-        .expect("default execution policy cannot cancel");
+        )?;
+        self.execution_policy.check(
+            "output_polygons",
+            self.execution_policy.max_output_polygons,
+            polygons.len(),
+        )?;
         let output_polygon_count = polygons.len();
         let unresolved_tile_count = tile_reports
             .iter()
