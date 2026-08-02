@@ -3174,6 +3174,64 @@ fn ownership_domain_evidence_follows_policy_and_input_order() {
 }
 
 #[test]
+fn ownership_domain_evidence_declines_component_fallback_without_indexed_component() {
+    use crate::{TileCoverageGuarantee, TiledPolygonizeError, TiledPolygonizer};
+    use geo::{Coord, Geometry, LineString, Rect};
+
+    let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 32.0, y: 32.0 });
+    let boundary = Geometry::LineString(LineString::new(vec![
+        Coord { x: 25.0, y: 17.0 },
+        Coord { x: 45.0, y: 17.0 },
+        Coord { x: 45.0, y: 41.0 },
+        Coord { x: 25.0, y: 41.0 },
+        Coord { x: 25.0, y: 17.0 },
+    ]));
+    let mut tiled = TiledPolygonizer::new(bbox, 16.0)
+        .with_buffer(0.0)
+        .with_component_fallback();
+    tiled.add_geometry(&boundary);
+
+    let observed = tiled.polygonize().unwrap();
+    assert!(observed.polygons.is_empty());
+    assert!(observed.stitching_report.component_fallback_attempted);
+    assert!(!observed.stitching_report.component_fallback_used);
+    assert_eq!(
+        observed.stitching_report.component_fallback_decline_reason,
+        Some("no_indexed_component_evidence")
+    );
+    assert_eq!(
+        observed.stitching_report.unresolved_ownership_domain_count,
+        1
+    );
+    assert!(!observed.stitching_report.untiled_fallback_used);
+
+    assert!(matches!(
+        tiled.polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage),
+        Err(TiledPolygonizeError::CoverageIncomplete {
+            component_fallback_decline_reason: Some("no_indexed_component_evidence"),
+            unresolved_ownership_domain_count: 1,
+            ..
+        })
+    ));
+    let traced = tiled
+        .polygonize_with_trace(crate::trace::TraceLevelV1::Full, usize::MAX)
+        .unwrap();
+    let declined = traced
+        .trace
+        .events
+        .iter()
+        .find(|event| event.kind == "tile_component_fallback_declined")
+        .expect("component fallback decline is traced");
+    assert_eq!(declined.payload["reason"], "no_indexed_component_evidence");
+    assert_eq!(declined.payload["unresolved_ownership_domain_count"], 1);
+    assert!(!traced
+        .trace
+        .events
+        .iter()
+        .any(|event| event.kind == "tile_component_fallback"));
+}
+
+#[test]
 fn component_fallback_recovers_mixed_owned_face_and_component_evidence() {
     use crate::{DedupPolicy, Polygonizer, TileCoverageGuarantee, TiledPolygonizer};
     use geo::{Coord, Geometry, LineString, Rect};
