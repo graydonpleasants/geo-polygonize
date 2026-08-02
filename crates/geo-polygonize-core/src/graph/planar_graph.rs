@@ -11,6 +11,8 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use super::partition_border::{PartitionBorderHalfEdge, PartitionBorderSide};
+
 /// Index of a node in the graph.
 pub type NodeId = usize;
 /// Index of an undirected edge in the graph.
@@ -248,6 +250,42 @@ impl PlanarGraph {
             face_count: 0,
             unbounded_face_ids: Vec::new(),
         }
+    }
+
+    /// Creates a canonical partition-border observation for a directed local
+    /// edge. The caller supplies the already-classified border side; this
+    /// method only transfers arrangement identity, direction, provenance, and
+    /// Z observations into the partition representation.
+    pub fn partition_border_half_edge(
+        &self,
+        partition_id: usize,
+        dir_edge_id: DirEdgeId,
+        side: PartitionBorderSide,
+    ) -> Option<PartitionBorderHalfEdge> {
+        let directed = self.directed_edges.get(dir_edge_id)?;
+        let edge = self.edges.get(directed.edge_idx)?;
+        if edge.deleted {
+            return None;
+        }
+        let start = Coord3D {
+            x: *self.nodes_x.get(directed.src)?,
+            y: *self.nodes_y.get(directed.src)?,
+            z: *self.nodes_z.get(directed.src)?,
+        };
+        let end = Coord3D {
+            x: *self.nodes_x.get(directed.dst)?,
+            y: *self.nodes_y.get(directed.dst)?,
+            z: *self.nodes_z.get(directed.dst)?,
+        };
+        PartitionBorderHalfEdge::new(
+            partition_id,
+            dir_edge_id,
+            directed.face_id,
+            side,
+            start,
+            end,
+            edge.sources.line_ids.iter().copied(),
+        )
     }
 
     pub(crate) fn clear(&mut self) {
