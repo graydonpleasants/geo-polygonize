@@ -154,6 +154,8 @@ pub struct StitchingReport {
     pub component_fallback_replaced_polygon_count: usize,
     /// Whether component fallback was enabled and attempted for unresolved output.
     pub component_fallback_attempted: bool,
+    /// Why an attempted component fallback was declined, when it was not safe.
+    pub component_fallback_decline_reason: Option<&'static str>,
     pub unresolved_tile_count: usize,
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_tile_count: usize,
@@ -1587,6 +1589,7 @@ impl<'a> TiledPolygonizer<'a> {
                 component_fallback_polygon_count,
                 component_fallback_replaced_polygon_count,
                 component_fallback_attempted,
+                component_fallback_decline_reason,
                 unresolved_tile_count,
                 unresolved_owned_polygon_count,
                 unresolved_input_tile_count,

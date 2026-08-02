@@ -434,6 +434,10 @@ mod tests {
         let result = tiled.polygonize().unwrap();
         assert!(result.stitching_report.component_fallback_attempted);
         assert!(!result.stitching_report.component_fallback_used);
+        assert_eq!(
+            result.stitching_report.component_fallback_decline_reason,
+            Some("no_indexed_component_evidence")
+        );
         assert!(result.stitching_report.unresolved_owned_polygon_count > 0);
 
         let traced = tiled
