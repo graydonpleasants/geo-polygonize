@@ -370,6 +370,53 @@ fn account_polygon_output(
     Ok(())
 }
 
+fn merge_duplicate_polygon_provenance(
+    retained: &mut Polygon3D,
+    duplicate: &Polygon3D,
+    profile_conflicted: bool,
+) -> bool {
+    retained
+        .boundary_source_line_ids
+        .extend_from_slice(&duplicate.boundary_source_line_ids);
+    retained.boundary_source_line_ids.sort_unstable();
+    retained.boundary_source_line_ids.dedup();
+
+    match (&mut retained.provenance, &duplicate.provenance) {
+        (Some(retained_provenance), Some(duplicate_provenance)) => {
+            retained_provenance
+                .boundary_line_ids
+                .extend_from_slice(&duplicate_provenance.boundary_line_ids);
+            retained_provenance.boundary_line_ids.sort_unstable();
+            retained_provenance.boundary_line_ids.dedup();
+
+            if !profile_conflicted {
+                let conflicting_profiles = matches!(
+                    (
+                        &retained_provenance.input_profile_id,
+                        &duplicate_provenance.input_profile_id
+                    ),
+                    (Some(retained), Some(duplicate)) if retained != duplicate
+                );
+                if conflicting_profiles {
+                    retained_provenance.input_profile_id = None;
+                    return true;
+                } else if retained_provenance.input_profile_id.is_none() {
+                    retained_provenance.input_profile_id =
+                        duplicate_provenance.input_profile_id.clone();
+                }
+            }
+        }
+        (None, Some(duplicate_provenance)) if !profile_conflicted => {
+            retained.provenance = Some(duplicate_provenance.clone());
+        }
+        _ => {}
+    }
+
+    // The first exact duplicate remains the deterministic representative for
+    // per-edge IDs; aggregate source sets above retain all provenance evidence.
+    profile_conflicted
+}
+
 #[derive(Clone, Copy, Debug)]
 struct InputSegment {
     line: Line<f64>,
@@ -2017,17 +2064,28 @@ impl<'a> TiledPolygonizer<'a> {
                 }
                 DedupPolicy::CanonicalRingHash => {
                     let mut unique_polygons = Vec::new();
-                    let mut seen = HashSet::new();
+                    let mut seen = HashMap::new();
+                    let mut profile_conflicts = Vec::new();
 
                     for (polygon_index, poly) in result_polygons.into_iter().enumerate() {
                         self.execution_policy
                             .check_cancelled_every("tile_deduplication", polygon_index)?;
-                        let retained = seen.insert(canonical_polygon_key(&poly));
+                        let key = canonical_polygon_key(&poly);
+                        let retained = if let Some(&retained_index) = seen.get(&key) {
+                            profile_conflicts[retained_index] = merge_duplicate_polygon_provenance(
+                                &mut unique_polygons[retained_index],
+                                &poly,
+                                profile_conflicts[retained_index],
+                            );
+                            false
+                        } else {
+                            seen.insert(key, unique_polygons.len());
+                            unique_polygons.push(poly);
+                            profile_conflicts.push(false);
+                            true
+                        };
                         if let Some(trace) = trace.as_deref_mut() {
                             trace.record_tile_dedup(polygon_index, retained);
-                        }
-                        if retained {
-                            unique_polygons.push(poly);
                         }
                     }
 

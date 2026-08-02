@@ -86,8 +86,9 @@ for that test:
 `KeepAll` performs no duplicate removal. `CanonicalRingHash` removes exact
 duplicate polygon geometry after canonicalizing ring direction and start; its
 key contains exact XYZ bits with signed zero normalized, not a tolerance. It
-does not merge distinct provenance payloads, so callers requiring provenance
-equivalence must verify the retained polygon against untiled output.
+merges duplicate aggregate boundary source sets and compatible input profiles.
+If profiles conflict, the merged profile is unset. The first duplicate remains
+the deterministic representative for per-edge IDs.
 
 Canonical output options apply the normal final ordering pass after tile merge.
 The untraced path may process tiles in parallel, while bounded tracing processes
