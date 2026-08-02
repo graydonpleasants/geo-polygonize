@@ -727,6 +727,9 @@ that same connectivity case.
     with bounded trace evidence; broader region coverage detection remains open.
   - [x] Pin the certified fixed-grid hot-pixel connected-region gap; detection
     and bounded evidence now reuse the certified noder.
+  - [x] Use indexed connected-component evidence to identify a component that
+    is only partially observed in a tile halo; broad undetected-region coverage
+    remains open.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
@@ -760,10 +763,12 @@ When coverage cannot be proven:
     spatially nests an already retained tile-local face.
   - [x] Add opt-in envelope-closed component fallback that groups interacting
     input, retained-face, and connected-component envelopes and records the
-    recovery.
+    recovery, including input-boundary-seeded components.
   - [x] Recover a nested retained face by polygonizing the closed region once;
     whole-input fallback remains the escape hatch for evidence outside that
     region.
+  - [x] Seed the same region-local recovery from input-boundary evidence when
+    the indexed connected component is only partially visible in a halo.
   - [x] Merge one envelope-disjoint recovered component with retained tile
     output; envelope-closed region replacement now covers interacting retained
     output.

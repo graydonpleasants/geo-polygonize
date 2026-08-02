@@ -115,9 +115,10 @@ typed coverage error with retry counts when the bounded schedule is exhausted.
 Retries reuse the same execution policy independently per attempt. Full output
 traces record bounded `tile_halo_retry` events directly from the physical retry
 history. `with_component_fallback` enables conservative recovery for excluded
-components. It starts with each excluded component, closes the region over
-intersecting input envelopes, interacting retained polygon envelopes, and other
-connected component envelopes, then polygonizes that complete region once.
+or partially observed indexed components. It starts with each component
+identified by excluded-component or input-boundary evidence, closes the region
+over intersecting input envelopes, interacting retained polygon envelopes, and
+other connected component envelopes, then polygonizes that complete region once.
 Retained polygons intersecting the recovered region are replaced before the
 existing canonical deduplication and ordering pass, preserving containment for
 the envelope-closed class without independently appending nested output. The
