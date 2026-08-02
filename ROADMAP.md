@@ -770,6 +770,10 @@ boundary without adding an implicit clipping contract.
   - [x] Exercise bounded in-domain tiled-vs-untiled ownership and deduplication
     inputs in the scheduled fuzz target; a mismatch without observed coverage
     evidence fails the target rather than being silently accepted.
+  - [x] Exercise deterministic adversarial closed-face, hole, concavity, and
+    dirty-overlap families across shifted ownership origins, tile sizes, input
+    rotations, and reversals; an in-domain mismatch without observed evidence
+    fails the contract.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
