@@ -790,6 +790,8 @@ opt-in whole-input fallback handle the evidence explicitly.
   - [x] Exercise independent, fully grouped, and partially grouped line
     containers in the tiled differential contract; mismatches without any
     observed evidence remain fatal.
+  - [x] Exercise nested `GeometryCollection` line containers in the same
+    bounded tiled differential contract.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
