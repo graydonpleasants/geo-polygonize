@@ -1,5 +1,5 @@
 use geo_polygonize_core::{
-    polygonize, Coord3D, DedupPolicy, Line3D, PolygonizerOptions, TileCoverageGuarantee,
+    polygonize, Coord3D, DedupPolicy, Line3D, Polygon3D, PolygonizerOptions, TileCoverageGuarantee,
     TileOwnershipPolicy, TileRetryPolicy, TiledPolygonizer,
 };
 use geo_types::{Coord, Geometry, LineString, Rect};
@@ -176,6 +176,82 @@ fn in_domain_tiled_mismatches_have_observed_coverage_evidence() {
             }
         }
     }
+}
+
+#[test]
+fn bounded_single_geometry_envelope_sweep_keeps_in_domain_mismatches_observed() {
+    let bounds = world(32.0);
+    let options = PolygonizerOptions {
+        node_input: true,
+        ..Default::default()
+    };
+    let mut checked_cases = 0;
+
+    for min_x in [-16.0, -8.0, 0.0, 8.0, 16.0, 24.0, 32.0] {
+        for min_y in [-16.0, -8.0, 0.0, 8.0, 16.0, 24.0, 32.0] {
+            for width in [4.0, 8.0, 16.0, 24.0, 40.0] {
+                let max_x = min_x + width;
+                let max_y = min_y + width;
+                let lines = ring(&[
+                    (min_x, min_y),
+                    (max_x, min_y),
+                    (max_x, max_y),
+                    (min_x, max_y),
+                ]);
+                let expected = polygonize(lines.iter().copied(), &options).unwrap();
+                if expected.polygons.is_empty()
+                    || expected
+                        .polygons
+                        .iter()
+                        .any(|polygon| !polygon_overlaps(&bounds, polygon))
+                {
+                    continue;
+                }
+                checked_cases += 1;
+                let geometry = Geometry::LineString(LineString::new(
+                    lines
+                        .iter()
+                        .map(|line| line.start.to_coord_2d())
+                        .chain(std::iter::once(lines[0].start.to_coord_2d()))
+                        .collect(),
+                ));
+
+                for tile_size in [4.0, 8.0, 16.0] {
+                    for buffer in [0.0, 1.0, 4.0] {
+                        let mut tiled = TiledPolygonizer::new(bounds, tile_size)
+                            .with_buffer(buffer)
+                            .with_options(options.clone())
+                            .with_ownership_policy(
+                                TileOwnershipPolicy::RepresentativePointInsidePolygon,
+                            )
+                            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+                        tiled.add_geometry(&geometry);
+                        let actual = tiled.polygonize().unwrap();
+                        let equivalent = actual.polygons.len() == expected.polygons.len()
+                            && actual.polygons.iter().zip(&expected.polygons).all(
+                                |(actual, expected)| {
+                                    actual.exterior == expected.exterior
+                                        && actual.interiors == expected.interiors
+                                },
+                            );
+                        if !equivalent {
+                            assert!(
+                                actual.tile_reports.iter().any(|report| {
+                                    !report.coverage_issues.is_empty()
+                                        || !report.ownership_domain_issues.is_empty()
+                                        || !report.input_boundary_issues.is_empty()
+                                        || !report.excluded_component_issues.is_empty()
+                                }),
+                                "undetected single-geometry mismatch: min=({min_x},{min_y}), width={width}, tile_size={tile_size}, buffer={buffer}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(checked_cases, 208);
 }
 
 #[test]
@@ -358,6 +434,23 @@ fn line(start: (f64, f64), end: (f64, f64)) -> Line3D {
 
 fn world(size: f64) -> Rect<f64> {
     Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: size, y: size })
+}
+
+fn polygon_overlaps(bounds: &Rect<f64>, polygon: &Polygon3D) -> bool {
+    let Some(first) = polygon.exterior.first() else {
+        return false;
+    };
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (first.x, first.y, first.x, first.y);
+    for coordinate in &polygon.exterior[1..] {
+        min_x = min_x.min(coordinate.x);
+        min_y = min_y.min(coordinate.y);
+        max_x = max_x.max(coordinate.x);
+        max_y = max_y.max(coordinate.y);
+    }
+    min_x <= bounds.max().x
+        && max_x >= bounds.min().x
+        && min_y <= bounds.max().y
+        && max_y >= bounds.min().y
 }
 
 fn geometries_for_grouping(lines: &[Line3D], grouping: usize, nested: bool) -> Vec<Geometry<f64>> {
