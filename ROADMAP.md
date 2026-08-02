@@ -781,6 +781,8 @@ When coverage cannot be proven:
     recovered-output merge, and deduplication cancellation are now pinned.
   - [x] Enforce the configured aggregate output limit and cancellation during
     the final canonical merge after tile and region recovery.
+  - [x] Observe cancellation during tile input/evidence/ownership filtering,
+    including the empty-tile early-return path.
   - [x] Record retained tile polygon counts in component-fallback trace events
     and expose retained/recovered aggregate counts in `StitchingReport`;
     expose replaced-retained counts for canonical region replacement.

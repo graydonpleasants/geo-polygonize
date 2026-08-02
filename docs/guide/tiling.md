@@ -102,8 +102,9 @@ Both validation modes are deliberately narrower than coverage certification.
 `with_execution_policy` applies segment, candidate, exact-predicate, and
 cancellation bounds to the indexed component preflight, including the optional
 pre-snap and fixed-grid endpoint passes, and passes the same policy to each tile
-polygonization and recovery region. Numeric work limits apply independently to
-the preflight, each tile, and each recovery region, not as one aggregate budget
+polygonization, tile input/evidence filtering, ownership pass, and recovery
+region. Numeric work limits apply independently to the preflight, each tile,
+and each recovery region, not as one aggregate budget
 across the tiled call; the final canonical merge also enforces the configured
 aggregate output-polygon limit and observes cancellation. The component
 envelope remains conservative evidence rather than proof of a face.

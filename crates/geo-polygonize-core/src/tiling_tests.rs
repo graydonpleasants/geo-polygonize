@@ -1184,6 +1184,50 @@ mod tests {
     }
 
     #[test]
+    fn tile_processing_observes_cancellation_before_empty_tile_return() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let token = CancellationToken::new();
+        token.cancel();
+        let tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            tiled.process_tile(bbox, &[], 0.0, None),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
+        ));
+    }
+
+    #[test]
+    fn tile_processing_observes_midflight_filter_cancellation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(policy);
+        let geometries = (0..=256)
+            .map(|_| {
+                Geometry::LineString(LineString::new(vec![
+                    Coord { x: 0.0, y: 0.0 },
+                    Coord { x: 1.0, y: 0.0 },
+                ]))
+            })
+            .collect::<Vec<_>>();
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+
+        assert!(matches!(
+            tiled.process_tile(bbox, &[], 0.0, None),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
+        ));
+    }
+
+    #[test]
     fn component_fallback_keeps_recovered_output_deterministic() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
