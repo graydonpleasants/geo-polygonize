@@ -1,11 +1,13 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
+    use crate::tiling::InputComponent;
     use crate::{
         trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
         NodingGuarantee, NodingOptions, PolygonizeError, Polygonizer, PolygonizerOptions,
         PrecisionModel, ProvenanceOptions, TileBoundarySide, TileComponentConnection,
-        TileCoverageGuarantee, TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
+        TileCoverageGuarantee, TileExcludedComponentIssue, TileReport, TileRetryPolicy,
+        TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, Rect};
 
@@ -951,6 +953,46 @@ mod tests {
         assert_eq!(recovered_keys, expected_keys);
         assert!(!recovered.stitching_report.component_fallback_used);
         assert!(recovered.stitching_report.untiled_fallback_used);
+    }
+
+    #[test]
+    fn component_fallback_observes_pre_cancelled_execution_policy() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let token = CancellationToken::new();
+        token.cancel();
+        let tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        });
+        let component_indices = vec![0, 1];
+        let report = TileReport {
+            tile_bbox: bbox,
+            input_geometry_count: 0,
+            polygon_count: 0,
+            owned_polygon_count: 0,
+            dangle_count: 0,
+            cut_edge_count: 0,
+            invalid_ring_count: 0,
+            coverage_issues: Vec::new(),
+            input_boundary_issues: Vec::new(),
+            excluded_component_issues: vec![TileExcludedComponentIssue {
+                input_geometry_indices: component_indices.clone(),
+                component_bbox: bbox,
+                connection: TileComponentConnection::ExactEndpoint,
+            }],
+            retry_attempts: Vec::new(),
+            retry_exhausted: false,
+        };
+        let component = InputComponent {
+            input_geometry_indices: component_indices,
+            bbox,
+            connection: TileComponentConnection::ExactEndpoint,
+        };
+
+        assert!(matches!(
+            tiled.try_component_fallback(&[Vec::new()], &[report], &[component]),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_component_fallback"
+        ));
     }
 
     #[test]
