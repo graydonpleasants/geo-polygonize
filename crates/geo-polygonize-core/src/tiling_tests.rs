@@ -2945,6 +2945,24 @@ fn documents_single_geometry_region_excluded_from_every_halo() {
     assert!(tiled
         .polygonize_with_coverage_guarantee(crate::TileCoverageGuarantee::ValidateObservedCoverage)
         .is_ok());
+
+    let mut fallback = TiledPolygonizer::new(bbox, 16.0)
+        .with_buffer(0.0)
+        .with_untiled_fallback();
+    fallback.add_geometry(&boundary);
+    let fallback_result = fallback
+        .polygonize_with_coverage_guarantee(crate::TileCoverageGuarantee::ValidateObservedCoverage)
+        .unwrap();
+    assert!(fallback_result.polygons.is_empty());
+    assert!(!fallback_result.stitching_report.untiled_fallback_used);
+    let traced = fallback
+        .polygonize_with_trace(crate::trace::TraceLevelV1::Full, usize::MAX)
+        .unwrap();
+    assert!(!traced
+        .trace
+        .events
+        .iter()
+        .any(|event| event.kind == "tile_untiled_fallback"));
 }
 
 #[test]

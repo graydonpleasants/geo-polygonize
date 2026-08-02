@@ -127,18 +127,24 @@ the envelope-closed class without independently appending nested output. The
 recovery records `component_fallback_used`, retained/recovered/replaced counts
 in `StitchingReport`, and a bounded `tile_component_fallback` event containing
 the region input indexes, recovered component count, and replacement count.
-Coverage issues or unresolved input evidence outside the closed regions still
-decline component recovery. `with_untiled_fallback` remains the containment-safe
-escape hatch for those cases. General boundary-graph stitching remains
-unavailable. When enabled for unresolved output, a declined component recovery
-is marked in `StitchingReport` and recorded as a bounded
-`tile_component_fallback_declined` trace event with the remaining evidence
-counts and a deterministic decline reason. Component fallback checks the
-execution policy before region selection and before each recovery region, so
-cancellation does not get lost between tile processing and the bounded region
-polygonizer. The same policy is checked while replacing retained polygons,
-appending recovered output, and deduplicating the fallback merge, so a
-cancellation request is not lost after recovery finishes.
+When owned-face coverage evidence co-occurs with indexed component or
+input-boundary evidence, every owned-face witness must intersect an
+envelope-closed recovery region; a witness outside those regions declines
+component recovery rather than replacing unrelated retained output.
+`with_untiled_fallback` remains the containment-safe escape hatch for observed
+cases that decline region-local recovery. General boundary-graph stitching
+remains unavailable. When enabled for unresolved output, a declined component
+recovery is marked in `StitchingReport` and recorded as a bounded
+`tile_component_fallback_declined` trace event before the
+`tile_untiled_fallback` event. The whole-input fallback only runs when tile
+reports contain observed unresolved evidence. It cannot detect an unowned
+single-geometry face whose representative ownership point falls outside the
+configured ownership domain, and it never clips that input implicitly.
+Component fallback checks the execution policy before region selection and
+before each recovery region, so cancellation does not get lost between tile
+processing and the bounded region polygonizer. The same policy is checked while
+replacing retained polygons, appending recovered output, and deduplicating the
+fallback merge, so a cancellation request is not lost after recovery finishes.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.
