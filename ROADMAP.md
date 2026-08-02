@@ -793,6 +793,8 @@ When coverage cannot be proven:
     the final canonical merge after tile and region recovery.
   - [x] Observe cancellation during tile input/evidence/ownership filtering,
     including the empty-tile early-return path.
+  - [x] Observe cancellation while scanning connected-component member
+    envelopes for partial component evidence.
   - [x] Record retained tile polygon counts in component-fallback trace events
     and expose retained/recovered aggregate counts in `StitchingReport`;
     expose replaced-retained counts for canonical region replacement.

@@ -545,12 +545,18 @@ impl<'a> TiledPolygonizer<'a> {
         for (component_index, component) in input_components.iter().enumerate() {
             self.execution_policy
                 .check_cancelled_every("tile_processing", component_index)?;
-            if component.bbox.intersects(&buffered_bbox)
-                && component.input_geometry_indices.iter().any(|&index| {
-                    self.geometries[index]
-                        .1
-                        .is_none_or(|bbox| !bbox.intersects(&buffered_bbox))
-                })
+            if !component.bbox.intersects(&buffered_bbox) {
+                continue;
+            }
+            let mut has_unobserved_member = false;
+            for (member_index, &index) in component.input_geometry_indices.iter().enumerate() {
+                self.execution_policy
+                    .check_cancelled_every("tile_processing", member_index)?;
+                has_unobserved_member |= self.geometries[index]
+                    .1
+                    .is_none_or(|bbox| !bbox.intersects(&buffered_bbox));
+            }
+            if has_unobserved_member
                 && component
                     .input_geometry_indices
                     .iter()
