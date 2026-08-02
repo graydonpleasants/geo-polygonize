@@ -899,7 +899,11 @@ When coverage cannot be proven:
 
 After the explicit arrangement model exists:
 
-- [ ] define canonical partition-border node and edge keys;
+- [x] define canonical partition-border node and edge keys;
+  - [x] Add hidden `graph::partition_border` identities with signed-zero-safe
+    2D node keys, reversal-invariant edge keys, and deterministic local
+    half-edge observations retaining provenance, face, partition, side, and Z
+    evidence. Twin matching and reconciliation remain open.
 - [ ] match and reconcile twin boundary halfedges;
 - [ ] merge source sets and Z decisions across partitions;
 - [ ] reconcile connected components before face extraction;
