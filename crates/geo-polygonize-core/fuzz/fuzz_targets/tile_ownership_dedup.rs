@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use geo::{Coord, Geometry, LineString, MultiLineString, Rect};
+use geo::{Coord, Geometry, GeometryCollection, LineString, MultiLineString, Rect};
 use geo_polygonize_core::{
     polygonize, Coord3D, DedupPolicy, Line3D, Polygon3D, PolygonizerOptions,
     TileOwnershipPolicy, TiledPolygonizer,
@@ -16,6 +16,7 @@ struct FuzzInput {
     reverse_input: bool,
     group_lines: bool,
     geometry_grouping: u8,
+    nested_geometry_collection: bool,
     ownership_domain_gap: bool,
 }
 
@@ -135,6 +136,11 @@ fuzz_target!(|input: FuzzInput| {
     } else {
         parts.into_iter().map(Geometry::LineString).collect()
     };
+    let geometries = if input.nested_geometry_collection {
+        vec![Geometry::GeometryCollection(GeometryCollection::new_from(geometries))]
+    } else {
+        geometries
+    };
     let mut tiled = TiledPolygonizer::new(world(), 1.0 + f64::from(input.tile_size % 16))
         .with_buffer(f64::from(input.buffer % 17))
         .with_options(options)
@@ -152,10 +158,11 @@ fuzz_target!(|input: FuzzInput| {
     }
 
     panic!(
-        "undetected tiled mismatch: lines={}, tile_size={}, buffer={}, untiled_polygons={}, tiled_polygons={}",
+        "undetected tiled mismatch: lines={}, tile_size={}, buffer={}, nested_collection={}, untiled_polygons={}, tiled_polygons={}",
         lines.len(),
         1 + (input.tile_size % 16),
         input.buffer % 17,
+        input.nested_geometry_collection,
         expected.polygons.len(),
         actual.polygons.len(),
     );

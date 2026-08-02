@@ -228,48 +228,51 @@ fn adversarial_in_domain_mismatches_keep_coverage_evidence_under_permutations() 
     for (case_index, (name, lines, bbox)) in cases.into_iter().enumerate() {
         let expected = polygonize(lines.iter().copied(), &options)
             .unwrap_or_else(|error| panic!("{name} untiled: {error}"));
-        for grouping in 0..=3 {
-            let base_geometries = geometries_for_grouping(&lines, grouping);
-            for (tile_index, tile_size) in [5.0, 7.0, 10.0].into_iter().enumerate() {
-                for buffer in [0.0, 1.0, 3.0] {
-                    for permutation in 0..2 {
-                        let mut geometries = base_geometries.clone();
-                        let rotation = (case_index + tile_index + permutation) % geometries.len();
-                        geometries.rotate_left(rotation);
-                        if permutation == 1 {
-                            geometries.reverse();
-                        }
+        for nested in [false, true] {
+            for grouping in 0..=3 {
+                let base_geometries = geometries_for_grouping(&lines, grouping, nested);
+                for (tile_index, tile_size) in [5.0, 7.0, 10.0].into_iter().enumerate() {
+                    for buffer in [0.0, 1.0, 3.0] {
+                        for permutation in 0..2 {
+                            let mut geometries = base_geometries.clone();
+                            let rotation =
+                                (case_index + tile_index + permutation) % geometries.len();
+                            geometries.rotate_left(rotation);
+                            if permutation == 1 {
+                                geometries.reverse();
+                            }
 
-                        let mut tiled = TiledPolygonizer::new(bbox, tile_size)
-                            .with_buffer(buffer)
-                            .with_options(options.clone())
-                            .with_ownership_policy(
-                                TileOwnershipPolicy::RepresentativePointInsidePolygon,
-                            )
-                            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
-                        for geometry in &geometries {
-                            tiled.add_geometry(geometry);
-                        }
-                        let actual = tiled.polygonize().unwrap_or_else(|error| {
-                            panic!("{name}, grouping {grouping}, tile size {tile_size}, buffer {buffer}: {error}")
-                        });
-                        let equivalent = actual.polygons.len() == expected.polygons.len()
-                            && actual.polygons.iter().zip(&expected.polygons).all(
-                                |(actual, expected)| {
-                                    actual.exterior == expected.exterior
-                                        && actual.interiors == expected.interiors
-                                },
-                            );
-                        if !equivalent {
-                            assert!(
-                                actual.tile_reports.iter().any(|report| {
-                                    !report.coverage_issues.is_empty()
-                                        || !report.ownership_domain_issues.is_empty()
-                                        || !report.input_boundary_issues.is_empty()
-                                        || !report.excluded_component_issues.is_empty()
-                                }),
-                                "undetected {name} mismatch for grouping {grouping}, tile size {tile_size}, buffer {buffer}, permutation {permutation}"
-                            );
+                            let mut tiled = TiledPolygonizer::new(bbox, tile_size)
+                                .with_buffer(buffer)
+                                .with_options(options.clone())
+                                .with_ownership_policy(
+                                    TileOwnershipPolicy::RepresentativePointInsidePolygon,
+                                )
+                                .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+                            for geometry in &geometries {
+                                tiled.add_geometry(geometry);
+                            }
+                            let actual = tiled.polygonize().unwrap_or_else(|error| {
+                                panic!("{name}, nested {nested}, grouping {grouping}, tile size {tile_size}, buffer {buffer}: {error}")
+                            });
+                            let equivalent = actual.polygons.len() == expected.polygons.len()
+                                && actual.polygons.iter().zip(&expected.polygons).all(
+                                    |(actual, expected)| {
+                                        actual.exterior == expected.exterior
+                                            && actual.interiors == expected.interiors
+                                    },
+                                );
+                            if !equivalent {
+                                assert!(
+                                    actual.tile_reports.iter().any(|report| {
+                                        !report.coverage_issues.is_empty()
+                                            || !report.ownership_domain_issues.is_empty()
+                                            || !report.input_boundary_issues.is_empty()
+                                            || !report.excluded_component_issues.is_empty()
+                                    }),
+                                    "undetected {name} mismatch for nested {nested}, grouping {grouping}, tile size {tile_size}, buffer {buffer}, permutation {permutation}"
+                                );
+                            }
                         }
                     }
                 }
@@ -357,25 +360,32 @@ fn world(size: f64) -> Rect<f64> {
     Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: size, y: size })
 }
 
-fn geometries_for_grouping(lines: &[Line3D], grouping: usize) -> Vec<Geometry<f64>> {
+fn geometries_for_grouping(lines: &[Line3D], grouping: usize, nested: bool) -> Vec<Geometry<f64>> {
     let parts = lines
         .iter()
         .map(|line| LineString::new(vec![line.start.to_coord_2d(), line.end.to_coord_2d()]))
         .collect::<Vec<_>>();
-    if grouping == 0 {
-        return parts.into_iter().map(Geometry::LineString).collect();
+    let geometries = if grouping == 0 {
+        parts.into_iter().map(Geometry::LineString).collect()
+    } else {
+        let group_count = grouping.min(parts.len()).max(1);
+        let mut groups = vec![Vec::new(); group_count];
+        for (part_index, part) in parts.into_iter().enumerate() {
+            groups[part_index % group_count].push(part);
+        }
+        groups
+            .into_iter()
+            .filter(|parts| !parts.is_empty())
+            .map(|parts| Geometry::MultiLineString(geo_types::MultiLineString::new(parts)))
+            .collect()
+    };
+    if nested {
+        vec![Geometry::GeometryCollection(
+            geo_types::GeometryCollection::new_from(geometries),
+        )]
+    } else {
+        geometries
     }
-
-    let group_count = grouping.min(parts.len()).max(1);
-    let mut groups = vec![Vec::new(); group_count];
-    for (part_index, part) in parts.into_iter().enumerate() {
-        groups[part_index % group_count].push(part);
-    }
-    groups
-        .into_iter()
-        .filter(|parts| !parts.is_empty())
-        .map(|parts| Geometry::MultiLineString(geo_types::MultiLineString::new(parts)))
-        .collect()
 }
 
 #[test]
