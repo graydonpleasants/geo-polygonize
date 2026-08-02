@@ -413,7 +413,7 @@ impl<'a> TiledPolygonizer<'a> {
     }
 
     /// Enables conservative recovery for excluded components with disjoint
-    /// input and output envelopes.
+    /// non-member input and retained-output envelopes.
     pub fn with_component_fallback(mut self) -> Self {
         self.component_fallback = true;
         self
@@ -579,12 +579,6 @@ impl<'a> TiledPolygonizer<'a> {
         tile_reports: &[TileReport],
         input_components: &[InputComponent],
     ) -> Result<Option<ComponentFallbackResult>> {
-        if tile_reports.iter().any(|report| {
-            !report.coverage_issues.is_empty() || !report.input_boundary_issues.is_empty()
-        }) {
-            return Ok(None);
-        }
-
         let component_keys = tile_reports
             .iter()
             .flat_map(|report| &report.excluded_component_issues)
@@ -600,20 +594,20 @@ impl<'a> TiledPolygonizer<'a> {
         if components.len() != component_keys.len() {
             return Ok(None);
         }
+        let component_member_indices = components
+            .iter()
+            .flat_map(|component| component.input_geometry_indices.iter().copied())
+            .collect::<HashSet<_>>();
+        if tile_reports.iter().any(|report| {
+            !report.coverage_issues.is_empty()
+                || report
+                    .input_boundary_issues
+                    .iter()
+                    .any(|issue| !component_member_indices.contains(&issue.input_geometry_index))
+        }) {
+            return Ok(None);
+        }
 
-        let tiles = self.generate_tiles();
-        let buffered_bbox = |tile: &Rect<f64>| {
-            Rect::new(
-                Coord {
-                    x: tile.min().x - self.buffer,
-                    y: tile.min().y - self.buffer,
-                },
-                Coord {
-                    x: tile.max().x + self.buffer,
-                    y: tile.max().y + self.buffer,
-                },
-            )
-        };
         let retained_polygon_bboxes = tile_polygons
             .iter()
             .flat_map(|polygons| polygons.iter())
@@ -631,34 +625,13 @@ impl<'a> TiledPolygonizer<'a> {
                 return Ok(None);
             }
 
-            let member_indices = component
-                .input_geometry_indices
-                .iter()
-                .copied()
-                .collect::<HashSet<_>>();
             for (geometry_index, (_, geometry_bbox)) in self.geometries.iter().enumerate() {
-                if member_indices.contains(&geometry_index) {
+                if component.input_geometry_indices.contains(&geometry_index) {
                     continue;
                 }
                 if geometry_bbox.is_some_and(|bbox| bbox.intersects(&component.bbox)) {
                     return Ok(None);
                 }
-            }
-
-            if component
-                .input_geometry_indices
-                .iter()
-                .any(|&geometry_index| {
-                    self.geometries[geometry_index]
-                        .1
-                        .is_some_and(|geometry_bbox| {
-                            tiles
-                                .iter()
-                                .any(|tile| geometry_bbox.intersects(&buffered_bbox(tile)))
-                        })
-                })
-            {
-                return Ok(None);
             }
         }
 
