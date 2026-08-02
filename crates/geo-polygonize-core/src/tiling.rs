@@ -154,6 +154,8 @@ pub struct StitchingReport {
     pub retried_tile_count: usize,
     pub retry_attempt_count: usize,
     pub retry_exhausted_tile_count: usize,
+    /// Whether envelope-disjoint excluded components were recovered separately.
+    pub component_fallback_used: bool,
     /// Whether unresolved tiled output was replaced by one untiled pass over all input.
     pub untiled_fallback_used: bool,
 }
@@ -223,6 +225,11 @@ struct InputComponent {
     input_geometry_indices: Vec<usize>,
     bbox: Rect<f64>,
     connection: TileComponentConnection,
+}
+
+struct ComponentFallbackResult {
+    polygons: Vec<Polygon3D>,
+    events: Vec<(Vec<usize>, usize)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -349,6 +356,7 @@ pub struct TiledPolygonizer<'a> {
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
     retry_policy: Option<TileRetryPolicy>,
+    component_fallback: bool,
     untiled_fallback: bool,
 }
 
@@ -368,6 +376,7 @@ impl<'a> TiledPolygonizer<'a> {
             options,
             execution_policy: ExecutionPolicy::default(),
             retry_policy: None,
+            component_fallback: false,
             untiled_fallback: false,
         }
     }
@@ -400,6 +409,13 @@ impl<'a> TiledPolygonizer<'a> {
 
     pub fn with_retry_policy(mut self, retry_policy: TileRetryPolicy) -> Self {
         self.retry_policy = Some(retry_policy);
+        self
+    }
+
+    /// Enables conservative recovery for excluded components with disjoint
+    /// input and output envelopes.
+    pub fn with_component_fallback(mut self) -> Self {
+        self.component_fallback = true;
         self
     }
 
@@ -555,6 +571,131 @@ impl<'a> TiledPolygonizer<'a> {
         !report.coverage_issues.is_empty()
             || !report.input_boundary_issues.is_empty()
             || !report.excluded_component_issues.is_empty()
+    }
+
+    fn try_component_fallback(
+        &self,
+        tile_polygons: &[Vec<Polygon3D>],
+        tile_reports: &[TileReport],
+        input_components: &[InputComponent],
+    ) -> Result<Option<ComponentFallbackResult>> {
+        if tile_reports.iter().any(|report| {
+            !report.coverage_issues.is_empty() || !report.input_boundary_issues.is_empty()
+        }) {
+            return Ok(None);
+        }
+
+        let component_keys = tile_reports
+            .iter()
+            .flat_map(|report| &report.excluded_component_issues)
+            .map(|issue| issue.input_geometry_indices.clone())
+            .collect::<HashSet<_>>();
+        if component_keys.is_empty() {
+            return Ok(None);
+        }
+        let components = input_components
+            .iter()
+            .filter(|component| component_keys.contains(&component.input_geometry_indices))
+            .collect::<Vec<_>>();
+        if components.len() != component_keys.len() {
+            return Ok(None);
+        }
+
+        let tiles = self.generate_tiles();
+        let buffered_bbox = |tile: &Rect<f64>| {
+            Rect::new(
+                Coord {
+                    x: tile.min().x - self.buffer,
+                    y: tile.min().y - self.buffer,
+                },
+                Coord {
+                    x: tile.max().x + self.buffer,
+                    y: tile.max().y + self.buffer,
+                },
+            )
+        };
+        let retained_polygon_bboxes = tile_polygons
+            .iter()
+            .flat_map(|polygons| polygons.iter())
+            .filter_map(Self::polygon_bbox)
+            .collect::<Vec<_>>();
+
+        for (component_index, component) in components.iter().enumerate() {
+            if components[..component_index]
+                .iter()
+                .any(|other| other.bbox.intersects(&component.bbox))
+                || retained_polygon_bboxes
+                    .iter()
+                    .any(|polygon_bbox| polygon_bbox.intersects(&component.bbox))
+            {
+                return Ok(None);
+            }
+
+            let member_indices = component
+                .input_geometry_indices
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>();
+            for (geometry_index, (_, geometry_bbox)) in self.geometries.iter().enumerate() {
+                if member_indices.contains(&geometry_index) {
+                    continue;
+                }
+                if geometry_bbox.is_some_and(|bbox| bbox.intersects(&component.bbox)) {
+                    return Ok(None);
+                }
+            }
+
+            if component
+                .input_geometry_indices
+                .iter()
+                .any(|&geometry_index| {
+                    self.geometries[geometry_index]
+                        .1
+                        .is_some_and(|geometry_bbox| {
+                            tiles
+                                .iter()
+                                .any(|tile| geometry_bbox.intersects(&buffered_bbox(tile)))
+                        })
+                })
+            {
+                return Ok(None);
+            }
+        }
+
+        let mut recovered = Vec::new();
+        let mut events = Vec::with_capacity(components.len());
+        for component in components {
+            let mut polygonizer = Polygonizer::with_options(self.options.clone())
+                .with_execution_policy(self.execution_policy.clone());
+            for &geometry_index in &component.input_geometry_indices {
+                polygonizer.add_borrowed_geometry(self.geometries[geometry_index].0);
+            }
+            let polygons = polygonizer.polygonize()?.polygons;
+            if polygons.is_empty() {
+                return Ok(None);
+            }
+            events.push((component.input_geometry_indices.clone(), polygons.len()));
+            recovered.extend(polygons);
+        }
+        Ok(Some(ComponentFallbackResult {
+            polygons: recovered,
+            events,
+        }))
+    }
+
+    fn polygon_bbox(poly: &Polygon3D) -> Option<Rect<f64>> {
+        let first = poly.exterior.first()?;
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (first.x, first.y, first.x, first.y);
+        for coordinate in &poly.exterior[1..] {
+            min_x = min_x.min(coordinate.x);
+            min_y = min_y.min(coordinate.y);
+            max_x = max_x.max(coordinate.x);
+            max_y = max_y.max(coordinate.y);
+        }
+        Some(Rect::new(
+            Coord { x: min_x, y: min_y },
+            Coord { x: max_x, y: max_y },
+        ))
     }
 
     fn process_tile_with_retries(
@@ -912,6 +1053,7 @@ impl<'a> TiledPolygonizer<'a> {
             }
             TileCoverageGuarantee::ValidateObservedCoverage => {
                 !result.stitching_report.untiled_fallback_used
+                    && !result.stitching_report.component_fallback_used
                     && (result.stitching_report.unresolved_owned_polygon_count != 0
                         || result.stitching_report.unresolved_input_geometry_count != 0
                         || result.stitching_report.unresolved_component_count != 0)
@@ -1060,7 +1202,16 @@ impl<'a> TiledPolygonizer<'a> {
             }
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
-        let untiled_fallback_used = self.untiled_fallback && unresolved;
+        let component_fallback = if self.component_fallback && unresolved {
+            self.try_component_fallback(&tile_polygons, &tile_reports, input_components)?
+        } else {
+            None
+        };
+        let component_fallback_used = component_fallback.is_some();
+        let (component_fallback_polygons, component_fallback_events) = component_fallback
+            .map(|fallback| (fallback.polygons, fallback.events))
+            .unwrap_or_default();
+        let untiled_fallback_used = self.untiled_fallback && unresolved && !component_fallback_used;
         let result_polygons: Vec<Polygon3D> = if untiled_fallback_used {
             let mut polygonizer = Polygonizer::with_options(self.options.clone())
                 .with_execution_policy(self.execution_policy.clone());
@@ -1069,7 +1220,11 @@ impl<'a> TiledPolygonizer<'a> {
             }
             polygonizer.polygonize()?.polygons
         } else {
-            tile_polygons.into_iter().flatten().collect()
+            tile_polygons
+                .into_iter()
+                .flatten()
+                .chain(component_fallback_polygons)
+                .collect()
         };
         let merged_polygon_count = result_polygons.len();
 
@@ -1166,9 +1321,20 @@ impl<'a> TiledPolygonizer<'a> {
                 retried_tile_count,
                 retry_attempt_count,
                 retry_exhausted_tile_count,
+                component_fallback_used,
                 untiled_fallback_used,
             },
         };
+        if component_fallback_used {
+            if let Some(trace) = trace.as_deref_mut() {
+                for (input_geometry_indices, output_polygon_count) in component_fallback_events {
+                    trace.record_tile_component_fallback(
+                        &input_geometry_indices,
+                        output_polygon_count,
+                    );
+                }
+            }
+        }
         if untiled_fallback_used {
             if let Some(trace) = trace {
                 trace.record_tile_untiled_fallback(

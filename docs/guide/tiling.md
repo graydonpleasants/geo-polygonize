@@ -111,8 +111,14 @@ attempt in `TileReport` and `StitchingReport`. Strict validation returns the
 typed coverage error with retry counts when the bounded schedule is exhausted.
 Retries reuse the same execution policy independently per attempt. Full output
 traces record bounded `tile_halo_retry` events directly from the physical retry
-history. Unresolved-component untiled fallback and cross-region result merging
-remain unavailable.
+history. `with_component_fallback` enables a narrower recovery path for excluded
+components whose member input envelopes miss every tile halo and whose component
+envelope is disjoint from every other input envelope, retained tile polygon, and
+other recovered component. It polygonizes that component with the same options,
+merges the result deterministically, records `component_fallback_used` and a
+bounded `tile_component_fallback` event, and declines recovery when any envelope
+overlaps or nests. `with_untiled_fallback` remains the containment-safe escape
+hatch for those declined cases. Cross-region result merging remains unavailable.
 Applications that require correctness must run an untiled equivalence check for
 their input class or choose untiled polygonization directly when sufficiency is
 unknown.
