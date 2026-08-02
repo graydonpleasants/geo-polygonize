@@ -774,6 +774,9 @@ boundary without adding an implicit clipping contract.
     dirty-overlap families across shifted ownership origins, tile sizes, input
     rotations, and reversals; an in-domain mismatch without observed evidence
     fails the contract.
+  - [x] Exercise the scheduled tiled differential probe with `MultiLineString`
+    containers as well as per-segment geometries; a topology mismatch without
+    observed evidence fails the target.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.

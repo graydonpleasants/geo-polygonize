@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use geo::{Coord, Geometry, LineString, Rect};
+use geo::{Coord, Geometry, LineString, MultiLineString, Rect};
 use geo_polygonize_core::{
     polygonize, Coord3D, DedupPolicy, Line3D, Polygon3D, PolygonizerOptions,
     TileOwnershipPolicy, TiledPolygonizer,
@@ -14,6 +14,7 @@ struct FuzzInput {
     tile_size: u8,
     buffer: u8,
     reverse_input: bool,
+    group_lines: bool,
 }
 
 fn world() -> Rect<f64> {
@@ -71,15 +72,20 @@ fuzz_target!(|input: FuzzInput| {
         return;
     };
 
-    let geometries = lines
+    let parts = lines
         .iter()
         .map(|line| {
-            Geometry::LineString(LineString::new(vec![
+            LineString::new(vec![
                 line.start.to_coord_2d(),
                 line.end.to_coord_2d(),
-            ]))
+            ])
         })
         .collect::<Vec<_>>();
+    let geometries = if input.group_lines {
+        vec![Geometry::MultiLineString(MultiLineString::new(parts))]
+    } else {
+        parts.into_iter().map(Geometry::LineString).collect()
+    };
     let mut tiled = TiledPolygonizer::new(world(), 1.0 + f64::from(input.tile_size % 16))
         .with_buffer(f64::from(input.buffer % 17))
         .with_options(options)
