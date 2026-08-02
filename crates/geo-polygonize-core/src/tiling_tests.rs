@@ -649,6 +649,33 @@ mod tests {
             ),
             Err(TiledPolygonizeError::CoverageIncomplete { .. })
         ));
+
+        let mut untiled = Polygonizer::new();
+        let mut fallback = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_component_fallback()
+            .with_untiled_fallback();
+        for geometry in &geometries {
+            untiled.add_borrowed_geometry(geometry);
+            fallback.add_geometry(geometry);
+        }
+        let expected = untiled.polygonize().unwrap();
+        let recovered = fallback
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        let expected_keys = expected
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>();
+        let recovered_keys = recovered
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>();
+        assert_eq!(recovered_keys, expected_keys);
+        assert!(!recovered.stitching_report.component_fallback_used);
+        assert!(recovered.stitching_report.untiled_fallback_used);
     }
 
     #[test]
