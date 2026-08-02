@@ -637,9 +637,19 @@ mod tests {
                 Coord { x: 52.0, y: 52.0 },
             ])),
         ];
-        let mut untiled = Polygonizer::new();
+        let options = PolygonizerOptions {
+            node_input: true,
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            input_profile_id: Some("tiled-partial-merge-v1".to_string()),
+            ..Default::default()
+        };
+        let mut untiled = Polygonizer::with_options(options.clone());
         let mut tiled = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(0.0)
+            .with_options(options.clone())
             .with_dedup_policy(DedupPolicy::CanonicalRingHash)
             .with_component_fallback();
         for geometry in &geometries {
@@ -673,7 +683,36 @@ mod tests {
             .flat_map(|report| &report.input_boundary_issues)
             .all(|issue| issue.input_geometry_index < 4));
 
+        let mut expected_provenance = expected
+            .polygons
+            .iter()
+            .map(|polygon| {
+                let provenance = polygon.provenance.as_ref().unwrap();
+                (
+                    crate::tiling::canonical_polygon_key(polygon),
+                    provenance.boundary_line_ids.clone(),
+                    provenance.input_profile_id.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut actual_provenance = result
+            .polygons
+            .iter()
+            .map(|polygon| {
+                let provenance = polygon.provenance.as_ref().unwrap();
+                (
+                    crate::tiling::canonical_polygon_key(polygon),
+                    provenance.boundary_line_ids.clone(),
+                    provenance.input_profile_id.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        expected_provenance.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        actual_provenance.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(actual_provenance, expected_provenance);
+
         let mut reversed = TiledPolygonizer::new(bbox, 10.0)
+            .with_options(options)
             .with_dedup_policy(DedupPolicy::CanonicalRingHash)
             .with_component_fallback();
         for geometry in geometries.iter().rev() {
