@@ -144,6 +144,12 @@ pub struct StitchingReport {
     pub merged_polygon_count: usize,
     pub duplicate_polygon_count: usize,
     pub output_polygon_count: usize,
+    /// Polygon count retained from tile-local ownership before fallback merge.
+    pub retained_tile_polygon_count: usize,
+    /// Number of excluded components recovered by component fallback.
+    pub component_fallback_count: usize,
+    /// Polygon count produced by component fallback before final deduplication.
+    pub component_fallback_polygon_count: usize,
     pub unresolved_tile_count: usize,
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_tile_count: usize,
@@ -1236,6 +1242,8 @@ impl<'a> TiledPolygonizer<'a> {
             .map(|fallback| (fallback.polygons, fallback.events))
             .unwrap_or_default();
         let retained_tile_polygon_count = tile_polygons.iter().map(Vec::len).sum();
+        let component_fallback_count = component_fallback_events.len();
+        let component_fallback_polygon_count = component_fallback_polygons.len();
         let untiled_fallback_used = self.untiled_fallback && unresolved && !component_fallback_used;
         let result_polygons: Vec<Polygon3D> = if untiled_fallback_used {
             let mut polygonizer = Polygonizer::with_options(self.options.clone())
@@ -1337,6 +1345,9 @@ impl<'a> TiledPolygonizer<'a> {
                 merged_polygon_count,
                 duplicate_polygon_count: merged_polygon_count - output_polygon_count,
                 output_polygon_count,
+                retained_tile_polygon_count,
+                component_fallback_count,
+                component_fallback_polygon_count,
                 unresolved_tile_count,
                 unresolved_owned_polygon_count,
                 unresolved_input_tile_count,

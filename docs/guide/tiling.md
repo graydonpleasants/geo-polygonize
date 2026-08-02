@@ -121,7 +121,9 @@ component envelope, recovery declines. Otherwise it polygonizes the complete
 component with the same options, merges the result deterministically, records
 `component_fallback_used` and a bounded `tile_component_fallback` event. The
 event includes the recovered polygon count and the number of retained tile
-polygons present at the merge boundary. Recovery declines when any envelope
+polygons present at the merge boundary. `StitchingReport` also exposes the
+retained tile polygon count, recovered component count, and recovered polygon
+count before final deduplication. Recovery declines when any envelope
 overlaps or nests. `with_untiled_fallback`
 remains the containment-safe escape hatch for those declined cases. General
 cross-region graph merging remains unavailable. Component fallback also checks
