@@ -152,6 +152,8 @@ pub struct StitchingReport {
     pub component_fallback_polygon_count: usize,
     /// Number of retained tile polygons replaced by region fallback.
     pub component_fallback_replaced_polygon_count: usize,
+    /// Whether component fallback was enabled and attempted for unresolved output.
+    pub component_fallback_attempted: bool,
     pub unresolved_tile_count: usize,
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_tile_count: usize,
@@ -1340,7 +1342,8 @@ impl<'a> TiledPolygonizer<'a> {
             }
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
-        let component_fallback = if self.component_fallback && unresolved {
+        let component_fallback_attempted = self.component_fallback && unresolved;
+        let component_fallback = if component_fallback_attempted {
             self.try_component_fallback(&tile_polygons, &tile_reports, input_components)?
         } else {
             None
@@ -1471,6 +1474,7 @@ impl<'a> TiledPolygonizer<'a> {
                 component_fallback_count,
                 component_fallback_polygon_count,
                 component_fallback_replaced_polygon_count,
+                component_fallback_attempted,
                 unresolved_tile_count,
                 unresolved_owned_polygon_count,
                 unresolved_input_tile_count,
@@ -1484,6 +1488,15 @@ impl<'a> TiledPolygonizer<'a> {
                 untiled_fallback_used,
             },
         };
+        if component_fallback_attempted && !component_fallback_used {
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.record_tile_component_fallback_declined(
+                    result.stitching_report.unresolved_owned_polygon_count,
+                    result.stitching_report.unresolved_input_geometry_count,
+                    result.stitching_report.unresolved_component_count,
+                );
+            }
+        }
         if component_fallback_used {
             if let Some(trace) = trace.as_deref_mut() {
                 for event in component_fallback_events {

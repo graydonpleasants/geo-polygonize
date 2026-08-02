@@ -350,6 +350,13 @@ pub struct TileComponentFallbackTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileComponentFallbackDeclinedTraceV1 {
+    pub unresolved_owned_polygon_count: usize,
+    pub unresolved_input_geometry_count: usize,
+    pub unresolved_component_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileOwnedFaceBoundaryTraceV1 {
     pub tile_index: usize,
     pub polygon_index: usize,
@@ -1302,6 +1309,24 @@ impl TraceRecorderV1 {
                 recovered_component_count,
             })
             .expect("tile component-fallback trace event serializes"),
+        )
+    }
+
+    pub(crate) fn record_tile_component_fallback_declined(
+        &mut self,
+        unresolved_owned_polygon_count: usize,
+        unresolved_input_geometry_count: usize,
+        unresolved_component_count: usize,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Output,
+            "tile_component_fallback_declined",
+            serde_json::to_value(TileComponentFallbackDeclinedTraceV1 {
+                unresolved_owned_polygon_count,
+                unresolved_input_geometry_count,
+                unresolved_component_count,
+            })
+            .expect("tile component-fallback-declined trace event serializes"),
         )
     }
 
