@@ -289,6 +289,15 @@ pub struct TileInputBoundaryTraceV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct TileOwnershipDomainTraceV1 {
+    pub tile_index: usize,
+    pub polygon_index: usize,
+    pub polygon_min: CoordinateFingerprintV1,
+    pub polygon_max: CoordinateFingerprintV1,
+    pub ownership_point: CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct TileExcludedEndpointComponentTraceV1 {
     pub tile_index: usize,
     pub input_geometry_indices: Vec<usize>,
@@ -328,6 +337,7 @@ pub struct TileHaloRetryTraceV1 {
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_geometry_count: usize,
     pub unresolved_component_count: usize,
+    pub unresolved_ownership_domain_count: usize,
     pub resolved: bool,
 }
 
@@ -336,6 +346,7 @@ pub struct TileUntiledFallbackTraceV1 {
     pub input_geometry_count: usize,
     pub output_polygon_count: usize,
     pub unresolved_owned_polygon_count: usize,
+    pub unresolved_ownership_domain_count: usize,
     pub unresolved_input_geometry_count: usize,
     pub unresolved_component_count: usize,
 }
@@ -353,6 +364,7 @@ pub struct TileComponentFallbackTraceV1 {
 pub struct TileComponentFallbackDeclinedTraceV1 {
     pub reason: String,
     pub unresolved_owned_polygon_count: usize,
+    pub unresolved_ownership_domain_count: usize,
     pub unresolved_input_geometry_count: usize,
     pub unresolved_component_count: usize,
 }
@@ -1137,6 +1149,27 @@ impl TraceRecorderV1 {
         ))
     }
 
+    pub(crate) fn record_tile_ownership_domain(
+        &mut self,
+        tile_index: usize,
+        issue: &crate::tiling::TileOwnershipDomainIssue,
+    ) -> crate::Result<bool> {
+        let min = issue.polygon_bbox.min();
+        let max = issue.polygon_bbox.max();
+        Ok(self.record(
+            TraceStageV1::Output,
+            "tile_ownership_domain",
+            serde_json::to_value(TileOwnershipDomainTraceV1 {
+                tile_index,
+                polygon_index: issue.polygon_index,
+                polygon_min: coordinate_fingerprint(crate::Coord3D::new(min.x, min.y, 0.0))?,
+                polygon_max: coordinate_fingerprint(crate::Coord3D::new(max.x, max.y, 0.0))?,
+                ownership_point: coordinate_fingerprint(issue.ownership_point)?,
+            })
+            .expect("tile ownership-domain trace event serializes"),
+        ))
+    }
+
     pub(crate) fn record_tile_owned_face_boundary(
         &mut self,
         tile_index: usize,
@@ -1263,6 +1296,7 @@ impl TraceRecorderV1 {
                 unresolved_owned_polygon_count: attempt.unresolved_owned_polygon_count,
                 unresolved_input_geometry_count: attempt.unresolved_input_geometry_count,
                 unresolved_component_count: attempt.unresolved_component_count,
+                unresolved_ownership_domain_count: attempt.unresolved_ownership_domain_count,
                 resolved: attempt.resolved,
             })
             .expect("tile halo-retry trace event serializes"),
@@ -1274,6 +1308,7 @@ impl TraceRecorderV1 {
         input_geometry_count: usize,
         output_polygon_count: usize,
         unresolved_owned_polygon_count: usize,
+        unresolved_ownership_domain_count: usize,
         unresolved_input_geometry_count: usize,
         unresolved_component_count: usize,
     ) -> bool {
@@ -1284,6 +1319,7 @@ impl TraceRecorderV1 {
                 input_geometry_count,
                 output_polygon_count,
                 unresolved_owned_polygon_count,
+                unresolved_ownership_domain_count,
                 unresolved_input_geometry_count,
                 unresolved_component_count,
             })
@@ -1316,6 +1352,7 @@ impl TraceRecorderV1 {
     pub(crate) fn record_tile_component_fallback_declined(
         &mut self,
         unresolved_owned_polygon_count: usize,
+        unresolved_ownership_domain_count: usize,
         unresolved_input_geometry_count: usize,
         unresolved_component_count: usize,
         reason: &str,
@@ -1326,6 +1363,7 @@ impl TraceRecorderV1 {
             serde_json::to_value(TileComponentFallbackDeclinedTraceV1 {
                 reason: reason.to_string(),
                 unresolved_owned_polygon_count,
+                unresolved_ownership_domain_count,
                 unresolved_input_geometry_count,
                 unresolved_component_count,
             })

@@ -63,6 +63,19 @@ pub struct TileCoverageIssue {
     pub aggregate_source_line_ids_complete: bool,
 }
 
+/// A reconstructed face whose selected ownership point falls outside the
+/// configured ownership domain while its envelope overlaps that domain.
+///
+/// This is definite evidence that the face cannot be owned by any generated
+/// tile. It does not clip the face or infer how an application wants to handle
+/// input outside the ownership domain.
+#[derive(Clone, Debug)]
+pub struct TileOwnershipDomainIssue {
+    pub polygon_index: usize,
+    pub polygon_bbox: Rect<f64>,
+    pub ownership_point: Coord3D,
+}
+
 /// Input geometry that reaches an internal buffered-tile boundary.
 ///
 /// This is conservative evidence that topology may continue through linework
@@ -111,6 +124,7 @@ pub struct TileRetryAttempt {
     pub unresolved_owned_polygon_count: usize,
     pub unresolved_input_geometry_count: usize,
     pub unresolved_component_count: usize,
+    pub unresolved_ownership_domain_count: usize,
     pub resolved: bool,
 }
 
@@ -128,6 +142,8 @@ pub struct TileReport {
     pub invalid_ring_count: usize,
     /// Definite halo insufficiency observed for owned faces in this tile.
     pub coverage_issues: Vec<TileCoverageIssue>,
+    /// Reconstructed faces that cannot be owned by any tile in the domain.
+    pub ownership_domain_issues: Vec<TileOwnershipDomainIssue>,
     /// Inputs that may connect to linework beyond this tile's halo.
     pub input_boundary_issues: Vec<TileInputBoundaryIssue>,
     /// Transformed-connected components not fully observed in this tile's halo.
@@ -158,6 +174,8 @@ pub struct StitchingReport {
     pub component_fallback_decline_reason: Option<&'static str>,
     pub unresolved_tile_count: usize,
     pub unresolved_owned_polygon_count: usize,
+    pub unresolved_ownership_domain_tile_count: usize,
+    pub unresolved_ownership_domain_count: usize,
     pub unresolved_input_tile_count: usize,
     /// Input-boundary issue instances across tiles; a geometry may occur more than once.
     pub unresolved_input_geometry_count: usize,
@@ -208,11 +226,13 @@ pub enum TiledPolygonizeError {
     #[error(transparent)]
     Polygonize(#[from] PolygonizeError),
     #[error(
-        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons, {unresolved_input_geometry_count} input boundary instances, and {unresolved_component_count} excluded linework-component instances"
+        "tiled coverage validation failed for {unresolved_owned_polygon_count} owned polygons, {unresolved_ownership_domain_count} ownership-domain faces, {unresolved_input_geometry_count} input boundary instances, and {unresolved_component_count} excluded linework-component instances"
     )]
     CoverageIncomplete {
         unresolved_tile_count: usize,
         unresolved_owned_polygon_count: usize,
+        unresolved_ownership_domain_tile_count: usize,
+        unresolved_ownership_domain_count: usize,
         unresolved_input_tile_count: usize,
         unresolved_input_geometry_count: usize,
         unresolved_component_tile_count: usize,
@@ -621,6 +641,7 @@ impl<'a> TiledPolygonizer<'a> {
             cut_edge_count: 0,
             invalid_ring_count: 0,
             coverage_issues: Vec::new(),
+            ownership_domain_issues: Vec::new(),
             input_boundary_issues,
             excluded_component_issues,
             retry_attempts: Vec::new(),
@@ -662,6 +683,29 @@ impl<'a> TiledPolygonizer<'a> {
                 };
                 in_x && in_y
             });
+            if !owned {
+                if let Some(ownership_point) = ownership_point {
+                    if let Some(polygon_bbox) = Self::polygon_bbox(&poly) {
+                        let point_in_domain = ownership_point.x() >= self.bbox.min().x
+                            && ownership_point.x() <= self.bbox.max().x
+                            && ownership_point.y() >= self.bbox.min().y
+                            && ownership_point.y() <= self.bbox.max().y;
+                        if !point_in_domain && polygon_bbox.intersects(&self.bbox) {
+                            report
+                                .ownership_domain_issues
+                                .push(TileOwnershipDomainIssue {
+                                    polygon_index,
+                                    polygon_bbox,
+                                    ownership_point: Coord3D::new(
+                                        ownership_point.x(),
+                                        ownership_point.y(),
+                                        0.0,
+                                    ),
+                                });
+                        }
+                    }
+                }
+            }
             if let Some(budget) = capture_budget.as_mut() {
                 budget.capture(
                     &mut ownership_decisions,
@@ -689,6 +733,13 @@ impl<'a> TiledPolygonizer<'a> {
     }
 
     fn report_is_unresolved(report: &TileReport) -> bool {
+        !report.coverage_issues.is_empty()
+            || !report.ownership_domain_issues.is_empty()
+            || !report.input_boundary_issues.is_empty()
+            || !report.excluded_component_issues.is_empty()
+    }
+
+    fn report_has_retry_evidence(report: &TileReport) -> bool {
         !report.coverage_issues.is_empty()
             || !report.input_boundary_issues.is_empty()
             || !report.excluded_component_issues.is_empty()
@@ -1100,7 +1151,7 @@ impl<'a> TiledPolygonizer<'a> {
         let mut retry_attempts = Vec::new();
         let mut capture_truncated = result.3;
         for attempt in 1..=policy.max_attempts {
-            if !Self::report_is_unresolved(&result.1) || buffer >= policy.max_buffer {
+            if !Self::report_has_retry_evidence(&result.1) || buffer >= policy.max_buffer {
                 break;
             }
             buffer = (buffer + policy.buffer_increment).min(policy.max_buffer);
@@ -1113,10 +1164,11 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_owned_polygon_count: result.1.coverage_issues.len(),
                 unresolved_input_geometry_count: result.1.input_boundary_issues.len(),
                 unresolved_component_count: result.1.excluded_component_issues.len(),
+                unresolved_ownership_domain_count: result.1.ownership_domain_issues.len(),
                 resolved,
             });
         }
-        result.1.retry_exhausted = Self::report_is_unresolved(&result.1);
+        result.1.retry_exhausted = Self::report_has_retry_evidence(&result.1);
         result.1.retry_attempts = retry_attempts;
         result.3 = capture_truncated;
         Ok(result)
@@ -1488,6 +1540,7 @@ impl<'a> TiledPolygonizer<'a> {
                 !result.stitching_report.untiled_fallback_used
                     && !result.stitching_report.component_fallback_used
                     && (result.stitching_report.unresolved_owned_polygon_count != 0
+                        || result.stitching_report.unresolved_ownership_domain_count != 0
                         || result.stitching_report.unresolved_input_geometry_count != 0
                         || result.stitching_report.unresolved_component_count != 0)
             }
@@ -1498,6 +1551,12 @@ impl<'a> TiledPolygonizer<'a> {
                 unresolved_owned_polygon_count: result
                     .stitching_report
                     .unresolved_owned_polygon_count,
+                unresolved_ownership_domain_tile_count: result
+                    .stitching_report
+                    .unresolved_ownership_domain_tile_count,
+                unresolved_ownership_domain_count: result
+                    .stitching_report
+                    .unresolved_ownership_domain_count,
                 unresolved_input_tile_count: result.stitching_report.unresolved_input_tile_count,
                 unresolved_input_geometry_count: result
                     .stitching_report
@@ -1602,6 +1661,11 @@ impl<'a> TiledPolygonizer<'a> {
                 }
                 for issue in &report.coverage_issues {
                     if !trace.record_tile_owned_face_boundary(tile_index, issue)? {
+                        break;
+                    }
+                }
+                for issue in &report.ownership_domain_issues {
+                    if !trace.record_tile_ownership_domain(tile_index, issue)? {
                         break;
                     }
                 }
@@ -1746,6 +1810,14 @@ impl<'a> TiledPolygonizer<'a> {
             .iter()
             .map(|report| report.coverage_issues.len())
             .sum();
+        let unresolved_ownership_domain_tile_count = tile_reports
+            .iter()
+            .filter(|report| !report.ownership_domain_issues.is_empty())
+            .count();
+        let unresolved_ownership_domain_count =
+            tile_reports.iter().fold(0usize, |total, report| {
+                total.saturating_add(report.ownership_domain_issues.len())
+            });
         let unresolved_input_tile_count = tile_reports
             .iter()
             .filter(|report| !report.input_boundary_issues.is_empty())
@@ -1786,6 +1858,8 @@ impl<'a> TiledPolygonizer<'a> {
                 component_fallback_decline_reason,
                 unresolved_tile_count,
                 unresolved_owned_polygon_count,
+                unresolved_ownership_domain_tile_count,
+                unresolved_ownership_domain_count,
                 unresolved_input_tile_count,
                 unresolved_input_geometry_count,
                 unresolved_component_tile_count,
@@ -1801,6 +1875,7 @@ impl<'a> TiledPolygonizer<'a> {
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record_tile_component_fallback_declined(
                     result.stitching_report.unresolved_owned_polygon_count,
+                    result.stitching_report.unresolved_ownership_domain_count,
                     result.stitching_report.unresolved_input_geometry_count,
                     result.stitching_report.unresolved_component_count,
                     reason,
@@ -1826,6 +1901,7 @@ impl<'a> TiledPolygonizer<'a> {
                     self.geometries.len(),
                     result.stitching_report.output_polygon_count,
                     result.stitching_report.unresolved_owned_polygon_count,
+                    result.stitching_report.unresolved_ownership_domain_count,
                     result.stitching_report.unresolved_input_geometry_count,
                     result.stitching_report.unresolved_component_count,
                 );

@@ -1317,6 +1317,7 @@ mod tests {
                 aggregate_source_line_ids: vec![],
                 aggregate_source_line_ids_complete: false,
             }],
+            ownership_domain_issues: vec![],
             input_boundary_issues: vec![],
             excluded_component_issues: vec![TileExcludedComponentIssue {
                 input_geometry_indices: vec![0, 1],
@@ -1363,6 +1364,7 @@ mod tests {
             cut_edge_count: 0,
             invalid_ring_count: 0,
             coverage_issues: Vec::new(),
+            ownership_domain_issues: Vec::new(),
             input_boundary_issues: Vec::new(),
             excluded_component_issues: vec![TileExcludedComponentIssue {
                 input_geometry_indices: component_indices.clone(),
@@ -1415,6 +1417,7 @@ mod tests {
             cut_edge_count: 0,
             invalid_ring_count: 0,
             coverage_issues: Vec::new(),
+            ownership_domain_issues: Vec::new(),
             input_boundary_issues: Vec::new(),
             excluded_component_issues: vec![TileExcludedComponentIssue {
                 input_geometry_indices: component_indices.clone(),
@@ -2989,8 +2992,10 @@ fn canonical_dedup_key_compares_exact_geometry() {
 }
 
 #[test]
-fn documents_single_geometry_region_excluded_from_every_halo() {
-    use crate::{Polygonizer, TiledPolygonizer};
+fn reports_single_geometry_face_outside_ownership_domain() {
+    use crate::{
+        Polygonizer, TileCoverageGuarantee, TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
+    };
     use geo::{Coord, Geometry, LineString, Rect};
 
     let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 32.0, y: 32.0 });
@@ -3006,7 +3011,8 @@ fn documents_single_geometry_region_excluded_from_every_halo() {
     let mut tiled = TiledPolygonizer::new(bbox, 16.0).with_buffer(0.0);
     tiled.add_geometry(&boundary);
 
-    assert_eq!(untiled.polygonize().unwrap().polygons.len(), 1);
+    let expected = untiled.polygonize().unwrap();
+    assert_eq!(expected.polygons.len(), 1);
     assert!(tiled.input_components().unwrap().is_empty());
     let observed = tiled.polygonize().unwrap();
     assert!(observed.polygons.is_empty());
@@ -3019,29 +3025,89 @@ fn documents_single_geometry_region_excluded_from_every_halo() {
             && report.input_boundary_issues.is_empty()
             && report.excluded_component_issues.is_empty()
     }));
+    let ownership_domain_issues = observed
+        .tile_reports
+        .iter()
+        .flat_map(|report| &report.ownership_domain_issues)
+        .collect::<Vec<_>>();
+    assert_eq!(ownership_domain_issues.len(), 1);
+    assert_eq!(
+        ownership_domain_issues[0].ownership_point,
+        crate::Coord3D::new(35.0, 29.0, 0.0)
+    );
     assert_eq!(observed.stitching_report.unresolved_input_geometry_count, 0);
     assert_eq!(observed.stitching_report.unresolved_component_count, 0);
-    assert!(tiled
-        .polygonize_with_coverage_guarantee(crate::TileCoverageGuarantee::ValidateObservedCoverage)
-        .is_ok());
+    assert_eq!(
+        observed
+            .stitching_report
+            .unresolved_ownership_domain_tile_count,
+        1
+    );
+    assert_eq!(
+        observed.stitching_report.unresolved_ownership_domain_count,
+        1
+    );
+    assert_eq!(observed.stitching_report.retry_attempt_count, 0);
+    assert!(matches!(
+        tiled.polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage),
+        Err(TiledPolygonizeError::CoverageIncomplete {
+            unresolved_tile_count: 0,
+            unresolved_ownership_domain_tile_count: 1,
+            unresolved_ownership_domain_count: 1,
+            unresolved_input_geometry_count: 0,
+            unresolved_component_count: 0,
+            ..
+        })
+    ));
 
     let mut fallback = TiledPolygonizer::new(bbox, 16.0)
         .with_buffer(0.0)
+        .with_retry_policy(TileRetryPolicy {
+            max_attempts: 3,
+            buffer_increment: 4.0,
+            max_buffer: 12.0,
+        })
         .with_untiled_fallback();
     fallback.add_geometry(&boundary);
     let fallback_result = fallback
         .polygonize_with_coverage_guarantee(crate::TileCoverageGuarantee::ValidateObservedCoverage)
         .unwrap();
-    assert!(fallback_result.polygons.is_empty());
-    assert!(!fallback_result.stitching_report.untiled_fallback_used);
+    assert_eq!(
+        fallback_result
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>(),
+        expected
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>()
+    );
+    assert!(fallback_result.stitching_report.untiled_fallback_used);
+    assert_eq!(fallback_result.stitching_report.retry_attempt_count, 0);
     let traced = fallback
         .polygonize_with_trace(crate::trace::TraceLevelV1::Full, usize::MAX)
         .unwrap();
-    assert!(!traced
+    assert_eq!(
+        traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "tile_ownership_domain")
+            .count(),
+        1
+    );
+    let fallback_event = traced
         .trace
         .events
         .iter()
-        .any(|event| event.kind == "tile_untiled_fallback"));
+        .find(|event| event.kind == "tile_untiled_fallback")
+        .expect("ownership-domain evidence triggers global fallback");
+    assert_eq!(
+        fallback_event.payload["unresolved_ownership_domain_count"],
+        1
+    );
 }
 
 #[test]
