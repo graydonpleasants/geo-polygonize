@@ -9,8 +9,8 @@ mod tests {
         NodingGuarantee, NodingOptions, Polygon3D, PolygonizeError, Polygonizer,
         PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
         TileComponentConnection, TileCoverageGuarantee, TileCoverageIssue,
-        TileExcludedComponentIssue, TileExecutionPolicy, TileReport, TileRetryPolicy,
-        TiledPolygonizeError, TiledPolygonizer,
+        TileCoverageResolutionKind, TileExcludedComponentIssue, TileExecutionPolicy, TileReport,
+        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
 
@@ -659,6 +659,17 @@ mod tests {
         assert_eq!(result.polygons.len(), 1);
         assert!(result.stitching_report.component_fallback_attempted);
         assert!(result.stitching_report.component_fallback_used);
+        assert_eq!(
+            result.stitching_report.coverage_resolution.resolution,
+            TileCoverageResolutionKind::ComponentFallback
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .coverage_resolution
+                .unresolved_issue_count,
+            0
+        );
         assert_eq!(result.stitching_report.component_fallback_count, 1);
         assert_eq!(result.stitching_report.component_fallback_polygon_count, 1);
         assert_eq!(
@@ -704,6 +715,59 @@ mod tests {
                 limit: 0,
                 observed: 1,
             }) if stage == "tile_fallback_regions"
+        ));
+    }
+
+    #[test]
+    fn component_fallback_does_not_authorize_unresolved_ownership_domain_evidence() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let recovered_face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 2.0 },
+            Coord { x: 19.0, y: 2.0 },
+            Coord { x: 19.0, y: 8.0 },
+            Coord { x: 1.0, y: 8.0 },
+            Coord { x: 1.0, y: 2.0 },
+        ]));
+        let out_of_domain_face = Geometry::LineString(LineString::new(vec![
+            Coord { x: 16.0, y: 2.0 },
+            Coord { x: 26.0, y: 2.0 },
+            Coord { x: 26.0, y: 8.0 },
+            Coord { x: 16.0, y: 8.0 },
+            Coord { x: 16.0, y: 2.0 },
+        ]));
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_component_fallback();
+        tiled.add_geometry(&recovered_face);
+        tiled.add_geometry(&out_of_domain_face);
+
+        let observed = tiled.polygonize().unwrap();
+        assert!(observed.stitching_report.component_fallback_used);
+        assert!(observed.stitching_report.unresolved_ownership_domain_count > 0);
+        assert!(
+            observed
+                .stitching_report
+                .coverage_resolution
+                .resolved_issue_count
+                > 0
+        );
+        assert!(
+            observed
+                .stitching_report
+                .coverage_resolution
+                .unresolved_issue_count
+                > 0
+        );
+        assert_eq!(
+            observed.stitching_report.coverage_resolution.resolution,
+            TileCoverageResolutionKind::Partial
+        );
+        assert!(matches!(
+            tiled.polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage),
+            Err(TiledPolygonizeError::CoverageIncomplete {
+                coverage_resolution,
+                ..
+            }) if coverage_resolution.unresolved_issue_count > 0
         ));
     }
 
@@ -870,7 +934,26 @@ mod tests {
         globally_fallback.add_geometry(&degenerate_closed);
         let result = globally_fallback.polygonize().unwrap();
         assert!(result.polygons.is_empty());
+        assert!(result.stitching_report.untiled_fallback_attempted);
+        assert!(result.stitching_report.untiled_fallback_authoritative);
+        assert_eq!(
+            result
+                .stitching_report
+                .untiled_fallback_output_polygon_count,
+            0
+        );
         assert!(result.stitching_report.untiled_fallback_used);
+        assert_eq!(
+            result.stitching_report.coverage_resolution.resolution,
+            TileCoverageResolutionKind::UntiledFallback
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .coverage_resolution
+                .unresolved_issue_count,
+            0
+        );
         assert_eq!(
             result.stitching_report.component_fallback_decline_reason,
             Some("empty_recovery_output")
@@ -2941,6 +3024,14 @@ mod tests {
                 .iter()
                 .map(crate::tiling::canonical_polygon_key)
                 .collect::<Vec<_>>()
+        );
+        assert!(result.stitching_report.untiled_fallback_attempted);
+        assert!(result.stitching_report.untiled_fallback_authoritative);
+        assert_eq!(
+            result
+                .stitching_report
+                .untiled_fallback_output_polygon_count,
+            2
         );
         assert!(result.stitching_report.untiled_fallback_used);
         assert_eq!(result.stitching_report.retry_exhausted_tile_count, 4);

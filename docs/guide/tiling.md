@@ -146,8 +146,9 @@ other connected component envelopes, then polygonizes that complete region once.
 Retained polygons intersecting the recovered region are replaced before the
 existing canonical deduplication and ordering pass, preserving containment for
 the envelope-closed class without independently appending nested output. The
-recovery records `component_fallback_used`, retained/recovered/replaced counts
-in `StitchingReport`, and a bounded `tile_component_fallback` event containing
+recovery records retained/recovered/replaced counts and a
+`TileCoverageResolution` ledger in `StitchingReport`, plus a bounded
+`tile_component_fallback` event containing
 the region input indexes, recovered component count, and replacement count.
 When owned-face coverage evidence co-occurs with indexed component or
 input-boundary evidence, every owned-face witness must intersect an
@@ -163,6 +164,13 @@ is marked in `StitchingReport` and recorded as a bounded
 reports contain observed unresolved evidence. It cannot detect an unowned
 single-geometry face whose envelope never overlaps the configured ownership
 domain, and it never clips that input implicitly.
+`StitchingReport` separates `untiled_fallback_attempted`,
+`untiled_fallback_authoritative`, and `untiled_fallback_output_polygon_count`;
+the older `untiled_fallback_used` field is an alias for authoritative state.
+The coverage ledger assigns each observed issue a deterministic
+tile/family/index identity and records resolved versus unresolved counts.
+`ValidateObservedCoverage` rejects whenever its `unresolved_issue_count` is
+nonzero, including partial component recovery.
 Component fallback checks the execution policy before region selection and
 before each recovery region, so cancellation does not get lost between tile
 processing and the bounded region polygonizer. The same policy is checked while
