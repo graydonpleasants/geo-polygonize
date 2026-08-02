@@ -774,6 +774,8 @@ When coverage cannot be proven:
     region.
   - [x] Seed the same region-local recovery from input-boundary evidence when
     the indexed connected component is only partially visible in a halo.
+  - [x] Recover an indexed component with mixed observed and unobserved
+    members while replacing nested retained output before canonical merge.
   - [x] Merge one envelope-disjoint recovered component with retained tile
     output; envelope-closed region replacement now covers interacting retained
     output.

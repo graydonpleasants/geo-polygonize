@@ -1814,6 +1814,88 @@ mod tests {
     }
 
     #[test]
+    fn component_fallback_recovers_partially_observed_pre_snap_component() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let x_ranges = [
+            (-10.0, -2.25),
+            (-1.75, 7.75),
+            (8.25, 11.75),
+            (12.25, 17.75),
+            (18.25, 21.75),
+            (22.25, 30.0),
+        ];
+        let mut boundaries = Vec::new();
+        for y in [5.0, 15.0] {
+            for &(min_x, max_x) in &x_ranges {
+                boundaries.push(Geometry::LineString(LineString::new(vec![
+                    Coord { x: min_x, y },
+                    Coord { x: max_x, y },
+                ])));
+            }
+        }
+        boundaries.extend([
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -10.0, y: 5.0 },
+                Coord { x: -10.0, y: 15.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 30.0, y: 15.0 },
+                Coord { x: 30.0, y: 5.0 },
+            ])),
+        ]);
+        let inner = Geometry::LineString(LineString::new(vec![
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 4.0, y: 2.0 },
+            Coord { x: 4.0, y: 4.0 },
+            Coord { x: 2.0, y: 4.0 },
+            Coord { x: 2.0, y: 2.0 },
+        ]));
+        let options = PolygonizerOptions {
+            node_input: true,
+            pre_snap_tolerance: 1.0,
+            ..Default::default()
+        };
+        let mut untiled = Polygonizer::with_options(options.clone());
+        for boundary in &boundaries {
+            untiled.add_borrowed_geometry(boundary);
+        }
+        untiled.add_borrowed_geometry(&inner);
+        let expected = untiled
+            .polygonize()
+            .unwrap()
+            .polygons
+            .into_iter()
+            .map(|polygon| crate::tiling::canonical_polygon_key(&polygon))
+            .collect::<Vec<_>>();
+
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(options)
+            .with_component_fallback();
+        for boundary in &boundaries {
+            tiled.add_geometry(boundary);
+        }
+        tiled.add_geometry(&inner);
+        let result = tiled
+            .polygonize_with_coverage_guarantee(TileCoverageGuarantee::ValidateObservedCoverage)
+            .unwrap();
+        let actual = result
+            .polygons
+            .iter()
+            .map(crate::tiling::canonical_polygon_key)
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+        assert!(result.stitching_report.component_fallback_used);
+        assert_eq!(result.stitching_report.retained_tile_polygon_count, 1);
+        assert_eq!(
+            result
+                .stitching_report
+                .component_fallback_replaced_polygon_count,
+            1
+        );
+    }
+
+    #[test]
     fn bounded_halo_retry_resolves_an_excluded_component() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let boundaries = [
