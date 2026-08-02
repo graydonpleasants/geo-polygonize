@@ -586,6 +586,9 @@ mod tests {
         );
         assert!(result.stitching_report.component_fallback_used);
         assert!(!result.stitching_report.untiled_fallback_used);
+        assert_eq!(result.stitching_report.retained_tile_polygon_count, 0);
+        assert_eq!(result.stitching_report.component_fallback_count, 1);
+        assert_eq!(result.stitching_report.component_fallback_polygon_count, 1);
         assert_eq!(result.stitching_report.unresolved_component_count, 4);
 
         let traced = tiled
@@ -838,6 +841,9 @@ mod tests {
         );
         assert!(result.stitching_report.component_fallback_used);
         assert!(!result.stitching_report.untiled_fallback_used);
+        assert_eq!(result.stitching_report.retained_tile_polygon_count, 2);
+        assert_eq!(result.stitching_report.component_fallback_count, 2);
+        assert_eq!(result.stitching_report.component_fallback_polygon_count, 2);
 
         let traced = tiled
             .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
