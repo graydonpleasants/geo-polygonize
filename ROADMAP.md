@@ -795,6 +795,8 @@ opt-in whole-input fallback handle the evidence explicitly.
   - [x] Sweep bounded single-geometry envelope placements across tile sizes
     and buffers; any in-domain mismatch without observed evidence remains
     fatal.
+    - [x] Repeat the sweep under all three ownership policies; each policy
+      preserves the same evidence gate for in-domain mismatches.
 - [x] Expand exact tiled/untiled fixtures for nested disconnected rings, long
   faces, narrow concavities, holes crossing boundaries, dangles, cut edges,
   overlaps, and dirty boundary intersections.
