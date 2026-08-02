@@ -776,72 +776,42 @@ impl Polygonizer {
         }
 
         let t_graph_build_start = get_time();
-        // 1. Sort edges (Geometry Graph operation)
-        if self.execution_policy.cancellation_token.is_some() {
-            self.graph
-                .sort_edges_with_execution_policy(&self.execution_policy)?;
-        } else {
-            self.graph.sort_edges();
-        }
-
-        // 2. Prune dangles
-        let mut dangles = if self.execution_policy.cancellation_token.is_some() {
-            self.graph
-                .prune_dangles_with_execution_policy(&self.execution_policy)?
-        } else {
-            self.graph.prune_dangles()
-        };
-
-        // 3. Remove cut edges before extracting minimal rings.
+        // Process disconnected graph components independently, then merge their
+        // results in deterministic component order.
         let noding_postcondition_validated =
             !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked);
-        let mut cut_edges = self.graph.delete_cut_edges_with_execution_policy(
-            &self.execution_policy,
-            noding_postcondition_validated,
-        )?;
-        if let Some(trace) = self.trace.as_mut() {
-            trace.record_classified_lines("dangle", &dangles)?;
-            trace.record_classified_lines("cut_edge", &cut_edges)?;
-        }
-
-        // 4. Find rings (3D)
+        // 1. Sort edges, prune dangles, remove cut edges, and find rings locally.
         let include_source_ids =
             self.options.provenance.enabled && self.options.provenance.include_boundary_line_ids;
         let trace_rings = self
             .trace
             .as_ref()
             .is_some_and(|trace| trace.records_stage(crate::trace::TraceStageV1::Rings));
-        let rings_with_ids = if trace_rings {
-            let capture_byte_limit = self
-                .trace
+        let capture_byte_limit = trace_rings.then(|| {
+            self.trace
                 .as_ref()
                 .map(|trace| trace.capture_byte_limit(TraceStageV1::Rings))
-                .unwrap_or(0);
-            let (maximal, minimal, capture_truncated) = self
-                .graph
-                .get_edge_rings_with_maximal_and_execution_policy(
-                    self.options.node_input,
-                    include_source_ids,
-                    &self.execution_policy,
-                    capture_byte_limit,
-                    noding_postcondition_validated,
-                )?;
-            let trace = self.trace.as_mut().unwrap();
-            trace.record_extracted_rings("maximal_ring", &maximal)?;
-            trace.record_extracted_rings("minimal_ring", &minimal)?;
-            if capture_truncated {
-                trace.mark_capture_truncated(TraceStageV1::Rings);
+                .unwrap_or(0)
+        });
+        let ((mut dangles, mut cut_edges, maximal, rings_with_ids), capture_truncated) =
+            self.graph.process_components_with_execution_policy(
+                self.options.node_input,
+                include_source_ids,
+                &self.execution_policy,
+                noding_postcondition_validated,
+                capture_byte_limit,
+            )?;
+        if let Some(trace) = self.trace.as_mut() {
+            trace.record_classified_lines("dangle", &dangles)?;
+            trace.record_classified_lines("cut_edge", &cut_edges)?;
+            if trace_rings {
+                trace.record_extracted_rings("maximal_ring", &maximal)?;
+                trace.record_extracted_rings("minimal_ring", &rings_with_ids)?;
+                if capture_truncated {
+                    trace.mark_capture_truncated(TraceStageV1::Rings);
+                }
             }
-            minimal
-        } else {
-            self.graph
-                .get_edge_rings_with_graph_ids_and_execution_policy(
-                    self.options.node_input,
-                    include_source_ids,
-                    &self.execution_policy,
-                    noding_postcondition_validated,
-                )?
-        };
+        }
         self.execution_policy.check(
             "rings",
             self.execution_policy.max_rings,

@@ -5,6 +5,7 @@ mod tests {
     use crate::types::{Coord3D, Line3D};
     use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use geo_types::{Coord, LineString};
+    use std::collections::BTreeSet;
 
     #[test]
     fn test_graph_construction() {
@@ -664,5 +665,63 @@ mod tests {
         graph.prune_dangles();
         let cut_edges_after_prune = graph.delete_cut_edges();
         assert_eq!(cut_edges_after_prune.len(), 0);
+    }
+
+    #[test]
+    fn component_processing_remaps_ring_graph_ids_to_the_global_graph() {
+        let mut graph = PlanarGraph::new();
+        for (offset, points) in [
+            [
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(2.0, 0.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+            ],
+            [
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(12.0, 0.0, 0.0),
+                Coord3D::new(11.0, 1.0, 0.0),
+            ],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for edge in 0..3 {
+                graph.add_line(Line3D::new(
+                    points[edge],
+                    points[(edge + 1) % 3],
+                    (offset * 10 + edge) as u32,
+                ));
+            }
+        }
+
+        let component_ids = graph.active_component_ids();
+        let ((dangles, cut_edges, maximal, rings), capture_truncated) = graph
+            .process_components_with_execution_policy(
+                true,
+                true,
+                &ExecutionPolicy::default(),
+                true,
+                None,
+            )
+            .unwrap();
+        assert!(dangles.is_empty());
+        assert!(cut_edges.is_empty());
+        assert!(maximal.is_empty());
+        assert!(!capture_truncated);
+        assert_eq!(rings.len(), 4);
+
+        let mut represented_components = BTreeSet::new();
+        for ring in rings {
+            let component = component_ids[ring.node_ids[0]].unwrap();
+            represented_components.insert(component);
+            assert!(ring
+                .node_ids
+                .iter()
+                .all(|&node| component_ids[node] == Some(component)));
+            assert!(ring.edge_keys.iter().all(|&(start, end)| {
+                component_ids[start] == Some(component) && component_ids[end] == Some(component)
+            }));
+        }
+        assert_eq!(represented_components.len(), 2);
     }
 }
