@@ -1176,7 +1176,34 @@ mod tests {
                 stage,
                 limit: 0,
                 observed: 1,
-            }) if stage == "candidate_pairs"
+                }) if stage == "candidate_pairs"
+        ));
+
+        let mut split_limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_options(PolygonizerOptions {
+                node_input: true,
+                precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+                noding: NodingOptions {
+                    guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .with_execution_policy(ExecutionPolicy {
+                max_split_events: Some(0),
+                ..Default::default()
+            });
+        for boundary in &boundaries {
+            split_limited.add_geometry(boundary);
+        }
+        assert!(matches!(
+            split_limited.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 0,
+                observed,
+            }) if stage == "split_events" && observed > 0
         ));
     }
 
