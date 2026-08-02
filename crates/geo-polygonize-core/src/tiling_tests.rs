@@ -3111,6 +3111,69 @@ fn reports_single_geometry_face_outside_ownership_domain() {
 }
 
 #[test]
+fn ownership_domain_evidence_follows_policy_and_input_order() {
+    use crate::{DedupPolicy, TileOwnershipPolicy, TiledPolygonizer};
+    use geo::{Coord, Geometry, LineString, Rect};
+
+    let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 32.0, y: 32.0 });
+    let outer = Geometry::LineString(LineString::new(vec![
+        Coord { x: 25.0, y: 17.0 },
+        Coord { x: 45.0, y: 17.0 },
+        Coord { x: 45.0, y: 41.0 },
+        Coord { x: 25.0, y: 41.0 },
+        Coord { x: 25.0, y: 17.0 },
+    ]));
+    let inner = Geometry::LineString(LineString::new(vec![
+        Coord { x: 2.0, y: 2.0 },
+        Coord { x: 4.0, y: 2.0 },
+        Coord { x: 4.0, y: 4.0 },
+        Coord { x: 2.0, y: 4.0 },
+        Coord { x: 2.0, y: 2.0 },
+    ]));
+
+    for (policy, expected_polygon_count, expected_issue_count) in [
+        (TileOwnershipPolicy::Centroid, 1usize, 1usize),
+        (TileOwnershipPolicy::RepresentativePointInsidePolygon, 1, 1),
+        (TileOwnershipPolicy::LexicographicMinVertex, 2, 0),
+    ] {
+        let mut outputs = Vec::new();
+        for reverse in [false, true] {
+            let inputs = if reverse {
+                [&inner, &outer]
+            } else {
+                [&outer, &inner]
+            };
+            let mut tiled = TiledPolygonizer::new(bbox, 16.0)
+                .with_buffer(0.0)
+                .with_ownership_policy(policy.clone())
+                .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+            for geometry in inputs {
+                tiled.add_geometry(geometry);
+            }
+
+            let result = tiled.polygonize().unwrap();
+            assert_eq!(result.polygons.len(), expected_polygon_count);
+            assert_eq!(
+                result
+                    .tile_reports
+                    .iter()
+                    .map(|report| report.ownership_domain_issues.len())
+                    .sum::<usize>(),
+                expected_issue_count
+            );
+            outputs.push(
+                result
+                    .polygons
+                    .iter()
+                    .map(crate::tiling::canonical_polygon_key)
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert_eq!(outputs[0], outputs[1], "policy {policy:?}");
+    }
+}
+
+#[test]
 fn component_fallback_recovers_mixed_owned_face_and_component_evidence() {
     use crate::{DedupPolicy, Polygonizer, TileCoverageGuarantee, TiledPolygonizer};
     use geo::{Coord, Geometry, LineString, Rect};
