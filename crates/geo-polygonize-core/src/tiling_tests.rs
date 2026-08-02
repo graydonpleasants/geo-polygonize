@@ -9,8 +9,8 @@ mod tests {
         NodingGuarantee, NodingOptions, Polygon3D, PolygonizeError, Polygonizer,
         PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
         TileComponentConnection, TileCoverageGuarantee, TileCoverageIssue,
-        TileExcludedComponentIssue, TileReport, TileRetryPolicy, TiledPolygonizeError,
-        TiledPolygonizer,
+        TileExcludedComponentIssue, TileExecutionPolicy, TileReport, TileRetryPolicy,
+        TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
 
@@ -284,6 +284,126 @@ mod tests {
     }
 
     #[test]
+    fn bounds_tiled_call_cardinality_before_materializing_tiles() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let bounded =
+            TiledPolygonizer::new(bbox, 10.0).with_tile_execution_policy(TileExecutionPolicy {
+                max_tiles: Some(1),
+                ..Default::default()
+            });
+        assert!(matches!(
+            bounded.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 4,
+            }) if stage == "tile_count"
+        ));
+
+        let extreme = TiledPolygonizer::new(
+            Rect::new(
+                Coord { x: 0.0, y: 0.0 },
+                Coord {
+                    x: f64::MAX,
+                    y: 1.0,
+                },
+            ),
+            1.0,
+        );
+        assert!(matches!(
+            extreme.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded { ref stage, .. })
+                if stage == "tile_count"
+        ));
+    }
+
+    #[test]
+    fn bounds_tiled_geometry_assignments_and_input_count() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let line = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 5.0 },
+            Coord { x: 20.0, y: 5.0 },
+        ]));
+        let mut assignments =
+            TiledPolygonizer::new(bbox, 10.0).with_tile_execution_policy(TileExecutionPolicy {
+                max_tile_geometry_assignments: Some(1),
+                ..Default::default()
+            });
+        assignments.add_geometry(&line);
+        assert!(matches!(
+            assignments.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            }) if stage == "tile_geometry_assignments"
+        ));
+
+        let mut input_bound =
+            TiledPolygonizer::new(bbox, 10.0).with_tile_execution_policy(TileExecutionPolicy {
+                max_input_geometries: Some(0),
+                ..Default::default()
+            });
+        input_bound.add_geometry(&line);
+        assert!(matches!(
+            input_bound.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "tile_input_geometries"
+        ));
+    }
+
+    #[test]
+    fn tile_generation_observes_cancellation_and_parallelism_validation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        });
+        assert!(matches!(
+            cancelled.polygonize(),
+            Err(PolygonizeError::Cancelled { ref stage }) if stage == "tile_generation"
+        ));
+
+        let invalid =
+            TiledPolygonizer::new(bbox, 10.0).with_tile_execution_policy(TileExecutionPolicy {
+                max_parallel_tiles: Some(0),
+                ..Default::default()
+            });
+        assert!(matches!(
+            invalid.polygonize(),
+            Err(PolygonizeError::InvalidArgumentType { ref field, .. })
+                if field == "tile_execution_policy.max_parallel_tiles"
+        ));
+    }
+
+    #[test]
+    fn canonical_tile_keys_normalize_signed_zero() {
+        let polygon = |zero: f64| {
+            Polygon3D::new(
+                vec![
+                    Coord3D::new(zero, 0.0, 0.0),
+                    Coord3D::new(1.0, 0.0, 0.0),
+                    Coord3D::new(1.0, 1.0, 0.0),
+                    Coord3D::new(zero, 1.0, 0.0),
+                    Coord3D::new(zero, 0.0, 0.0),
+                ],
+                vec![],
+                vec![],
+                vec![],
+            )
+        };
+        assert_eq!(
+            crate::tiling::canonical_polygon_key(&polygon(-0.0)),
+            crate::tiling::canonical_polygon_key(&polygon(0.0))
+        );
+    }
+
+    #[test]
     fn reports_tile_topology_and_merge_counts() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
         let square = Geometry::LineString(LineString::new(vec![
@@ -349,6 +469,43 @@ mod tests {
                 limit: 1,
                 observed: 2,
             }) if stage == "output_polygons"
+        ));
+    }
+
+    #[test]
+    fn tiled_merge_applies_aggregate_coordinate_limit() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 10.0 });
+        let squares = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 1.0 },
+                Coord { x: 3.0, y: 1.0 },
+                Coord { x: 3.0, y: 3.0 },
+                Coord { x: 1.0, y: 3.0 },
+                Coord { x: 1.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 11.0, y: 1.0 },
+                Coord { x: 13.0, y: 1.0 },
+                Coord { x: 13.0, y: 3.0 },
+                Coord { x: 11.0, y: 3.0 },
+                Coord { x: 11.0, y: 1.0 },
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(ExecutionPolicy {
+            max_output_coordinates: Some(5),
+            ..Default::default()
+        });
+        for square in &squares {
+            tiled.add_geometry(square);
+        }
+
+        assert!(matches!(
+            tiled.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 5,
+                observed: 10,
+            }) if stage == "output_coordinates"
         ));
     }
 
@@ -531,6 +688,23 @@ mod tests {
             .events
             .iter()
             .any(|event| event.kind == "tile_component_fallback_declined"));
+
+        let mut limited = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_component_fallback()
+            .with_tile_execution_policy(TileExecutionPolicy {
+                max_fallback_regions: Some(0),
+                ..Default::default()
+            });
+        limited.add_geometry(&face);
+        assert!(matches!(
+            limited.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "tile_fallback_regions"
+        ));
     }
 
     #[test]
@@ -2508,6 +2682,30 @@ mod tests {
                 observed: 2,
             }) if stage == "tile_retry_attempts"
         ));
+
+        let mut total_bound = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(2.0)
+            .with_retry_policy(TileRetryPolicy {
+                max_attempts: 1,
+                buffer_increment: 1.0,
+                max_buffer: 3.0,
+            })
+            .with_tile_execution_policy(TileExecutionPolicy {
+                max_retry_attempts_total: Some(0),
+                max_parallel_tiles: Some(1),
+                ..Default::default()
+            });
+        for boundary in &boundaries {
+            total_bound.add_geometry(boundary);
+        }
+        assert!(matches!(
+            total_bound.polygonize(),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            }) if stage == "tile_retry_attempts_total"
+        ));
     }
 
     #[test]
@@ -2896,7 +3094,7 @@ mod tests {
         tiler.add_geometry(&face);
 
         let forward = tiler.polygonize().unwrap();
-        let mut tiles = tiler.generate_tiles();
+        let mut tiles = tiler.generate_tiles().unwrap();
         let mut state = 0x71_1e_u64;
         for upper in (1..tiles.len()).rev() {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1);

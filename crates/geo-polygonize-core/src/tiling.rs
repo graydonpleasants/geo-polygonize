@@ -9,6 +9,7 @@ use crate::trace::{
     TraceStageV1,
 };
 use crate::types::{Coord3D, Line3D, Polygon3D};
+use crate::utils::canonical_coordinate_bits;
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::algorithm::line_intersection::line_intersection;
 use geo::bounding_rect::BoundingRect;
@@ -16,16 +17,26 @@ use geo::intersects::Intersects;
 use geo::InteriorPoint;
 use geo_types::{Coord, Geometry, Line, LineString, Point, Rect};
 #[cfg(feature = "parallel")]
-use rayon::prelude::*;
+use rayon::{prelude::*, ThreadPoolBuilder};
 use rstar::AABB;
 use std::collections::{HashMap, HashSet};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use thiserror::Error;
 
 fn canonical_ring_key(ring: &[Coord3D]) -> Vec<[u64; 3]> {
     let key = |mut ring: Vec<Coord3D>| {
         canonicalize_ring(&mut ring, None);
         ring.into_iter()
-            .map(|coord| [coord.x.to_bits(), coord.y.to_bits(), coord.z.to_bits()])
+            .map(|coord| {
+                [
+                    canonical_coordinate_bits(coord.x),
+                    canonical_coordinate_bits(coord.y),
+                    canonical_coordinate_bits(coord.z),
+                ]
+            })
             .collect::<Vec<_>>()
     };
     key(ring.to_vec()).min(key(ring.iter().rev().copied().collect()))
@@ -114,6 +125,17 @@ pub struct TileRetryPolicy {
     pub max_attempts: usize,
     pub buffer_increment: f64,
     pub max_buffer: f64,
+}
+
+/// Limits for work owned by one experimental tiled polygonization call.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TileExecutionPolicy {
+    pub max_tiles: Option<usize>,
+    pub max_input_geometries: Option<usize>,
+    pub max_tile_geometry_assignments: Option<usize>,
+    pub max_retry_attempts_total: Option<usize>,
+    pub max_fallback_regions: Option<usize>,
+    pub max_parallel_tiles: Option<usize>,
 }
 
 /// Result of one larger-halo retry for a tile.
@@ -302,18 +324,56 @@ enum ComponentFallbackDecision {
     Declined(ComponentFallbackDeclineReason),
 }
 
+fn account_polygon_output(
+    policy: &ExecutionPolicy,
+    polygon_count: &mut usize,
+    coordinate_count: &mut usize,
+    polygon: &Polygon3D,
+) -> Result<()> {
+    let next_polygon_count = polygon_count.checked_add(1).ok_or_else(|| {
+        PolygonizeError::InternalInvariantViolation {
+            reason: "tiled output polygon count overflow".to_string(),
+        }
+    })?;
+    let polygon_coordinates = polygon
+        .exterior
+        .len()
+        .checked_add(
+            polygon
+                .interiors
+                .iter()
+                .try_fold(0usize, |count, ring| count.checked_add(ring.len()))
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "tiled polygon coordinate count overflow".to_string(),
+                })?,
+        )
+        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+            reason: "tiled polygon coordinate count overflow".to_string(),
+        })?;
+    let next_coordinate_count = coordinate_count
+        .checked_add(polygon_coordinates)
+        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+            reason: "tiled output coordinate count overflow".to_string(),
+        })?;
+    policy.check(
+        "output_polygons",
+        policy.max_output_polygons,
+        next_polygon_count,
+    )?;
+    policy.check(
+        "output_coordinates",
+        policy.max_output_coordinates,
+        next_coordinate_count,
+    )?;
+    *polygon_count = next_polygon_count;
+    *coordinate_count = next_coordinate_count;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct InputSegment {
     line: Line<f64>,
     geometry_index: usize,
-}
-
-fn endpoint_bits(value: f64) -> u64 {
-    if value == 0.0 {
-        0.0f64.to_bits()
-    } else {
-        value.to_bits()
-    }
 }
 
 fn line_string_segments(
@@ -475,6 +535,7 @@ pub struct TiledPolygonizer<'a> {
     dedup_policy: DedupPolicy,
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
+    tile_execution_policy: TileExecutionPolicy,
     retry_policy: Option<TileRetryPolicy>,
     component_fallback: bool,
     untiled_fallback: bool,
@@ -495,6 +556,7 @@ impl<'a> TiledPolygonizer<'a> {
             dedup_policy: DedupPolicy::KeepAll,
             options,
             execution_policy: ExecutionPolicy::default(),
+            tile_execution_policy: TileExecutionPolicy::default(),
             retry_policy: None,
             component_fallback: false,
             untiled_fallback: false,
@@ -527,6 +589,14 @@ impl<'a> TiledPolygonizer<'a> {
         self
     }
 
+    pub fn with_tile_execution_policy(
+        mut self,
+        tile_execution_policy: TileExecutionPolicy,
+    ) -> Self {
+        self.tile_execution_policy = tile_execution_policy;
+        self
+    }
+
     pub fn with_retry_policy(mut self, retry_policy: TileRetryPolicy) -> Self {
         self.retry_policy = Some(retry_policy);
         self
@@ -553,6 +623,19 @@ impl<'a> TiledPolygonizer<'a> {
         self.geometries.push((geom, bbox));
     }
 
+    fn buffered_bbox(&self, tile_bbox: Rect<f64>, buffer: f64) -> Rect<f64> {
+        Rect::new(
+            Coord {
+                x: tile_bbox.min().x - buffer,
+                y: tile_bbox.min().y - buffer,
+            },
+            Coord {
+                x: tile_bbox.max().x + buffer,
+                y: tile_bbox.max().y + buffer,
+            },
+        )
+    }
+
     fn process_tile(
         &self,
         tile_bbox: Rect<f64>,
@@ -566,16 +649,7 @@ impl<'a> TiledPolygonizer<'a> {
             .with_execution_policy(self.execution_policy.clone());
 
         // Define buffered bbox
-        let buffered_bbox = Rect::new(
-            Coord {
-                x: tile_bbox.min().x - buffer,
-                y: tile_bbox.min().y - buffer,
-            },
-            Coord {
-                x: tile_bbox.max().x + buffer,
-                y: tile_bbox.max().y + buffer,
-            },
-        );
+        let buffered_bbox = self.buffered_bbox(tile_bbox, buffer);
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
@@ -1104,6 +1178,8 @@ impl<'a> TiledPolygonizer<'a> {
         self.execution_policy
             .check_cancelled("tile_fallback_merge")?;
         let mut result = Vec::new();
+        let mut output_polygon_count = 0;
+        let mut output_coordinate_count = 0;
         let mut work_items = 0;
         for polygons in tile_polygons {
             for polygon in polygons {
@@ -1123,6 +1199,12 @@ impl<'a> TiledPolygonizer<'a> {
                     }
                 }
                 if !replaced {
+                    account_polygon_output(
+                        &self.execution_policy,
+                        &mut output_polygon_count,
+                        &mut output_coordinate_count,
+                        &polygon,
+                    )?;
                     result.push(polygon);
                 }
             }
@@ -1131,6 +1213,12 @@ impl<'a> TiledPolygonizer<'a> {
             self.execution_policy
                 .check_cancelled_every("tile_fallback_merge", work_items)?;
             work_items = work_items.saturating_add(1);
+            account_polygon_output(
+                &self.execution_policy,
+                &mut output_polygon_count,
+                &mut output_coordinate_count,
+                &polygon,
+            )?;
             result.push(polygon);
         }
         Ok(result)
@@ -1141,6 +1229,7 @@ impl<'a> TiledPolygonizer<'a> {
         tile_bbox: Rect<f64>,
         input_components: &[InputComponent],
         capture_byte_limit: Option<usize>,
+        retry_attempt_counter: &AtomicUsize,
     ) -> Result<TileProcessResult> {
         let mut buffer = self.buffer;
         let mut result =
@@ -1158,6 +1247,22 @@ impl<'a> TiledPolygonizer<'a> {
                 "tile_retry_attempts",
                 self.execution_policy.max_tile_retry_attempts,
                 attempt,
+            )?;
+            let observed_attempts = retry_attempt_counter
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |attempts| {
+                    attempts.checked_add(1)
+                })
+                .map_err(|_| PolygonizeError::InternalInvariantViolation {
+                    reason: "tiled retry attempt counter overflow".to_string(),
+                })?
+                .checked_add(1)
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "tiled retry attempt counter overflow".to_string(),
+                })?;
+            self.execution_policy.check(
+                "tile_retry_attempts_total",
+                self.tile_execution_policy.max_retry_attempts_total,
+                observed_attempts,
             )?;
             buffer = (buffer + policy.buffer_increment).min(policy.max_buffer);
             result = self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
@@ -1263,27 +1368,104 @@ impl<'a> TiledPolygonizer<'a> {
         unresolved_sides
     }
 
-    fn generate_tiles(&self) -> Vec<Rect<f64>> {
+    fn generate_tiles(&self) -> Result<Vec<Rect<f64>>> {
         let min = self.bbox.min();
         let max = self.bbox.max();
         let width = max.x - min.x;
         let height = max.y - min.y;
 
-        let cols = (width / self.tile_size).ceil() as usize;
-        let rows = (height / self.tile_size).ceil() as usize;
+        let checked_axis_count = |length: f64| {
+            let count = (length / self.tile_size).ceil();
+            if !count.is_finite() || count >= usize::MAX as f64 {
+                return Err(PolygonizeError::ResourceLimitExceeded {
+                    stage: "tile_count".to_string(),
+                    limit: usize::MAX - 1,
+                    observed: usize::MAX,
+                });
+            }
+            Ok(count as usize)
+        };
+        let cols = checked_axis_count(width)?;
+        let rows = checked_axis_count(height)?;
+        let tile_count =
+            rows.checked_mul(cols)
+                .ok_or_else(|| PolygonizeError::ResourceLimitExceeded {
+                    stage: "tile_count".to_string(),
+                    limit: self
+                        .tile_execution_policy
+                        .max_tiles
+                        .unwrap_or(usize::MAX - 1),
+                    observed: usize::MAX,
+                })?;
+        self.execution_policy.check(
+            "tile_count",
+            self.tile_execution_policy.max_tiles,
+            tile_count,
+        )?;
 
-        let mut tiles = Vec::new();
-        for r in 0..rows {
-            for c in 0..cols {
-                let x0 = min.x + c as f64 * self.tile_size;
-                let y0 = min.y + r as f64 * self.tile_size;
-                let x1 = (x0 + self.tile_size).min(max.x);
-                let y1 = (y0 + self.tile_size).min(max.y);
-
-                tiles.push(Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 }));
+        let tile_rect = |r: usize, c: usize| {
+            let x0 = min.x + c as f64 * self.tile_size;
+            let y0 = min.y + r as f64 * self.tile_size;
+            let x1 = (x0 + self.tile_size).min(max.x);
+            let y1 = (y0 + self.tile_size).min(max.y);
+            Rect::new(Coord { x: x0, y: y0 }, Coord { x: x1, y: y1 })
+        };
+        let mut assignment_count = 0usize;
+        if self
+            .tile_execution_policy
+            .max_tile_geometry_assignments
+            .is_some()
+        {
+            for r in 0..rows {
+                for c in 0..cols {
+                    self.execution_policy
+                        .check_cancelled_every("tile_assignment_preflight", r * cols + c)?;
+                    let buffered_bbox = self.buffered_bbox(tile_rect(r, c), self.buffer);
+                    let tile_assignments = self
+                        .geometries
+                        .iter()
+                        .filter(|(_, bbox)| {
+                            bbox.is_some_and(|geometry_bbox| {
+                                geometry_bbox.intersects(&buffered_bbox)
+                            })
+                        })
+                        .count();
+                    assignment_count =
+                        assignment_count
+                            .checked_add(tile_assignments)
+                            .ok_or_else(|| PolygonizeError::ResourceLimitExceeded {
+                                stage: "tile_geometry_assignments".to_string(),
+                                limit: self
+                                    .tile_execution_policy
+                                    .max_tile_geometry_assignments
+                                    .unwrap_or(usize::MAX - 1),
+                                observed: usize::MAX,
+                            })?;
+                    self.execution_policy.check(
+                        "tile_geometry_assignments",
+                        self.tile_execution_policy.max_tile_geometry_assignments,
+                        assignment_count,
+                    )?;
+                }
             }
         }
-        tiles
+
+        let mut tiles = Vec::new();
+        tiles.try_reserve_exact(tile_count).map_err(|_| {
+            PolygonizeError::ResourceLimitExceeded {
+                stage: "tile_allocation".to_string(),
+                limit: tile_count,
+                observed: usize::MAX,
+            }
+        })?;
+        for r in 0..rows {
+            for c in 0..cols {
+                self.execution_policy
+                    .check_cancelled_every("tile_generation", r * cols + c)?;
+                tiles.push(tile_rect(r, c));
+            }
+        }
+        Ok(tiles)
     }
 
     fn input_components(&self) -> Result<Vec<InputComponent>> {
@@ -1404,7 +1586,10 @@ impl<'a> TiledPolygonizer<'a> {
         }
         for segment in &segments {
             for endpoint in [segment.line.start, segment.line.end] {
-                let key = (endpoint_bits(endpoint.x), endpoint_bits(endpoint.y));
+                let key = (
+                    canonical_coordinate_bits(endpoint.x),
+                    canonical_coordinate_bits(endpoint.y),
+                );
                 if let Some(previous) = endpoint_owners.insert(key, segment.geometry_index) {
                     join_components(&mut parents, previous, segment.geometry_index);
                 }
@@ -1608,7 +1793,7 @@ impl<'a> TiledPolygonizer<'a> {
         trace: Option<&mut TraceRecorderV1>,
     ) -> Result<TiledPolygonizeResult> {
         self.validate()?;
-        let tiles = self.generate_tiles();
+        let tiles = self.generate_tiles()?;
         let input_components = self.input_components()?;
         self.polygonize_tiles(tiles, &input_components, trace)
     }
@@ -1619,6 +1804,7 @@ impl<'a> TiledPolygonizer<'a> {
         input_components: &[InputComponent],
         mut trace: Option<&mut TraceRecorderV1>,
     ) -> Result<TiledPolygonizeResult> {
+        let retry_attempt_counter = Arc::new(AtomicUsize::new(0));
         let trace_ownership = trace
             .as_ref()
             .is_some_and(|trace| trace.records_stage(TraceStageV1::Output));
@@ -1632,8 +1818,13 @@ impl<'a> TiledPolygonizer<'a> {
                         .records_stage(TraceStageV1::Output)
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
-                let (polygons, report, ownership_decisions, capture_truncated) =
-                    self.process_tile_with_retries(tile, input_components, capture_byte_limit)?;
+                let (polygons, report, ownership_decisions, capture_truncated) = self
+                    .process_tile_with_retries(
+                        tile,
+                        input_components,
+                        capture_byte_limit,
+                        &retry_attempt_counter,
+                    )?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
                 for attempt in &report.retry_attempts {
                     if !trace.record_tile_halo_retry(tile_index, attempt) {
@@ -1690,18 +1881,55 @@ impl<'a> TiledPolygonizer<'a> {
             }
         } else {
             #[cfg(feature = "parallel")]
-            let tile_results: Vec<_> = tiles
-                .into_par_iter()
-                .map(|tile| self.process_tile_with_retries(tile, input_components, None))
-                .collect();
+            let tile_results: Result<Vec<_>> =
+                if let Some(max_parallel_tiles) = self.tile_execution_policy.max_parallel_tiles {
+                    let pool = ThreadPoolBuilder::new()
+                        .num_threads(max_parallel_tiles)
+                        .build()
+                        .map_err(|error| PolygonizeError::InternalInvariantViolation {
+                            reason: format!("failed to create tiled worker pool: {error}"),
+                        })?;
+                    pool.install(|| {
+                        tiles
+                            .into_par_iter()
+                            .map(|tile| {
+                                self.process_tile_with_retries(
+                                    tile,
+                                    input_components,
+                                    None,
+                                    &retry_attempt_counter,
+                                )
+                            })
+                            .collect()
+                    })
+                } else {
+                    tiles
+                        .into_par_iter()
+                        .map(|tile| {
+                            self.process_tile_with_retries(
+                                tile,
+                                input_components,
+                                None,
+                                &retry_attempt_counter,
+                            )
+                        })
+                        .collect()
+                };
             #[cfg(not(feature = "parallel"))]
-            let tile_results: Vec<_> = tiles
+            let tile_results: Result<Vec<_>> = tiles
                 .into_iter()
-                .map(|tile| self.process_tile_with_retries(tile, input_components, None))
+                .map(|tile| {
+                    self.process_tile_with_retries(
+                        tile,
+                        input_components,
+                        None,
+                        &retry_attempt_counter,
+                    )
+                })
                 .collect();
 
-            for result in tile_results {
-                let (polygons, report, _, _) = result?;
+            for result in tile_results? {
+                let (polygons, report, _, _) = result;
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
             }
@@ -1715,7 +1943,14 @@ impl<'a> TiledPolygonizer<'a> {
                     &tile_reports,
                     input_components,
                 )? {
-                    ComponentFallbackDecision::Recovered(result) => (Some(result), None),
+                    ComponentFallbackDecision::Recovered(result) => {
+                        self.execution_policy.check(
+                            "tile_fallback_regions",
+                            self.tile_execution_policy.max_fallback_regions,
+                            result.region_bboxes.len(),
+                        )?;
+                        (Some(result), None)
+                    }
                     ComponentFallbackDecision::Declined(reason) => (None, Some(reason.as_str())),
                 }
             } else {
@@ -1743,7 +1978,18 @@ impl<'a> TiledPolygonizer<'a> {
             for (geometry, _) in &self.geometries {
                 polygonizer.add_borrowed_geometry(geometry);
             }
-            polygonizer.polygonize()?.polygons
+            let polygons = polygonizer.polygonize()?.polygons;
+            let mut polygon_count = 0;
+            let mut coordinate_count = 0;
+            for polygon in &polygons {
+                account_polygon_output(
+                    &self.execution_policy,
+                    &mut polygon_count,
+                    &mut coordinate_count,
+                    polygon,
+                )?;
+            }
+            polygons
         } else {
             self.merge_fallback_polygons(
                 tile_polygons,
@@ -1801,11 +2047,18 @@ impl<'a> TiledPolygonizer<'a> {
             &self.execution_policy,
             None,
         )?;
-        self.execution_policy.check(
-            "output_polygons",
-            self.execution_policy.max_output_polygons,
-            polygons.len(),
-        )?;
+        let mut output_polygon_count = 0;
+        let mut output_coordinate_count = 0;
+        for (polygon_index, polygon) in polygons.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("output_flattening", polygon_index)?;
+            account_polygon_output(
+                &self.execution_policy,
+                &mut output_polygon_count,
+                &mut output_coordinate_count,
+                polygon,
+            )?;
+        }
         let output_polygon_count = polygons.len();
         let unresolved_tile_count = tile_reports
             .iter()
@@ -1917,6 +2170,22 @@ impl<'a> TiledPolygonizer<'a> {
 
     fn validate(&self) -> Result<()> {
         self.options.validate()?;
+        self.execution_policy.check(
+            "tile_input_geometries",
+            self.tile_execution_policy.max_input_geometries,
+            self.geometries.len(),
+        )?;
+        if self
+            .tile_execution_policy
+            .max_parallel_tiles
+            .is_some_and(|parallelism| parallelism == 0)
+        {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: "tile_execution_policy.max_parallel_tiles".to_string(),
+                expected: "a positive integer".to_string(),
+                actual: "0".to_string(),
+            });
+        }
         if !self.tile_size.is_finite() || self.tile_size <= 0.0 {
             return Err(PolygonizeError::InvalidArgumentType {
                 field: "tile_size".to_string(),
