@@ -2,7 +2,9 @@ use crate::options::ExecutionPolicy;
 use crate::trace::TraceCaptureBudget;
 use crate::types::{Coord3D, EdgeSources, Line3D};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
-use crate::utils::{compare_angular, z_order_index};
+use crate::utils::{
+    canonical_coordinate_bits, compare_angular, minimum_rotation_index, z_order_index,
+};
 use geo_types::{Coord, LineString};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -15,6 +17,8 @@ pub type NodeId = usize;
 pub type EdgeId = usize;
 /// Index of a directed half-edge in the graph.
 pub type DirEdgeId = usize;
+/// Deterministic identity of a directed-edge face cycle.
+pub type FaceId = usize;
 
 #[derive(Clone)]
 pub(crate) struct ExtractedRing {
@@ -55,6 +59,8 @@ pub(crate) struct DirectedEdge {
     pub(crate) sym_idx: DirEdgeId,
     /// Directed edge reached by the arrangement's clockwise face walk.
     pub(crate) next_idx: Option<DirEdgeId>,
+    /// Deterministic identity of the current face cycle, when assigned.
+    pub(crate) face_id: Option<FaceId>,
     /// Traversal state: has this edge been processed into a ring?
     pub(crate) is_visited: bool,
     /// Is this edge explicitly marked (e.g. as part of a dangle).
@@ -90,6 +96,16 @@ pub struct PlanarGraph {
     /// Lookup map to dedup nodes during construction.
     /// OPTIMIZATION: Used only for incremental additions. Bulk load bypasses this.
     pub(crate) node_map: HashMap<NodeKey, NodeId>,
+    /// Number of deterministic face-cycle identities currently assigned.
+    pub(crate) face_count: usize,
+    /// Component-local outer face-cycle identities.
+    pub(crate) unbounded_face_ids: Vec<FaceId>,
+}
+
+struct FaceCycleCandidate {
+    key: Vec<[u64; 2]>,
+    directed_edges: Vec<DirEdgeId>,
+    signed_area: f64,
 }
 
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
@@ -159,6 +175,7 @@ fn create_edge_components(
         edge_idx,
         sym_idx: de_v_u_idx,
         next_idx: None,
+        face_id: None,
         is_visited: false,
         is_marked: false,
     };
@@ -169,6 +186,7 @@ fn create_edge_components(
         edge_idx,
         sym_idx: de_u_v_idx,
         next_idx: None,
+        face_id: None,
         is_visited: false,
         is_marked: false,
     };
@@ -203,6 +221,8 @@ impl PlanarGraph {
             edges: Vec::new(),
             directed_edges: Vec::new(),
             node_map: HashMap::new(),
+            face_count: 0,
+            unbounded_face_ids: Vec::new(),
         }
     }
 
@@ -216,11 +236,22 @@ impl PlanarGraph {
         self.edges.clear();
         self.directed_edges.clear();
         self.node_map.clear();
+        self.face_count = 0;
+        self.unbounded_face_ids.clear();
     }
 
     fn clear_next_links(&mut self) {
         for directed_edge in &mut self.directed_edges {
             directed_edge.next_idx = None;
+        }
+        self.clear_face_ids();
+    }
+
+    fn clear_face_ids(&mut self) {
+        self.face_count = 0;
+        self.unbounded_face_ids.clear();
+        for directed_edge in &mut self.directed_edges {
+            directed_edge.face_id = None;
         }
     }
 
@@ -497,6 +528,7 @@ impl PlanarGraph {
             edge_idx,
             sym_idx: de_v_u_idx,
             next_idx: None,
+            face_id: None,
             is_visited: false,
             is_marked: false,
         };
@@ -507,6 +539,7 @@ impl PlanarGraph {
             edge_idx,
             sym_idx: de_u_v_idx,
             next_idx: None,
+            face_id: None,
             is_visited: false,
             is_marked: false,
         };
@@ -564,8 +597,8 @@ impl PlanarGraph {
         for m in &mut self.nodes_marked {
             *m = false;
         }
+        self.clear_next_links();
         for de in &mut self.directed_edges {
-            de.next_idx = None;
             de.is_visited = false;
             de.is_marked = false;
         }
@@ -1135,6 +1168,7 @@ impl PlanarGraph {
 
         // Step 3: convert maximal to minimal rings by relinking intersection nodes.
         self.convert_maximal_to_minimal_rings(&maximal_ring_starts, &labels, execution_policy)?;
+        self.assign_deterministic_face_ids(execution_policy)?;
 
         #[cfg(any(test, debug_assertions))]
         self.validate_arrangement_ring_cycles("minimal")?;
@@ -1340,6 +1374,135 @@ impl PlanarGraph {
             }
         }
         Ok(())
+    }
+
+    fn assign_deterministic_face_ids(
+        &mut self,
+        execution_policy: Option<&ExecutionPolicy>,
+    ) -> crate::Result<()> {
+        self.clear_face_ids();
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        let is_active = |directed_idx: DirEdgeId| {
+            self.directed_edges
+                .get(directed_idx)
+                .and_then(|directed| {
+                    self.edges
+                        .get(directed.edge_idx)
+                        .map(|edge| (directed, edge))
+                })
+                .is_some_and(|(directed, edge)| !directed.is_marked && !edge.deleted)
+        };
+
+        let mut assigned = vec![false; self.directed_edges.len()];
+        let mut candidates = Vec::new();
+        let mut work_items = 0;
+        for start in 0..self.directed_edges.len() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+            }
+            work_items += 1;
+            if !is_active(start) || assigned[start] {
+                continue;
+            }
+
+            let mut cycle = Vec::new();
+            let mut current = start;
+            loop {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
+                if !is_active(current) {
+                    return Err(invariant(format!(
+                        "face identity cycle {start} reached inactive directed edge {current}"
+                    )));
+                }
+                if assigned[current] {
+                    if current == start {
+                        break;
+                    }
+                    return Err(invariant(format!(
+                        "face identity cycle {start} reuses directed edge {current}"
+                    )));
+                }
+
+                assigned[current] = true;
+                cycle.push(current);
+                let twin = self.directed_edges[current].sym_idx;
+                let Some(next) = self
+                    .directed_edges
+                    .get(twin)
+                    .and_then(|directed| directed.next_idx)
+                else {
+                    return Err(invariant(format!(
+                        "face identity directed edge {current} has no successor at twin link {twin}"
+                    )));
+                };
+                if next == start {
+                    break;
+                }
+                current = next;
+                if cycle.len() > self.directed_edges.len() {
+                    return Err(invariant(format!(
+                        "face identity cycle {start} exceeds directed edge count"
+                    )));
+                }
+            }
+
+            candidates.push(FaceCycleCandidate {
+                key: self.face_cycle_key(&cycle),
+                signed_area: self.face_cycle_signed_area(&cycle),
+                directed_edges: cycle,
+            });
+        }
+
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("face_cycle_sort", candidates.len())?;
+        }
+        candidates.sort_unstable_by(|left, right| {
+            left.key
+                .cmp(&right.key)
+                .then_with(|| left.signed_area.total_cmp(&right.signed_area))
+        });
+
+        self.face_count = candidates.len();
+        for (face_id, candidate) in candidates.iter().enumerate() {
+            if candidate.signed_area < 0.0 {
+                self.unbounded_face_ids.push(face_id);
+            }
+            for &directed_idx in &candidate.directed_edges {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("ring_extraction", work_items)?;
+                }
+                work_items += 1;
+                self.directed_edges[directed_idx].face_id = Some(face_id);
+            }
+        }
+        Ok(())
+    }
+
+    fn face_cycle_key(&self, cycle: &[DirEdgeId]) -> Vec<[u64; 2]> {
+        let mut key: Vec<_> = cycle
+            .iter()
+            .map(|&directed_idx| {
+                let node = self.directed_edges[directed_idx].src;
+                [
+                    canonical_coordinate_bits(self.nodes_x[node]),
+                    canonical_coordinate_bits(self.nodes_y[node]),
+                ]
+            })
+            .collect();
+        let start = minimum_rotation_index(&key);
+        key.rotate_left(start);
+        key
+    }
+
+    fn face_cycle_signed_area(&self, cycle: &[DirEdgeId]) -> f64 {
+        cycle.iter().fold(0.0, |area, &directed_idx| {
+            let directed = &self.directed_edges[directed_idx];
+            area + self.nodes_x[directed.src] * self.nodes_y[directed.dst]
+                - self.nodes_x[directed.dst] * self.nodes_y[directed.src]
+        }) * 0.5
     }
 
     /// Validates that active half-edges form disjoint closed cycles through
@@ -1564,6 +1727,7 @@ impl PlanarGraph {
         labels: &[i64],
         execution_policy: Option<&ExecutionPolicy>,
     ) -> crate::Result<()> {
+        self.clear_face_ids();
         let mut intersection_nodes = Vec::<NodeId>::new();
         let mut seen_intersection_nodes = vec![false; self.nodes_x.len()];
         let mut work_items = 0;
@@ -1752,6 +1916,34 @@ mod arrangement_ring_invariant_tests {
             .collect()
     }
 
+    fn face_snapshot(graph: &PlanarGraph) -> Vec<(Vec<[u64; 2]>, bool)> {
+        let mut snapshot = Vec::new();
+        for face_id in 0..graph.face_count {
+            let start = graph
+                .directed_edges
+                .iter()
+                .position(|directed| directed.face_id == Some(face_id))
+                .unwrap();
+            let mut cycle = Vec::new();
+            let mut current = start;
+            loop {
+                cycle.push(current);
+                let next = graph.directed_edges[graph.directed_edges[current].sym_idx]
+                    .next_idx
+                    .unwrap();
+                current = next;
+                if current == start {
+                    break;
+                }
+            }
+            snapshot.push((
+                graph.face_cycle_key(&cycle),
+                graph.unbounded_face_ids.contains(&face_id),
+            ));
+        }
+        snapshot
+    }
+
     fn add_triangle(graph: &mut PlanarGraph, points: [Coord3D; 3], first_line_id: u32) {
         for offset in 0..3 {
             graph.add_line(Line3D::new(
@@ -1868,6 +2060,48 @@ mod arrangement_ring_invariant_tests {
     }
 
     #[test]
+    fn face_ids_are_deterministic_and_mark_the_outer_cycle() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 10),
+            Line3D::new(Coord3D::new(2.0, 0.0, 0.0), Coord3D::new(2.0, 2.0, 0.0), 11),
+            Line3D::new(Coord3D::new(2.0, 2.0, 0.0), Coord3D::new(0.0, 2.0, 0.0), 12),
+            Line3D::new(Coord3D::new(0.0, 2.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 13),
+        ];
+
+        let mut first = PlanarGraph::new();
+        for line in lines.iter().copied() {
+            first.add_line(line);
+        }
+        first.sort_edges();
+        first.compute_next_cw_edges(None).unwrap();
+        first.assign_deterministic_face_ids(None).unwrap();
+        assert_eq!(first.face_count, 2);
+        assert_eq!(first.unbounded_face_ids.len(), 1);
+        assert!(first
+            .directed_edges
+            .iter()
+            .all(|directed| directed.face_id.is_some()));
+        let expected = face_snapshot(&first);
+
+        let mut second = PlanarGraph::new();
+        for line in lines.into_iter().rev() {
+            second.add_line(line);
+        }
+        second.sort_edges();
+        second.compute_next_cw_edges(None).unwrap();
+        second.assign_deterministic_face_ids(None).unwrap();
+        assert_eq!(face_snapshot(&second), expected);
+
+        first.reset_traversal_state();
+        assert_eq!(first.face_count, 0);
+        assert!(first.unbounded_face_ids.is_empty());
+        assert!(first
+            .directed_edges
+            .iter()
+            .all(|directed| directed.face_id.is_none()));
+    }
+
+    #[test]
     fn arrangement_ring_validator_reports_deterministic_witnesses() {
         let mut graph = PlanarGraph::new();
         let center = Coord3D::new(0.0, 0.0, 0.0);
@@ -1932,6 +2166,9 @@ mod arrangement_ring_invariant_tests {
 
         next_links(&mut graph);
         graph.validate_arrangement_euler("maximal").unwrap();
+        graph.assign_deterministic_face_ids(None).unwrap();
+        assert_eq!(graph.face_count, 4);
+        assert_eq!(graph.unbounded_face_ids.len(), 2);
     }
 
     #[test]

@@ -15,6 +15,34 @@ pub(crate) fn canonical_coordinate_bits(value: f64) -> u64 {
     }
 }
 
+pub(crate) fn minimum_rotation_index<T: Ord>(ring: &[T]) -> usize {
+    let n = ring.len();
+    if n < 2 {
+        return 0;
+    }
+    let (mut left, mut right, mut offset) = (0, 1, 0);
+    while left < n && right < n && offset < n {
+        match ring[(left + offset) % n].cmp(&ring[(right + offset) % n]) {
+            Ordering::Equal => offset += 1,
+            Ordering::Less => {
+                right += offset + 1;
+                if right == left {
+                    right += 1;
+                }
+                offset = 0;
+            }
+            Ordering::Greater => {
+                left += offset + 1;
+                if left == right {
+                    left += 1;
+                }
+                offset = 0;
+            }
+        }
+    }
+    left.min(right)
+}
+
 /// Computes a Z-order curve (Morton code) index for a 2D coordinate.
 /// Maps floating point coordinates to a 64-bit integer index.
 /// This preserves locality: points close in 2D space are likely close in Z-order.
