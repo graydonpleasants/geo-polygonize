@@ -748,6 +748,9 @@ boundary without adding an implicit clipping contract.
   - [x] Pin the single-geometry envelope-only gap where an untiled face's
     ownership point falls outside the configured ownership domain; broad
     missing-region detection remains open.
+  - [x] Pin that caller-enabled whole-input fallback cannot repair the same
+    single-geometry ownership-domain gap without observed evidence; no implicit
+    clipping is introduced.
 - [x] Report source IDs and boundary evidence that were required but not fully
   observed.
   - [x] Distinguish representative edge IDs from complete aggregate boundary
