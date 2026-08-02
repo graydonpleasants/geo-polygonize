@@ -216,34 +216,40 @@ fn bounded_single_geometry_envelope_sweep_keeps_in_domain_mismatches_observed() 
                         .collect(),
                 ));
 
-                for tile_size in [4.0, 8.0, 16.0] {
-                    for buffer in [0.0, 1.0, 4.0] {
-                        let mut tiled = TiledPolygonizer::new(bounds, tile_size)
-                            .with_buffer(buffer)
-                            .with_options(options.clone())
-                            .with_ownership_policy(
-                                TileOwnershipPolicy::RepresentativePointInsidePolygon,
-                            )
-                            .with_dedup_policy(DedupPolicy::CanonicalRingHash);
-                        tiled.add_geometry(&geometry);
-                        let actual = tiled.polygonize().unwrap();
-                        let equivalent = actual.polygons.len() == expected.polygons.len()
-                            && actual.polygons.iter().zip(&expected.polygons).all(
-                                |(actual, expected)| {
-                                    actual.exterior == expected.exterior
-                                        && actual.interiors == expected.interiors
-                                },
-                            );
-                        if !equivalent {
-                            assert!(
-                                actual.tile_reports.iter().any(|report| {
-                                    !report.coverage_issues.is_empty()
-                                        || !report.ownership_domain_issues.is_empty()
-                                        || !report.input_boundary_issues.is_empty()
-                                        || !report.excluded_component_issues.is_empty()
-                                }),
-                                "undetected single-geometry mismatch: min=({min_x},{min_y}), width={width}, tile_size={tile_size}, buffer={buffer}"
-                            );
+                for ownership_policy in [
+                    TileOwnershipPolicy::Centroid,
+                    TileOwnershipPolicy::RepresentativePointInsidePolygon,
+                    TileOwnershipPolicy::LexicographicMinVertex,
+                ]
+                .iter()
+                {
+                    for tile_size in [4.0, 8.0, 16.0] {
+                        for buffer in [0.0, 1.0, 4.0] {
+                            let mut tiled = TiledPolygonizer::new(bounds, tile_size)
+                                .with_buffer(buffer)
+                                .with_options(options.clone())
+                                .with_ownership_policy(ownership_policy.clone())
+                                .with_dedup_policy(DedupPolicy::CanonicalRingHash);
+                            tiled.add_geometry(&geometry);
+                            let actual = tiled.polygonize().unwrap();
+                            let equivalent = actual.polygons.len() == expected.polygons.len()
+                                && actual.polygons.iter().zip(&expected.polygons).all(
+                                    |(actual, expected)| {
+                                        actual.exterior == expected.exterior
+                                            && actual.interiors == expected.interiors
+                                    },
+                                );
+                            if !equivalent {
+                                assert!(
+                                    actual.tile_reports.iter().any(|report| {
+                                        !report.coverage_issues.is_empty()
+                                            || !report.ownership_domain_issues.is_empty()
+                                            || !report.input_boundary_issues.is_empty()
+                                            || !report.excluded_component_issues.is_empty()
+                                    }),
+                                    "undetected single-geometry mismatch: policy={ownership_policy:?}, min=({min_x},{min_y}), width={width}, tile_size={tile_size}, buffer={buffer}"
+                                );
+                            }
                         }
                     }
                 }
