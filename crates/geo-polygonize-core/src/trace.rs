@@ -345,6 +345,8 @@ pub struct TileComponentFallbackTraceV1 {
     pub input_geometry_indices: Vec<usize>,
     pub output_polygon_count: usize,
     pub retained_tile_polygon_count: usize,
+    pub replaced_retained_polygon_count: usize,
+    pub recovered_component_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1286,6 +1288,8 @@ impl TraceRecorderV1 {
         input_geometry_indices: &[usize],
         output_polygon_count: usize,
         retained_tile_polygon_count: usize,
+        replaced_retained_polygon_count: usize,
+        recovered_component_count: usize,
     ) -> bool {
         self.record(
             TraceStageV1::Output,
@@ -1294,6 +1298,8 @@ impl TraceRecorderV1 {
                 input_geometry_indices: input_geometry_indices.to_vec(),
                 output_polygon_count,
                 retained_tile_polygon_count,
+                replaced_retained_polygon_count,
+                recovered_component_count,
             })
             .expect("tile component-fallback trace event serializes"),
         )
