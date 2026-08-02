@@ -1228,6 +1228,33 @@ mod tests {
     }
 
     #[test]
+    fn tile_processing_observes_partial_component_member_cancellation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let geometry = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 2.0, y: 1.0 },
+        ]));
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_execution_policy(policy);
+        tiled.add_geometry(&geometry);
+        let component = InputComponent {
+            input_geometry_indices: vec![0; 257],
+            bbox,
+            connection: TileComponentConnection::ExactEndpoint,
+        };
+
+        assert!(matches!(
+            tiled.process_tile(bbox, &[component], 0.0, None),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
+        ));
+    }
+
+    #[test]
     fn component_fallback_keeps_recovered_output_deterministic() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
         let geometries = [
