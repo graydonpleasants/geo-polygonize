@@ -234,6 +234,7 @@ jobs:
         if: matrix.variant == 'threads'
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: "nightly-2026-07-15"
           components: rust-src
           targets: wasm32-unknown-unknown
 
@@ -253,13 +254,12 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install NPM dependencies
-        run: npm ci
-
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
       - name: Build WASM package
+        env:
+          THREADS_TOOLCHAIN: nightly-2026-07-15
         run: ./scripts/build_wasm.sh --variant "${{ matrix.variant }}" --no-bundle
 
       - name: Upload WASM package
@@ -278,21 +278,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-debug
-          workspaces: |
-            . -> target
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            playground/package-lock.json
 
       - name: Install NPM dependencies
         run: |

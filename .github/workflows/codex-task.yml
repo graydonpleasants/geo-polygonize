@@ -74,7 +74,6 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .codex-task-prompt.md
           output-file: ${{ runner.temp }}/codex-summary.md
-          permission-profile: ":workspace"
           safety-strategy: drop-sudo
 
       - name: Capture patch

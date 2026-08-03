@@ -3,8 +3,24 @@ name: Differential Fuzzer
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/geo-polygonize-core/**"
+      - "tests/differential_shapely.py"
   pull_request:
     branches: [ "main" ]
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/geo-polygonize-core/**"
+      - "tests/differential_shapely.py"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -14,6 +30,13 @@ jobs:
 
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: rust-release
+        workspaces: |
+          . -> target
 
     - name: Set up Python
       uses: actions/setup-python@v5
