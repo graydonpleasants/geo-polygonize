@@ -614,7 +614,7 @@ Certified fixed precision remains the hot-pixel contract.
   intersection, split accumulation, normalization, and dissolve.
 - [x] Preserve source line-string/segment-string boundaries internally; the
   ingestion layout and bounded input trace retain each chain's segment range.
-- [ ] Add deterministic workload descriptors:
+- [x] Add deterministic workload descriptors:
   - segment and line-string counts;
   - average/max chain length;
   - envelope and grid occupancy;
@@ -626,9 +626,12 @@ Certified fixed precision remains the hot-pixel contract.
 
 Floating SIMD and uniform-grid noding now expose an internal candidate-pair
 boundary before exact intersection and split accumulation. Certified hot-pixel
-noding already follows the same indexed-candidate-then-exact shape. Candidate
-backends do not consume the retained chain layout yet; deterministic workload
-descriptors remain open.
+noding already follows the same indexed-candidate-then-exact shape. The hidden
+trace summary now reports deterministic segment/chain lengths, envelope and
+coordinate span, grid scale/occupancy, candidate density, split density, and
+bounded collinear-overlap incidence; that incidence remains null when the
+bounded noding evidence is incomplete. Candidate backends do not consume the
+retained chain layout yet.
 
 ### P2.5 Evaluate sparse and long-line backends
 

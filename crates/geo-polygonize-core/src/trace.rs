@@ -11,8 +11,8 @@ use crate::noding::hot_pixel::{
 use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
 use crate::types::SourceLineString;
 use crate::{
-    CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics, PolygonizerOptions,
-    PolygonizerResult, ZPolicy,
+    Coord3D, CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics,
+    PolygonizerOptions, PolygonizerResult, ZPolicy,
 };
 use serde::Serialize;
 
@@ -95,6 +95,27 @@ pub struct InputSegmentTraceV1 {
     pub chain_segment_index: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_segment_count: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct WorkloadDescriptorV1 {
+    pub segment_count: usize,
+    pub line_string_count: usize,
+    pub average_chain_length: f64,
+    pub max_chain_length: usize,
+    pub envelope_min: Option<CoordinateFingerprintV1>,
+    pub envelope_max: Option<CoordinateFingerprintV1>,
+    pub coordinate_span_x: String,
+    pub coordinate_span_y: String,
+    pub grid_scale: String,
+    pub grid_cell_count: usize,
+    pub grid_cell_entries: usize,
+    pub average_grid_cell_occupancy: f64,
+    pub candidate_pairs: usize,
+    pub candidate_density: f64,
+    pub split_events: usize,
+    pub split_density: f64,
+    pub collinear_overlap_incidence: Option<f64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -415,6 +436,7 @@ pub struct TraceRecorderV1 {
     stage_bytes_used: [usize; 5],
     stage_truncated: [bool; 5],
     total_truncated: bool,
+    workload_descriptor: Option<WorkloadDescriptorV1>,
 }
 
 pub(crate) struct TraceCaptureBudget {
@@ -501,6 +523,7 @@ impl TraceRecorderV1 {
             stage_bytes_used: [0; 5],
             stage_truncated: [false; 5],
             total_truncated: false,
+            workload_descriptor: None,
         })
     }
 
@@ -559,6 +582,23 @@ impl TraceRecorderV1 {
     }
 
     pub(crate) fn record_diagnostics_summary(&mut self, diagnostics: &PolygonizerDiagnostics) {
+        let collinear_overlap_incidence = self.collinear_overlap_incidence();
+        let workload_descriptor = self.workload_descriptor.as_mut().map(|descriptor| {
+            let work = &diagnostics.noding_work_stats;
+            descriptor.grid_cell_count = work.grid_cells;
+            descriptor.grid_cell_entries = work.grid_cell_entries;
+            descriptor.average_grid_cell_occupancy = ratio(work.grid_cell_entries, work.grid_cells);
+            descriptor.candidate_pairs = work.candidate_pairs;
+            let possible_pairs = descriptor
+                .segment_count
+                .saturating_mul(descriptor.segment_count.saturating_sub(1))
+                / 2;
+            descriptor.candidate_density = ratio(work.candidate_pairs, possible_pairs);
+            descriptor.split_events = work.split_events;
+            descriptor.split_density = ratio(work.split_events, work.candidate_pairs);
+            descriptor.collinear_overlap_incidence = collinear_overlap_incidence;
+            descriptor.clone()
+        });
         let stage = |stage: TraceStageV1| {
             let index = stage.index();
             serde_json::json!({
@@ -569,6 +609,7 @@ impl TraceRecorderV1 {
         };
         let payload = serde_json::json!({
             "diagnostics": diagnostics,
+            "workload_descriptor": workload_descriptor,
             "trace_budget": {
                 "total": {
                     "limit": self.trace.byte_limit,
@@ -622,7 +663,10 @@ impl TraceRecorderV1 {
         &mut self,
         lines: &[Line3D],
         source_line_strings: &[SourceLineString],
+        grid_size: f64,
     ) -> crate::Result<()> {
+        self.workload_descriptor =
+            Some(workload_descriptor(lines, source_line_strings, grid_size)?);
         self.record_noding_segments_with_chains(
             "normalized_input_segment",
             lines,
@@ -691,6 +735,37 @@ impl TraceRecorderV1 {
             }
         }
         Ok(())
+    }
+
+    fn collinear_overlap_incidence(&self) -> Option<f64> {
+        if !self.trace.level.allows(TraceStageV1::Noding)
+            || self.stage_truncated[TraceStageV1::Noding.index()]
+            || self.total_truncated
+        {
+            return None;
+        }
+        let (candidate_count, collinear_count) = self
+            .trace
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.kind.as_str(),
+                    "floating_candidate_pair" | "uniform_grid_candidate_pair"
+                )
+            })
+            .fold(
+                (0usize, 0usize),
+                |(candidate_count, collinear_count), event| {
+                    (
+                        candidate_count.saturating_add(1),
+                        collinear_count.saturating_add(usize::from(
+                            event.payload["witness"]["kind"] == "collinear",
+                        )),
+                    )
+                },
+            );
+        Some(ratio(collinear_count, candidate_count))
     }
 
     pub(crate) fn record_hot_pixels(
@@ -1447,6 +1522,78 @@ impl TraceRecorderV1 {
     }
 }
 
+fn ratio(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
+    }
+}
+
+fn workload_descriptor(
+    lines: &[Line3D],
+    source_line_strings: &[SourceLineString],
+    grid_size: f64,
+) -> crate::Result<WorkloadDescriptorV1> {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for line in lines {
+        min_x = min_x.min(line.start.x).min(line.end.x);
+        min_y = min_y.min(line.start.y).min(line.end.y);
+        max_x = max_x.max(line.start.x).max(line.end.x);
+        max_y = max_y.max(line.start.y).max(line.end.y);
+    }
+
+    let envelope_min = if lines.is_empty() {
+        None
+    } else {
+        Some(coordinate_fingerprint(Coord3D::new(min_x, min_y, 0.0))?)
+    };
+    let envelope_max = if lines.is_empty() {
+        None
+    } else {
+        Some(coordinate_fingerprint(Coord3D::new(max_x, max_y, 0.0))?)
+    };
+    let coordinate_span_x = float_bits(if lines.is_empty() { 0.0 } else { max_x - min_x })?;
+    let coordinate_span_y = float_bits(if lines.is_empty() { 0.0 } else { max_y - min_y })?;
+    let chain_segment_total = source_line_strings
+        .iter()
+        .try_fold(0usize, |total, chain| {
+            total.checked_add(chain.segment_count).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "source line-string segment count overflow".to_string(),
+                }
+            })
+        })?;
+    let max_chain_length = source_line_strings
+        .iter()
+        .map(|chain| chain.segment_count)
+        .max()
+        .unwrap_or(0);
+
+    Ok(WorkloadDescriptorV1 {
+        segment_count: lines.len(),
+        line_string_count: source_line_strings.len(),
+        average_chain_length: ratio(chain_segment_total, source_line_strings.len()),
+        max_chain_length,
+        envelope_min,
+        envelope_max,
+        coordinate_span_x,
+        coordinate_span_y,
+        grid_scale: float_bits(grid_size)?,
+        grid_cell_count: 0,
+        grid_cell_entries: 0,
+        average_grid_cell_occupancy: 0.0,
+        candidate_pairs: 0,
+        candidate_density: 0.0,
+        split_events: 0,
+        split_density: 0.0,
+        collinear_overlap_incidence: None,
+    })
+}
+
 fn tile_boundary_side_name(side: crate::tiling::TileBoundarySide) -> &'static str {
     match side {
         crate::tiling::TileBoundarySide::MinX => "min_x",
@@ -1850,6 +1997,19 @@ mod tests {
             summary.payload["diagnostics"]["noding_work_stats"]["candidate_pairs"],
             1
         );
+        let workload = &summary.payload["workload_descriptor"];
+        assert_eq!(workload["segment_count"], 2);
+        assert_eq!(workload["line_string_count"], 2);
+        assert_eq!(workload["average_chain_length"], json!(1.0));
+        assert_eq!(workload["max_chain_length"], 1);
+        assert_eq!(workload["envelope_min"]["x"], "0x0000000000000000");
+        assert_eq!(workload["envelope_max"]["x"], "0x4000000000000000");
+        assert_eq!(workload["coordinate_span_x"], "0x4000000000000000");
+        assert_eq!(workload["candidate_pairs"], 1);
+        assert_eq!(workload["candidate_density"], json!(1.0));
+        assert_eq!(workload["split_events"], 2);
+        assert_eq!(workload["split_density"], json!(2.0));
+        assert!(workload["collinear_overlap_incidence"].is_null());
         assert!(summary.payload["diagnostics"]["phase_times"].is_object());
         assert_eq!(
             summary.payload["trace_budget"]["total"]["limit"],
