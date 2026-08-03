@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-arrow"
-version = "0.76.2"
+version = "1.0.0"
 dependencies = [
  "arrow",
  "dhat",
@@ -1065,7 +1065,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-core"
-version = "0.76.2"
+version = "1.0.0"
 dependencies = [
  "approx",
  "clap",
@@ -1098,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-flatgeobuf"
-version = "0.76.2"
+version = "1.0.0"
 dependencies = [
  "flatgeobuf",
  "geo",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-python"
-version = "0.76.2"
+version = "1.0.0"
 dependencies = [
  "geo-polygonize-core",
  "numpy",
@@ -1121,7 +1121,7 @@ dependencies = [
 
 [[package]]
 name = "geo-polygonize-wasm"
-version = "0.76.2"
+version = "1.0.0"
 dependencies = [
  "arrow",
  "arrow-ipc",
