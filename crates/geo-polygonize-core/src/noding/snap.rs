@@ -1211,7 +1211,7 @@ mod tests {
         PolygonizeError, PolygonizerOptions, ProvenanceOptions, TopologyFingerprintV1, ZOptions,
         ZPolicy,
     };
-    use rand::Rng;
+    use rand::{Rng, SeedableRng};
     use std::collections::BTreeMap;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
@@ -1293,7 +1293,7 @@ mod tests {
 
     #[test]
     fn test_grid_vs_simd_equivalence() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0x6e6f6469_6e675f76);
         let mut lines = Vec::new();
 
         // Generate 100 random lines in a 100x100 grid
