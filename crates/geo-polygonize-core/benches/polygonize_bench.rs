@@ -312,6 +312,7 @@ criterion_group!(
 
 // --- KERNEL BENCHES (Split finding, containment, hashing, grid build) ---
 use geo_polygonize_core::noding::grid::UniformGrid;
+use geo_polygonize_core::noding::sweep::enumerate_intersections;
 use geo_polygonize_core::Line3D;
 
 fn make_random_lines(count: usize) -> Vec<Line3D> {
@@ -403,6 +404,9 @@ fn bench_noding_workloads(c: &mut Criterion) {
 
     for (workload, lines) in make_noding_workloads() {
         group.throughput(Throughput::Elements(lines.len() as u64));
+        group.bench_with_input(BenchmarkId::new(workload, "sweep"), &lines, |b, lines| {
+            b.iter(|| criterion::black_box(enumerate_intersections(criterion::black_box(lines))));
+        });
         for (strategy_name, strategy) in [
             ("auto", NodingStrategy::Auto),
             ("grid", NodingStrategy::Grid),

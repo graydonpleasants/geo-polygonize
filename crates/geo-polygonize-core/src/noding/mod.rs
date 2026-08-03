@@ -7,4 +7,5 @@ pub(crate) struct CandidatePair {
 pub mod grid;
 pub mod hot_pixel;
 pub mod snap;
+pub mod sweep;
 pub mod validate;
