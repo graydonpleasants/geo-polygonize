@@ -14,6 +14,25 @@ pub enum PartitionBorderSide {
     MaxY,
 }
 
+impl PartitionBorderSide {
+    fn coordinate_index(self) -> usize {
+        match self {
+            Self::MinX | Self::MaxX => 0,
+            Self::MinY | Self::MaxY => 1,
+        }
+    }
+
+    fn is_complementary_to(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::MinX, Self::MaxX)
+                | (Self::MaxX, Self::MinX)
+                | (Self::MinY, Self::MaxY)
+                | (Self::MaxY, Self::MinY)
+        )
+    }
+}
+
 /// Exact 2D identity of a node on a partition border.
 ///
 /// Z is deliberately excluded from the key. Adjacent partitions must match
@@ -140,6 +159,80 @@ impl PartitionBorderHalfEdge {
     }
 }
 
+/// Declared shared border between two neighboring partitions.
+///
+/// The exact border coordinate is part of the relationship, so geometrically
+/// coincident linework cannot match without a shared partition boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PartitionBorderAdjacency {
+    first_partition_id: usize,
+    first_side: PartitionBorderSide,
+    second_partition_id: usize,
+    second_side: PartitionBorderSide,
+    coordinate_bits: u64,
+}
+
+impl PartitionBorderAdjacency {
+    pub fn new(
+        first_partition_id: usize,
+        first_side: PartitionBorderSide,
+        second_partition_id: usize,
+        second_side: PartitionBorderSide,
+        coordinate: f64,
+    ) -> crate::Result<Self> {
+        if first_partition_id == second_partition_id || !first_side.is_complementary_to(second_side)
+        {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "partition border adjacency must join distinct complementary sides"
+                    .to_string(),
+            });
+        }
+        let (first_partition_id, first_side, second_partition_id, second_side) =
+            if first_partition_id < second_partition_id {
+                (
+                    first_partition_id,
+                    first_side,
+                    second_partition_id,
+                    second_side,
+                )
+            } else {
+                (
+                    second_partition_id,
+                    second_side,
+                    first_partition_id,
+                    first_side,
+                )
+            };
+        Ok(Self {
+            first_partition_id,
+            first_side,
+            second_partition_id,
+            second_side,
+            coordinate_bits: canonical_coordinate_bits(coordinate),
+        })
+    }
+
+    fn matches(self, first: &PartitionBorderHalfEdge, second: &PartitionBorderHalfEdge) -> bool {
+        self.matches_observation(first, self.first_partition_id, self.first_side)
+            && self.matches_observation(second, self.second_partition_id, self.second_side)
+            || self.matches_observation(first, self.second_partition_id, self.second_side)
+                && self.matches_observation(second, self.first_partition_id, self.first_side)
+    }
+
+    fn matches_observation(
+        self,
+        observation: &PartitionBorderHalfEdge,
+        partition_id: usize,
+        side: PartitionBorderSide,
+    ) -> bool {
+        let coordinate_index = side.coordinate_index();
+        observation.partition_id == partition_id
+            && observation.side == side
+            && observation.from.xy_bits()[coordinate_index] == self.coordinate_bits
+            && observation.to.xy_bits()[coordinate_index] == self.coordinate_bits
+    }
+}
+
 /// Stable identity of one local directed border observation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PartitionBorderObservationId {
@@ -188,6 +281,7 @@ pub struct PartitionBorderTwinPayload {
 pub struct PartitionBorderGraph {
     nodes: BTreeMap<PartitionBorderNodeKey, BTreeSet<u64>>,
     observations: BTreeMap<PartitionBorderObservationId, PartitionBorderHalfEdge>,
+    adjacencies: BTreeSet<PartitionBorderAdjacency>,
     edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
 }
 
@@ -223,6 +317,10 @@ impl PartitionBorderGraph {
         Ok(())
     }
 
+    pub fn declare_adjacency(&mut self, adjacency: PartitionBorderAdjacency) {
+        self.adjacencies.insert(adjacency);
+    }
+
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -232,8 +330,8 @@ impl PartitionBorderGraph {
     }
 
     /// Matches only exactly-two-observation buckets with opposite directions
-    /// from distinct partitions. Ambiguous or same-partition buckets remain
-    /// unmatched for a later reconciliation policy.
+    /// on one declared partition border. Ambiguous, same-partition, or
+    /// unrelated-partition buckets remain unmatched for later reconciliation.
     pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
         self.edges
             .iter()
@@ -241,7 +339,13 @@ impl PartitionBorderGraph {
                 let mut observations = observations.iter();
                 let first = observations.next()?;
                 let second = observations.next()?;
-                if observations.next().is_some() || first.partition_id == second.partition_id {
+                if observations.next().is_some()
+                    || first.partition_id == second.partition_id
+                    || !self
+                        .adjacencies
+                        .iter()
+                        .any(|adjacency| adjacency.matches(first, second))
+                {
                     return None;
                 }
                 let (start, end) = edge_key.endpoints();
@@ -494,18 +598,28 @@ mod tests {
     }
 
     #[test]
-    fn twin_matching_requires_two_opposite_partition_observations() {
+    fn twin_matching_requires_a_declared_adjacent_partition_border() {
         let start = coord(0.0, 0.0, 1.0);
         let end = coord(2.0, 0.0, 2.0);
         let forward =
-            PartitionBorderHalfEdge::new(1, 7, Some(3), PartitionBorderSide::MaxX, start, end, [4])
+            PartitionBorderHalfEdge::new(1, 7, Some(3), PartitionBorderSide::MinY, start, end, [4])
                 .unwrap();
         let reverse =
-            PartitionBorderHalfEdge::new(2, 9, Some(5), PartitionBorderSide::MinX, end, start, [8])
+            PartitionBorderHalfEdge::new(2, 9, Some(5), PartitionBorderSide::MaxY, end, start, [8])
                 .unwrap();
         let key = forward.edge_key;
 
         let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
         graph.insert(reverse).unwrap();
         graph.insert(forward).unwrap();
 
@@ -526,12 +640,40 @@ mod tests {
     }
 
     #[test]
+    fn twin_matching_rejects_unrelated_coincident_partition_borders() {
+        let start = coord(0.0, 0.0, 1.0);
+        let end = coord(2.0, 0.0, 2.0);
+        let forward =
+            PartitionBorderHalfEdge::new(3, 7, Some(3), PartitionBorderSide::MinY, start, end, [4])
+                .unwrap();
+        let reverse =
+            PartitionBorderHalfEdge::new(4, 9, Some(5), PartitionBorderSide::MaxY, end, start, [8])
+                .unwrap();
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
+
+        assert!(graph.twin_pairs().is_empty());
+    }
+
+    #[test]
     fn twin_payload_reconciliation_unions_sources_and_retains_z_conflicts() {
         let forward = PartitionBorderHalfEdge::new(
             1,
             7,
             Some(3),
-            PartitionBorderSide::MaxX,
+            PartitionBorderSide::MinY,
             coord(-0.0, 0.0, 1.0),
             coord(2.0, 0.0, 2.0),
             [4, 2, 4],
@@ -541,7 +683,7 @@ mod tests {
             2,
             9,
             Some(5),
-            PartitionBorderSide::MinX,
+            PartitionBorderSide::MaxY,
             coord(2.0, 0.0, 2.0),
             coord(0.0, 0.0, -0.0),
             [8, 4],
@@ -554,6 +696,16 @@ mod tests {
         };
 
         let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
         graph.insert(reverse).unwrap();
         graph.insert(forward).unwrap();
 
