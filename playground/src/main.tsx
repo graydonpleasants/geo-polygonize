@@ -591,6 +591,7 @@ function App() {
                 fullWidth
                 multiline
                 minRows={6}
+                maxRows={10}
                 label="Paste GeoJSON"
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}

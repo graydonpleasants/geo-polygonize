@@ -12,7 +12,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Playground', link: '/playground/' },
+      { text: 'Playground', link: 'https://graydonpleasants.github.io/geo-polygonize/playground/' },
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Reference', link: '/reference/' },
       { text: 'Examples', link: '/examples/' }
