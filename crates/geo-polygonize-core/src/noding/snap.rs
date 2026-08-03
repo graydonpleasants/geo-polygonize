@@ -4,7 +4,7 @@ use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::grid::{
     UniformGrid, UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
 };
-use crate::noding::CandidatePair;
+use crate::noding::{CandidateIntersectionTrace, CandidatePair, ExactCandidate};
 use crate::options::{ExecutionPolicy, SnapStrategy, ZPolicy};
 use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Coord3D, Line3D};
@@ -82,19 +82,13 @@ pub enum NodingStrategy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum FloatingIntersectionTrace {
-    Point(Coord3D),
-    Collinear(Coord3D, Coord3D),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct FloatingCandidateTrace {
     pub(crate) iteration_index: usize,
     pub(crate) first_segment: usize,
     pub(crate) second_segment: usize,
     pub(crate) first_source_id: u32,
     pub(crate) second_source_id: u32,
-    pub(crate) witness: Option<FloatingIntersectionTrace>,
+    pub(crate) witness: Option<CandidateIntersectionTrace>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -974,7 +968,7 @@ impl SnapNoder {
                             &soa,
                             None,
                             |candidate| {
-                                events.extend(self.process_candidate_pair(lines, candidate, None));
+                                self.process_candidate_pair(lines, candidate, None, &mut events);
                                 Ok(())
                             },
                         )
@@ -993,7 +987,7 @@ impl SnapNoder {
                         &soa,
                         None,
                         |candidate| {
-                            splits.extend(self.process_candidate_pair(lines, candidate, None));
+                            self.process_candidate_pair(lines, candidate, None, &mut splits);
                             Ok(())
                         },
                     )
@@ -1008,7 +1002,7 @@ impl SnapNoder {
             let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
                 self.visit_candidate_pairs_simd(query_line, i, lines, &soa, None, |candidate| {
-                    splits.extend(self.process_candidate_pair(lines, candidate, None));
+                    self.process_candidate_pair(lines, candidate, None, &mut splits);
                     Ok(())
                 })
                 .expect("unlimited noding cannot fail");
@@ -1034,11 +1028,12 @@ impl SnapNoder {
                 &soa,
                 Some(tracker),
                 |candidate| {
-                    splits.extend(self.process_candidate_pair(
+                    self.process_candidate_pair(
                         lines,
                         candidate,
                         trace_candidates.as_deref_mut(),
-                    ));
+                        &mut splits,
+                    );
                     Ok(())
                 },
             )?;
@@ -1154,47 +1149,37 @@ impl SnapNoder {
         lines: &[Line3D],
         candidate: CandidatePair,
         trace_candidates: Option<&mut TraceCapture<'_, FloatingCandidateTrace>>,
-    ) -> Vec<(usize, Coord3D)> {
-        let first = lines[candidate.first];
-        let second = lines[candidate.second];
-        let intersection = line_intersection(first.to_line_2d(), second.to_line_2d());
+        events: &mut Vec<(usize, Coord3D)>,
+    ) {
+        let exact = ExactCandidate::evaluate(lines, candidate);
         if let Some(trace_candidates) = trace_candidates {
-            let witness = intersection.map(|intersection| match intersection {
-                LineIntersection::SinglePoint { intersection, .. } => {
-                    FloatingIntersectionTrace::Point(Coord3D::new(
-                        intersection.x,
-                        intersection.y,
-                        0.0,
-                    ))
-                }
-                LineIntersection::Collinear { intersection } => {
-                    FloatingIntersectionTrace::Collinear(
-                        Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
-                        Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
-                    )
-                }
-            });
             trace_candidates.push(FloatingCandidateTrace {
                 iteration_index: 0,
                 first_segment: candidate.first,
                 second_segment: candidate.second,
-                first_source_id: first.line_id,
-                second_source_id: second.line_id,
-                witness,
+                first_source_id: exact.first.line_id,
+                second_source_id: exact.second.line_id,
+                witness: exact.witness(),
             });
         }
-        let mut events = Vec::new();
-        if let Some(intersection) = intersection {
+        self.append_exact_candidate_splits(exact, events);
+    }
+
+    pub(crate) fn append_exact_candidate_splits(
+        &self,
+        exact: ExactCandidate,
+        events: &mut Vec<(usize, Coord3D)>,
+    ) {
+        if let Some(intersection) = exact.intersection {
             self.handle_intersection(
                 intersection,
-                candidate.first,
-                candidate.second,
-                first,
-                second,
+                exact.pair.first,
+                exact.pair.second,
+                exact.first,
+                exact.second,
                 |index, point| events.push((index, point)),
             );
         }
-        events
     }
 
     #[inline]
@@ -1389,13 +1374,48 @@ mod tests {
                 second: 1
             }]
         );
+        let mut splits = Vec::new();
+        noder.process_candidate_pair(&lines, candidates[0], None, &mut splits);
         assert_eq!(
-            noder.process_candidate_pair(&lines, candidates[0], None),
+            splits,
             vec![
                 (0, Coord3D::new(1.0, 1.0, 0.0)),
                 (1, Coord3D::new(1.0, 1.0, 0.0))
             ]
         );
+    }
+
+    #[test]
+    fn shared_exact_path_preserves_simd_grid_z_and_overlap_outcomes() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(4.0, 4.0, 40.0), 1),
+            Line3D::new(
+                Coord3D::new(0.0, 4.0, 10.0),
+                Coord3D::new(4.0, 0.0, 30.0),
+                2,
+            ),
+            Line3D::new(Coord3D::new(0.0, 6.0, 1.0), Coord3D::new(4.0, 6.0, 5.0), 3),
+            Line3D::new(Coord3D::new(1.0, 6.0, 7.0), Coord3D::new(3.0, 6.0, 9.0), 4),
+        ];
+        let noder = SnapNoder::new(0.0);
+        let mut grid_splits = UniformGrid::new(&lines).find_splits(&lines, &noder);
+        let mut simd_splits = noder.find_splits_simd(&lines);
+        let normalize = |splits: &mut Vec<(usize, Coord3D)>| {
+            splits.sort_unstable_by(|left, right| {
+                left.0
+                    .cmp(&right.0)
+                    .then(left.1.x.total_cmp(&right.1.x))
+                    .then(left.1.y.total_cmp(&right.1.y))
+                    .then(left.1.z.total_cmp(&right.1.z))
+            });
+            splits.dedup();
+        };
+        normalize(&mut grid_splits);
+        normalize(&mut simd_splits);
+
+        assert_eq!(grid_splits, simd_splits);
+        assert!(simd_splits.contains(&(0, Coord3D::new(2.0, 2.0, 20.0))));
+        assert!(simd_splits.contains(&(1, Coord3D::new(2.0, 2.0, 20.0))));
     }
 
     #[test]

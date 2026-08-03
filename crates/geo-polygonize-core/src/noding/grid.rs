@@ -1,11 +1,11 @@
 use crate::diagnostics::ExecutionWorkTracker;
-use crate::noding::snap::{FloatingIntersectionTrace, SnapNoder};
-use crate::noding::CandidatePair;
+use crate::noding::snap::SnapNoder;
+use crate::noding::{CandidateIntersectionTrace, CandidatePair, ExactCandidate};
 use crate::options::ExecutionPolicy;
 use crate::trace::{TraceCapture, TraceCaptureBudget};
 use crate::types::{Coord3D, Line3D};
 use crate::utils::soa::SoALines;
-use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
+use geo::algorithm::line_intersection::LineIntersection;
 use geo::Coord;
 use smallvec::SmallVec;
 use wide::f64x4;
@@ -240,7 +240,7 @@ pub(crate) struct UniformGridCandidateTrace {
     pub(crate) second_segment: usize,
     pub(crate) first_source_id: u32,
     pub(crate) second_source_id: u32,
-    pub(crate) witness: Option<FloatingIntersectionTrace>,
+    pub(crate) witness: Option<CandidateIntersectionTrace>,
     pub(crate) owned_by_cell: Option<bool>,
 }
 
@@ -740,19 +740,9 @@ impl UniformGrid {
         snap_noder: &SnapNoder,
         iteration_index: usize,
         trace_candidates: Option<&mut TraceCapture<'_, UniformGridCandidateTrace>>,
-    ) -> Vec<(usize, Coord3D)> {
-        let first = lines[candidate.first];
-        let second = lines[candidate.second];
-        let intersection = line_intersection(first.to_line_2d(), second.to_line_2d());
-        let witness = intersection.map(|intersection| match intersection {
-            LineIntersection::SinglePoint { intersection, .. } => {
-                FloatingIntersectionTrace::Point(Coord3D::new(intersection.x, intersection.y, 0.0))
-            }
-            LineIntersection::Collinear { intersection } => FloatingIntersectionTrace::Collinear(
-                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
-                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
-            ),
-        });
+        events: &mut Vec<(usize, Coord3D)>,
+    ) {
+        let exact = ExactCandidate::evaluate(lines, candidate);
         if let Some(trace_candidates) = trace_candidates {
             trace_candidates.push(UniformGridCandidateTrace {
                 iteration_index,
@@ -761,24 +751,13 @@ impl UniformGrid {
                 column: None,
                 first_segment: candidate.first,
                 second_segment: candidate.second,
-                first_source_id: first.line_id,
-                second_source_id: second.line_id,
-                witness,
+                first_source_id: exact.first.line_id,
+                second_source_id: exact.second.line_id,
+                witness: exact.witness(),
                 owned_by_cell: None,
             });
         }
-        let mut splits = Vec::new();
-        if let Some(intersection) = intersection {
-            snap_noder.handle_intersection(
-                intersection,
-                candidate.first,
-                candidate.second,
-                first,
-                second,
-                |idx, point| splits.push((idx, point)),
-            );
-        }
-        splits
+        snap_noder.append_exact_candidate_splits(exact, events);
     }
 
     fn process_global_lines(
@@ -791,7 +770,7 @@ impl UniformGrid {
         let process_one_global = |g_idx: usize| -> Vec<(usize, Coord3D)> {
             let mut events = Vec::new();
             self.visit_global_candidates_for_line(g_idx, lines, soa, None, |candidate| {
-                events.extend(self.process_global_candidate(candidate, lines, snap_noder, 0, None));
+                self.process_global_candidate(candidate, lines, snap_noder, 0, None, &mut events);
                 Ok(())
             })
             .expect("unlimited noding cannot fail");
@@ -837,13 +816,14 @@ impl UniformGrid {
                 &soa,
                 Some(tracker),
                 |candidate| {
-                    events.extend(self.process_global_candidate(
+                    self.process_global_candidate(
                         candidate,
                         lines,
                         snap_noder,
                         iteration_index,
                         trace_candidates.as_deref_mut(),
-                    ));
+                        &mut events,
+                    );
                     Ok(())
                 },
             )?;
@@ -863,12 +843,6 @@ impl UniformGrid {
         cell_max_y: f64,
         overlap: geo::Line<f64>,
         snap_noder: &SnapNoder,
-        res: LineIntersection<f64>,
-        idx1: usize,
-        idx2: usize,
-        l1: Line3D,
-        l2: Line3D,
-        splits: &mut Vec<(usize, Coord3D)>,
     ) -> bool {
         // Collinear is rare. Just process start/end and let HashMap dedup later.
         // SnapNoder::snap expects Coord3D. Overlap has 2D coords.
@@ -879,14 +853,7 @@ impl UniformGrid {
         // Simplified ownership: Check if p1 is in cell
         let p1_in =
             p1.x >= cell_min_x && p1.x < cell_max_x && p1.y >= cell_min_y && p1.y < cell_max_y;
-        if p1_in || (c == 0 && r == 0) {
-            snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
-                splits.push((idx, pt));
-            });
-            true
-        } else {
-            false
-        }
+        p1_in || (c == 0 && r == 0)
     }
 
     // Broad phase: visit AABB-overlapping pairs that share a grid cell.
@@ -938,22 +905,9 @@ impl UniformGrid {
         let cell_min_y = self.bounds_min.y + r as f64 * self.cell_size;
         let cell_max_x = cell_min_x + self.cell_size;
         let cell_max_y = cell_min_y + self.cell_size;
-        let idx1 = candidate.first;
-        let idx2 = candidate.second;
-        let l1 = lines[idx1];
-        let l2 = lines[idx2];
-        let intersection = line_intersection(l1.to_line_2d(), l2.to_line_2d());
-        let witness = intersection.map(|intersection| match intersection {
-            LineIntersection::SinglePoint { intersection, .. } => {
-                FloatingIntersectionTrace::Point(Coord3D::new(intersection.x, intersection.y, 0.0))
-            }
-            LineIntersection::Collinear { intersection } => FloatingIntersectionTrace::Collinear(
-                Coord3D::new(intersection.start.x, intersection.start.y, 0.0),
-                Coord3D::new(intersection.end.x, intersection.end.y, 0.0),
-            ),
-        });
+        let exact = ExactCandidate::evaluate(lines, candidate);
         let mut owned_by_cell = false;
-        if let Some(res) = intersection {
+        if let Some(res) = exact.intersection {
             match res {
                 LineIntersection::SinglePoint {
                     intersection: pt, ..
@@ -966,9 +920,6 @@ impl UniformGrid {
                         && (pt.y < cell_max_y || (r == self.rows - 1 && pt.y <= cell_max_y));
                     if is_in_x && is_in_y {
                         owned_by_cell = true;
-                        snap_noder.handle_intersection(res, idx1, idx2, l1, l2, |idx, pt| {
-                            splits.push((idx, pt));
-                        });
                     }
                 }
                 LineIntersection::Collinear {
@@ -976,7 +927,6 @@ impl UniformGrid {
                 } => {
                     owned_by_cell = self.handle_collinear(
                         c, r, cell_min_x, cell_max_x, cell_min_y, cell_max_y, overlap, snap_noder,
-                        res, idx1, idx2, l1, l2, splits,
                     );
                 }
             }
@@ -987,13 +937,16 @@ impl UniformGrid {
                 scan: "cell",
                 row: Some(r),
                 column: Some(c),
-                first_segment: idx1,
-                second_segment: idx2,
-                first_source_id: l1.line_id,
-                second_source_id: l2.line_id,
-                witness,
+                first_segment: exact.pair.first,
+                second_segment: exact.pair.second,
+                first_source_id: exact.first.line_id,
+                second_source_id: exact.second.line_id,
+                witness: exact.witness(),
                 owned_by_cell: Some(owned_by_cell),
             });
+        }
+        if owned_by_cell {
+            snap_noder.append_exact_candidate_splits(exact, splits);
         }
     }
 
@@ -1110,7 +1063,7 @@ mod tests {
         assert_eq!(candidates[0].second_source_id, 2);
         assert!(matches!(
             candidates[0].witness,
-            Some(FloatingIntersectionTrace::Point(point)) if point.x == 1.0 && point.y == 1.0
+            Some(CandidateIntersectionTrace::Point(point)) if point.x == 1.0 && point.y == 1.0
         ));
     }
 
