@@ -10,7 +10,7 @@ use crate::noding::hot_pixel::{
 };
 use crate::noding::snap::{FloatingCandidateTrace, FloatingSplitTrace};
 use crate::noding::CandidateIntersectionTrace;
-use crate::types::SourceLineString;
+use crate::types::{source_segment_identity, SourceChainKind, SourceLineString};
 use crate::{
     Coord3D, CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics,
     PolygonizerOptions, PolygonizerResult, ZPolicy,
@@ -692,33 +692,15 @@ impl TraceRecorderV1 {
         if !self.trace.level.allows(TraceStageV1::Noding) {
             return Ok(());
         }
-        let mut chain_index = 0;
         for (index, line) in lines.iter().enumerate() {
-            while let Some(chain) = source_line_strings.and_then(|chains| chains.get(chain_index)) {
-                let chain_end = chain.segment_start.checked_add(chain.segment_count).ok_or(
-                    crate::PolygonizeError::InternalInvariantViolation {
-                        reason: "source line-string range overflow".to_string(),
-                    },
-                )?;
-                if index < chain_end {
-                    break;
-                }
-                chain_index += 1;
-            }
             let chain_metadata = source_line_strings
-                .and_then(|chains| chains.get(chain_index))
-                .and_then(|chain| {
-                    chain
-                        .segment_start
-                        .checked_add(chain.segment_count)
-                        .filter(|&chain_end| chain.segment_start <= index && index < chain_end)
-                        .map(|_| {
-                            (
-                                Some(chain_index),
-                                Some(index - chain.segment_start),
-                                Some(chain.segment_count),
-                            )
-                        })
+                .and_then(|chains| source_segment_identity(chains, index))
+                .map(|identity| {
+                    (
+                        Some(identity.chain_index),
+                        Some(identity.segment_index),
+                        Some(identity.chain_segment_count),
+                    )
                 })
                 .unwrap_or((None, None, None));
             let payload = serde_json::to_value(InputSegmentTraceV1 {
@@ -1561,6 +1543,7 @@ fn workload_descriptor(
     let coordinate_span_y = float_bits(if lines.is_empty() { 0.0 } else { max_y - min_y })?;
     let chain_segment_total = source_line_strings
         .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
         .try_fold(0usize, |total, chain| {
             total.checked_add(chain.segment_count).ok_or_else(|| {
                 crate::PolygonizeError::InternalInvariantViolation {
@@ -1570,14 +1553,19 @@ fn workload_descriptor(
         })?;
     let max_chain_length = source_line_strings
         .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
         .map(|chain| chain.segment_count)
         .max()
         .unwrap_or(0);
+    let line_string_count = source_line_strings
+        .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
+        .count();
 
     Ok(WorkloadDescriptorV1 {
         segment_count: lines.len(),
-        line_string_count: source_line_strings.len(),
-        average_chain_length: ratio(chain_segment_total, source_line_strings.len()),
+        line_string_count,
+        average_chain_length: ratio(chain_segment_total, line_string_count),
         max_chain_length,
         envelope_min,
         envelope_max,
@@ -2000,9 +1988,9 @@ mod tests {
         );
         let workload = &summary.payload["workload_descriptor"];
         assert_eq!(workload["segment_count"], 2);
-        assert_eq!(workload["line_string_count"], 2);
-        assert_eq!(workload["average_chain_length"], json!(1.0));
-        assert_eq!(workload["max_chain_length"], 1);
+        assert_eq!(workload["line_string_count"], 0);
+        assert_eq!(workload["average_chain_length"], json!(0.0));
+        assert_eq!(workload["max_chain_length"], 0);
         assert_eq!(workload["envelope_min"]["x"], "0x0000000000000000");
         assert_eq!(workload["envelope_max"]["x"], "0x4000000000000000");
         assert_eq!(workload["coordinate_span_x"], "0x4000000000000000");
@@ -2043,6 +2031,41 @@ mod tests {
         .trace;
         assert!(truncated.truncated);
         assert!(truncated.events.is_empty());
+    }
+
+    #[test]
+    fn workload_descriptor_uses_only_original_chain_structure() {
+        let lines = [
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 7),
+            Line3D::new(Coord3D::new(1.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 7),
+            Line3D::new(Coord3D::new(3.0, 0.0, 0.0), Coord3D::new(4.0, 0.0, 0.0), 9),
+            Line3D::new(Coord3D::new(5.0, 0.0, 0.0), Coord3D::new(6.0, 0.0, 0.0), 0),
+        ];
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 2,
+                source_id: Some(7),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 2,
+                segment_count: 1,
+                source_id: Some(9),
+                kind: SourceChainKind::Synthetic,
+            },
+            SourceLineString {
+                segment_start: 3,
+                segment_count: 1,
+                source_id: None,
+                kind: SourceChainKind::Unavailable,
+            },
+        ];
+
+        let descriptor = workload_descriptor(&lines, &chains, 0.0).unwrap();
+        assert_eq!(descriptor.line_string_count, 1);
+        assert_eq!(descriptor.average_chain_length, 2.0);
+        assert_eq!(descriptor.max_chain_length, 2);
     }
 
     #[test]

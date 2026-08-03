@@ -14,7 +14,9 @@ use crate::trace::{
     TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
     TracedPolygonizerResultV1, ZReconciliationCandidateTraceV1, ZReconciliationTraceV1,
 };
-use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity, SourceLineString};
+use crate::types::{
+    Coord3D, Line3D, Polygon3D, RingGraphIdentity, SourceChainKind, SourceLineString,
+};
 use crate::utils::simd::SimdRing;
 use crate::utils::{canonical_coordinate_bits, z_order_index};
 use float_next_after::NextAfter;
@@ -183,6 +185,8 @@ fn collect_owned_lines(
         source_line_strings.push(SourceLineString {
             segment_start: collected.len(),
             segment_count: 1,
+            source_id: Some(line.line_id),
+            kind: SourceChainKind::Synthetic,
         });
         collected.push(line);
     }
@@ -238,6 +242,8 @@ where
             source_line_strings.push(SourceLineString {
                 segment_start,
                 segment_count: 0,
+                source_id: Some(line_id),
+                kind: SourceChainKind::Original,
             });
             continue;
         };
@@ -281,6 +287,8 @@ where
         source_line_strings.push(SourceLineString {
             segment_start,
             segment_count: segments.len() - segment_start,
+            source_id: Some(line_id),
+            kind: SourceChainKind::Original,
         });
     }
     let mut polygonizer =
@@ -2439,9 +2447,11 @@ fn source_line_strings_for_segments(lines: &[Line3D]) -> Vec<SourceLineString> {
     lines
         .iter()
         .enumerate()
-        .map(|(segment_start, _)| SourceLineString {
+        .map(|(segment_start, line)| SourceLineString {
             segment_start,
             segment_count: 1,
+            source_id: Some(line.line_id),
+            kind: SourceChainKind::Synthetic,
         })
         .collect()
 }
@@ -2457,6 +2467,8 @@ fn append_line_string(
     source_line_strings.push(SourceLineString {
         segment_start,
         segment_count: out.len() - segment_start,
+        source_id: None,
+        kind: SourceChainKind::Unavailable,
     });
 }
 
