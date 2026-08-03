@@ -695,12 +695,13 @@ mod tests {
         }
 
         let component_ids = graph.active_component_ids();
-        let ((dangles, cut_edges, maximal, rings), capture_truncated) = graph
+        let ((dangles, cut_edges, maximal, rings), _, capture_truncated) = graph
             .process_components_with_execution_policy(
                 true,
                 true,
                 &ExecutionPolicy::default(),
                 true,
+                None,
                 None,
             )
             .unwrap();

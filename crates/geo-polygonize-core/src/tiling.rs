@@ -1,4 +1,7 @@
 use crate::diagnostics::ExecutionWorkTracker;
+use crate::graph::partition_border::{
+    PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge, PartitionBorderSide,
+};
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
@@ -264,6 +267,11 @@ pub struct TiledPolygonizeResult {
     pub polygons: Vec<Polygon3D>,
     pub tile_reports: Vec<TileReport>,
     pub stitching_report: StitchingReport,
+    /// Canonical observations captured from physical tile arrangements.
+    ///
+    /// These are exported only; tiled output does not stitch or reconcile them.
+    #[doc(hidden)]
+    pub partition_border_graph: PartitionBorderGraph,
 }
 
 /// Coverage contract requested for experimental tiled polygonization.
@@ -320,7 +328,13 @@ pub struct TracedTiledPolygonizeResultV1 {
 }
 
 type TileOwnershipDecision = (usize, Option<Coord3D>, bool);
-type TileProcessResult = (Vec<Polygon3D>, TileReport, Vec<TileOwnershipDecision>, bool);
+type TileProcessResult = (
+    Vec<Polygon3D>,
+    TileReport,
+    Vec<TileOwnershipDecision>,
+    Vec<PartitionBorderHalfEdge>,
+    bool,
+);
 
 #[derive(Debug)]
 struct InputComponent {
@@ -821,6 +835,7 @@ impl<'a> TiledPolygonizer<'a> {
 
     fn process_tile(
         &self,
+        partition_id: usize,
         tile_bbox: Rect<f64>,
         input_components: &[InputComponent],
         buffer: f64,
@@ -905,11 +920,12 @@ impl<'a> TiledPolygonizer<'a> {
             retry_exhausted: false,
         };
         if relevant_lines == 0 {
-            return Ok((Vec::new(), report, Vec::new(), false));
+            return Ok((Vec::new(), report, Vec::new(), Vec::new(), false));
         }
 
         // Run polygonization
-        let result = local_poly.polygonize()?;
+        let (result, border_observations) =
+            local_poly.polygonize_with_partition_border_export(partition_id, tile_bbox)?;
         report.polygon_count = result.polygons.len();
         report.dangle_count = result.dangles.len();
         report.cut_edge_count = result.cut_edges.len();
@@ -985,6 +1001,7 @@ impl<'a> TiledPolygonizer<'a> {
             valid_polys,
             report,
             ownership_decisions,
+            border_observations,
             capture_budget.is_some_and(|budget| budget.truncated()),
         ))
     }
@@ -1409,19 +1426,25 @@ impl<'a> TiledPolygonizer<'a> {
 
     fn process_tile_with_retries(
         &self,
+        partition_id: usize,
         tile_bbox: Rect<f64>,
         input_components: &[InputComponent],
         capture_byte_limit: Option<usize>,
         retry_attempt_counter: &AtomicUsize,
     ) -> Result<TileProcessResult> {
         let mut buffer = self.buffer;
-        let mut result =
-            self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
+        let mut result = self.process_tile(
+            partition_id,
+            tile_bbox,
+            input_components,
+            buffer,
+            capture_byte_limit,
+        )?;
         let Some(policy) = self.retry_policy else {
             return Ok(result);
         };
         let mut retry_attempts = Vec::new();
-        let mut capture_truncated = result.3;
+        let mut capture_truncated = result.4;
         for attempt in 1..=policy.max_attempts {
             if !Self::report_has_retry_evidence(&result.1) || buffer >= policy.max_buffer {
                 break;
@@ -1448,8 +1471,14 @@ impl<'a> TiledPolygonizer<'a> {
                 observed_attempts,
             )?;
             buffer = (buffer + policy.buffer_increment).min(policy.max_buffer);
-            result = self.process_tile(tile_bbox, input_components, buffer, capture_byte_limit)?;
-            capture_truncated |= result.3;
+            result = self.process_tile(
+                partition_id,
+                tile_bbox,
+                input_components,
+                buffer,
+                capture_byte_limit,
+            )?;
+            capture_truncated |= result.4;
             let resolved = !Self::report_is_unresolved(&result.1);
             retry_attempts.push(TileRetryAttempt {
                 attempt,
@@ -1463,7 +1492,7 @@ impl<'a> TiledPolygonizer<'a> {
         }
         result.1.retry_exhausted = Self::report_has_retry_evidence(&result.1);
         result.1.retry_attempts = retry_attempts;
-        result.3 = capture_truncated;
+        result.4 = capture_truncated;
         Ok(result)
     }
 
@@ -1549,6 +1578,64 @@ impl<'a> TiledPolygonizer<'a> {
             unresolved_sides.push(TileBoundarySide::MaxY);
         }
         unresolved_sides
+    }
+
+    fn declare_partition_adjacencies(
+        &self,
+        graph: &mut PartitionBorderGraph,
+        reports: &[TileReport],
+    ) -> Result<()> {
+        for (first_partition_id, first) in reports.iter().enumerate() {
+            for (second_partition_id, second) in
+                reports.iter().enumerate().skip(first_partition_id + 1)
+            {
+                let first_bbox = first.tile_bbox;
+                let second_bbox = second.tile_bbox;
+                let y_overlap = first_bbox.min().y < second_bbox.max().y
+                    && second_bbox.min().y < first_bbox.max().y;
+                let x_overlap = first_bbox.min().x < second_bbox.max().x
+                    && second_bbox.min().x < first_bbox.max().x;
+                let adjacency = if y_overlap && first_bbox.max().x == second_bbox.min().x {
+                    Some(PartitionBorderAdjacency::new(
+                        first_partition_id,
+                        PartitionBorderSide::MaxX,
+                        second_partition_id,
+                        PartitionBorderSide::MinX,
+                        first_bbox.max().x,
+                    )?)
+                } else if y_overlap && second_bbox.max().x == first_bbox.min().x {
+                    Some(PartitionBorderAdjacency::new(
+                        first_partition_id,
+                        PartitionBorderSide::MinX,
+                        second_partition_id,
+                        PartitionBorderSide::MaxX,
+                        first_bbox.min().x,
+                    )?)
+                } else if x_overlap && first_bbox.max().y == second_bbox.min().y {
+                    Some(PartitionBorderAdjacency::new(
+                        first_partition_id,
+                        PartitionBorderSide::MaxY,
+                        second_partition_id,
+                        PartitionBorderSide::MinY,
+                        first_bbox.max().y,
+                    )?)
+                } else if x_overlap && second_bbox.max().y == first_bbox.min().y {
+                    Some(PartitionBorderAdjacency::new(
+                        first_partition_id,
+                        PartitionBorderSide::MinY,
+                        second_partition_id,
+                        PartitionBorderSide::MaxY,
+                        first_bbox.min().y,
+                    )?)
+                } else {
+                    None
+                };
+                if let Some(adjacency) = adjacency {
+                    graph.declare_adjacency(adjacency);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn generate_tiles(&self) -> Result<Vec<Rect<f64>>> {
@@ -1994,6 +2081,7 @@ impl<'a> TiledPolygonizer<'a> {
 
         let mut tile_polygons = Vec::with_capacity(tiles.len());
         let mut tile_reports = Vec::with_capacity(tiles.len());
+        let mut partition_border_graph = PartitionBorderGraph::default();
         if trace_ownership {
             for (tile_index, tile) in tiles.into_iter().enumerate() {
                 let capture_byte_limit = trace.as_ref().and_then(|trace| {
@@ -2001,8 +2089,9 @@ impl<'a> TiledPolygonizer<'a> {
                         .records_stage(TraceStageV1::Output)
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
-                let (polygons, report, ownership_decisions, capture_truncated) = self
-                    .process_tile_with_retries(
+                let (polygons, report, ownership_decisions, border_observations, capture_truncated) =
+                    self.process_tile_with_retries(
+                        tile_index,
                         tile,
                         input_components,
                         capture_byte_limit,
@@ -2059,6 +2148,9 @@ impl<'a> TiledPolygonizer<'a> {
                 if capture_truncated {
                     trace.mark_capture_truncated(TraceStageV1::Output);
                 }
+                for observation in border_observations {
+                    partition_border_graph.insert(observation)?;
+                }
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
             }
@@ -2075,8 +2167,10 @@ impl<'a> TiledPolygonizer<'a> {
                     pool.install(|| {
                         tiles
                             .into_par_iter()
-                            .map(|tile| {
+                            .enumerate()
+                            .map(|(tile_index, tile)| {
                                 self.process_tile_with_retries(
+                                    tile_index,
                                     tile,
                                     input_components,
                                     None,
@@ -2088,8 +2182,10 @@ impl<'a> TiledPolygonizer<'a> {
                 } else {
                     tiles
                         .into_par_iter()
-                        .map(|tile| {
+                        .enumerate()
+                        .map(|(tile_index, tile)| {
                             self.process_tile_with_retries(
+                                tile_index,
                                 tile,
                                 input_components,
                                 None,
@@ -2101,8 +2197,10 @@ impl<'a> TiledPolygonizer<'a> {
             #[cfg(not(feature = "parallel"))]
             let tile_results: Result<Vec<_>> = tiles
                 .into_iter()
-                .map(|tile| {
+                .enumerate()
+                .map(|(tile_index, tile)| {
                     self.process_tile_with_retries(
+                        tile_index,
                         tile,
                         input_components,
                         None,
@@ -2112,11 +2210,15 @@ impl<'a> TiledPolygonizer<'a> {
                 .collect();
 
             for result in tile_results? {
-                let (polygons, report, _, _) = result;
+                let (polygons, report, _, border_observations, _) = result;
+                for observation in border_observations {
+                    partition_border_graph.insert(observation)?;
+                }
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
             }
         }
+        self.declare_partition_adjacencies(&mut partition_border_graph, &tile_reports)?;
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
         let (component_fallback, component_fallback_decline_reason) =
@@ -2315,6 +2417,7 @@ impl<'a> TiledPolygonizer<'a> {
         let result = TiledPolygonizeResult {
             polygons,
             tile_reports,
+            partition_border_graph,
             stitching_report: StitchingReport {
                 merged_polygon_count,
                 duplicate_polygon_count: merged_polygon_count - output_polygon_count,

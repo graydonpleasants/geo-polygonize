@@ -5,7 +5,7 @@ use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{
     canonical_coordinate_bits, compare_angular, minimum_rotation_index, z_order_index,
 };
-use geo_types::{Coord, LineString};
+use geo_types::{Coord, LineString, Rect};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -136,11 +136,18 @@ struct ComponentPartition {
     edges: Vec<EdgeId>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct PartitionBorderExport {
+    pub partition_id: usize,
+    pub bbox: Rect<f64>,
+}
+
 #[derive(Default)]
 struct ComponentScratch {
     graph: PlanarGraph,
     global_node_ids: Vec<NodeId>,
     local_node_ids: HashMap<NodeId, NodeId>,
+    global_dir_edge_ids: Vec<[DirEdgeId; 2]>,
 }
 
 fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput) {
@@ -1997,9 +2004,12 @@ impl PlanarGraph {
         scratch.graph.clear();
         scratch.global_node_ids.clear();
         scratch.local_node_ids.clear();
+        scratch.global_dir_edge_ids.clear();
         scratch.global_node_ids.reserve(partition.nodes.len());
         scratch.local_node_ids.reserve(partition.nodes.len());
+        scratch.global_dir_edge_ids.reserve(partition.edges.len());
         let global_node_capacity = scratch.global_node_ids.capacity();
+        let global_dir_edge_capacity = scratch.global_dir_edge_ids.capacity();
         for (node_offset, global_node_id) in partition.nodes.into_iter().enumerate() {
             execution_policy.check_cancelled_every("graph_components", node_offset)?;
             let local_node_id = scratch.graph.add_node(Coord3D {
@@ -2043,7 +2053,12 @@ impl PlanarGraph {
                 scratch.graph.directed_edges[scratch.graph.edges[local_edge_id].dir_edges[0]].dst,
                 local_dst
             );
+            scratch.global_dir_edge_ids.push(edge.dir_edges);
         }
+        debug_assert_eq!(
+            scratch.global_dir_edge_ids.capacity(),
+            global_dir_edge_capacity
+        );
         Ok(())
     }
 
@@ -2054,12 +2069,14 @@ impl PlanarGraph {
         execution_policy: &ExecutionPolicy,
         noding_postcondition_validated: bool,
         capture_byte_limit: Option<usize>,
-    ) -> crate::Result<(ComponentOutput, bool)> {
+        border_export: Option<PartitionBorderExport>,
+    ) -> crate::Result<(ComponentOutput, Vec<PartitionBorderHalfEdge>, bool)> {
         let partitions = self.active_component_partitions(execution_policy)?;
         let mut merged = ComponentOutput::default();
+        let mut border_observations = Vec::new();
 
-        let capture_truncated = if let Some(capture_byte_limit) = capture_byte_limit {
-            let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
+        let capture_truncated = if border_export.is_some() || capture_byte_limit.is_some() {
+            let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
             let mut scratch = ComponentScratch::default();
             for (component_id, partition) in partitions.into_iter().enumerate() {
                 self.load_component_scratch(
@@ -2068,19 +2085,19 @@ impl PlanarGraph {
                     partition,
                     execution_policy,
                 )?;
-                append_component_output(
-                    &mut merged,
-                    scratch.process(
-                        component_id,
-                        include_graph_ids,
-                        include_source_ids,
-                        execution_policy,
-                        noding_postcondition_validated,
-                        Some(&mut capture_budget),
-                    )?,
-                );
+                let (output, observations) = scratch.process(
+                    component_id,
+                    include_graph_ids,
+                    include_source_ids,
+                    execution_policy,
+                    noding_postcondition_validated,
+                    capture_budget.as_mut(),
+                    border_export,
+                )?;
+                append_component_output(&mut merged, output);
+                border_observations.extend(observations);
             }
-            capture_budget.truncated()
+            capture_budget.is_some_and(|budget| budget.truncated())
         } else {
             #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
             let outputs: Vec<_> = partitions
@@ -2101,6 +2118,7 @@ impl PlanarGraph {
                             include_source_ids,
                             execution_policy,
                             noding_postcondition_validated,
+                            None,
                             None,
                         )
                     },
@@ -2124,18 +2142,21 @@ impl PlanarGraph {
                         execution_policy,
                         noding_postcondition_validated,
                         None,
+                        None,
                     ));
                 }
                 outputs
             };
 
             for output in outputs {
-                append_component_output(&mut merged, output?);
+                let (output, observations) = output?;
+                debug_assert!(observations.is_empty());
+                append_component_output(&mut merged, output);
             }
             false
         };
 
-        Ok((merged, capture_truncated))
+        Ok((merged, border_observations, capture_truncated))
     }
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
@@ -2410,6 +2431,7 @@ impl PlanarGraph {
 }
 
 impl ComponentScratch {
+    #[allow(clippy::too_many_arguments)]
     fn process(
         &mut self,
         component_id: usize,
@@ -2418,7 +2440,8 @@ impl ComponentScratch {
         execution_policy: &ExecutionPolicy,
         noding_postcondition_validated: bool,
         capture_budget: Option<&mut TraceCaptureBudget>,
-    ) -> crate::Result<ComponentOutput> {
+        border_export: Option<PartitionBorderExport>,
+    ) -> crate::Result<(ComponentOutput, Vec<PartitionBorderHalfEdge>)> {
         self.graph
             .sort_edges_with_execution_policy(execution_policy)?;
         let dangles = self
@@ -2451,9 +2474,76 @@ impl ComponentScratch {
                     )?,
             )
         };
+        let observations = border_export
+            .map(|export| self.partition_border_observations(component_id, export))
+            .unwrap_or_default();
         self.remap_rings(&mut maximal, component_id, include_graph_ids)?;
         self.remap_rings(&mut minimal, component_id, include_graph_ids)?;
-        Ok((dangles, cut_edges, maximal, minimal))
+        Ok(((dangles, cut_edges, maximal, minimal), observations))
+    }
+
+    fn partition_border_observations(
+        &self,
+        component_id: usize,
+        export: PartitionBorderExport,
+    ) -> Vec<PartitionBorderHalfEdge> {
+        (0..self.graph.directed_edges.len())
+            .filter_map(|local_dir_edge_id| {
+                let side = self.border_side(local_dir_edge_id, export.bbox)?;
+                let local_edge_id = self.graph.directed_edges[local_dir_edge_id].edge_idx;
+                let local_dir_edges = self.graph.edges[local_edge_id].dir_edges;
+                let direction = usize::from(local_dir_edges[1] == local_dir_edge_id);
+                let global_dir_edge_id = self.global_dir_edge_ids.get(local_edge_id)?[direction];
+                let mut observation = self.graph.partition_border_half_edge_for_component(
+                    export.partition_id,
+                    component_id,
+                    local_dir_edge_id,
+                    side,
+                )?;
+                observation.local_dir_edge_id = global_dir_edge_id;
+                Some(observation)
+            })
+            .collect()
+    }
+
+    fn border_side(&self, dir_edge_id: DirEdgeId, bbox: Rect<f64>) -> Option<PartitionBorderSide> {
+        let directed = self.graph.directed_edges.get(dir_edge_id)?;
+        let start = Coord {
+            x: *self.graph.nodes_x.get(directed.src)?,
+            y: *self.graph.nodes_y.get(directed.src)?,
+        };
+        let end = Coord {
+            x: *self.graph.nodes_x.get(directed.dst)?,
+            y: *self.graph.nodes_y.get(directed.dst)?,
+        };
+        let on_axis = |start: f64, end: f64, value: f64| {
+            canonical_coordinate_bits(start) == canonical_coordinate_bits(value)
+                && canonical_coordinate_bits(end) == canonical_coordinate_bits(value)
+        };
+        let within = |value: f64, min: f64, max: f64| value >= min && value <= max;
+        if on_axis(start.x, end.x, bbox.min().x)
+            && within(start.y, bbox.min().y, bbox.max().y)
+            && within(end.y, bbox.min().y, bbox.max().y)
+        {
+            Some(PartitionBorderSide::MinX)
+        } else if on_axis(start.x, end.x, bbox.max().x)
+            && within(start.y, bbox.min().y, bbox.max().y)
+            && within(end.y, bbox.min().y, bbox.max().y)
+        {
+            Some(PartitionBorderSide::MaxX)
+        } else if on_axis(start.y, end.y, bbox.min().y)
+            && within(start.x, bbox.min().x, bbox.max().x)
+            && within(end.x, bbox.min().x, bbox.max().x)
+        {
+            Some(PartitionBorderSide::MinY)
+        } else if on_axis(start.y, end.y, bbox.max().y)
+            && within(start.x, bbox.min().x, bbox.max().x)
+            && within(end.x, bbox.min().x, bbox.max().x)
+        {
+            Some(PartitionBorderSide::MaxY)
+        } else {
+            None
+        }
     }
 
     fn remap_rings(
@@ -3074,7 +3164,7 @@ mod arrangement_ring_invariant_tests {
         let node_capacity = scratch.graph.nodes_x.capacity();
         let edge_capacity = scratch.graph.edges.capacity();
         scratch
-            .process(0, false, false, &policy, true, None)
+            .process(0, false, false, &policy, true, None, None)
             .unwrap();
         graph
             .load_component_scratch(&mut scratch, 1, partitions.remove(0), &policy)
@@ -3144,8 +3234,8 @@ mod arrangement_ring_invariant_tests {
         }
 
         let policy = ExecutionPolicy::default();
-        let ((_, _, _, rings), _) = graph
-            .process_components_with_execution_policy(true, true, &policy, true, None)
+        let ((_, _, _, rings), _, _) = graph
+            .process_components_with_execution_policy(true, true, &policy, true, None, None)
             .unwrap();
         let refs = rings
             .iter()
