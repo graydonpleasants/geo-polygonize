@@ -14,13 +14,13 @@ use crate::trace::{
     TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1, TraceStageV1,
     TracedPolygonizerResultV1, ZReconciliationCandidateTraceV1, ZReconciliationTraceV1,
 };
-use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity};
+use crate::types::{Coord3D, Line3D, Polygon3D, RingGraphIdentity, SourceLineString};
 use crate::utils::simd::SimdRing;
 use crate::utils::{canonical_coordinate_bits, z_order_index};
 use float_next_after::NextAfter;
 use geo::Contains;
 use geo_traits::{CoordTrait, LineStringTrait};
-use geo_types::{Coord, Geometry, MultiPolygon, Polygon};
+use geo_types::{Coord, Geometry, LineString, MultiPolygon, Polygon};
 use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -45,6 +45,7 @@ pub struct Polygonizer {
     options: PolygonizerOptions,
     execution_policy: ExecutionPolicy,
     input_lines: Vec<Line3D>,
+    input_line_strings: Vec<SourceLineString>,
     trace: Option<TraceRecorderV1>,
 }
 
@@ -103,10 +104,11 @@ pub fn polygonize_with_execution_policy(
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
 ) -> Result<PolygonizerResult> {
-    let collected = collect_owned_lines(lines, execution_policy)?;
-    Polygonizer::with_options(options.clone())
-        .with_execution_policy(execution_policy.clone())
-        .polygonize_owned(collected)
+    let (collected, source_line_strings) = collect_owned_lines(lines, execution_policy)?;
+    let mut polygonizer =
+        Polygonizer::with_options(options.clone()).with_execution_policy(execution_policy.clone());
+    polygonizer.input_line_strings = source_line_strings;
+    polygonizer.polygonize_owned(collected)
 }
 
 /// Polygonize an owned stream while recording a bounded topology trace.
@@ -136,10 +138,11 @@ pub fn polygonize_with_trace_limits(
     level: TraceLevelV1,
     limits: TraceByteLimitsV1,
 ) -> Result<TracedPolygonizerResultV1> {
-    let collected = collect_owned_lines(lines, execution_policy)?;
+    let (collected, source_line_strings) = collect_owned_lines(lines, execution_policy)?;
     let mut runner = Polygonizer::with_options(options.clone())
         .with_execution_policy(execution_policy.clone())
         .with_trace(TraceRecorderV1::new_with_limits(Some(level), limits, options).unwrap());
+    runner.input_line_strings = source_line_strings;
     let result = runner.polygonize_owned(collected)?;
     Ok(TracedPolygonizerResultV1 {
         result,
@@ -150,9 +153,10 @@ pub fn polygonize_with_trace_limits(
 fn collect_owned_lines(
     lines: impl IntoIterator<Item = Line3D>,
     execution_policy: &ExecutionPolicy,
-) -> Result<Vec<Line3D>> {
+) -> Result<(Vec<Line3D>, Vec<SourceLineString>)> {
     execution_policy.check_cancelled("ingest")?;
     let mut collected = Vec::new();
+    let mut source_line_strings = Vec::new();
     for line in lines {
         let observed = collected.len().checked_add(1).ok_or_else(|| {
             PolygonizeError::InternalInvariantViolation {
@@ -176,9 +180,13 @@ fn collect_owned_lines(
             coordinates,
         )?;
         execution_policy.check_cancelled_every("ingest", observed)?;
+        source_line_strings.push(SourceLineString {
+            segment_start: collected.len(),
+            segment_count: 1,
+        });
         collected.push(line);
     }
-    Ok(collected)
+    Ok((collected, source_line_strings))
 }
 
 /// Polygonize borrowed or owned GeoRust line strings without first building [`Line3D`] values.
@@ -212,6 +220,7 @@ where
 {
     execution_policy.check_cancelled("ingest")?;
     let mut segments = Vec::new();
+    let mut source_line_strings = Vec::new();
     let mut coordinate_count: usize = 0;
     for (line_id, line_string) in line_strings.into_iter().enumerate() {
         execution_policy.check_cancelled_every("ingest", line_id)?;
@@ -223,8 +232,13 @@ where
         let line_id = u32::try_from(line_id).map_err(|_| PolygonizeError::InvalidGeometry {
             reason: "more than u32::MAX input line strings".to_string(),
         })?;
+        let segment_start = segments.len();
         let mut coordinates = line_string.coords();
         let Some(first) = coordinates.next() else {
+            source_line_strings.push(SourceLineString {
+                segment_start,
+                segment_count: 0,
+            });
             continue;
         };
         coordinate_count = coordinate_count.checked_add(1).ok_or_else(|| {
@@ -264,10 +278,15 @@ where
             segments.push(Line3D::new(previous, current, line_id));
             previous = current;
         }
+        source_line_strings.push(SourceLineString {
+            segment_start,
+            segment_count: segments.len() - segment_start,
+        });
     }
-    Polygonizer::with_options(options.clone())
-        .with_execution_policy(execution_policy.clone())
-        .polygonize_owned(segments)
+    let mut polygonizer =
+        Polygonizer::with_options(options.clone()).with_execution_policy(execution_policy.clone());
+    polygonizer.input_line_strings = source_line_strings;
+    polygonizer.polygonize_owned(segments)
 }
 
 /// Polygonize line segments and return only the GeoRust polygon output.
@@ -319,8 +338,10 @@ pub fn polygonize_with_workspace_and_execution_policy(
         options: options.clone(),
         execution_policy: execution_policy.clone(),
         input_lines: Vec::new(),
+        input_line_strings: Vec::new(),
         trace: None,
     };
+    runner.input_line_strings = source_line_strings_for_segments(lines);
     let result = runner.polygonize_owned(lines.to_vec());
     runner.graph.clear();
     workspace.graph = runner.graph;
@@ -335,6 +356,7 @@ impl Polygonizer {
             options: PolygonizerOptions::default(),
             execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
+            input_line_strings: Vec::new(),
             trace: None,
         }
     }
@@ -345,6 +367,7 @@ impl Polygonizer {
             options,
             execution_policy: ExecutionPolicy::default(),
             input_lines: Vec::new(),
+            input_line_strings: Vec::new(),
             trace: None,
         }
     }
@@ -376,16 +399,18 @@ impl Polygonizer {
 
     /// Adds a 2D geometry to the graph (Z=0).
     pub fn add_geometry(&mut self, geom: Geometry<f64>) {
-        extract_segments(&geom, &mut self.input_lines);
+        extract_segments(&geom, &mut self.input_lines, &mut self.input_line_strings);
     }
 
     /// Adds a 2D geometry to the graph (Z=0) from a reference.
     pub fn add_borrowed_geometry(&mut self, geom: &Geometry<f64>) {
-        extract_segments(geom, &mut self.input_lines);
+        extract_segments(geom, &mut self.input_lines, &mut self.input_line_strings);
     }
 
     /// Adds explicit 3D lines.
     pub fn add_lines(&mut self, lines: Vec<Line3D>) {
+        self.input_line_strings
+            .extend(source_line_strings_for_segments(&lines));
         self.input_lines.extend(lines);
     }
 
@@ -735,6 +760,9 @@ impl Polygonizer {
     fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
         self.options.validate()?;
         self.execution_policy.check_cancelled("ingest")?;
+        if self.input_line_strings.is_empty() && !input_lines.is_empty() {
+            self.input_line_strings = source_line_strings_for_segments(&input_lines);
+        }
         self.execution_policy.check(
             "input_segments",
             self.execution_policy.max_input_segments,
@@ -742,7 +770,7 @@ impl Polygonizer {
         )?;
         validate_lines(&input_lines, &self.execution_policy)?;
         if let Some(trace) = self.trace.as_mut() {
-            trace.record_input_segments(&input_lines)?;
+            trace.record_input_segments(&input_lines, &self.input_line_strings)?;
         }
 
         let return_diagnostics =
@@ -2403,44 +2431,59 @@ fn segments_overlap_with_length(
     overlap_len * overlap_len * a_len_sq > eps * eps
 }
 
-fn extract_segments(geom: &Geometry<f64>, out: &mut Vec<Line3D>) {
+fn source_line_strings_for_segments(lines: &[Line3D]) -> Vec<SourceLineString> {
+    lines
+        .iter()
+        .enumerate()
+        .map(|(segment_start, _)| SourceLineString {
+            segment_start,
+            segment_count: 1,
+        })
+        .collect()
+}
+
+fn append_line_string(
+    line_string: &LineString<f64>,
+    out: &mut Vec<Line3D>,
+    source_line_strings: &mut Vec<SourceLineString>,
+) {
+    let segment_start = out.len();
+    out.reserve(line_string.0.len().saturating_sub(1));
+    out.extend(line_string.lines().map(Line3D::from));
+    source_line_strings.push(SourceLineString {
+        segment_start,
+        segment_count: out.len() - segment_start,
+    });
+}
+
+fn extract_segments(
+    geom: &Geometry<f64>,
+    out: &mut Vec<Line3D>,
+    source_line_strings: &mut Vec<SourceLineString>,
+) {
     let mut stack = smallvec::SmallVec::<[&Geometry<f64>; 16]>::new();
     stack.push(geom);
     while let Some(current) = stack.pop() {
         match current {
-            Geometry::LineString(ls) => {
-                let len = ls.0.len().saturating_sub(1);
-                out.reserve(len);
-                out.extend(ls.lines().map(Line3D::from));
-            }
+            Geometry::LineString(ls) => append_line_string(ls, out, source_line_strings),
             Geometry::MultiLineString(mls) => {
                 for ls in &mls.0 {
-                    let len = ls.0.len().saturating_sub(1);
-                    out.reserve(len);
-                    out.extend(ls.lines().map(Line3D::from));
+                    append_line_string(ls, out, source_line_strings);
                 }
             }
             Geometry::Polygon(poly) => {
                 let ext = poly.exterior();
-                let len = ext.0.len().saturating_sub(1);
-                out.reserve(len);
-                out.extend(ext.lines().map(Line3D::from));
+                append_line_string(ext, out, source_line_strings);
                 for interior in poly.interiors() {
-                    let len = interior.0.len().saturating_sub(1);
-                    out.reserve(len);
-                    out.extend(interior.lines().map(Line3D::from));
+                    append_line_string(interior, out, source_line_strings);
                 }
             }
             Geometry::MultiPolygon(mpoly) => {
                 for poly in mpoly {
                     let ext = poly.exterior();
-                    let len = ext.0.len().saturating_sub(1);
-                    out.reserve(len);
-                    out.extend(ext.lines().map(Line3D::from));
+                    append_line_string(ext, out, source_line_strings);
                     for interior in poly.interiors() {
-                        let len = interior.0.len().saturating_sub(1);
-                        out.reserve(len);
-                        out.extend(interior.lines().map(Line3D::from));
+                        append_line_string(interior, out, source_line_strings);
                     }
                 }
             }

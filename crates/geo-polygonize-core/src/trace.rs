@@ -9,6 +9,7 @@ use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
 use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
+use crate::types::SourceLineString;
 use crate::{
     CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics, PolygonizerOptions,
     PolygonizerResult, ZPolicy,
@@ -88,6 +89,12 @@ pub struct InputSegmentTraceV1 {
     pub start: CoordinateFingerprintV1,
     pub end: CoordinateFingerprintV1,
     pub source_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_chain_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_segment_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_segment_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -611,8 +618,16 @@ impl TraceRecorderV1 {
         }
     }
 
-    pub(crate) fn record_input_segments(&mut self, lines: &[Line3D]) -> crate::Result<()> {
-        self.record_noding_segments("normalized_input_segment", lines)
+    pub(crate) fn record_input_segments(
+        &mut self,
+        lines: &[Line3D],
+        source_line_strings: &[SourceLineString],
+    ) -> crate::Result<()> {
+        self.record_noding_segments_with_chains(
+            "normalized_input_segment",
+            lines,
+            Some(source_line_strings),
+        )
     }
 
     pub(crate) fn record_noding_segments(
@@ -620,15 +635,55 @@ impl TraceRecorderV1 {
         kind: &'static str,
         lines: &[Line3D],
     ) -> crate::Result<()> {
+        self.record_noding_segments_with_chains(kind, lines, None)
+    }
+
+    fn record_noding_segments_with_chains(
+        &mut self,
+        kind: &'static str,
+        lines: &[Line3D],
+        source_line_strings: Option<&[SourceLineString]>,
+    ) -> crate::Result<()> {
         if !self.trace.level.allows(TraceStageV1::Noding) {
             return Ok(());
         }
+        let mut chain_index = 0;
         for (index, line) in lines.iter().enumerate() {
+            while let Some(chain) = source_line_strings.and_then(|chains| chains.get(chain_index)) {
+                let chain_end = chain.segment_start.checked_add(chain.segment_count).ok_or(
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "source line-string range overflow".to_string(),
+                    },
+                )?;
+                if index < chain_end {
+                    break;
+                }
+                chain_index += 1;
+            }
+            let chain_metadata = source_line_strings
+                .and_then(|chains| chains.get(chain_index))
+                .and_then(|chain| {
+                    chain
+                        .segment_start
+                        .checked_add(chain.segment_count)
+                        .filter(|&chain_end| chain.segment_start <= index && index < chain_end)
+                        .map(|_| {
+                            (
+                                Some(chain_index),
+                                Some(index - chain.segment_start),
+                                Some(chain.segment_count),
+                            )
+                        })
+                })
+                .unwrap_or((None, None, None));
             let payload = serde_json::to_value(InputSegmentTraceV1 {
                 index,
                 start: coordinate_fingerprint(line.start)?,
                 end: coordinate_fingerprint(line.end)?,
                 source_ids: vec![format!("0x{:08x}", line.line_id)],
+                source_chain_index: chain_metadata.0,
+                chain_segment_index: chain_metadata.1,
+                chain_segment_count: chain_metadata.2,
             })
             .expect("input trace event serializes");
             if !self.record(TraceStageV1::Noding, kind, payload) {
@@ -1443,6 +1498,7 @@ mod tests {
         polygonize, polygonize_with_trace, polygonize_with_trace_limits, Coord3D, ExecutionPolicy,
         TopologyFingerprintV1,
     };
+    use geo_types::{Geometry, LineString, MultiLineString};
     use serde_json::json;
 
     #[test]
@@ -1625,6 +1681,48 @@ mod tests {
         assert_eq!(
             TopologyFingerprintV1::try_from_result(&traced.result, &options).unwrap(),
             TopologyFingerprintV1::try_from_result(&expected, &options).unwrap()
+        );
+    }
+
+    #[test]
+    fn trace_retains_source_line_string_boundaries() {
+        let mut polygonizer = crate::Polygonizer::new();
+        polygonizer.add_geometry(Geometry::MultiLineString(MultiLineString(vec![
+            LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]),
+            LineString::from(vec![(2.0, 0.0), (2.0, 1.0)]),
+        ])));
+
+        let traced = polygonizer
+            .polygonize_with_trace(TraceLevelV1::Noding, usize::MAX)
+            .unwrap();
+        let input_events: Vec<_> = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "normalized_input_segment")
+            .collect();
+
+        assert_eq!(input_events.len(), 3);
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["source_chain_index"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0), Some(1)]
+        );
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["chain_segment_index"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(0)]
+        );
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["chain_segment_count"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(2), Some(1)]
         );
     }
 
