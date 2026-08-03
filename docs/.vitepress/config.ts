@@ -30,6 +30,7 @@ export default defineConfig({
           { text: 'WASM Integration', link: '/guide/wasm' },
           { text: 'Python Integration', link: '/guide/python' },
           { text: 'Benchmark methodology', link: '/guide/benchmark-methodology' },
+          { text: 'Production-scale corpus', link: '/guide/production-corpus' },
         ]
       },
       {

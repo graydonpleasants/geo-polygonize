@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "geofabrik-california-2026-08-02",
+      "description": "Geofabrik's dated OpenStreetMap California extract published on 2026-08-02.",
+      "metadata_url": "https://download.geofabrik.de/north-america/us/california.html",
+      "license": "Open Data Commons Open Database License (ODbL) v1.0",
+      "license_url": "https://www.openstreetmap.org/copyright",
+      "attribution": "OpenStreetMap contributors; distributed by Geofabrik GmbH.",
+      "artifact": {
+        "filename": "california-260802.osm.pbf",
+        "download_url": "https://download.geofabrik.de/north-america/us/california-260802.osm.pbf",
+        "byte_length": 1322385715,
+        "checksum": {
+          "algorithm": "md5",
+          "value": "5915ee72b206cc184e0940cde071a43a",
+          "publisher_url": "https://download.geofabrik.de/north-america/us/california-260802.osm.pbf.md5"
+        }
+      }
+    }
+  ],
+  "workloads": [
+    {
+      "id": "osm-california-highways-v1",
+      "source_id": "geofabrik-california-2026-08-02",
+      "description": "Production-scale OpenStreetMap highway linework source, registered before materialization.",
+      "status": "source-pinned",
+      "linework_selection": "D2 must retain OSM ways tagged highway=* as source linework and record the exact converter, version, options, and derived SHA-256 before any run.",
+      "minimum_source_bytes": 1322385715,
+      "permitted_profiles": ["floating", "certified-fixed"]
+    }
+  ]
+}
