@@ -2323,11 +2323,81 @@ mod arrangement_ring_invariant_tests {
         snapshot
     }
 
+    type FacePayloadSnapshot = (FaceId, Vec<[u64; 2]>, Vec<u32>, Vec<u64>);
+
+    fn explicit_face_payload_snapshot(graph: &PlanarGraph) -> Vec<FacePayloadSnapshot> {
+        let mut snapshot = Vec::new();
+        for face_id in 0..graph.face_count {
+            let start = graph
+                .directed_edges
+                .iter()
+                .position(|directed| directed.face_id == Some(face_id))
+                .unwrap();
+            let mut cycle = Vec::new();
+            let mut current = start;
+            loop {
+                cycle.push(current);
+                current = graph.directed_edges[graph.directed_edges[current].sym_idx]
+                    .next_idx
+                    .unwrap();
+                if current == start {
+                    break;
+                }
+            }
+
+            let raw_key: Vec<_> = cycle
+                .iter()
+                .map(|&directed_idx| {
+                    let node = graph.directed_edges[directed_idx].src;
+                    [
+                        canonical_coordinate_bits(graph.nodes_x[node]),
+                        canonical_coordinate_bits(graph.nodes_y[node]),
+                    ]
+                })
+                .collect();
+            let rotation = minimum_rotation_index(&raw_key);
+            let mut source_line_ids = Vec::new();
+            for &directed_idx in &cycle {
+                source_line_ids.extend_from_slice(
+                    &graph.edges[graph.directed_edges[directed_idx].edge_idx]
+                        .sources
+                        .line_ids,
+                );
+            }
+            source_line_ids.sort_unstable();
+            source_line_ids.dedup();
+            let z_bits = (0..=cycle.len())
+                .map(|offset| {
+                    let directed_idx = cycle[(rotation + offset) % cycle.len()];
+                    graph.nodes_z[graph.directed_edges[directed_idx].src].to_bits()
+                })
+                .collect();
+
+            snapshot.push((
+                face_id,
+                graph.face_cycle_key(&cycle),
+                source_line_ids,
+                z_bits,
+            ));
+        }
+        snapshot
+    }
+
     fn add_triangle(graph: &mut PlanarGraph, points: [Coord3D; 3], first_line_id: u32) {
         for offset in 0..3 {
             graph.add_line(Line3D::new(
                 points[offset],
                 points[(offset + 1) % 3],
+                first_line_id + offset as u32,
+            ));
+        }
+    }
+
+    fn add_square(graph: &mut PlanarGraph, points: [Coord3D; 4], first_line_id: u32) {
+        for offset in 0..4 {
+            graph.add_line(Line3D::new(
+                points[offset],
+                points[(offset + 1) % 4],
                 first_line_id + offset as u32,
             ));
         }
@@ -2532,6 +2602,61 @@ mod arrangement_ring_invariant_tests {
                     4.0f64.to_bits(),
                 ]
         }));
+    }
+
+    #[test]
+    fn explicit_face_walk_matches_extracted_ring_payloads() {
+        let mut graph = PlanarGraph::new();
+        add_square(
+            &mut graph,
+            [
+                Coord3D::new(0.0, 0.0, 1.0),
+                Coord3D::new(10.0, 0.0, 2.0),
+                Coord3D::new(10.0, 10.0, 3.0),
+                Coord3D::new(0.0, 10.0, 4.0),
+            ],
+            10,
+        );
+        add_square(
+            &mut graph,
+            [
+                Coord3D::new(2.0, 2.0, 5.0),
+                Coord3D::new(8.0, 2.0, 6.0),
+                Coord3D::new(8.0, 8.0, 7.0),
+                Coord3D::new(2.0, 8.0, 8.0),
+            ],
+            20,
+        );
+        graph.sort_edges();
+
+        let rings = graph.get_edge_rings_with_graph_ids(true, true);
+        let mut extracted = rings
+            .into_iter()
+            .map(|ring| {
+                let face_id = ring.face_id.unwrap();
+                let n = ring.coords.len() - 1;
+                let raw_key: Vec<_> = ring.coords[..n]
+                    .iter()
+                    .map(|coord| {
+                        [
+                            canonical_coordinate_bits(coord.x),
+                            canonical_coordinate_bits(coord.y),
+                        ]
+                    })
+                    .collect();
+                let rotation = minimum_rotation_index(&raw_key);
+                let mut key = raw_key;
+                key.rotate_left(rotation);
+                let z_bits = (0..=n)
+                    .map(|offset| ring.coords[(rotation + offset) % n].z.to_bits())
+                    .collect();
+                (face_id, key, ring.source_line_ids, z_bits)
+            })
+            .collect::<Vec<_>>();
+        extracted.sort_unstable_by_key(|(face_id, _, _, _)| *face_id);
+
+        assert_eq!(extracted, explicit_face_payload_snapshot(&graph));
+        assert_eq!(graph.unbounded_face_ids.len(), 2);
     }
 
     #[test]

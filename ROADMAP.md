@@ -564,6 +564,9 @@ default release hot path.
     their complete boundary source IDs and retained Z coordinates.
 - [ ] Compare the explicit face walk against the current ring extractor on the
   entire golden corpus before replacing anything.
+  - [x] Compare face IDs, canonical XY cycles, source sets, and Z payloads on
+    nested and disconnected components; the entire golden corpus gate remains
+    open.
 - [ ] Keep the arrangement private until overlay-quality invariants are proven.
 
 This creates a DCEL-like internal arrangement without committing the public API
