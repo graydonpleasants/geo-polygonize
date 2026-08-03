@@ -112,7 +112,46 @@ impl PartitionBorderHalfEdge {
     }
 }
 
-/// Deterministic partition-border observations ready for future twin matching.
+/// Stable identity of one local directed border observation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PartitionBorderObservationId {
+    pub partition_id: usize,
+    pub local_dir_edge_id: DirEdgeId,
+}
+
+impl PartitionBorderHalfEdge {
+    pub fn observation_id(&self) -> PartitionBorderObservationId {
+        PartitionBorderObservationId {
+            partition_id: self.partition_id,
+            local_dir_edge_id: self.local_dir_edge_id,
+        }
+    }
+}
+
+/// An unambiguous opposite-direction pair observed in two partitions.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PartitionBorderTwin {
+    pub edge_key: PartitionBorderEdgeKey,
+    /// Observation whose direction follows `edge_key.endpoints()`.
+    pub forward: PartitionBorderObservationId,
+    /// Observation whose direction reverses `edge_key.endpoints()`.
+    pub reverse: PartitionBorderObservationId,
+}
+
+/// Provenance and Z evidence merged from one unambiguous partition-border twin.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartitionBorderTwinPayload {
+    pub twin: PartitionBorderTwin,
+    pub source_line_ids: Vec<u32>,
+    /// Distinct Z candidates at `twin.edge_key.endpoints().0`, in bit order.
+    /// A length greater than one is an explicit conflict, not a hidden choice.
+    pub start_z_bits: Vec<u64>,
+    /// Distinct Z candidates at `twin.edge_key.endpoints().1`, in bit order.
+    /// A length greater than one is an explicit conflict, not a hidden choice.
+    pub end_z_bits: Vec<u64>,
+}
+
+/// Deterministic partition-border observations ready for twin reconciliation.
 ///
 /// The graph stores canonical undirected edge buckets while retaining each
 /// local directed observation. This makes reversal and insertion order
@@ -147,6 +186,83 @@ impl PartitionBorderGraph {
 
     pub fn edge_count(&self) -> usize {
         self.edges.len()
+    }
+
+    /// Matches only exactly-two-observation buckets with opposite directions
+    /// from distinct partitions. Ambiguous or same-partition buckets remain
+    /// unmatched for a later reconciliation policy.
+    pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
+        self.edges
+            .iter()
+            .filter_map(|(&edge_key, observations)| {
+                let mut observations = observations.iter();
+                let first = observations.next()?;
+                let second = observations.next()?;
+                if observations.next().is_some() || first.partition_id == second.partition_id {
+                    return None;
+                }
+                let (start, end) = edge_key.endpoints();
+                let first_is_forward = first.from == start && first.to == end;
+                let second_is_forward = second.from == start && second.to == end;
+                let first_is_reverse = first.from == end && first.to == start;
+                let second_is_reverse = second.from == end && second.to == start;
+                if first_is_forward && second_is_reverse {
+                    Some(PartitionBorderTwin {
+                        edge_key,
+                        forward: first.observation_id(),
+                        reverse: second.observation_id(),
+                    })
+                } else if second_is_forward && first_is_reverse {
+                    Some(PartitionBorderTwin {
+                        edge_key,
+                        forward: second.observation_id(),
+                        reverse: first.observation_id(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Merges source IDs and retains every distinct Z candidate for each
+    /// canonical endpoint. No Z conflict policy is applied here.
+    pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
+        self.twin_pairs()
+            .into_iter()
+            .filter_map(|twin| {
+                let observations = self.edges.get(&twin.edge_key)?;
+                let forward = observations
+                    .iter()
+                    .find(|observation| observation.observation_id() == twin.forward)?;
+                let reverse = observations
+                    .iter()
+                    .find(|observation| observation.observation_id() == twin.reverse)?;
+
+                let mut source_line_ids = forward
+                    .source_line_ids
+                    .iter()
+                    .chain(&reverse.source_line_ids)
+                    .copied()
+                    .collect::<Vec<_>>();
+                source_line_ids.sort_unstable();
+                source_line_ids.dedup();
+
+                let mut start_z_bits = vec![forward.from_z_bits, reverse.to_z_bits];
+                start_z_bits.sort_unstable();
+                start_z_bits.dedup();
+                let mut end_z_bits = vec![forward.to_z_bits, reverse.from_z_bits];
+                end_z_bits.sort_unstable();
+                end_z_bits.dedup();
+
+                Some(PartitionBorderTwinPayload {
+                    twin,
+                    source_line_ids,
+                    start_z_bits,
+                    end_z_bits,
+                })
+            })
+            .collect()
     }
 
     pub fn node_z_bits(&self, key: PartitionBorderNodeKey) -> Option<&BTreeSet<u64>> {
@@ -273,5 +389,103 @@ mod tests {
         assert!(planar
             .partition_border_half_edge(4, 0, PartitionBorderSide::MinY)
             .is_none());
+    }
+
+    #[test]
+    fn twin_matching_requires_two_opposite_partition_observations() {
+        let start = coord(0.0, 0.0, 1.0);
+        let end = coord(2.0, 0.0, 2.0);
+        let forward =
+            PartitionBorderHalfEdge::new(1, 7, Some(3), PartitionBorderSide::MaxX, start, end, [4])
+                .unwrap();
+        let reverse =
+            PartitionBorderHalfEdge::new(2, 9, Some(5), PartitionBorderSide::MinX, end, start, [8])
+                .unwrap();
+        let key = forward.edge_key;
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.insert(reverse);
+        graph.insert(forward);
+
+        assert_eq!(
+            graph.twin_pairs(),
+            vec![PartitionBorderTwin {
+                edge_key: key,
+                forward: PartitionBorderObservationId {
+                    partition_id: 1,
+                    local_dir_edge_id: 7,
+                },
+                reverse: PartitionBorderObservationId {
+                    partition_id: 2,
+                    local_dir_edge_id: 9,
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn twin_payload_reconciliation_unions_sources_and_retains_z_conflicts() {
+        let forward = PartitionBorderHalfEdge::new(
+            1,
+            7,
+            Some(3),
+            PartitionBorderSide::MaxX,
+            coord(-0.0, 0.0, 1.0),
+            coord(2.0, 0.0, 2.0),
+            [4, 2, 4],
+        )
+        .unwrap();
+        let reverse = PartitionBorderHalfEdge::new(
+            2,
+            9,
+            Some(5),
+            PartitionBorderSide::MinX,
+            coord(2.0, 0.0, 2.0),
+            coord(0.0, 0.0, -0.0),
+            [8, 4],
+        )
+        .unwrap();
+        let twin = PartitionBorderTwin {
+            edge_key: forward.edge_key,
+            forward: forward.observation_id(),
+            reverse: reverse.observation_id(),
+        };
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.insert(reverse);
+        graph.insert(forward);
+
+        assert_eq!(
+            graph.reconcile_twin_payloads(),
+            vec![PartitionBorderTwinPayload {
+                twin,
+                source_line_ids: vec![2, 4, 8],
+                start_z_bits: vec![0, 1.0f64.to_bits()],
+                end_z_bits: vec![2.0f64.to_bits()],
+            }]
+        );
+    }
+
+    #[test]
+    fn twin_matching_leaves_same_partition_and_ambiguous_buckets_unmatched() {
+        let start = coord(0.0, 0.0, 0.0);
+        let end = coord(1.0, 0.0, 0.0);
+        let mut same_partition = PartitionBorderGraph::default();
+        same_partition.insert(
+            PartitionBorderHalfEdge::new(1, 1, None, PartitionBorderSide::MaxX, start, end, [])
+                .unwrap(),
+        );
+        same_partition.insert(
+            PartitionBorderHalfEdge::new(1, 2, None, PartitionBorderSide::MinX, end, start, [])
+                .unwrap(),
+        );
+        assert!(same_partition.twin_pairs().is_empty());
+
+        let mut ambiguous = same_partition.clone();
+        ambiguous.insert(
+            PartitionBorderHalfEdge::new(2, 3, None, PartitionBorderSide::MinX, end, start, [])
+                .unwrap(),
+        );
+        assert!(ambiguous.twin_pairs().is_empty());
     }
 }

@@ -119,17 +119,24 @@ pub struct PolygonProvenance {
 
 #[derive(Clone, Debug)]
 pub(crate) struct RingGraphIdentity {
+    /// Component-local deterministic face identity.
+    pub face_id: Option<usize>,
     pub edge_keys: std::sync::Arc<[(usize, usize)]>,
     pub node_ids: std::sync::Arc<[usize]>,
 }
 
 impl RingGraphIdentity {
-    pub(crate) fn new(mut edge_keys: Vec<(usize, usize)>, mut node_ids: Vec<usize>) -> Self {
+    pub(crate) fn new(
+        face_id: Option<usize>,
+        mut edge_keys: Vec<(usize, usize)>,
+        mut node_ids: Vec<usize>,
+    ) -> Self {
         edge_keys.sort_unstable();
         edge_keys.dedup();
         node_ids.sort_unstable();
         node_ids.dedup();
         Self {
+            face_id,
             edge_keys: edge_keys.into(),
             node_ids: node_ids.into(),
         }

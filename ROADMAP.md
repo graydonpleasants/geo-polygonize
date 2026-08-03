@@ -560,8 +560,13 @@ default release hot path.
 - [x] Assign deterministic face/cycle IDs.
 - [x] Identify component-local unbounded face cycles explicitly.
 - [ ] Retain mappings from faces to boundary source sets and Z decisions.
+  - [x] Carry the component-local face ID with final extracted rings, alongside
+    their complete boundary source IDs and retained Z coordinates.
 - [ ] Compare the explicit face walk against the current ring extractor on the
   entire golden corpus before replacing anything.
+  - [x] Compare face IDs, canonical XY cycles, source sets, and Z payloads on
+    nested and disconnected components; the entire golden corpus gate remains
+    open.
 - [ ] Keep the arrangement private until overlay-quality invariants are proven.
 
 This creates a DCEL-like internal arrangement without committing the public API
@@ -903,9 +908,14 @@ After the explicit arrangement model exists:
   - [x] Add hidden `graph::partition_border` identities with signed-zero-safe
     2D node keys, reversal-invariant edge keys, and deterministic local
     half-edge observations retaining provenance, face, partition, side, and Z
-    evidence. Twin matching and reconciliation remain open.
+    evidence. Twin reconciliation policy remains open.
 - [ ] match and reconcile twin boundary halfedges;
+  - [x] Match only unambiguous opposite-direction observations from two
+    distinct partitions; same-partition and ambiguous buckets remain
+    unmatched until an explicit reconciliation policy exists.
 - [ ] merge source sets and Z decisions across partitions;
+  - [x] Merge source IDs and retain sorted, deduplicated Z candidates at each
+    canonical endpoint; final conflict policy remains open.
 - [ ] reconcile connected components before face extraction;
 - [ ] validate the stitched arrangement and its unbounded face;
 - [ ] compare exact canonical results with untiled execution.
