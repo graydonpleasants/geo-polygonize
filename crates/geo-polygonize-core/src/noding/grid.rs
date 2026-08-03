@@ -683,23 +683,25 @@ impl UniformGrid {
         Ok(splits)
     }
 
-    // Broad phase: enumerate AABB-overlapping global-line pairs without calling
+    // Broad phase: visit AABB-overlapping global-line pairs without calling
     // the exact intersection predicate.
-    fn enumerate_global_candidates_for_line(
+    fn visit_global_candidates_for_line<F>(
         &self,
         g_idx: usize,
         lines: &[Line3D],
         soa: &SoALines,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
-    ) -> crate::Result<Vec<CandidatePair>> {
+        mut visit: F,
+    ) -> crate::Result<()>
+    where
+        F: FnMut(CandidatePair) -> crate::Result<()>,
+    {
         let global_lines = &self.global_lines;
         let query_line = lines[g_idx];
         let q_min_x = f64x4::splat(query_line.start.x.min(query_line.end.x));
         let q_max_x = f64x4::splat(query_line.start.x.max(query_line.end.x));
         let q_min_y = f64x4::splat(query_line.start.y.min(query_line.end.y));
         let q_max_y = f64x4::splat(query_line.start.y.max(query_line.end.y));
-        let mut candidates = Vec::new();
-
         for block_idx in (0..soa.len()).step_by(4) {
             let mask =
                 soa.intersects_bbox_batch_splatted(q_min_x, q_max_x, q_min_y, q_max_y, block_idx);
@@ -716,10 +718,10 @@ impl UniformGrid {
                     tracker.candidate(overlaps)?;
                 }
                 if overlaps {
-                    candidates.push(CandidatePair {
+                    visit(CandidatePair {
                         first: g_idx,
                         second: target_idx,
-                    });
+                    })?;
                 }
             }
         }
@@ -727,7 +729,7 @@ impl UniformGrid {
         if let Some(tracker) = tracker {
             tracker.check_cancelled()?;
         }
-        Ok(candidates)
+        Ok(())
     }
 
     // Exact phase: robust intersection, optional trace capture, and split accumulation.
@@ -787,15 +789,13 @@ impl UniformGrid {
     ) -> Vec<(usize, Coord3D)> {
         let global_lines = &self.global_lines;
         let process_one_global = |g_idx: usize| -> Vec<(usize, Coord3D)> {
-            let candidates = self
-                .enumerate_global_candidates_for_line(g_idx, lines, soa, None)
-                .expect("unlimited noding cannot fail");
-            candidates
-                .into_iter()
-                .flat_map(|candidate| {
-                    self.process_global_candidate(candidate, lines, snap_noder, 0, None)
-                })
-                .collect()
+            let mut events = Vec::new();
+            self.visit_global_candidates_for_line(g_idx, lines, soa, None, |candidate| {
+                events.extend(self.process_global_candidate(candidate, lines, snap_noder, 0, None));
+                Ok(())
+            })
+            .expect("unlimited noding cannot fail");
+            events
         };
 
         #[cfg(feature = "parallel")]
@@ -831,17 +831,22 @@ impl UniformGrid {
         let mut events = Vec::new();
         let soa = SoALines::new(lines);
         for &left_idx in &self.global_lines {
-            let candidates =
-                self.enumerate_global_candidates_for_line(left_idx, lines, &soa, Some(tracker))?;
-            for candidate in candidates {
-                events.extend(self.process_global_candidate(
-                    candidate,
-                    lines,
-                    snap_noder,
-                    iteration_index,
-                    trace_candidates.as_deref_mut(),
-                ));
-            }
+            self.visit_global_candidates_for_line(
+                left_idx,
+                lines,
+                &soa,
+                Some(tracker),
+                |candidate| {
+                    events.extend(self.process_global_candidate(
+                        candidate,
+                        lines,
+                        snap_noder,
+                        iteration_index,
+                        trace_candidates.as_deref_mut(),
+                    ));
+                    Ok(())
+                },
+            )?;
         }
         Ok(events)
     }
@@ -884,14 +889,17 @@ impl UniformGrid {
         }
     }
 
-    // Broad phase: enumerate AABB-overlapping pairs that share a grid cell.
-    fn enumerate_cell_candidates(
+    // Broad phase: visit AABB-overlapping pairs that share a grid cell.
+    fn visit_cell_candidates<F>(
         &self,
         cell_indices: &[u32],
         soa: &SoALines,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
-    ) -> crate::Result<Vec<CandidatePair>> {
-        let mut candidates = Vec::new();
+        mut visit: F,
+    ) -> crate::Result<()>
+    where
+        F: FnMut(CandidatePair) -> crate::Result<()>,
+    {
         for i in 0..cell_indices.len() {
             for j in (i + 1)..cell_indices.len() {
                 let first = cell_indices[i] as usize;
@@ -904,11 +912,11 @@ impl UniformGrid {
                     tracker.candidate(overlaps)?;
                 }
                 if overlaps {
-                    candidates.push(CandidatePair { first, second });
+                    visit(CandidatePair { first, second })?;
                 }
             }
         }
-        Ok(candidates)
+        Ok(())
     }
 
     // Exact phase: robust intersection, cell ownership, trace capture, and
@@ -1008,8 +1016,7 @@ impl UniformGrid {
             return Ok(());
         }
 
-        let candidates = self.enumerate_cell_candidates(cell_indices, soa, tracker)?;
-        for candidate in candidates {
+        self.visit_cell_candidates(cell_indices, soa, tracker, |candidate| {
             self.process_cell_candidate(
                 r,
                 c,
@@ -1020,8 +1027,8 @@ impl UniformGrid {
                 iteration_index,
                 trace_candidates.as_deref_mut(),
             );
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 

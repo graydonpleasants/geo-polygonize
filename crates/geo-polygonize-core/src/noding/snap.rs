@@ -965,35 +965,41 @@ impl SnapNoder {
                 lines
                     .par_iter()
                     .enumerate()
-                    .flat_map(|(i, &query_line)| {
-                        let candidates = self
-                            .enumerate_candidate_pairs_simd(query_line, i, lines, &soa, None)
-                            .expect("unlimited noding cannot fail");
-                        candidates
-                            .into_iter()
-                            .flat_map(|candidate| {
-                                self.process_candidate_pair(lines, candidate, None)
-                            })
-                            .collect::<Vec<_>>()
+                    .flat_map_iter(|(i, &query_line)| {
+                        let mut events = Vec::new();
+                        self.visit_candidate_pairs_simd(
+                            query_line,
+                            i,
+                            lines,
+                            &soa,
+                            None,
+                            |candidate| {
+                                events.extend(self.process_candidate_pair(lines, candidate, None));
+                                Ok(())
+                            },
+                        )
+                        .expect("unlimited noding cannot fail");
+                        events
                     })
                     .collect()
             } else {
                 // Sequential fallback
-                lines
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(i, &query_line)| {
-                        let candidates = self
-                            .enumerate_candidate_pairs_simd(query_line, i, lines, &soa, None)
-                            .expect("unlimited noding cannot fail");
-                        candidates
-                            .into_iter()
-                            .flat_map(|candidate| {
-                                self.process_candidate_pair(lines, candidate, None)
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .collect()
+                let mut splits = Vec::new();
+                for (i, &query_line) in lines.iter().enumerate() {
+                    self.visit_candidate_pairs_simd(
+                        query_line,
+                        i,
+                        lines,
+                        &soa,
+                        None,
+                        |candidate| {
+                            splits.extend(self.process_candidate_pair(lines, candidate, None));
+                            Ok(())
+                        },
+                    )
+                    .expect("unlimited noding cannot fail");
+                }
+                splits
             }
         }
 
@@ -1001,12 +1007,11 @@ impl SnapNoder {
         {
             let mut splits = Vec::new();
             for (i, &query_line) in lines.iter().enumerate() {
-                let candidates = self
-                    .enumerate_candidate_pairs_simd(query_line, i, lines, &soa, None)
-                    .expect("unlimited noding cannot fail");
-                for candidate in candidates {
+                self.visit_candidate_pairs_simd(query_line, i, lines, &soa, None, |candidate| {
                     splits.extend(self.process_candidate_pair(lines, candidate, None));
-                }
+                    Ok(())
+                })
+                .expect("unlimited noding cannot fail");
             }
             splits
         }
@@ -1022,15 +1027,21 @@ impl SnapNoder {
         let mut splits = Vec::new();
         tracker.check_cancelled()?;
         for (i, &query_line) in lines.iter().enumerate() {
-            let candidates =
-                self.enumerate_candidate_pairs_simd(query_line, i, lines, &soa, Some(tracker))?;
-            for candidate in candidates {
-                splits.extend(self.process_candidate_pair(
-                    lines,
-                    candidate,
-                    trace_candidates.as_deref_mut(),
-                ));
-            }
+            self.visit_candidate_pairs_simd(
+                query_line,
+                i,
+                lines,
+                &soa,
+                Some(tracker),
+                |candidate| {
+                    splits.extend(self.process_candidate_pair(
+                        lines,
+                        candidate,
+                        trace_candidates.as_deref_mut(),
+                    ));
+                    Ok(())
+                },
+            )?;
         }
         tracker.check_cancelled()?;
         Ok(splits)
@@ -1055,18 +1066,21 @@ impl SnapNoder {
         }
     }
 
-    // Broad phase: enumerate AABB-overlapping pairs using the SIMD SoA.
+    // Broad phase: visit AABB-overlapping pairs using the SIMD SoA.
     #[allow(clippy::manual_div_ceil)]
     #[inline]
-    fn enumerate_candidate_pairs_simd(
+    fn visit_candidate_pairs_simd<F>(
         &self,
         query_line: Line3D,
         i: usize,
         lines: &[Line3D],
         soa: &SoALines,
         mut tracker: Option<&mut ExecutionWorkTracker<'_>>,
-    ) -> crate::Result<Vec<CandidatePair>> {
-        let mut candidates = Vec::new();
+        mut visit: F,
+    ) -> crate::Result<()>
+    where
+        F: FnMut(CandidatePair) -> crate::Result<()>,
+    {
         // Start block to avoid duplicate checks (j > i)
         // We start checking at index i+1.
         // The SoA batching index `j` steps by 4.
@@ -1098,10 +1112,10 @@ impl SnapNoder {
                 tracker.candidate(overlaps)?;
             }
             if overlaps {
-                candidates.push(CandidatePair {
+                visit(CandidatePair {
                     first: i,
                     second: j,
-                });
+                })?;
             }
         }
 
@@ -1124,14 +1138,14 @@ impl SnapNoder {
                     tracker.candidate(overlaps)?;
                 }
                 if overlaps {
-                    candidates.push(CandidatePair {
+                    visit(CandidatePair {
                         first: i,
                         second: target_idx,
-                    });
+                    })?;
                 }
             }
         }
-        Ok(candidates)
+        Ok(())
     }
 
     // Exact phase: robust intersection, trace capture, and split accumulation.
@@ -1352,7 +1366,7 @@ mod tests {
     }
 
     #[test]
-    fn simd_candidate_enumeration_is_separate_from_exact_splits() {
+    fn simd_candidate_sink_streams_in_input_order() {
         let lines = vec![
             make_line(0.0, 0.0, 2.0, 2.0),
             make_line(0.0, 2.0, 2.0, 0.0),
@@ -1360,8 +1374,12 @@ mod tests {
         ];
         let noder = SnapNoder::new(0.0);
         let soa = SoALines::new(&lines);
-        let candidates = noder
-            .enumerate_candidate_pairs_simd(lines[0], 0, &lines, &soa, None)
+        let mut candidates = Vec::new();
+        noder
+            .visit_candidate_pairs_simd(lines[0], 0, &lines, &soa, None, |candidate| {
+                candidates.push(candidate);
+                Ok(())
+            })
             .unwrap();
 
         assert_eq!(
