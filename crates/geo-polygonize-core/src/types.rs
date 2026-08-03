@@ -52,11 +52,113 @@ pub struct Line3D {
     pub line_id: u32,
 }
 
-/// The original line-string boundary for a contiguous range of flattened segments.
+/// How much source-chain structure the noder may rely on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceChainKind {
+    /// A contiguous input line string with a stable source ID.
+    Original,
+    /// Independent owned segments; one segment is a chain only for indexing.
+    Synthetic,
+    /// Segments came from an input whose source-chain identity is unavailable.
+    Unavailable,
+}
+
+/// A source-chain boundary for a contiguous range of flattened segments.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SourceLineString {
     pub(crate) segment_start: usize,
     pub(crate) segment_count: usize,
+    pub(crate) source_id: Option<u32>,
+    pub(crate) kind: SourceChainKind,
+}
+
+/// The source-chain identity for one flattened segment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SourceSegmentIdentity {
+    pub(crate) source_id: Option<u32>,
+    pub(crate) chain_index: usize,
+    pub(crate) segment_index: usize,
+    pub(crate) chain_segment_count: usize,
+    pub(crate) kind: SourceChainKind,
+}
+
+impl SourceLineString {
+    pub(crate) fn segment_identity(
+        self,
+        chain_index: usize,
+        segment: usize,
+    ) -> Option<SourceSegmentIdentity> {
+        let segment_index = segment.checked_sub(self.segment_start)?;
+        (segment_index < self.segment_count).then_some(SourceSegmentIdentity {
+            source_id: self.source_id,
+            chain_index,
+            segment_index,
+            chain_segment_count: self.segment_count,
+            kind: self.kind,
+        })
+    }
+}
+
+pub(crate) fn source_segment_identity(
+    chains: &[SourceLineString],
+    segment: usize,
+) -> Option<SourceSegmentIdentity> {
+    chains
+        .iter()
+        .enumerate()
+        .find_map(|(chain_index, chain)| chain.segment_identity(chain_index, segment))
+}
+
+#[cfg(test)]
+mod source_chain_tests {
+    use super::*;
+
+    #[test]
+    fn source_segment_identity_distinguishes_chain_origins() {
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 2,
+                source_id: Some(7),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 2,
+                segment_count: 1,
+                source_id: Some(9),
+                kind: SourceChainKind::Synthetic,
+            },
+            SourceLineString {
+                segment_start: 3,
+                segment_count: 1,
+                source_id: None,
+                kind: SourceChainKind::Unavailable,
+            },
+        ];
+
+        assert_eq!(
+            source_segment_identity(&chains, 1),
+            Some(SourceSegmentIdentity {
+                source_id: Some(7),
+                chain_index: 0,
+                segment_index: 1,
+                chain_segment_count: 2,
+                kind: SourceChainKind::Original,
+            })
+        );
+        assert_eq!(
+            source_segment_identity(&chains, 2).map(|identity| (
+                identity.source_id,
+                identity.kind,
+                identity.segment_index
+            )),
+            Some((Some(9), SourceChainKind::Synthetic, 0))
+        );
+        assert_eq!(
+            source_segment_identity(&chains, 3).map(|identity| (identity.source_id, identity.kind)),
+            Some((None, SourceChainKind::Unavailable))
+        );
+    }
 }
 
 /// Sorted, unique input line identifiers contributing to a graph edge.

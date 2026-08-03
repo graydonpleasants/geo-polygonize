@@ -49,6 +49,7 @@ impl ExactCandidate {
 
 pub mod grid;
 pub mod hot_pixel;
+#[allow(dead_code)] // Research-only candidate prototype; production dispatch does not call it yet.
 pub mod monotone;
 pub mod snap;
 pub mod sweep;

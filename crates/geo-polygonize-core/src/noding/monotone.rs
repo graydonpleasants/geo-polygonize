@@ -1,7 +1,7 @@
 //! Research-only monotone-chain candidate prototype.
 
 use crate::index::{IndexedEnvelope, RStarBackend};
-use crate::types::Line3D;
+use crate::types::{Line3D, SourceChainKind, SourceLineString};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
 
@@ -42,13 +42,36 @@ struct MonotoneChain {
     bounds: Bounds,
 }
 
-/// Enumerate deterministic segment-envelope candidates for disjoint source
-/// line-string ranges `(segment_start, segment_count)`.
+/// Benchmark-only compatibility entrypoint for detached source ranges.
+///
+/// The crate's hidden `noding` module keeps this compiler-public for the
+/// native benchmark; production candidate dispatch uses source-chain identity.
+#[doc(hidden)]
+pub fn enumerate_candidates(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
+) -> Result<Vec<(usize, usize)>> {
+    enumerate_candidates_from_ranges(lines, source_ranges)
+}
+
+/// Enumerate deterministic segment-envelope candidates for original source chains.
 ///
 /// This is a benchmark-only prototype. It requires finite coordinates and
 /// sorted, disjoint ranges; it has no execution-policy accounting or
 /// cancellation. Candidates are envelope overlaps, not exact intersections.
-pub fn enumerate_candidates(
+pub(crate) fn enumerate_source_chain_candidates(
+    lines: &[Line3D],
+    source_chains: &[SourceLineString],
+) -> Result<Vec<(usize, usize)>> {
+    let source_ranges: Vec<_> = source_chains
+        .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
+        .map(|chain| (chain.segment_start, chain.segment_count))
+        .collect();
+    enumerate_candidates_from_ranges(lines, &source_ranges)
+}
+
+fn enumerate_candidates_from_ranges(
     lines: &[Line3D],
     source_ranges: &[(usize, usize)],
 ) -> Result<Vec<(usize, usize)>> {
@@ -276,7 +299,7 @@ fn invalid_range(start: usize, count: usize) -> PolygonizeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Coord3D;
+    use crate::types::{Coord3D, SourceChainKind};
 
     fn line(start: (f64, f64), end: (f64, f64)) -> Line3D {
         Line3D::new(
@@ -295,7 +318,21 @@ mod tests {
             line((3.0, 0.0), (4.0, 0.0)),
             line((2.5, -1.0), (2.5, 1.0)),
         ];
-        let actual = enumerate_candidates(&lines, &[(0, 4), (4, 1)]).unwrap();
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 4,
+                source_id: Some(1),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 4,
+                segment_count: 1,
+                source_id: Some(2),
+                kind: SourceChainKind::Original,
+            },
+        ];
+        let actual = enumerate_source_chain_candidates(&lines, &chains).unwrap();
 
         assert_eq!(actual, vec![(0, 1), (1, 2), (2, 3), (2, 4)]);
     }
@@ -304,8 +341,47 @@ mod tests {
     fn rejects_overlapping_source_ranges() {
         let lines = [line((0.0, 0.0), (1.0, 0.0)), line((1.0, 0.0), (2.0, 0.0))];
         assert!(matches!(
-            enumerate_candidates(&lines, &[(0, 2), (1, 1)]),
+            enumerate_source_chain_candidates(
+                &lines,
+                &[
+                    SourceLineString {
+                        segment_start: 0,
+                        segment_count: 2,
+                        source_id: Some(1),
+                        kind: SourceChainKind::Original,
+                    },
+                    SourceLineString {
+                        segment_start: 1,
+                        segment_count: 1,
+                        source_id: Some(2),
+                        kind: SourceChainKind::Original,
+                    },
+                ],
+            ),
             Err(PolygonizeError::InvalidGeometry { .. })
         ));
+    }
+
+    #[test]
+    fn ignores_synthetic_and_unavailable_chains() {
+        let lines = [line((0.0, 0.0), (1.0, 1.0)), line((0.0, 1.0), (1.0, 0.0))];
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 1,
+                source_id: Some(1),
+                kind: SourceChainKind::Synthetic,
+            },
+            SourceLineString {
+                segment_start: 1,
+                segment_count: 1,
+                source_id: None,
+                kind: SourceChainKind::Unavailable,
+            },
+        ];
+
+        assert!(enumerate_source_chain_candidates(&lines, &chains)
+            .unwrap()
+            .is_empty());
     }
 }
