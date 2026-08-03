@@ -8,7 +8,8 @@ use crate::noding::grid::{
 use crate::noding::hot_pixel::{
     HotPixelCandidateTrace, HotPixelIntersectionTrace, HotPixelSplitTrace,
 };
-use crate::noding::snap::{FloatingCandidateTrace, FloatingIntersectionTrace, FloatingSplitTrace};
+use crate::noding::snap::{FloatingCandidateTrace, FloatingSplitTrace};
+use crate::noding::CandidateIntersectionTrace;
 use crate::types::SourceLineString;
 use crate::{
     Coord3D, CoordinateFingerprintV1, Line3D, Polygon3D, PolygonizerDiagnostics,
@@ -843,12 +844,12 @@ impl TraceRecorderV1 {
         }
         for (index, candidate) in candidates.iter().enumerate() {
             let witness = match candidate.witness {
-                Some(FloatingIntersectionTrace::Point(coordinate)) => {
+                Some(CandidateIntersectionTrace::Point(coordinate)) => {
                     Some(IntersectionWitnessTraceV1::Point {
                         coordinate: coordinate_fingerprint(coordinate)?,
                     })
                 }
-                Some(FloatingIntersectionTrace::Collinear(start, end)) => {
+                Some(CandidateIntersectionTrace::Collinear(start, end)) => {
                     Some(IntersectionWitnessTraceV1::Collinear {
                         start: coordinate_fingerprint(start)?,
                         end: coordinate_fingerprint(end)?,
@@ -925,12 +926,12 @@ impl TraceRecorderV1 {
         }
         for (index, candidate) in candidates.iter().enumerate() {
             let witness = match candidate.witness {
-                Some(FloatingIntersectionTrace::Point(coordinate)) => {
+                Some(CandidateIntersectionTrace::Point(coordinate)) => {
                     Some(IntersectionWitnessTraceV1::Point {
                         coordinate: coordinate_fingerprint(coordinate)?,
                     })
                 }
-                Some(FloatingIntersectionTrace::Collinear(start, end)) => {
+                Some(CandidateIntersectionTrace::Collinear(start, end)) => {
                     Some(IntersectionWitnessTraceV1::Collinear {
                         start: coordinate_fingerprint(start)?,
                         end: coordinate_fingerprint(end)?,
