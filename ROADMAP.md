@@ -647,8 +647,10 @@ retained chain layout yet.
 
 Prototype internally, without a public enum variant:
 
-- [ ] the existing `geo::Intersections` Bentley–Ottmann sweep implementation for
-  sparse-intersection workloads;
+- [x] prototype the existing `geo::Intersections` Bentley–Ottmann sweep
+  implementation for sparse-intersection workloads; the prototype is
+  benchmark-only and returns exact hits, not policy-accounted broad-phase
+  candidates;
 - [ ] a monotone-chain indexed candidate generator inspired by JTS
   `MCIndexNoder` for long sparse polylines;
 - [ ] current SIMD brute-force and uniform-grid paths as baselines;
