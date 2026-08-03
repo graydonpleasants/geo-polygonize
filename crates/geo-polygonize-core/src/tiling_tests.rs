@@ -15,6 +15,58 @@ mod tests {
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
 
     #[test]
+    fn exports_physical_tile_border_observations_before_scratch_is_released() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 1.0, y: 0.0 },
+                Coord { x: 2.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 1.0 },
+                Coord { x: 1.0, y: 1.0 },
+                Coord { x: 2.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 0.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 1.0, y: 0.0 },
+                Coord { x: 1.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 0.0 },
+                Coord { x: 2.0, y: 1.0 },
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 1.0).with_buffer(0.0);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+
+        let result = tiled.polygonize().unwrap();
+        let start = crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+            Coord3D::new(1.0, 0.0, 0.0),
+        );
+        let end = crate::graph::partition_border::PartitionBorderNodeKey::from_coord(Coord3D::new(
+            1.0, 1.0, 0.0,
+        ));
+        let key = crate::graph::partition_border::PartitionBorderEdgeKey::new(start, end).unwrap();
+        let observations = result
+            .partition_border_graph
+            .edge_observations(key)
+            .unwrap();
+
+        assert_eq!(observations.len(), 4);
+        assert!(observations
+            .iter()
+            .all(|observation| observation.face_ref.is_some()));
+        assert_eq!(result.polygons.len(), 2);
+    }
+
+    #[test]
     fn test_tiled_polygonization_grid() {
         // Create a 2x2 grid of squares
         // 0,0 - 10,0 - 20,0
@@ -1786,7 +1838,7 @@ mod tests {
         });
 
         assert!(matches!(
-            tiled.process_tile(bbox, &[], 0.0, None),
+            tiled.process_tile(0, bbox, &[], 0.0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -1814,7 +1866,7 @@ mod tests {
         }
 
         assert!(matches!(
-            tiled.process_tile(bbox, &[], 0.0, None),
+            tiled.process_tile(0, bbox, &[], 0.0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -1841,7 +1893,7 @@ mod tests {
         };
 
         assert!(matches!(
-            tiled.process_tile(bbox, &[component], 0.0, None),
+            tiled.process_tile(0, bbox, &[component], 0.0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }

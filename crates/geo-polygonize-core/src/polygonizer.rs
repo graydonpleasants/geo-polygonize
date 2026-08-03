@@ -3,6 +3,8 @@ use crate::diagnostics::{
     ContainmentStats, NodingIterationStats, PolygonizerDiagnostics, ZConflictStats,
 };
 use crate::error::{PolygonizeError, Result};
+use crate::graph::partition_border::PartitionBorderHalfEdge;
+use crate::graph::planar_graph::PartitionBorderExport;
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
@@ -22,7 +24,7 @@ use crate::utils::{canonical_coordinate_bits, z_order_index};
 use float_next_after::NextAfter;
 use geo::Contains;
 use geo_traits::{CoordTrait, LineStringTrait};
-use geo_types::{Coord, Geometry, LineString, MultiPolygon, Polygon};
+use geo_types::{Coord, Geometry, LineString, MultiPolygon, Polygon, Rect};
 use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -49,6 +51,8 @@ pub struct Polygonizer {
     input_lines: Vec<Line3D>,
     input_line_strings: Vec<SourceLineString>,
     trace: Option<TraceRecorderV1>,
+    partition_border_export: Option<PartitionBorderExport>,
+    partition_border_observations: Vec<PartitionBorderHalfEdge>,
 }
 
 /// Reusable allocation storage for stateless polygonization calls.
@@ -348,6 +352,8 @@ pub fn polygonize_with_workspace_and_execution_policy(
         input_lines: Vec::new(),
         input_line_strings: Vec::new(),
         trace: None,
+        partition_border_export: None,
+        partition_border_observations: Vec::new(),
     };
     runner.input_line_strings = source_line_strings_for_segments(lines);
     let result = runner.polygonize_owned(lines.to_vec());
@@ -366,6 +372,8 @@ impl Polygonizer {
             input_lines: Vec::new(),
             input_line_strings: Vec::new(),
             trace: None,
+            partition_border_export: None,
+            partition_border_observations: Vec::new(),
         }
     }
     /// Creates a new `Polygonizer` with specific options.
@@ -377,6 +385,8 @@ impl Polygonizer {
             input_lines: Vec::new(),
             input_line_strings: Vec::new(),
             trace: None,
+            partition_border_export: None,
+            partition_border_observations: Vec::new(),
         }
     }
 
@@ -748,6 +758,19 @@ impl Polygonizer {
         self.polygonize_owned(self.input_lines.clone())
     }
 
+    pub(crate) fn polygonize_with_partition_border_export(
+        &mut self,
+        partition_id: usize,
+        bbox: Rect<f64>,
+    ) -> Result<(PolygonizerResult, Vec<PartitionBorderHalfEdge>)> {
+        self.partition_border_export = Some(PartitionBorderExport { partition_id, bbox });
+        self.partition_border_observations.clear();
+        let result = self.polygonize();
+        self.partition_border_export = None;
+        let observations = std::mem::take(&mut self.partition_border_observations);
+        result.map(|result| (result, observations))
+    }
+
     /// Computes polygons while recording a bounded topology trace.
     #[doc(hidden)]
     pub fn polygonize_with_trace(
@@ -833,14 +856,19 @@ impl Polygonizer {
                 .map(|trace| trace.capture_byte_limit(TraceStageV1::Rings))
                 .unwrap_or(0)
         });
-        let ((mut dangles, mut cut_edges, maximal, rings_with_ids), capture_truncated) =
-            self.graph.process_components_with_execution_policy(
-                self.options.node_input,
-                include_source_ids,
-                &self.execution_policy,
-                noding_postcondition_validated,
-                capture_byte_limit,
-            )?;
+        let (
+            (mut dangles, mut cut_edges, maximal, rings_with_ids),
+            border_observations,
+            capture_truncated,
+        ) = self.graph.process_components_with_execution_policy(
+            self.options.node_input,
+            include_source_ids,
+            &self.execution_policy,
+            noding_postcondition_validated,
+            capture_byte_limit,
+            self.partition_border_export,
+        )?;
+        self.partition_border_observations = border_observations;
         if let Some(trace) = self.trace.as_mut() {
             trace.record_classified_lines("dangle", &dangles)?;
             trace.record_classified_lines("cut_edge", &cut_edges)?;
