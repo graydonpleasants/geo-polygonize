@@ -630,6 +630,10 @@ Certified fixed precision remains the hot-pixel contract.
 - [ ] Feed all experimental candidates through the independent validator and the
   same split/dissolve path.
 
+Certified fixed-grid output now routes its final independent validation through
+the active execution policy, so cancellation is enforced during the validator
+as well as candidate enumeration and split application.
+
 Floating SIMD and uniform-grid noding now expose an internal candidate-pair
 boundary before exact intersection and split accumulation. Certified hot-pixel
 noding already follows the same indexed-candidate-then-exact shape. The hidden
