@@ -187,11 +187,24 @@ pub struct PartitionBorderTwinPayload {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PartitionBorderGraph {
     nodes: BTreeMap<PartitionBorderNodeKey, BTreeSet<u64>>,
+    observations: BTreeMap<PartitionBorderObservationId, PartitionBorderHalfEdge>,
     edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
 }
 
 impl PartitionBorderGraph {
-    pub fn insert(&mut self, half_edge: PartitionBorderHalfEdge) {
+    pub fn insert(&mut self, half_edge: PartitionBorderHalfEdge) -> crate::Result<()> {
+        let observation_id = half_edge.observation_id();
+        if let Some(existing) = self.observations.get(&observation_id) {
+            if existing == &half_edge {
+                return Ok(());
+            }
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition border observation ({}, {}) conflicts with prior payload",
+                    observation_id.partition_id, observation_id.local_dir_edge_id
+                ),
+            });
+        }
         let from = half_edge.from;
         let to = half_edge.to;
         self.nodes
@@ -205,7 +218,9 @@ impl PartitionBorderGraph {
         self.edges
             .entry(half_edge.edge_key)
             .or_default()
-            .insert(half_edge);
+            .insert(half_edge.clone());
+        self.observations.insert(observation_id, half_edge);
+        Ok(())
     }
 
     pub fn node_count(&self) -> usize {
@@ -375,8 +390,8 @@ mod tests {
         let start_key = first.from;
 
         let mut graph = PartitionBorderGraph::default();
-        graph.insert(second);
-        graph.insert(first);
+        graph.insert(second).unwrap();
+        graph.insert(first).unwrap();
 
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 1);
@@ -455,6 +470,30 @@ mod tests {
     }
 
     #[test]
+    fn insert_rejects_a_conflicting_observation_id() {
+        let observation = PartitionBorderHalfEdge::new(
+            4,
+            7,
+            Some(3),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(1.0, 0.0, 2.0),
+            [11],
+        )
+        .unwrap();
+        let mut conflict = observation.clone();
+        conflict.source_line_ids = vec![12];
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.insert(observation).unwrap();
+        assert_eq!(
+            graph.insert(conflict).unwrap_err().to_string(),
+            "Internal invariant violation: partition border observation (4, 7) conflicts with prior payload"
+        );
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
     fn twin_matching_requires_two_opposite_partition_observations() {
         let start = coord(0.0, 0.0, 1.0);
         let end = coord(2.0, 0.0, 2.0);
@@ -467,8 +506,8 @@ mod tests {
         let key = forward.edge_key;
 
         let mut graph = PartitionBorderGraph::default();
-        graph.insert(reverse);
-        graph.insert(forward);
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
 
         assert_eq!(
             graph.twin_pairs(),
@@ -515,8 +554,8 @@ mod tests {
         };
 
         let mut graph = PartitionBorderGraph::default();
-        graph.insert(reverse);
-        graph.insert(forward);
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
 
         assert_eq!(
             graph.reconcile_twin_payloads(),
@@ -534,21 +573,27 @@ mod tests {
         let start = coord(0.0, 0.0, 0.0);
         let end = coord(1.0, 0.0, 0.0);
         let mut same_partition = PartitionBorderGraph::default();
-        same_partition.insert(
-            PartitionBorderHalfEdge::new(1, 1, None, PartitionBorderSide::MaxX, start, end, [])
-                .unwrap(),
-        );
-        same_partition.insert(
-            PartitionBorderHalfEdge::new(1, 2, None, PartitionBorderSide::MinX, end, start, [])
-                .unwrap(),
-        );
+        same_partition
+            .insert(
+                PartitionBorderHalfEdge::new(1, 1, None, PartitionBorderSide::MaxX, start, end, [])
+                    .unwrap(),
+            )
+            .unwrap();
+        same_partition
+            .insert(
+                PartitionBorderHalfEdge::new(1, 2, None, PartitionBorderSide::MinX, end, start, [])
+                    .unwrap(),
+            )
+            .unwrap();
         assert!(same_partition.twin_pairs().is_empty());
 
         let mut ambiguous = same_partition.clone();
-        ambiguous.insert(
-            PartitionBorderHalfEdge::new(2, 3, None, PartitionBorderSide::MinX, end, start, [])
-                .unwrap(),
-        );
+        ambiguous
+            .insert(
+                PartitionBorderHalfEdge::new(2, 3, None, PartitionBorderSide::MinX, end, start, [])
+                    .unwrap(),
+            )
+            .unwrap();
         assert!(ambiguous.twin_pairs().is_empty());
     }
 }
