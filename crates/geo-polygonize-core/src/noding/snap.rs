@@ -1206,11 +1206,89 @@ impl SnapNoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
+    use crate::{
+        normalize_polygonize_error, polygonize, CancellationToken, ExecutionPolicy,
+        PolygonizeError, PolygonizerOptions, ProvenanceOptions, TopologyFingerprintV1, ZOptions,
+        ZPolicy,
+    };
     use rand::Rng;
+    use std::collections::BTreeMap;
 
     fn make_line(x1: f64, y1: f64, x2: f64, y2: f64) -> Line3D {
         Line3D::new(Coord3D::new(x1, y1, 0.0), Coord3D::new(x2, y2, 0.0), 0)
+    }
+
+    fn assert_floating_backend_conformance(lines: &[Line3D]) -> (Vec<Line3D>, Vec<Line3D>) {
+        let (simd_noded, _, simd_work, simd_candidates, _, _, _, _, _) = SnapNoder::new(0.0)
+            .with_strategy(NodingStrategy::Simd)
+            .node_with_trace(lines.to_vec(), None, usize::MAX)
+            .unwrap();
+        let (grid_noded, _, grid_work, _, _, _, grid_candidates, _, _) = SnapNoder::new(0.0)
+            .with_strategy(NodingStrategy::Grid)
+            .node_with_trace(lines.to_vec(), None, usize::MAX)
+            .unwrap();
+
+        assert_eq!(
+            simd_work.candidate_pairs,
+            simd_work.aabb_rejections + simd_work.exact_intersection_calls
+        );
+        assert_eq!(
+            grid_work.candidate_pairs,
+            grid_work.aabb_rejections + grid_work.exact_intersection_calls
+        );
+        assert_eq!(simd_work.exact_intersection_calls, simd_candidates.len());
+        assert_eq!(grid_work.exact_intersection_calls, grid_candidates.len());
+
+        let simd_outcomes: BTreeMap<_, _> = simd_candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    (
+                        candidate.iteration_index,
+                        candidate.first_segment,
+                        candidate.second_segment,
+                        candidate.first_source_id,
+                        candidate.second_source_id,
+                    ),
+                    candidate.witness,
+                )
+            })
+            .collect();
+        assert_eq!(simd_outcomes.len(), simd_candidates.len());
+        let mut grid_outcomes = BTreeMap::new();
+        for candidate in grid_candidates {
+            let key = (
+                candidate.iteration_index,
+                candidate.first_segment,
+                candidate.second_segment,
+                candidate.first_source_id,
+                candidate.second_source_id,
+            );
+            if let Some(previous) = grid_outcomes.insert(key, candidate.witness) {
+                assert_eq!(previous, candidate.witness);
+            }
+        }
+        assert_eq!(simd_outcomes, grid_outcomes);
+
+        let line_bits = |lines: &[Line3D]| {
+            lines
+                .iter()
+                .map(|line| {
+                    (
+                        line.line_id,
+                        line.start.x.to_bits(),
+                        line.start.y.to_bits(),
+                        line.start.z.to_bits(),
+                        line.end.x.to_bits(),
+                        line.end.y.to_bits(),
+                        line.end.z.to_bits(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(line_bits(&simd_noded), line_bits(&grid_noded));
+
+        (simd_noded, grid_noded)
     }
 
     #[test]
@@ -1416,6 +1494,62 @@ mod tests {
         assert_eq!(grid_splits, simd_splits);
         assert!(simd_splits.contains(&(0, Coord3D::new(2.0, 2.0, 20.0))));
         assert!(simd_splits.contains(&(1, Coord3D::new(2.0, 2.0, 20.0))));
+    }
+
+    #[test]
+    fn floating_candidate_backends_have_conformant_topology_provenance_z_and_errors() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(4.0, 0.0, 0.0), 1),
+            Line3D::new(Coord3D::new(4.0, 0.0, 0.0), Coord3D::new(4.0, 4.0, 0.0), 2),
+            Line3D::new(Coord3D::new(4.0, 4.0, 0.0), Coord3D::new(0.0, 4.0, 0.0), 3),
+            Line3D::new(Coord3D::new(0.0, 4.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 4),
+            Line3D::new(
+                Coord3D::new(0.0, 0.0, 10.0),
+                Coord3D::new(4.0, 4.0, 30.0),
+                5,
+            ),
+            Line3D::new(
+                Coord3D::new(0.0, 4.0, 20.0),
+                Coord3D::new(4.0, 0.0, 40.0),
+                6,
+            ),
+        ];
+        let (simd_noded, grid_noded) = assert_floating_backend_conformance(&lines);
+        let options = PolygonizerOptions {
+            node_input: false,
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            input_profile_id: Some("floating-candidate-conformance".to_string()),
+            ..Default::default()
+        };
+        let simd_result = polygonize(simd_noded.clone(), &options).unwrap();
+        let grid_result = polygonize(grid_noded.clone(), &options).unwrap();
+        let simd_fingerprint =
+            TopologyFingerprintV1::try_from_result(&simd_result, &options).unwrap();
+        let grid_fingerprint =
+            TopologyFingerprintV1::try_from_result(&grid_result, &options).unwrap();
+        assert_eq!(simd_fingerprint, grid_fingerprint);
+        assert!(!simd_result.polygons.is_empty());
+        assert!(simd_result
+            .polygons
+            .iter()
+            .all(|polygon| polygon.provenance.is_some()));
+
+        let z_error_options = PolygonizerOptions {
+            z: ZOptions {
+                policy: ZPolicy::ErrorOnConflict,
+                conflict_tolerance: 0.0,
+            },
+            ..options
+        };
+        let simd_error = polygonize(simd_noded, &z_error_options).unwrap_err();
+        let grid_error = polygonize(grid_noded, &z_error_options).unwrap_err();
+        assert_eq!(
+            normalize_polygonize_error(&simd_error),
+            normalize_polygonize_error(&grid_error)
+        );
     }
 
     #[test]
