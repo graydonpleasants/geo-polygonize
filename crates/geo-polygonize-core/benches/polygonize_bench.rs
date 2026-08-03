@@ -312,6 +312,7 @@ criterion_group!(
 
 // --- KERNEL BENCHES (Split finding, containment, hashing, grid build) ---
 use geo_polygonize_core::noding::grid::UniformGrid;
+use geo_polygonize_core::noding::monotone::enumerate_candidates as enumerate_monotone_candidates;
 use geo_polygonize_core::noding::sweep::enumerate_intersections;
 use geo_polygonize_core::Line3D;
 
@@ -425,6 +426,45 @@ fn bench_noding_workloads(c: &mut Criterion) {
     group.finish();
 }
 
+fn make_long_sparse_polyline() -> (Vec<Line3D>, Vec<(usize, usize)>) {
+    let long_segments = 2_048;
+    let mut lines = Vec::with_capacity(long_segments + long_segments / 32);
+    let mut chains = vec![(0, long_segments)];
+    for index in 0..long_segments {
+        lines.push(Line3D::new(
+            Coord3D::new(index as f64, 0.0, 0.0),
+            Coord3D::new(index as f64 + 1.0, 0.0, 0.0),
+            index as u32,
+        ));
+    }
+    for index in (0..long_segments).step_by(32) {
+        let segment_index = lines.len();
+        let x = index as f64 + 0.5;
+        lines.push(Line3D::new(
+            Coord3D::new(x, -1.0, 0.0),
+            Coord3D::new(x, 1.0, 0.0),
+            segment_index as u32,
+        ));
+        chains.push((segment_index, 1));
+    }
+    (lines, chains)
+}
+
+fn bench_monotone_chain_candidates(c: &mut Criterion) {
+    let (lines, chains) = make_long_sparse_polyline();
+    c.bench_function("monotone_chain/long_sparse", |b| {
+        b.iter(|| {
+            criterion::black_box(
+                enumerate_monotone_candidates(
+                    criterion::black_box(&lines),
+                    criterion::black_box(&chains),
+                )
+                .unwrap(),
+            )
+        });
+    });
+}
+
 fn make_pre_snap_lines(bands: usize) -> Vec<Line3D> {
     (0..bands)
         .flat_map(|i| {
@@ -518,6 +558,7 @@ fn bench_large_ring_fingerprint(c: &mut Criterion) {
 criterion_group!(
     kernel_benches,
     bench_noding_workloads,
+    bench_monotone_chain_candidates,
     bench_kernel_grid_build,
     bench_kernel_find_splits,
     bench_kernel_node,

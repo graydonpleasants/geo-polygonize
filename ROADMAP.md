@@ -651,8 +651,9 @@ Prototype internally, without a public enum variant:
   implementation for sparse-intersection workloads; the prototype is
   benchmark-only and returns exact hits, not policy-accounted broad-phase
   candidates;
-- [ ] a monotone-chain indexed candidate generator inspired by JTS
-  `MCIndexNoder` for long sparse polylines;
+- [x] prototype a monotone-chain indexed candidate generator inspired by JTS
+  `MCIndexNoder` for long sparse polylines; it requires disjoint source-chain
+  ranges and remains benchmark-only, without policy accounting or cancellation;
 - [ ] current SIMD brute-force and uniform-grid paths as baselines;
 - [ ] connected-component-local candidate generation where decomposition helps.
 
