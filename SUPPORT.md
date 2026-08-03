@@ -96,10 +96,12 @@ resource limits, and cancellation. Resource limits are opt-in logical work and
 output guards, not a process-memory sandbox.
 
 Cancellation is cooperative. `CancellationToken` is safe to clone and cancel
-from another thread, but cancellation is observed only at explicit polling
-points; it is not preemptive. Python computation runs on a worker without
-holding the GIL, polls Python signals, and maps an interrupt to cooperative
-cancellation. Wasm does not currently expose the native cancellation token.
+from another thread: any clone may cancel, and cancellation is monotonic for
+the token lifetime. Tokens are single-run, so each new operation needs a fresh
+token. Cancellation is observed only at explicit polling points; it is not
+preemptive. Python computation runs on a worker without holding the GIL, polls
+Python signals, and maps an interrupt to cooperative cancellation. Wasm does
+not currently expose the native cancellation token.
 
 A panic from a supported Rust entrypoint is a bug, not part of the error
 contract. Native Arrow C ABI and Python boundaries catch unwinding panics and

@@ -249,7 +249,7 @@ later stages.
 Progress: Native `CancellationToken` values live in `ExecutionPolicy`, not
 semantic options. Core checkpoints cover ingest, noding, graph construction,
 ring extraction, containment, canonicalization, and output flattening; a
-cancelled workspace run is reusable after resetting its token. Python releases
+cancelled workspace run is reusable with a fresh policy and token. Python releases
 the GIL for owned Rust work and polls signals every 10 ms before cancelling the
 worker token. Wasm has cancellable GeoJSON and report calls in disposable
 browser workers; aborting terminates the worker rather than claiming that a
