@@ -134,9 +134,11 @@ struct ComponentPartition {
     edges: Vec<EdgeId>,
 }
 
-struct ComponentGraph {
+#[derive(Default)]
+struct ComponentScratch {
     graph: PlanarGraph,
     global_node_ids: Vec<NodeId>,
+    local_node_ids: HashMap<NodeId, NodeId>,
 }
 
 fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput) {
@@ -1966,66 +1968,73 @@ impl PlanarGraph {
             .collect())
     }
 
-    fn component_graphs_with_execution_policy(
+    fn load_component_scratch(
         &self,
+        scratch: &mut ComponentScratch,
+        component_id: usize,
+        partition: ComponentPartition,
         execution_policy: &ExecutionPolicy,
-    ) -> crate::Result<Vec<ComponentGraph>> {
-        let partitions = self.active_component_partitions(execution_policy)?;
-        let mut components = Vec::with_capacity(partitions.len());
-        for (component_id, partition) in partitions.into_iter().enumerate() {
-            execution_policy.check_cancelled_every("graph_components", component_id)?;
-            let mut graph = PlanarGraph::new();
-            let mut local_node_ids = HashMap::with_capacity(partition.nodes.len());
-            let mut global_node_ids = Vec::with_capacity(partition.nodes.len());
-            for (node_offset, global_node_id) in partition.nodes.into_iter().enumerate() {
-                execution_policy.check_cancelled_every("graph_components", node_offset)?;
-                let local_node_id = graph.add_node(Coord3D {
-                    x: self.nodes_x[global_node_id],
-                    y: self.nodes_y[global_node_id],
-                    z: self.nodes_z[global_node_id],
-                });
-                local_node_ids.insert(global_node_id, local_node_id);
-                global_node_ids.push(global_node_id);
-            }
-
-            for (edge_offset, global_edge_id) in partition.edges.into_iter().enumerate() {
-                execution_policy.check_cancelled_every("graph_components", edge_offset)?;
-                let edge = &self.edges[global_edge_id];
-                let [forward_idx, _] = edge.dir_edges;
-                let global_src = self.directed_edges[forward_idx].src;
-                let global_dst = self.directed_edges[forward_idx].dst;
-                let local_src = *local_node_ids.get(&global_src).ok_or_else(|| {
-                    crate::PolygonizeError::InternalInvariantViolation {
-                        reason: format!(
-                            "component edge {global_edge_id} source node {global_src} is missing"
-                        ),
-                    }
-                })?;
-                let local_dst = *local_node_ids.get(&global_dst).ok_or_else(|| {
-                    crate::PolygonizeError::InternalInvariantViolation {
-                        reason: format!(
-                            "component edge {global_edge_id} destination node {global_dst} is missing"
-                        ),
-                    }
-                })?;
-                let local_edge_id = graph.add_line(edge.line);
-                graph.edges[local_edge_id].sources = edge.sources.clone();
-                graph.edges[local_edge_id].line.line_id = edge.line.line_id;
-                debug_assert_eq!(
-                    graph.directed_edges[graph.edges[local_edge_id].dir_edges[0]].src,
-                    local_src
-                );
-                debug_assert_eq!(
-                    graph.directed_edges[graph.edges[local_edge_id].dir_edges[0]].dst,
-                    local_dst
-                );
-            }
-            components.push(ComponentGraph {
-                graph,
-                global_node_ids,
+    ) -> crate::Result<()> {
+        execution_policy.check_cancelled_every("graph_components", component_id)?;
+        scratch.graph.clear();
+        scratch.global_node_ids.clear();
+        scratch.local_node_ids.clear();
+        scratch.global_node_ids.reserve(
+            partition
+                .nodes
+                .len()
+                .saturating_sub(scratch.global_node_ids.capacity()),
+        );
+        scratch.local_node_ids.reserve(
+            partition
+                .nodes
+                .len()
+                .saturating_sub(scratch.local_node_ids.capacity()),
+        );
+        for (node_offset, global_node_id) in partition.nodes.into_iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", node_offset)?;
+            let local_node_id = scratch.graph.add_node(Coord3D {
+                x: self.nodes_x[global_node_id],
+                y: self.nodes_y[global_node_id],
+                z: self.nodes_z[global_node_id],
             });
+            scratch.local_node_ids.insert(global_node_id, local_node_id);
+            scratch.global_node_ids.push(global_node_id);
         }
-        Ok(components)
+
+        for (edge_offset, global_edge_id) in partition.edges.into_iter().enumerate() {
+            execution_policy.check_cancelled_every("graph_components", edge_offset)?;
+            let edge = &self.edges[global_edge_id];
+            let [forward_idx, _] = edge.dir_edges;
+            let global_src = self.directed_edges[forward_idx].src;
+            let global_dst = self.directed_edges[forward_idx].dst;
+            let local_src = *scratch.local_node_ids.get(&global_src).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "component edge {global_edge_id} source node {global_src} is missing"
+                    ),
+                }
+            })?;
+            let local_dst = *scratch.local_node_ids.get(&global_dst).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "component edge {global_edge_id} destination node {global_dst} is missing"
+                    ),
+                }
+            })?;
+            let local_edge_id = scratch.graph.add_line(edge.line);
+            scratch.graph.edges[local_edge_id].sources = edge.sources.clone();
+            scratch.graph.edges[local_edge_id].line.line_id = edge.line.line_id;
+            debug_assert_eq!(
+                scratch.graph.directed_edges[scratch.graph.edges[local_edge_id].dir_edges[0]].src,
+                local_src
+            );
+            debug_assert_eq!(
+                scratch.graph.directed_edges[scratch.graph.edges[local_edge_id].dir_edges[0]].dst,
+                local_dst
+            );
+        }
+        Ok(())
     }
 
     pub(crate) fn process_components_with_execution_policy(
@@ -2036,17 +2045,22 @@ impl PlanarGraph {
         noding_postcondition_validated: bool,
         capture_byte_limit: Option<usize>,
     ) -> crate::Result<(ComponentOutput, bool)> {
-        // ponytail: materialize local graphs for simple parallel ownership; scratch reuse and
-        // peak-memory measurement remain the next P2.3 optimization slice.
-        let mut components = self.component_graphs_with_execution_policy(execution_policy)?;
+        let partitions = self.active_component_partitions(execution_policy)?;
         let mut merged = ComponentOutput::default();
 
         let capture_truncated = if let Some(capture_byte_limit) = capture_byte_limit {
             let mut capture_budget = TraceCaptureBudget::new(capture_byte_limit);
-            for component in &mut components {
+            let mut scratch = ComponentScratch::default();
+            for (component_id, partition) in partitions.into_iter().enumerate() {
+                self.load_component_scratch(
+                    &mut scratch,
+                    component_id,
+                    partition,
+                    execution_policy,
+                )?;
                 append_component_output(
                     &mut merged,
-                    component.process(
+                    scratch.process(
                         include_graph_ids,
                         include_source_ids,
                         execution_policy,
@@ -2058,31 +2072,49 @@ impl PlanarGraph {
             capture_budget.truncated()
         } else {
             #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-            let outputs: Vec<_> = components
-                .par_iter_mut()
-                .map(|component| {
-                    component.process(
-                        include_graph_ids,
-                        include_source_ids,
-                        execution_policy,
-                        noding_postcondition_validated,
-                        None,
-                    )
-                })
+            let outputs: Vec<_> = partitions
+                .into_par_iter()
+                .enumerate()
+                .map_init(
+                    ComponentScratch::default,
+                    |scratch, (component_id, partition)| {
+                        self.load_component_scratch(
+                            scratch,
+                            component_id,
+                            partition,
+                            execution_policy,
+                        )?;
+                        scratch.process(
+                            include_graph_ids,
+                            include_source_ids,
+                            execution_policy,
+                            noding_postcondition_validated,
+                            None,
+                        )
+                    },
+                )
                 .collect();
             #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
-            let outputs: Vec<_> = components
-                .iter_mut()
-                .map(|component| {
-                    component.process(
+            let outputs: Vec<_> = {
+                let mut scratch = ComponentScratch::default();
+                let mut outputs = Vec::with_capacity(partitions.len());
+                for (component_id, partition) in partitions.into_iter().enumerate() {
+                    self.load_component_scratch(
+                        &mut scratch,
+                        component_id,
+                        partition,
+                        execution_policy,
+                    )?;
+                    outputs.push(scratch.process(
                         include_graph_ids,
                         include_source_ids,
                         execution_policy,
                         noding_postcondition_validated,
                         None,
-                    )
-                })
-                .collect();
+                    ));
+                }
+                outputs
+            };
 
             for output in outputs {
                 append_component_output(&mut merged, output?);
@@ -2364,7 +2396,7 @@ impl PlanarGraph {
     }
 }
 
-impl ComponentGraph {
+impl ComponentScratch {
     fn process(
         &mut self,
         include_graph_ids: bool,
@@ -2951,5 +2983,49 @@ mod arrangement_ring_invariant_tests {
             reason,
             "arrangement maximal Euler invariant mismatch: vertices=4, edges=6, faces=2, components=1, boundary_cycles=2, lhs=0, rhs=2"
         );
+    }
+
+    #[test]
+    fn component_scratch_reuses_local_graph_capacity() {
+        let mut graph = PlanarGraph::new();
+        for (offset, points) in [
+            [
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(2.0, 0.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+            ],
+            [
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(12.0, 0.0, 0.0),
+                Coord3D::new(11.0, 1.0, 0.0),
+            ],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for edge in 0..3 {
+                graph.add_line(Line3D::new(
+                    points[edge],
+                    points[(edge + 1) % 3],
+                    (offset * 10 + edge) as u32,
+                ));
+            }
+        }
+
+        let policy = ExecutionPolicy::default();
+        let mut partitions = graph.active_component_partitions(&policy).unwrap();
+        let mut scratch = ComponentScratch::default();
+        graph
+            .load_component_scratch(&mut scratch, 0, partitions.remove(0), &policy)
+            .unwrap();
+        let node_capacity = scratch.graph.nodes_x.capacity();
+        let edge_capacity = scratch.graph.edges.capacity();
+        scratch.process(false, false, &policy, true, None).unwrap();
+        graph
+            .load_component_scratch(&mut scratch, 1, partitions.remove(0), &policy)
+            .unwrap();
+
+        assert!(scratch.graph.nodes_x.capacity() >= node_capacity);
+        assert!(scratch.graph.edges.capacity() >= edge_capacity);
     }
 }
