@@ -18,6 +18,23 @@ pub(crate) const MAX_UNCANCELLABLE_SORT_ITEMS: usize = 1_000_000;
 /// Tokens are single-run: clones share one cancellation state, so any clone
 /// may cancel the operation and cancellation remains set for the token's
 /// lifetime. Create a fresh token for each new operation.
+///
+/// # Examples
+///
+/// ```
+/// use geo_polygonize_core::{CancellationToken, ExecutionPolicy};
+///
+/// let token = CancellationToken::new();
+/// let worker_token = token.clone();
+/// worker_token.cancel();
+/// assert!(token.is_cancelled());
+///
+/// let next_run = ExecutionPolicy {
+///     cancellation_token: Some(CancellationToken::new()),
+///     ..Default::default()
+/// };
+/// assert!(!next_run.cancellation_token.unwrap().is_cancelled());
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
 
