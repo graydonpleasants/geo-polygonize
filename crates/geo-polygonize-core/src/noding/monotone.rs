@@ -42,14 +42,38 @@ struct MonotoneChain {
     bounds: Bounds,
 }
 
+/// Benchmark-only compatibility entrypoint for detached source ranges.
+///
+/// The crate's hidden `noding` module keeps this compiler-public for the
+/// native benchmark; production candidate dispatch uses source-chain identity.
+#[doc(hidden)]
+pub fn enumerate_candidates(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
+) -> Result<Vec<(usize, usize)>> {
+    enumerate_candidates_from_ranges(lines, source_ranges)
+}
+
 /// Enumerate deterministic segment-envelope candidates for original source chains.
 ///
 /// This is a benchmark-only prototype. It requires finite coordinates and
 /// sorted, disjoint ranges; it has no execution-policy accounting or
 /// cancellation. Candidates are envelope overlaps, not exact intersections.
-pub(crate) fn enumerate_candidates(
+pub(crate) fn enumerate_source_chain_candidates(
     lines: &[Line3D],
     source_chains: &[SourceLineString],
+) -> Result<Vec<(usize, usize)>> {
+    let source_ranges: Vec<_> = source_chains
+        .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
+        .map(|chain| (chain.segment_start, chain.segment_count))
+        .collect();
+    enumerate_candidates_from_ranges(lines, &source_ranges)
+}
+
+fn enumerate_candidates_from_ranges(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
 ) -> Result<Vec<(usize, usize)>> {
     let segment_bounds: Vec<_> = lines
         .iter()
@@ -68,7 +92,7 @@ pub(crate) fn enumerate_candidates(
             }
         })
         .collect::<Result<Vec<_>>>()?;
-    let chains = build_chains(lines, &segment_bounds, source_chains)?;
+    let chains = build_chains(lines, &segment_bounds, source_ranges)?;
     let chain_index = RStarBackend::new(
         chains
             .iter()
@@ -112,17 +136,12 @@ pub(crate) fn enumerate_candidates(
 fn build_chains(
     lines: &[Line3D],
     segment_bounds: &[Bounds],
-    source_chains: &[SourceLineString],
+    source_ranges: &[(usize, usize)],
 ) -> Result<Vec<MonotoneChain>> {
     let mut chains = Vec::new();
     let mut previous_end = 0;
 
-    for source_chain in source_chains
-        .iter()
-        .filter(|chain| chain.kind == SourceChainKind::Original)
-    {
-        let start = source_chain.segment_start;
-        let count = source_chain.segment_count;
+    for &(start, count) in source_ranges {
         if count == 0 {
             continue;
         }
@@ -313,7 +332,7 @@ mod tests {
                 kind: SourceChainKind::Original,
             },
         ];
-        let actual = enumerate_candidates(&lines, &chains).unwrap();
+        let actual = enumerate_source_chain_candidates(&lines, &chains).unwrap();
 
         assert_eq!(actual, vec![(0, 1), (1, 2), (2, 3), (2, 4)]);
     }
@@ -322,7 +341,7 @@ mod tests {
     fn rejects_overlapping_source_ranges() {
         let lines = [line((0.0, 0.0), (1.0, 0.0)), line((1.0, 0.0), (2.0, 0.0))];
         assert!(matches!(
-            enumerate_candidates(
+            enumerate_source_chain_candidates(
                 &lines,
                 &[
                     SourceLineString {
@@ -361,6 +380,8 @@ mod tests {
             },
         ];
 
-        assert!(enumerate_candidates(&lines, &chains).unwrap().is_empty());
+        assert!(enumerate_source_chain_candidates(&lines, &chains)
+            .unwrap()
+            .is_empty());
     }
 }
