@@ -25,6 +25,7 @@ jobs:
       - name: Publish geo-polygonize-arrow to crates.io
         run: |
           for i in 1 2 3 4 5 6; do
+            echo "Publish attempt $i"
             cargo publish -p geo-polygonize-arrow && exit 0
             echo "Publish failed, waiting before retrying..."
             sleep 30
@@ -34,6 +35,7 @@ jobs:
       - name: Publish geo-polygonize-flatgeobuf to crates.io
         run: |
           for i in 1 2 3 4 5 6; do
+            echo "Publish attempt $i"
             cargo publish -p geo-polygonize-flatgeobuf && exit 0
             echo "Publish failed, waiting before retrying..."
             sleep 30
@@ -43,6 +45,7 @@ jobs:
       - name: Publish geo-polygonize-wasm to crates.io
         run: |
           for i in 1 2 3 4 5 6; do
+            echo "Publish attempt $i"
             cargo publish -p geo-polygonize-wasm && exit 0
             echo "Publish failed, waiting before retrying..."
             sleep 30

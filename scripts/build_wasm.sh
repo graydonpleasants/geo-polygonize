@@ -6,6 +6,7 @@ export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 WASM_BINDGEN_VERSION="0.2.114"
 TARGET="wasm32-unknown-unknown"
 SITE_BUILD="${SITE_BUILD:-${BUILD_WASM_SITE:-0}}"
+THREADS_TOOLCHAIN="${THREADS_TOOLCHAIN:-nightly}"
 VARIANT=""
 NO_BUNDLE=0
 BUNDLE_ONLY=0
@@ -102,9 +103,9 @@ build_variant_threads() {
 
     echo "Building Threads version..."
     echo "Installing rust-src for nightly..."
-    rustup component add rust-src --toolchain nightly
+    rustup component add rust-src --toolchain "$THREADS_TOOLCHAIN"
 
-    RUSTFLAGS="$flags" cargo +nightly build -p geo-polygonize-wasm \
+    RUSTFLAGS="$flags" cargo "+$THREADS_TOOLCHAIN" build -p geo-polygonize-wasm \
         --locked \
         --target $TARGET \
         --release \
