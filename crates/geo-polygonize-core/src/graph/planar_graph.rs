@@ -149,13 +149,15 @@ fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput
 }
 
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub(crate) struct NodeKey(i64, i64);
+#[derive(PartialEq, Eq, Hash, Ord, PartialOrd, Clone, Copy)]
+pub(crate) struct NodeKey(u64, u64);
 
 impl From<Coord<f64>> for NodeKey {
     fn from(c: Coord<f64>) -> Self {
-        // Simple quantization for map lookup.
-        NodeKey(c.x.to_bits() as i64, c.y.to_bits() as i64)
+        NodeKey(
+            canonical_coordinate_bits(c.x),
+            canonical_coordinate_bits(c.y),
+        )
     }
 }
 
@@ -164,9 +166,22 @@ struct NodeEntry {
     c: Coord3D,
 }
 
+impl NodeEntry {
+    fn new(c: Coord3D) -> Self {
+        Self {
+            z_idx: z_order_index(c.to_coord_2d()),
+            c,
+        }
+    }
+
+    fn key(&self) -> NodeKey {
+        NodeKey::from(self.c.to_coord_2d())
+    }
+}
+
 impl PartialEq for NodeEntry {
     fn eq(&self, other: &Self) -> bool {
-        self.z_idx == other.z_idx && self.c.x == other.c.x && self.c.y == other.c.y
+        self.z_idx == other.z_idx && self.key() == other.key()
     }
 }
 impl Eq for NodeEntry {}
@@ -179,12 +194,9 @@ impl PartialOrd for NodeEntry {
 
 impl Ord for NodeEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.z_idx.cmp(&other.z_idx).then_with(|| {
-            self.c
-                .x
-                .total_cmp(&other.c.x)
-                .then(self.c.y.total_cmp(&other.c.y))
-        })
+        self.z_idx
+            .cmp(&other.z_idx)
+            .then_with(|| self.key().cmp(&other.key()))
     }
 }
 
@@ -378,18 +390,7 @@ impl PlanarGraph {
         }
 
         // 1. Collect all coordinates and precompute Z-order
-        let to_entries = |line: &Line3D| {
-            [
-                NodeEntry {
-                    z_idx: z_order_index(line.start.to_coord_2d()),
-                    c: line.start,
-                },
-                NodeEntry {
-                    z_idx: z_order_index(line.end.to_coord_2d()),
-                    c: line.end,
-                },
-            ]
-        };
+        let to_entries = |line: &Line3D| [NodeEntry::new(line.start), NodeEntry::new(line.end)];
 
         let mut entries: Vec<NodeEntry> = par_flat_map(&lines, to_entries);
 
@@ -399,11 +400,11 @@ impl PlanarGraph {
         }
         par_sort_unstable(&mut entries);
 
-        // Dedup using exact equality on X,Y. Z is ignored for dedup key but carried.
-        // `NodeEntry` PartialEq/Ord implementation considers X,Y.
+        // Dedup using canonical exact XY identity. Z is ignored for the node key.
+        // `NodeEntry` PartialEq/Ord implementation uses the same ordering.
         // We need to ensure we don't have duplicates with same X,Y but different Z.
-        // `dedup_by` keeps the first one.
-        entries.dedup_by(|a, b| a.c.x == b.c.x && a.c.y == b.c.y);
+        // `dedup` keeps the first one.
+        entries.dedup();
 
         // 3. Build Nodes
         let start_node_idx = self.nodes_x.len();
@@ -437,15 +438,10 @@ impl PlanarGraph {
         // Helper to find node index using precomputed Z array (entries)
         let get_node_id = |pt: Coord3D| -> Option<NodeId> {
             // Binary search must respect the sort order (Z-order)
-            let z_pt = z_order_index(pt.to_coord_2d());
+            let lookup = NodeEntry::new(pt);
 
-            // Binary search on the sorted entries
-            let idx_res = entries.binary_search_by(|probe| {
-                probe
-                    .z_idx
-                    .cmp(&z_pt)
-                    .then_with(|| probe.c.x.total_cmp(&pt.x).then(probe.c.y.total_cmp(&pt.y)))
-            });
+            // Binary search on the exact ordering used for sorting and deduplication.
+            let idx_res = entries.binary_search(&lookup);
 
             match idx_res {
                 Ok(i) => Some(start_node_idx + i),
@@ -2618,6 +2614,40 @@ mod arrangement_ring_invariant_tests {
             crate::PolygonizeError::InternalInvariantViolation { reason } => reason,
             error => panic!("unexpected validation error: {error}"),
         }
+    }
+
+    #[test]
+    fn signed_zero_node_identity_agrees_for_bulk_incremental_and_component_graphs() {
+        let lines = vec![
+            Line3D::new(
+                Coord3D::new(-0.0, -0.0, 1.0),
+                Coord3D::new(1.0, -0.0, 2.0),
+                1,
+            ),
+            Line3D::new(Coord3D::new(1.0, 0.0, 2.0), Coord3D::new(0.0, 1.0, 3.0), 2),
+            Line3D::new(Coord3D::new(0.0, 1.0, 3.0), Coord3D::new(0.0, 0.0, 1.0), 3),
+        ];
+
+        let mut bulk = PlanarGraph::new();
+        bulk.bulk_load(lines.clone());
+        let mut incremental = PlanarGraph::new();
+        for line in lines {
+            incremental.add_line(line);
+        }
+
+        assert_eq!(bulk.nodes_x.len(), 3);
+        assert_eq!(bulk.edges.len(), 3);
+        assert_eq!(incremental.nodes_x.len(), 3);
+        assert_eq!(incremental.edges.len(), 3);
+
+        let policy = ExecutionPolicy::default();
+        let mut partitions = bulk.active_component_partitions(&policy).unwrap();
+        assert_eq!(partitions.len(), 1);
+        let mut scratch = ComponentScratch::default();
+        bulk.load_component_scratch(&mut scratch, 0, partitions.remove(0), &policy)
+            .unwrap();
+        assert_eq!(scratch.graph.nodes_x.len(), 3);
+        assert_eq!(scratch.graph.edges.len(), 3);
     }
 
     #[test]
