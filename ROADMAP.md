@@ -585,16 +585,18 @@ Decompose the fully noded, dissolved graph before expensive graph-local work:
 - [x] perform component-local dangle pruning, cut-edge classification, edge
   sorting, and ring extraction in parallel;
 - [x] merge component results into deterministic global order;
-- [ ] reuse component-local scratch buffers and measure peak memory;
+- [x] reuse component-local scratch buffers in serial and per-worker parallel
+  processing;
+- [ ] measure peak memory;
 - [ ] evaluate flat/CSR adjacency versus `Vec<Vec<_>>` using real workloads.
 
 Debug/test active nodes now receive component IDs ordered by each component's
 lexicographically smallest XY coordinate, independent of insertion order. The
 Euler validator and production graph pipeline reuse this identification. The
 normal ring path processes independent components in parallel and merges them
-by component order; traced ring capture remains sequential so its byte budget
-stays global. Component-local scratch reuse and peak-memory measurement remain
-open.
+by component order; each worker now reuses one local graph scratch allocation,
+and traced ring capture reuses one sequential scratch while its byte budget stays
+global. Peak-memory measurement and adjacency-layout evaluation remain open.
 
 Important: disconnected graph components can still be spatially nested. Shell
 and hole containment must remain global unless components are grouped by a
