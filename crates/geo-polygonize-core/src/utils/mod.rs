@@ -57,7 +57,7 @@ pub fn z_order_index(c: Coord<f64>) -> u64 {
 
 #[inline]
 fn sortable_float(f: f64) -> u64 {
-    let bits = f.to_bits();
+    let bits = canonical_coordinate_bits(f);
     if bits & 0x8000000000000000 != 0 {
         !bits
     } else {
@@ -167,7 +167,6 @@ mod tests {
             -1000.0,
             -2.0,
             -1.0,
-            -0.0,
             0.0,
             1.0,
             2.0,
@@ -187,6 +186,8 @@ mod tests {
                 sortable_float(b)
             );
         }
+
+        assert_eq!(sortable_float(-0.0), sortable_float(0.0));
 
         // Test NaN behavior (NaN bits are preserved but ordering is tricky,
         // generally we just want to ensure it doesn't crash and maps predictably)
