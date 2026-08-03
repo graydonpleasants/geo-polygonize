@@ -338,7 +338,11 @@ impl HotPixelNoder {
         }
 
         snapper.normalize_and_dedup(&mut output);
-        ValidatingNoder::new().validate(&output)?;
+        if let Some(execution_policy) = execution_policy {
+            ValidatingNoder::new().validate_with_execution_policy(&output, execution_policy)?;
+        } else {
+            ValidatingNoder::new().validate(&output)?;
+        }
         Ok((
             output,
             intersections,
