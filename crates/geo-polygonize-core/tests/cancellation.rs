@@ -14,21 +14,29 @@ fn square() -> [Line3D; 4] {
 
 #[test]
 fn cancelled_workspace_run_can_be_reused() {
-    let token = CancellationToken::new();
-    let policy = ExecutionPolicy {
-        cancellation_token: Some(token.clone()),
+    let cancelled_token = CancellationToken::new();
+    let cancelled_policy = ExecutionPolicy {
+        cancellation_token: Some(cancelled_token.clone()),
         ..Default::default()
     };
     let options = PolygonizerOptions::default();
     let mut workspace = PolygonizerWorkspace::new();
-    token.cancel();
+    cancelled_token.cancel();
 
     assert!(matches!(
-        polygonize_with_workspace_and_execution_policy(&square(), &options, &mut workspace, &policy),
+        polygonize_with_workspace_and_execution_policy(
+            &square(),
+            &options,
+            &mut workspace,
+            &cancelled_policy,
+        ),
         Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
     ));
 
-    token.reset();
+    let policy = ExecutionPolicy {
+        cancellation_token: Some(CancellationToken::new()),
+        ..Default::default()
+    };
     assert_eq!(
         polygonize_with_workspace_and_execution_policy(
             &square(),
