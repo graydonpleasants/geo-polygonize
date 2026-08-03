@@ -587,6 +587,8 @@ Decompose the fully noded, dissolved graph before expensive graph-local work:
 - [x] merge component results into deterministic global order;
 - [x] reuse component-local scratch buffers in serial and per-worker parallel
   processing;
+- [x] add a native component-scaling benchmark lane covering disconnected
+  multi-component workloads;
 - [ ] measure peak memory;
 - [ ] evaluate flat/CSR adjacency versus `Vec<Vec<_>>` using real workloads.
 
@@ -596,7 +598,9 @@ Euler validator and production graph pipeline reuse this identification. The
 normal ring path processes independent components in parallel and merges them
 by component order; each worker now reuses one local graph scratch allocation,
 and traced ring capture reuses one sequential scratch while its byte budget stays
-global. Peak-memory measurement and adjacency-layout evaluation remain open.
+global. The native Criterion lane now exercises 32-, 128-, and 512-component
+disconnected workloads. Peak-memory measurement and adjacency-layout evaluation
+remain open.
 
 Important: disconnected graph components can still be spatially nested. Shell
 and hole containment must remain global unless components are grouped by a

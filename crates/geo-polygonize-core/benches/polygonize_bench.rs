@@ -56,6 +56,40 @@ fn generate_parallel_lines(n: usize) -> Vec<LineString<f64>> {
     lines
 }
 
+fn generate_disconnected_triangles(count: usize) -> Vec<LineString<f64>> {
+    (0..count)
+        .map(|index| {
+            let x = index as f64 * 3.0;
+            LineString::from(vec![(x, 0.0), (x + 1.0, 0.0), (x, 1.0), (x, 0.0)])
+        })
+        .collect()
+}
+
+fn bench_component_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
+    for &components in &[32usize, 128, 512] {
+        let lines = generate_disconnected_triangles(components);
+        group.throughput(Throughput::Elements(components as u64));
+        group.bench_with_input(
+            BenchmarkId::new("disconnected_triangles", components),
+            &lines,
+            |b, lines| {
+                b.iter(|| {
+                    let mut polygonizer = Polygonizer::with_options(PolygonizerOptions {
+                        node_input: false,
+                        ..Default::default()
+                    });
+                    for line in lines {
+                        polygonizer.add_geometry(line.clone().into());
+                    }
+                    let result = polygonizer.polygonize().unwrap();
+                    assert_eq!(result.polygons.len(), components);
+                    criterion::black_box(result);
+                });
+            },
+        );
+    }
+}
+
 fn bench_grid_scenarios<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     let grid_sizes = [5, 10, 20, 50, 100];
     for &size in grid_sizes.iter() {
@@ -211,6 +245,7 @@ fn bench_polygonize(c: &mut Criterion) {
     }
 
     bench_grid_scenarios(&mut group);
+    bench_component_scenarios(&mut group);
     bench_bowtie_scenarios(&mut group);
     bench_random_scenarios(&mut group);
     bench_parallel_scenarios(&mut group);
