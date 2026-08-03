@@ -1975,18 +1975,9 @@ impl PlanarGraph {
         scratch.graph.clear();
         scratch.global_node_ids.clear();
         scratch.local_node_ids.clear();
-        scratch.global_node_ids.reserve(
-            partition
-                .nodes
-                .len()
-                .saturating_sub(scratch.global_node_ids.capacity()),
-        );
-        scratch.local_node_ids.reserve(
-            partition
-                .nodes
-                .len()
-                .saturating_sub(scratch.local_node_ids.capacity()),
-        );
+        scratch.global_node_ids.reserve(partition.nodes.len());
+        scratch.local_node_ids.reserve(partition.nodes.len());
+        let global_node_capacity = scratch.global_node_ids.capacity();
         for (node_offset, global_node_id) in partition.nodes.into_iter().enumerate() {
             execution_policy.check_cancelled_every("graph_components", node_offset)?;
             let local_node_id = scratch.graph.add_node(Coord3D {
@@ -1997,6 +1988,7 @@ impl PlanarGraph {
             scratch.local_node_ids.insert(global_node_id, local_node_id);
             scratch.global_node_ids.push(global_node_id);
         }
+        debug_assert_eq!(scratch.global_node_ids.capacity(), global_node_capacity);
 
         for (edge_offset, global_edge_id) in partition.edges.into_iter().enumerate() {
             execution_policy.check_cancelled_every("graph_components", edge_offset)?;
@@ -3057,5 +3049,37 @@ mod arrangement_ring_invariant_tests {
 
         assert!(scratch.graph.nodes_x.capacity() >= node_capacity);
         assert!(scratch.graph.edges.capacity() >= edge_capacity);
+    }
+
+    #[test]
+    fn component_scratch_reserves_for_larger_later_components() {
+        let mut graph = PlanarGraph::new();
+        let mut line_id = 0;
+        for (component_id, node_count) in [3, 100, 10, 1_000].into_iter().enumerate() {
+            let y = component_id as f64 * 10_000.0;
+            for node in 0..node_count {
+                graph.add_line(Line3D::new(
+                    Coord3D::new(node as f64, y, 0.0),
+                    Coord3D::new((node + 1) as f64 % node_count as f64, y, 0.0),
+                    line_id,
+                ));
+                line_id += 1;
+            }
+        }
+
+        let policy = ExecutionPolicy::default();
+        let partitions = graph.active_component_partitions(&policy).unwrap();
+        assert_eq!(partitions.len(), 4);
+        let mut scratch = ComponentScratch::default();
+        for (component_id, (node_count, partition)) in
+            [3, 100, 10, 1_000].into_iter().zip(partitions).enumerate()
+        {
+            graph
+                .load_component_scratch(&mut scratch, component_id, partition, &policy)
+                .unwrap();
+            assert_eq!(scratch.global_node_ids.len(), node_count);
+            assert!(scratch.global_node_ids.capacity() >= node_count);
+            assert!(scratch.local_node_ids.capacity() >= node_count);
+        }
     }
 }
