@@ -86,14 +86,14 @@ jobs:
         env:
           SKIP_SIMD: ${{ github.event_name == 'pull_request' && '1' || '0' }}
 
+      - name: Build Docs Site
+        run: npx vitepress build docs
+
       - name: Build Playground
         run: |
           cd playground
           npm ci
           npm run build
-
-      - name: Build Docs Site
-        run: npx vitepress build docs
 
       - name: Upload artifact
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
