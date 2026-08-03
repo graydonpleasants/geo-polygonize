@@ -157,6 +157,23 @@ impl PartitionBorderHalfEdge {
             source_line_ids,
         })
     }
+
+    fn z_at(&self, point: PartitionBorderNodeKey, tangent_index: usize) -> u64 {
+        if point == self.from {
+            return self.from_z_bits;
+        }
+        if point == self.to {
+            return self.to_z_bits;
+        }
+        let start = f64::from_bits(self.from.xy_bits()[tangent_index]);
+        let end = f64::from_bits(self.to.xy_bits()[tangent_index]);
+        let position = f64::from_bits(point.xy_bits()[tangent_index]);
+        let fraction = (position - start) / (end - start);
+        canonical_coordinate_bits(
+            f64::from_bits(self.from_z_bits)
+                + (f64::from_bits(self.to_z_bits) - f64::from_bits(self.from_z_bits)) * fraction,
+        )
+    }
 }
 
 /// Declared shared border between two neighboring partitions.
@@ -329,11 +346,76 @@ impl PartitionBorderGraph {
         self.edges.len()
     }
 
-    /// Matches only exactly-two-observation buckets with opposite directions
-    /// on one declared partition border. Ambiguous, same-partition, or
-    /// unrelated-partition buckets remain unmatched for later reconciliation.
-    pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
-        self.edges
+    fn normalized_edges(
+        &self,
+    ) -> BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>> {
+        let mut edges =
+            BTreeMap::<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>::new();
+        for &adjacency in &self.adjacencies {
+            let observations = self
+                .observations
+                .values()
+                .filter(|observation| {
+                    adjacency.matches_observation(
+                        observation,
+                        adjacency.first_partition_id,
+                        adjacency.first_side,
+                    ) || adjacency.matches_observation(
+                        observation,
+                        adjacency.second_partition_id,
+                        adjacency.second_side,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let coordinate_index = adjacency.first_side.coordinate_index();
+            let tangent_index = 1 - coordinate_index;
+            let mut breakpoints = observations
+                .iter()
+                .flat_map(|observation| [observation.from, observation.to])
+                .collect::<Vec<_>>();
+            breakpoints.sort_unstable_by(|left, right| {
+                f64::from_bits(left.xy_bits()[tangent_index])
+                    .total_cmp(&f64::from_bits(right.xy_bits()[tangent_index]))
+            });
+            breakpoints.dedup();
+
+            for observation in observations {
+                let start = f64::from_bits(observation.from.xy_bits()[tangent_index]);
+                let end = f64::from_bits(observation.to.xy_bits()[tangent_index]);
+                let mut points = breakpoints
+                    .iter()
+                    .copied()
+                    .filter(|point| {
+                        let value = f64::from_bits(point.xy_bits()[tangent_index]);
+                        (start.total_cmp(&value).is_le() && value.total_cmp(&end).is_le())
+                            || (end.total_cmp(&value).is_le() && value.total_cmp(&start).is_le())
+                    })
+                    .collect::<Vec<_>>();
+                if start.total_cmp(&end).is_gt() {
+                    points.reverse();
+                }
+                for pair in points.windows(2) {
+                    let Some(edge_key) = PartitionBorderEdgeKey::new(pair[0], pair[1]) else {
+                        continue;
+                    };
+                    let mut normalized = observation.clone();
+                    normalized.edge_key = edge_key;
+                    normalized.from = pair[0];
+                    normalized.to = pair[1];
+                    normalized.from_z_bits = observation.z_at(pair[0], tangent_index);
+                    normalized.to_z_bits = observation.z_at(pair[1], tangent_index);
+                    edges.entry(edge_key).or_default().insert(normalized);
+                }
+            }
+        }
+        edges
+    }
+
+    fn twin_pairs_from_edges(
+        &self,
+        edges: &BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
+    ) -> Vec<PartitionBorderTwin> {
+        edges
             .iter()
             .filter_map(|(&edge_key, observations)| {
                 let mut observations = observations.iter();
@@ -372,13 +454,21 @@ impl PartitionBorderGraph {
             .collect()
     }
 
+    /// Matches only exactly-two-observation buckets with opposite directions
+    /// on one declared partition border. Ambiguous, same-partition, or
+    /// unrelated-partition buckets remain unmatched for later reconciliation.
+    pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
+        self.twin_pairs_from_edges(&self.normalized_edges())
+    }
+
     /// Merges source IDs and retains every distinct Z candidate for each
     /// canonical endpoint. No Z conflict policy is applied here.
     pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
-        self.twin_pairs()
+        let edges = self.normalized_edges();
+        self.twin_pairs_from_edges(&edges)
             .into_iter()
             .filter_map(|twin| {
-                let observations = self.edges.get(&twin.edge_key)?;
+                let observations = edges.get(&twin.edge_key)?;
                 let forward = observations
                     .iter()
                     .find(|observation| observation.observation_id() == twin.forward)?;
@@ -636,6 +726,104 @@ mod tests {
                     local_dir_edge_id: 9,
                 },
             }]
+        );
+    }
+
+    #[test]
+    fn twin_matching_normalizes_one_to_two_reversed_duplicate_observations() {
+        let start = coord(0.0, 0.0, 0.0);
+        let end = coord(2.0, 0.0, 20.0);
+        let long =
+            PartitionBorderHalfEdge::new(1, 7, Some(3), PartitionBorderSide::MinY, start, end, [1])
+                .unwrap();
+        let high = PartitionBorderHalfEdge::new(
+            2,
+            9,
+            Some(5),
+            PartitionBorderSide::MaxY,
+            coord(2.0, 0.0, 50.0),
+            coord(1.0, 0.0, 60.0),
+            [2],
+        )
+        .unwrap();
+        let low = PartitionBorderHalfEdge::new(
+            2,
+            10,
+            Some(5),
+            PartitionBorderSide::MaxY,
+            coord(1.0, 0.0, 30.0),
+            coord(0.0, 0.0, 40.0),
+            [3],
+        )
+        .unwrap();
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(long.clone()).unwrap();
+        graph.insert(long).unwrap();
+        graph.insert(high).unwrap();
+        graph.insert(low).unwrap();
+
+        assert_eq!(
+            graph
+                .twin_pairs()
+                .iter()
+                .map(|twin| (twin.forward, twin.reverse))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    PartitionBorderObservationId {
+                        partition_id: 1,
+                        local_dir_edge_id: 7,
+                    },
+                    PartitionBorderObservationId {
+                        partition_id: 2,
+                        local_dir_edge_id: 10,
+                    },
+                ),
+                (
+                    PartitionBorderObservationId {
+                        partition_id: 1,
+                        local_dir_edge_id: 7,
+                    },
+                    PartitionBorderObservationId {
+                        partition_id: 2,
+                        local_dir_edge_id: 9,
+                    },
+                ),
+            ]
+        );
+        assert_eq!(
+            graph
+                .reconcile_twin_payloads()
+                .into_iter()
+                .map(|payload| (
+                    payload.source_line_ids,
+                    payload.start_z_bits,
+                    payload.end_z_bits
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    vec![1, 3],
+                    vec![0, 40.0f64.to_bits()],
+                    vec![10.0f64.to_bits(), 30.0f64.to_bits()],
+                ),
+                (
+                    vec![1, 2],
+                    vec![10.0f64.to_bits(), 60.0f64.to_bits()],
+                    vec![20.0f64.to_bits(), 50.0f64.to_bits()],
+                ),
+            ]
         );
     }
 
