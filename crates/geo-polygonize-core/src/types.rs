@@ -226,17 +226,45 @@ pub struct PolygonProvenance {
     pub input_profile_id: Option<String>,
 }
 
+/// Identity of a face produced by one component-local arrangement.
+///
+/// Local face IDs restart for every component, so they are only meaningful
+/// together with the component that assigned them.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct LocalFaceRef {
+    pub(crate) component_id: usize,
+    pub(crate) face_id: usize,
+}
+
+/// Identity of a face observed at one partition border.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PartitionFaceRef {
+    pub(crate) partition_id: usize,
+    pub(crate) component_id: usize,
+    pub(crate) face_id: usize,
+}
+
+impl LocalFaceRef {
+    pub(crate) fn in_partition(self, partition_id: usize) -> PartitionFaceRef {
+        PartitionFaceRef {
+            partition_id,
+            component_id: self.component_id,
+            face_id: self.face_id,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct RingGraphIdentity {
-    /// Component-local deterministic face identity.
-    pub face_id: Option<usize>,
+    /// Qualified deterministic identity from component-local extraction.
+    pub face_ref: Option<LocalFaceRef>,
     pub edge_keys: std::sync::Arc<[(usize, usize)]>,
     pub node_ids: std::sync::Arc<[usize]>,
 }
 
 impl RingGraphIdentity {
     pub(crate) fn new(
-        face_id: Option<usize>,
+        face_ref: Option<LocalFaceRef>,
         mut edge_keys: Vec<(usize, usize)>,
         mut node_ids: Vec<usize>,
     ) -> Self {
@@ -245,7 +273,7 @@ impl RingGraphIdentity {
         node_ids.sort_unstable();
         node_ids.dedup();
         Self {
-            face_id,
+            face_ref,
             edge_keys: edge_keys.into(),
             node_ids: node_ids.into(),
         }

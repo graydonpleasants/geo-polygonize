@@ -1,4 +1,4 @@
-use crate::types::Coord3D;
+use crate::types::{Coord3D, PartitionFaceRef};
 use crate::utils::canonical_coordinate_bits;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -76,7 +76,9 @@ pub struct PartitionBorderHalfEdge {
     pub side: PartitionBorderSide,
     pub partition_id: usize,
     pub local_dir_edge_id: DirEdgeId,
+    /// Component-local face ID retained for existing debug consumers.
     pub face_id: Option<FaceId>,
+    pub(crate) face_ref: Option<PartitionFaceRef>,
     pub source_line_ids: Vec<u32>,
 }
 
@@ -86,6 +88,31 @@ impl PartitionBorderHalfEdge {
         partition_id: usize,
         local_dir_edge_id: DirEdgeId,
         face_id: Option<FaceId>,
+        side: PartitionBorderSide,
+        start: Coord3D,
+        end: Coord3D,
+        source_line_ids: impl IntoIterator<Item = u32>,
+    ) -> Option<Self> {
+        Self::new_with_face_ref(
+            partition_id,
+            local_dir_edge_id,
+            face_id.map(|face_id| PartitionFaceRef {
+                partition_id,
+                component_id: 0,
+                face_id,
+            }),
+            side,
+            start,
+            end,
+            source_line_ids,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_face_ref(
+        partition_id: usize,
+        local_dir_edge_id: DirEdgeId,
+        face_ref: Option<PartitionFaceRef>,
         side: PartitionBorderSide,
         start: Coord3D,
         end: Coord3D,
@@ -106,7 +133,8 @@ impl PartitionBorderHalfEdge {
             side,
             partition_id,
             local_dir_edge_id,
-            face_id,
+            face_id: face_ref.map(|face_ref| face_ref.face_id),
+            face_ref,
             source_line_ids,
         })
     }
@@ -287,6 +315,14 @@ mod tests {
         Coord3D::new(x, y, z)
     }
 
+    fn face(partition_id: usize, component_id: usize, face_id: usize) -> PartitionFaceRef {
+        PartitionFaceRef {
+            partition_id,
+            component_id,
+            face_id,
+        }
+    }
+
     #[test]
     fn node_keys_normalize_signed_zero_but_preserve_z_outside_identity() {
         assert_eq!(
@@ -389,6 +425,33 @@ mod tests {
         assert!(planar
             .partition_border_half_edge(4, 0, PartitionBorderSide::MinY)
             .is_none());
+    }
+
+    #[test]
+    fn face_refs_distinguish_components_with_the_same_local_face_id() {
+        let first = PartitionBorderHalfEdge::new_with_face_ref(
+            4,
+            0,
+            Some(face(4, 0, 0)),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 0.0),
+            coord(1.0, 0.0, 0.0),
+            [],
+        )
+        .unwrap();
+        let second = PartitionBorderHalfEdge::new_with_face_ref(
+            4,
+            1,
+            Some(face(4, 1, 0)),
+            PartitionBorderSide::MinY,
+            coord(2.0, 0.0, 0.0),
+            coord(3.0, 0.0, 0.0),
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(first.face_id, second.face_id);
+        assert_ne!(first.face_ref, second.face_ref);
     }
 
     #[test]

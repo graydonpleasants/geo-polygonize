@@ -1,6 +1,6 @@
 use crate::options::ExecutionPolicy;
 use crate::trace::TraceCaptureBudget;
-use crate::types::{Coord3D, EdgeSources, Line3D};
+use crate::types::{Coord3D, EdgeSources, Line3D, LocalFaceRef};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{
     canonical_coordinate_bits, compare_angular, minimum_rotation_index, z_order_index,
@@ -30,6 +30,8 @@ pub(crate) struct ExtractedRing {
     /// Component-local deterministic face identity for final ring extraction.
     /// Maximal trace rings are captured before face identities are assigned.
     pub face_id: Option<FaceId>,
+    /// Qualified identity once the component-local result is merged.
+    pub(crate) face_ref: Option<LocalFaceRef>,
     pub edge_keys: Vec<(NodeId, NodeId)>,
     pub node_ids: Vec<NodeId>,
 }
@@ -288,6 +290,16 @@ impl PlanarGraph {
         dir_edge_id: DirEdgeId,
         side: PartitionBorderSide,
     ) -> Option<PartitionBorderHalfEdge> {
+        self.partition_border_half_edge_for_component(partition_id, 0, dir_edge_id, side)
+    }
+
+    pub(crate) fn partition_border_half_edge_for_component(
+        &self,
+        partition_id: usize,
+        component_id: usize,
+        dir_edge_id: DirEdgeId,
+        side: PartitionBorderSide,
+    ) -> Option<PartitionBorderHalfEdge> {
         let directed = self.directed_edges.get(dir_edge_id)?;
         let edge = self.edges.get(directed.edge_idx)?;
         if edge.deleted {
@@ -303,10 +315,16 @@ impl PlanarGraph {
             y: *self.nodes_y.get(directed.dst)?,
             z: *self.nodes_z.get(directed.dst)?,
         };
-        PartitionBorderHalfEdge::new(
+        PartitionBorderHalfEdge::new_with_face_ref(
             partition_id,
             dir_edge_id,
-            directed.face_id,
+            directed.face_id.map(|face_id| {
+                LocalFaceRef {
+                    component_id,
+                    face_id,
+                }
+                .in_partition(partition_id)
+            }),
             side,
             start,
             end,
@@ -1579,6 +1597,10 @@ impl PlanarGraph {
             line_ids: ids,
             source_line_ids: source_ids,
             face_id,
+            face_ref: face_id.map(|face_id| LocalFaceRef {
+                component_id: 0,
+                face_id,
+            }),
             edge_keys,
             node_ids,
         })
@@ -2049,6 +2071,7 @@ impl PlanarGraph {
                 append_component_output(
                     &mut merged,
                     scratch.process(
+                        component_id,
                         include_graph_ids,
                         include_source_ids,
                         execution_policy,
@@ -2073,6 +2096,7 @@ impl PlanarGraph {
                             execution_policy,
                         )?;
                         scratch.process(
+                            component_id,
                             include_graph_ids,
                             include_source_ids,
                             execution_policy,
@@ -2094,6 +2118,7 @@ impl PlanarGraph {
                         execution_policy,
                     )?;
                     outputs.push(scratch.process(
+                        component_id,
                         include_graph_ids,
                         include_source_ids,
                         execution_policy,
@@ -2387,6 +2412,7 @@ impl PlanarGraph {
 impl ComponentScratch {
     fn process(
         &mut self,
+        component_id: usize,
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: &ExecutionPolicy,
@@ -2425,20 +2451,25 @@ impl ComponentScratch {
                     )?,
             )
         };
-        self.remap_rings(&mut maximal, include_graph_ids)?;
-        self.remap_rings(&mut minimal, include_graph_ids)?;
+        self.remap_rings(&mut maximal, component_id, include_graph_ids)?;
+        self.remap_rings(&mut minimal, component_id, include_graph_ids)?;
         Ok((dangles, cut_edges, maximal, minimal))
     }
 
     fn remap_rings(
         &self,
         rings: &mut [ExtractedRing],
+        component_id: usize,
         include_graph_ids: bool,
     ) -> crate::Result<()> {
-        if !include_graph_ids {
-            return Ok(());
-        }
         for ring in rings {
+            ring.face_ref = ring.face_ref.map(|face_ref| LocalFaceRef {
+                component_id,
+                ..face_ref
+            });
+            if !include_graph_ids {
+                continue;
+            }
             for (start, end) in &mut ring.edge_keys {
                 *start = *self.global_node_ids.get(*start).ok_or_else(|| {
                     crate::PolygonizeError::InternalInvariantViolation {
@@ -3042,7 +3073,9 @@ mod arrangement_ring_invariant_tests {
             .unwrap();
         let node_capacity = scratch.graph.nodes_x.capacity();
         let edge_capacity = scratch.graph.edges.capacity();
-        scratch.process(false, false, &policy, true, None).unwrap();
+        scratch
+            .process(0, false, false, &policy, true, None)
+            .unwrap();
         graph
             .load_component_scratch(&mut scratch, 1, partitions.remove(0), &policy)
             .unwrap();
@@ -3081,5 +3114,51 @@ mod arrangement_ring_invariant_tests {
             assert!(scratch.global_node_ids.capacity() >= node_count);
             assert!(scratch.local_node_ids.capacity() >= node_count);
         }
+    }
+
+    #[test]
+    fn component_extraction_qualifies_reused_local_face_ids() {
+        let mut graph = PlanarGraph::new();
+        for (offset, points) in [
+            [
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(2.0, 0.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+            ],
+            [
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(12.0, 0.0, 0.0),
+                Coord3D::new(11.0, 1.0, 0.0),
+            ],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for edge in 0..3 {
+                graph.add_line(Line3D::new(
+                    points[edge],
+                    points[(edge + 1) % 3],
+                    (offset * 10 + edge) as u32,
+                ));
+            }
+        }
+
+        let policy = ExecutionPolicy::default();
+        let ((_, _, _, rings), _) = graph
+            .process_components_with_execution_policy(true, true, &policy, true, None)
+            .unwrap();
+        let refs = rings
+            .iter()
+            .map(|ring| ring.face_ref.unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(refs.contains(&LocalFaceRef {
+            component_id: 0,
+            face_id: 0,
+        }));
+        assert!(refs.contains(&LocalFaceRef {
+            component_id: 1,
+            face_id: 0,
+        }));
     }
 }

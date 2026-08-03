@@ -1320,7 +1320,7 @@ pub(crate) fn extract_and_classify_rings(
         let ring = (
             poly3d,
             include_graph_ids
-                .then(|| RingGraphIdentity::new(ring.face_id, ring.edge_keys, ring.node_ids)),
+                .then(|| RingGraphIdentity::new(ring.face_ref, ring.edge_keys, ring.node_ids)),
         );
         if area > 0.0 {
             shells.push(ring);
