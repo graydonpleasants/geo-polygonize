@@ -272,6 +272,8 @@ pub struct ClassifiedLineTraceV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct RingTraceV1 {
     pub index: usize,
+    pub component_id: Option<usize>,
+    pub face_id: Option<usize>,
     pub coordinates: Vec<CoordinateFingerprintV1>,
     pub edge_ids: Vec<String>,
     pub source_ids: Vec<String>,
@@ -1088,6 +1090,8 @@ impl TraceRecorderV1 {
                 kind,
                 RingTraceV1 {
                     index,
+                    component_id: ring.face_ref.map(|face_ref| face_ref.component_id),
+                    face_id: ring.face_ref.map(|face_ref| face_ref.face_id),
                     coordinates: exact_coordinates(&ring.coords)?,
                     edge_ids: ring
                         .line_ids
@@ -1116,6 +1120,8 @@ impl TraceRecorderV1 {
     ) -> crate::Result<()> {
         let payload = RingTraceV1 {
             index,
+            component_id: None,
+            face_id: None,
             coordinates: exact_coordinates(&ring.exterior)?,
             edge_ids: ring
                 .exterior_ids
@@ -1141,6 +1147,8 @@ impl TraceRecorderV1 {
     ) -> crate::Result<()> {
         let payload = RingTraceV1 {
             index,
+            component_id: None,
+            face_id: None,
             coordinates: exact_coordinates(&ring.exterior)?,
             edge_ids: ring
                 .exterior_ids

@@ -24,7 +24,7 @@ fn graph_identities_with_faces<'a>(
     ring: Option<&'a RingGraphIdentity>,
 ) -> Option<(&'a RingGraphIdentity, &'a RingGraphIdentity)> {
     match (shell, ring) {
-        (Some(shell), Some(ring)) if shell.face_id.is_some() && ring.face_id.is_some() => {
+        (Some(shell), Some(ring)) if shell.face_ref.is_some() && ring.face_ref.is_some() => {
             Some((shell, ring))
         }
         _ => None,
@@ -515,8 +515,22 @@ mod tests {
     #[test]
     fn graph_identity_distinguishes_point_and_edge_touch() {
         let polygon = Polygon3D::new(vec![], vec![], vec![], vec![]);
-        let shell_ids = RingGraphIdentity::new(Some(0), vec![(0, 1)], vec![0, 1]);
-        let ring_ids = RingGraphIdentity::new(Some(1), vec![(1, 2)], vec![1, 2]);
+        let shell_ids = RingGraphIdentity::new(
+            Some(crate::types::LocalFaceRef {
+                component_id: 0,
+                face_id: 0,
+            }),
+            vec![(0, 1)],
+            vec![0, 1],
+        );
+        let ring_ids = RingGraphIdentity::new(
+            Some(crate::types::LocalFaceRef {
+                component_id: 0,
+                face_id: 1,
+            }),
+            vec![(1, 2)],
+            vec![1, 2],
+        );
         let mut stats = ContainmentStats::default();
 
         assert!(touch_allowed(
