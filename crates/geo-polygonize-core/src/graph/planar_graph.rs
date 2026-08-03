@@ -113,6 +113,15 @@ struct FaceCycleCandidate {
     signed_area: f64,
 }
 
+#[cfg(any(test, debug_assertions))]
+#[derive(Debug, Eq, PartialEq)]
+struct FaceBoundaryPayload {
+    face_id: FaceId,
+    xy_key: Vec<[u64; 2]>,
+    source_line_ids: Vec<u32>,
+    z_bits: Vec<u64>,
+}
+
 type ComponentOutput = (
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
@@ -1257,7 +1266,159 @@ impl PlanarGraph {
         self.validate_arrangement_ring_cycles("minimal")?;
 
         // Extract the minimal rings from the graph.
-        self.extract_valid_rings(include_graph_ids, include_source_ids, execution_policy)
+        let rings =
+            self.extract_valid_rings(include_graph_ids, include_source_ids, execution_policy)?;
+        #[cfg(any(test, debug_assertions))]
+        self.validate_face_ring_payloads(&rings, include_source_ids)?;
+        Ok(rings)
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    fn validate_face_ring_payloads(
+        &self,
+        rings: &[ExtractedRing],
+        include_source_ids: bool,
+    ) -> crate::Result<()> {
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        let mut expected = Vec::with_capacity(self.face_count);
+        for face_id in 0..self.face_count {
+            expected.push(self.face_boundary_payload(face_id, include_source_ids)?);
+        }
+
+        let mut actual = Vec::with_capacity(rings.len());
+        for ring in rings {
+            let face_id = ring.face_id.ok_or_else(|| {
+                invariant("final ring has no deterministic face identity".to_string())
+            })?;
+            let vertex_count = ring.coords.len().checked_sub(1).ok_or_else(|| {
+                invariant(format!(
+                    "face {face_id} ring is missing its closing coordinate"
+                ))
+            })?;
+            if vertex_count == 0 || ring.coords.last() != ring.coords.first() {
+                return Err(invariant(format!(
+                    "face {face_id} ring is not a non-empty closed cycle"
+                )));
+            }
+
+            let raw_key: Vec<_> = ring.coords[..vertex_count]
+                .iter()
+                .map(|coord| {
+                    [
+                        canonical_coordinate_bits(coord.x),
+                        canonical_coordinate_bits(coord.y),
+                    ]
+                })
+                .collect();
+            let rotation = minimum_rotation_index(&raw_key);
+            let mut xy_key = raw_key;
+            xy_key.rotate_left(rotation);
+            let z_bits = (0..=vertex_count)
+                .map(|offset| ring.coords[(rotation + offset) % vertex_count].z.to_bits())
+                .collect();
+            let mut source_line_ids = if include_source_ids {
+                ring.source_line_ids.clone()
+            } else {
+                Vec::new()
+            };
+            source_line_ids.sort_unstable();
+            source_line_ids.dedup();
+            actual.push(FaceBoundaryPayload {
+                face_id,
+                xy_key,
+                source_line_ids,
+                z_bits,
+            });
+        }
+
+        expected.sort_unstable_by_key(|payload| payload.face_id);
+        actual.sort_unstable_by_key(|payload| payload.face_id);
+        if expected != actual {
+            let mismatch = expected
+                .iter()
+                .zip(&actual)
+                .position(|(expected, actual)| expected != actual)
+                .unwrap_or(expected.len().min(actual.len()));
+            return Err(invariant(format!(
+                "explicit face walk and extracted ring payload differ at index {mismatch}"
+            )));
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    fn face_boundary_payload(
+        &self,
+        face_id: FaceId,
+        include_source_ids: bool,
+    ) -> crate::Result<FaceBoundaryPayload> {
+        let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
+        let start = self
+            .directed_edges
+            .iter()
+            .position(|directed| directed.face_id == Some(face_id))
+            .ok_or_else(|| invariant(format!("face {face_id} has no directed-edge member")))?;
+        let mut cycle = Vec::new();
+        let mut current = start;
+        loop {
+            if cycle.len() >= self.directed_edges.len() {
+                return Err(invariant(format!(
+                    "face {face_id} exceeds the directed-edge count"
+                )));
+            }
+            cycle.push(current);
+            let twin = self.directed_edges[current].sym_idx;
+            let next = self.directed_edges[twin].next_idx.ok_or_else(|| {
+                invariant(format!(
+                    "face {face_id} has no successor at twin link {twin}"
+                ))
+            })?;
+            if next == start {
+                break;
+            }
+            current = next;
+        }
+
+        let raw_key: Vec<_> = cycle
+            .iter()
+            .map(|&directed_idx| {
+                let node = self.directed_edges[directed_idx].src;
+                [
+                    canonical_coordinate_bits(self.nodes_x[node]),
+                    canonical_coordinate_bits(self.nodes_y[node]),
+                ]
+            })
+            .collect();
+        let rotation = minimum_rotation_index(&raw_key);
+        let mut source_line_ids = if include_source_ids {
+            cycle
+                .iter()
+                .flat_map(|&directed_idx| {
+                    self.edges[self.directed_edges[directed_idx].edge_idx]
+                        .sources
+                        .line_ids
+                        .iter()
+                        .copied()
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        source_line_ids.sort_unstable();
+        source_line_ids.dedup();
+        let z_bits = (0..=cycle.len())
+            .map(|offset| {
+                let directed_idx = cycle[(rotation + offset) % cycle.len()];
+                self.nodes_z[self.directed_edges[directed_idx].src].to_bits()
+            })
+            .collect();
+
+        Ok(FaceBoundaryPayload {
+            face_id,
+            xy_key: self.face_cycle_key(&cycle),
+            source_line_ids,
+            z_bits,
+        })
     }
 
     fn extract_rings_from_starts(
