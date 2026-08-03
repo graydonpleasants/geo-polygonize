@@ -770,7 +770,11 @@ impl Polygonizer {
         )?;
         validate_lines(&input_lines, &self.execution_policy)?;
         if let Some(trace) = self.trace.as_mut() {
-            trace.record_input_segments(&input_lines, &self.input_line_strings)?;
+            trace.record_input_segments(
+                &input_lines,
+                &self.input_line_strings,
+                self.options.precision_model.grid_size(),
+            )?;
         }
 
         let return_diagnostics =
