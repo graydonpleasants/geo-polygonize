@@ -14,5 +14,5 @@ hero:
       link: /reference/
     - theme: alt
       text: Playground
-      link: /playground/
+      link: https://graydonpleasants.github.io/geo-polygonize/playground/
 ---
