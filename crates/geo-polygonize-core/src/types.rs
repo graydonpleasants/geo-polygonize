@@ -52,6 +52,13 @@ pub struct Line3D {
     pub line_id: u32,
 }
 
+/// The original line-string boundary for a contiguous range of flattened segments.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SourceLineString {
+    pub(crate) segment_start: usize,
+    pub(crate) segment_count: usize,
+}
+
 /// Sorted, unique input line identifiers contributing to a graph edge.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct EdgeSources {
