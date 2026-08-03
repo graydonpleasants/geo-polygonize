@@ -560,6 +560,8 @@ default release hot path.
 - [x] Assign deterministic face/cycle IDs.
 - [x] Identify component-local unbounded face cycles explicitly.
 - [ ] Retain mappings from faces to boundary source sets and Z decisions.
+  - [x] Carry the component-local face ID with final extracted rings, alongside
+    their complete boundary source IDs and retained Z coordinates.
 - [ ] Compare the explicit face walk against the current ring extractor on the
   entire golden corpus before replacing anything.
 - [ ] Keep the arrangement private until overlay-quality invariants are proven.

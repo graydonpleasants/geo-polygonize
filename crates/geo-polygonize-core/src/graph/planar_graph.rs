@@ -27,6 +27,9 @@ pub(crate) struct ExtractedRing {
     pub coords: Vec<Coord3D>,
     pub line_ids: Vec<u32>,
     pub source_line_ids: Vec<u32>,
+    /// Component-local deterministic face identity for final ring extraction.
+    /// Maximal trace rings are captured before face identities are assigned.
+    pub face_id: Option<FaceId>,
     pub edge_keys: Vec<(NodeId, NodeId)>,
     pub node_ids: Vec<NodeId>,
 }
@@ -1375,6 +1378,7 @@ impl PlanarGraph {
         } else {
             Vec::new()
         };
+        let face_id = self.directed_edges[ring_edges[0]].face_id;
         let start_node_idx = self.directed_edges[ring_edges[0]].src;
         coords.push(Coord3D {
             x: self.nodes_x[start_node_idx],
@@ -1415,6 +1419,7 @@ impl PlanarGraph {
             coords,
             line_ids: ids,
             source_line_ids: source_ids,
+            face_id,
             edge_keys,
             node_ids,
         })
@@ -2473,6 +2478,60 @@ mod arrangement_ring_invariant_tests {
             .directed_edges
             .iter()
             .all(|directed| directed.face_id.is_none()));
+    }
+
+    #[test]
+    fn extracted_rings_retain_deterministic_face_and_boundary_payloads() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 1.0), Coord3D::new(2.0, 0.0, 2.0), 10),
+            Line3D::new(Coord3D::new(2.0, 0.0, 2.0), Coord3D::new(2.0, 2.0, 3.0), 11),
+            Line3D::new(Coord3D::new(2.0, 2.0, 3.0), Coord3D::new(0.0, 2.0, 4.0), 12),
+            Line3D::new(Coord3D::new(0.0, 2.0, 4.0), Coord3D::new(0.0, 0.0, 1.0), 13),
+        ];
+
+        let snapshot = |lines: Vec<Line3D>| {
+            let mut graph = PlanarGraph::new();
+            graph.bulk_load(lines);
+            graph.sort_edges();
+            let mut rings = graph.get_edge_rings_with_graph_ids(true, true);
+            rings.sort_unstable_by_key(|ring| ring.face_id);
+            rings
+                .into_iter()
+                .map(|ring| {
+                    (
+                        ring.face_id,
+                        ring.source_line_ids,
+                        ring.coords
+                            .iter()
+                            .map(|coord| coord.z.to_bits())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let mut reversed = lines.clone();
+        reversed.reverse();
+        let first = snapshot(lines);
+        let second = snapshot(reversed);
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 2);
+        assert!(first.iter().all(|(face_id, _, _)| face_id.is_some()));
+        assert!(first
+            .iter()
+            .all(|(_, source_line_ids, _)| source_line_ids == &[10, 11, 12, 13]));
+        assert!(first.iter().all(|(_, _, z_bits)| {
+            let mut sorted = z_bits[..z_bits.len() - 1].to_vec();
+            sorted.sort_unstable();
+            sorted
+                == [
+                    1.0f64.to_bits(),
+                    2.0f64.to_bits(),
+                    3.0f64.to_bits(),
+                    4.0f64.to_bits(),
+                ]
+        }));
     }
 
     #[test]

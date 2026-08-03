@@ -19,6 +19,18 @@ use std::sync::OnceLock;
 const LOCATOR_INDEX_QUERY_THRESHOLD: usize = 64;
 const LOCATOR_INDEX_MIN_COORDS: usize = 65;
 
+fn graph_identities_with_faces<'a>(
+    shell: Option<&'a RingGraphIdentity>,
+    ring: Option<&'a RingGraphIdentity>,
+) -> Option<(&'a RingGraphIdentity, &'a RingGraphIdentity)> {
+    match (shell, ring) {
+        (Some(shell), Some(ring)) if shell.face_id.is_some() && ring.face_id.is_some() => {
+            Some((shell, ring))
+        }
+        _ => None,
+    }
+}
+
 fn touch_allowed(
     shell: &Polygon3D,
     shell_identity: Option<&RingGraphIdentity>,
@@ -29,19 +41,18 @@ fn touch_allowed(
 ) -> bool {
     match touch_policy {
         TouchPolicy::AllowPointTouchDisallowEdgeShare | TouchPolicy::TreatAnyTouchAsDisjoint => {
-            let (shares_edge, pair_checks, used_graph_ids) = if let (
-                Some(shell_identity),
-                Some(ring_identity),
-            ) = (shell_identity, ring_identity)
-            {
-                let (shares_edge, pair_checks) =
-                    sorted_intersects(&shell_identity.edge_keys, &ring_identity.edge_keys);
-                (shares_edge, pair_checks, true)
-            } else {
-                let (shares_edge, pair_checks) =
-                    rings_share_edge_with_count(&shell.exterior, &ring.exterior, 1e-10);
-                (shares_edge, pair_checks, false)
-            };
+            let (shares_edge, pair_checks, used_graph_ids) =
+                if let Some((shell_identity, ring_identity)) =
+                    graph_identities_with_faces(shell_identity, ring_identity)
+                {
+                    let (shares_edge, pair_checks) =
+                        sorted_intersects(&shell_identity.edge_keys, &ring_identity.edge_keys);
+                    (shares_edge, pair_checks, true)
+                } else {
+                    let (shares_edge, pair_checks) =
+                        rings_share_edge_with_count(&shell.exterior, &ring.exterior, 1e-10);
+                    (shares_edge, pair_checks, false)
+                };
             if let Some(stats) = stats.as_deref_mut() {
                 stats.shared_edge_checks += 1;
                 if used_graph_ids {
@@ -55,20 +66,18 @@ fn touch_allowed(
                 return !shares_edge;
             }
 
-            let (touches_vertex, pair_checks, used_graph_ids) = if let (
-                Some(shell_identity),
-                Some(ring_identity),
-            ) =
-                (shell_identity, ring_identity)
-            {
-                let (touches_vertex, pair_checks) =
-                    sorted_intersects(&shell_identity.node_ids, &ring_identity.node_ids);
-                (touches_vertex, pair_checks, true)
-            } else {
-                let (touches_vertex, pair_checks) =
-                    rings_touch_at_vertex_with_count(&shell.exterior, &ring.exterior, 1e-10);
-                (touches_vertex, pair_checks, false)
-            };
+            let (touches_vertex, pair_checks, used_graph_ids) =
+                if let Some((shell_identity, ring_identity)) =
+                    graph_identities_with_faces(shell_identity, ring_identity)
+                {
+                    let (touches_vertex, pair_checks) =
+                        sorted_intersects(&shell_identity.node_ids, &ring_identity.node_ids);
+                    (touches_vertex, pair_checks, true)
+                } else {
+                    let (touches_vertex, pair_checks) =
+                        rings_touch_at_vertex_with_count(&shell.exterior, &ring.exterior, 1e-10);
+                    (touches_vertex, pair_checks, false)
+                };
             if let Some(stats) = stats {
                 stats.shared_vertex_checks += 1;
                 if used_graph_ids {
@@ -506,8 +515,8 @@ mod tests {
     #[test]
     fn graph_identity_distinguishes_point_and_edge_touch() {
         let polygon = Polygon3D::new(vec![], vec![], vec![], vec![]);
-        let shell_ids = RingGraphIdentity::new(vec![(0, 1)], vec![0, 1]);
-        let ring_ids = RingGraphIdentity::new(vec![(1, 2)], vec![1, 2]);
+        let shell_ids = RingGraphIdentity::new(Some(0), vec![(0, 1)], vec![0, 1]);
+        let ring_ids = RingGraphIdentity::new(Some(1), vec![(1, 2)], vec![1, 2]);
         let mut stats = ContainmentStats::default();
 
         assert!(touch_allowed(
