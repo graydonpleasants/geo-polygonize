@@ -562,11 +562,13 @@ default release hot path.
 - [ ] Retain mappings from faces to boundary source sets and Z decisions.
   - [x] Carry the component-local face ID with final extracted rings, alongside
     their complete boundary source IDs and retained Z coordinates.
-- [ ] Compare the explicit face walk against the current ring extractor on the
+- [x] Compare the explicit face walk against the current ring extractor on the
   entire golden corpus before replacing anything.
   - [x] Compare face IDs, canonical XY cycles, source sets, and Z payloads on
-    nested and disconnected components; the entire golden corpus gate remains
-    open.
+    nested and disconnected components.
+  - [x] Debug/test builds validate every final face walk against extracted ring
+    payloads; the full core golden corpus passes without release behavior
+    changes.
 - [ ] Keep the arrangement private until overlay-quality invariants are proven.
 
 This creates a DCEL-like internal arrangement without committing the public API
