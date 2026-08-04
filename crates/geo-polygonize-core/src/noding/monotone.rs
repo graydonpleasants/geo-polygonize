@@ -1,4 +1,4 @@
-//! Research-only monotone-chain candidate prototype.
+//! Research-only MCIndex-style monotone-chain candidate prototype.
 
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::types::{Line3D, SourceChainKind, SourceLineString};
@@ -54,7 +54,7 @@ pub fn enumerate_candidates(
     enumerate_candidates_from_ranges(lines, source_ranges)
 }
 
-/// Enumerate deterministic segment-envelope candidates for original source chains.
+/// Enumerate deterministic MCIndex-style segment-envelope candidates for retained original chains.
 ///
 /// This is a benchmark-only prototype. It requires finite coordinates and
 /// sorted, disjoint ranges; it has no execution-policy accounting or
@@ -309,6 +309,48 @@ mod tests {
         )
     }
 
+    fn original_chains(points: &[&[(f64, f64)]]) -> (Vec<Line3D>, Vec<SourceLineString>) {
+        let mut lines = Vec::new();
+        let mut chains = Vec::with_capacity(points.len());
+
+        for (source_id, points) in points.iter().enumerate() {
+            let segment_start = lines.len();
+            lines.extend(points.windows(2).map(|window| line(window[0], window[1])));
+            chains.push(SourceLineString {
+                segment_start,
+                segment_count: points.len().saturating_sub(1),
+                source_id: Some(source_id as u32),
+                kind: SourceChainKind::Original,
+            });
+        }
+        (lines, chains)
+    }
+
+    fn assert_matches_envelope_oracle(lines: &[Line3D], chains: &[SourceLineString]) {
+        let mut eligible = vec![false; lines.len()];
+        for chain in chains
+            .iter()
+            .filter(|chain| chain.kind == SourceChainKind::Original)
+        {
+            eligible[chain.segment_start..chain.segment_start + chain.segment_count].fill(true);
+        }
+
+        let bounds: Vec<_> = lines.iter().copied().map(Bounds::from_line).collect();
+        let mut expected = Vec::new();
+        for first in 0..bounds.len() {
+            for second in first + 1..bounds.len() {
+                if eligible[first] && eligible[second] && bounds[first].overlaps(bounds[second]) {
+                    expected.push((first, second));
+                }
+            }
+        }
+
+        assert_eq!(
+            enumerate_source_chain_candidates(lines, chains).unwrap(),
+            expected
+        );
+    }
+
     #[test]
     fn recursively_prunes_long_chain_candidates_without_misses() {
         let lines = [
@@ -389,7 +431,12 @@ mod tests {
     fn long_sparse_workload_matches_bruteforce_envelope_candidates() {
         let long_segments = 2_048;
         let mut lines = Vec::with_capacity(long_segments + long_segments / 32);
-        let mut source_ranges = vec![(0, long_segments)];
+        let mut chains = vec![SourceLineString {
+            segment_start: 0,
+            segment_count: long_segments,
+            source_id: Some(0),
+            kind: SourceChainKind::Original,
+        }];
         for index in 0..long_segments {
             lines.push(line((index as f64, 0.0), (index as f64 + 1.0, 0.0)));
         }
@@ -397,22 +444,56 @@ mod tests {
             let segment_index = lines.len();
             let x = index as f64 + 0.5;
             lines.push(line((x, -1.0), (x, 1.0)));
-            source_ranges.push((segment_index, 1));
+            chains.push(SourceLineString {
+                segment_start: segment_index,
+                segment_count: 1,
+                source_id: Some(chains.len() as u32),
+                kind: SourceChainKind::Original,
+            });
         }
 
-        let mut expected = Vec::new();
-        let bounds: Vec<_> = lines.iter().copied().map(Bounds::from_line).collect();
-        for first in 0..bounds.len() {
-            for second in first + 1..bounds.len() {
-                if bounds[first].overlaps(bounds[second]) {
-                    expected.push((first, second));
-                }
-            }
-        }
+        assert_matches_envelope_oracle(&lines, &chains);
+    }
 
-        assert_eq!(
-            enumerate_candidates(&lines, &source_ranges).unwrap(),
-            expected
-        );
+    #[test]
+    fn mcindex_matches_road_and_contour_chain_envelopes() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (3.0, 0.0), (6.0, 0.0)],
+            &[(1.0, -1.0), (1.0, 1.0), (1.0, 3.0)],
+            &[(5.0, -1.0), (5.0, 1.0)],
+            &[(0.0, 10.0), (2.0, 11.0), (4.0, 10.0), (6.0, 11.0)],
+            &[(0.0, 12.0), (2.0, 13.0), (4.0, 12.0), (6.0, 13.0)],
+        ]);
+
+        assert_matches_envelope_oracle(&lines, &chains);
+    }
+
+    #[test]
+    fn mcindex_matches_mixed_and_collinear_chain_envelopes() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (2.0, 0.0), (4.0, 0.0), (6.0, 0.0)],
+            &[(1.0, -1.0), (1.0, 1.0)],
+            &[(5.0, -1.0), (5.0, 1.0)],
+            &[(2.0, 0.0), (5.0, 0.0)],
+            &[(3.0, 0.0), (7.0, 0.0)],
+        ]);
+
+        assert_matches_envelope_oracle(&lines, &chains);
+    }
+
+    #[test]
+    fn mcindex_matches_self_intersecting_and_component_local_chain_envelopes() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)],
+            &[(10.0, 10.0), (12.0, 10.0), (11.0, 12.0), (10.0, 10.0)],
+            &[
+                (100.0, 100.0),
+                (102.0, 100.0),
+                (101.0, 102.0),
+                (100.0, 100.0),
+            ],
+        ]);
+
+        assert_matches_envelope_oracle(&lines, &chains);
     }
 }
