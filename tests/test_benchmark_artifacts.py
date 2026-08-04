@@ -1,9 +1,34 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
 
+from jsonschema import validate
+
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_production_corpus_is_schema_valid_and_source_pinned():
+    manifest = ROOT / "benchmarks" / "production-corpus-v1.json"
+    schema = ROOT / "benchmarks" / "production-corpus-v1.schema.json"
+    corpus = json.loads(manifest.read_text())
+    validate(corpus, json.loads(schema.read_text()))
+
+    sources = {source["id"]: source for source in corpus["sources"]}
+    assert len(sources) == len(corpus["sources"])
+    workload_ids = {workload["id"] for workload in corpus["workloads"]}
+    assert len(workload_ids) == len(corpus["workloads"])
+    for workload in corpus["workloads"]:
+        source = sources[workload["source_id"]]
+        assert workload["minimum_source_bytes"] <= source["artifact"]["byte_length"]
+    for source in sources.values():
+        artifact = source["artifact"]
+        assert artifact["byte_length"] >= 1 << 30
+        assert "latest" not in artifact["filename"]
+        assert "latest" not in artifact["download_url"]
+        assert artifact["download_url"].startswith("https://")
+        assert artifact["checksum"]["publisher_url"].startswith("https://")
 
 
 def test_correctness_references_are_persistable_and_retained():

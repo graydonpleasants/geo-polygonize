@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/production-corpus-v1.schema.json",
+  "title": "geo-polygonize production corpus source manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources", "workloads"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "workloads": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/workload" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "checksum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value", "publisher_url"],
+      "properties": {
+        "algorithm": { "const": "md5" },
+        "value": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "publisher_url": { "type": "string", "format": "uri" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "description", "metadata_url", "license", "license_url",
+        "attribution", "artifact"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "description": { "type": "string", "minLength": 1 },
+        "metadata_url": { "type": "string", "format": "uri" },
+        "license": { "type": "string", "minLength": 1 },
+        "license_url": { "type": "string", "format": "uri" },
+        "attribution": { "type": "string", "minLength": 1 },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filename", "download_url", "byte_length", "checksum"],
+          "properties": {
+            "filename": { "type": "string", "minLength": 1 },
+            "download_url": { "type": "string", "format": "uri" },
+            "byte_length": { "type": "integer", "minimum": 1 },
+            "checksum": { "$ref": "#/$defs/checksum" }
+          }
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "source_id", "description", "status", "linework_selection",
+        "minimum_source_bytes", "permitted_profiles"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "source_id": { "$ref": "#/$defs/id" },
+        "description": { "type": "string", "minLength": 1 },
+        "status": { "const": "source-pinned" },
+        "linework_selection": { "type": "string", "minLength": 1 },
+        "minimum_source_bytes": { "type": "integer", "minimum": 1073741824 },
+        "permitted_profiles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["floating", "certified-fixed"] }
+        }
+      }
+    }
+  }
+}
