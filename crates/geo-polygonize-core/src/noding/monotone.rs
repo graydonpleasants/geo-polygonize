@@ -384,4 +384,35 @@ mod tests {
             .unwrap()
             .is_empty());
     }
+
+    #[test]
+    fn long_sparse_workload_matches_bruteforce_envelope_candidates() {
+        let long_segments = 2_048;
+        let mut lines = Vec::with_capacity(long_segments + long_segments / 32);
+        let mut source_ranges = vec![(0, long_segments)];
+        for index in 0..long_segments {
+            lines.push(line((index as f64, 0.0), (index as f64 + 1.0, 0.0)));
+        }
+        for index in (0..long_segments).step_by(32) {
+            let segment_index = lines.len();
+            let x = index as f64 + 0.5;
+            lines.push(line((x, -1.0), (x, 1.0)));
+            source_ranges.push((segment_index, 1));
+        }
+
+        let mut expected = Vec::new();
+        let bounds: Vec<_> = lines.iter().copied().map(Bounds::from_line).collect();
+        for first in 0..bounds.len() {
+            for second in first + 1..bounds.len() {
+                if bounds[first].overlaps(bounds[second]) {
+                    expected.push((first, second));
+                }
+            }
+        }
+
+        assert_eq!(
+            enumerate_candidates(&lines, &source_ranges).unwrap(),
+            expected
+        );
+    }
 }
