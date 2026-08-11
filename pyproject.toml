@@ -9,12 +9,17 @@ requires-python = ">=3.8"
 description = "Python bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 readme = "README.md"
 license = {text = "MIT OR Apache-2.0"}
+authors = [{name = "Graydon Pleasants", email = "graydonpleasants@gmail.com"}]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = ["numpy"]
+
+[project.urls]
+Homepage = "https://github.com/graydonpleasants/geo-polygonize"
+Repository = "https://github.com/graydonpleasants/geo-polygonize"
+Documentation = "https://graydonpleasants.github.io/geo-polygonize/"
 
 [tool.maturin]
 python-source = "python"

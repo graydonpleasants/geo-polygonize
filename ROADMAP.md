@@ -144,20 +144,24 @@ must remain unpublished until this gate is closed.
 Tracked by
 [#1286](https://github.com/graydonpleasants/geo-polygonize/issues/1286).
 
-- [ ] Remove stale “before 1.0” language from user-facing docs.
-- [ ] Archive the achieved 1.0 gates and publish a concise 0.x → 1.0 migration
+- [x] Remove stale “before 1.0” language from user-facing docs.
+- [x] Archive the achieved 1.0 gates and publish a concise 0.x → 1.0 migration
   guide.
-- [ ] Update crate-level rustdoc to distinguish unchecked iterative noding from
+- [x] Update crate-level rustdoc to distinguish unchecked iterative noding from
   certified hot-pixel fixed precision.
-- [ ] Declare and continuously test an exact MSRV.
-- [ ] Align Rust, npm, and Python licensing, author, classifiers, descriptions,
+- [x] Declare and continuously test an exact MSRV.
+- [x] Align Rust, npm, and Python licensing, author, classifiers, descriptions,
   and support metadata.
-- [ ] Remove the PyPy classifier or add a real supported import/call gate.
-- [ ] Add a supported-facade API snapshot or allowlist gate.
-- [ ] Define how compiler-public `#[doc(hidden)]` research APIs are governed
+- [x] Remove the PyPy classifier or add a real supported import/call gate.
+- [x] Add a supported-facade API snapshot or allowlist gate.
+- [x] Define how compiler-public `#[doc(hidden)]` research APIs are governed
   during 1.x.
-- [ ] Document a migration path toward a genuinely isolated research surface.
-- [ ] Decide how internal-only features affect release-please semver.
+- [x] Document a migration path toward a genuinely isolated research surface.
+- [x] Decide how internal-only features affect release-please semver.
+
+The exact MSRV gate is x86-sensitive: AVX-512 multiversion variants remain
+intentionally disabled because Rust 1.87 rejects those target features as
+unstable. Revisit them only with a documented minor-release MSRV change.
 
 `#[doc(hidden)]` is a documentation boundary, not Rust privacy. Do not silently
 stabilize those modules, but do not break experimental users in a patch release

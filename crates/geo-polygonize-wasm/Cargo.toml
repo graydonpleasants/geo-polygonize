@@ -2,8 +2,12 @@
 name = "geo-polygonize-wasm"
 version = "1.0.0"
 edition = "2021"
+rust-version = "1.87"
 description = "WebAssembly bindings for geo-polygonize-core, a native Rust port of the JTS/GEOS polygonization algorithm."
 license = "MIT OR Apache-2.0"
+authors = ["Graydon Pleasants <graydonpleasants@gmail.com>"]
+repository = "https://github.com/graydonpleasants/geo-polygonize"
+homepage = "https://github.com/graydonpleasants/geo-polygonize"
 readme = "../../README.md"
 
 [lib]

@@ -14,6 +14,8 @@ for manifest in crates/geo-polygonize-{arrow,flatgeobuf,python,wasm}/Cargo.toml;
   }
 done
 
+python3 scripts/check_stable_api.py
+
 package_version_json="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' package.json | head -n1)"
 pyproject_version="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)"/\1/p' pyproject.toml | head -n1)"
 for actual in "$package_version_json" "$pyproject_version"; do

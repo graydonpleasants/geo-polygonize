@@ -62,6 +62,10 @@
     "vite": "^4.2.0"
   },
   "sideEffects": false,
-  "author": "",
-  "license": "MIT"
+  "author": "Graydon Pleasants <graydonpleasants@gmail.com>",
+  "license": "MIT OR Apache-2.0",
+  "homepage": "https://graydonpleasants.github.io/geo-polygonize/",
+  "bugs": {
+    "url": "https://github.com/graydonpleasants/geo-polygonize/issues"
+  }
 }

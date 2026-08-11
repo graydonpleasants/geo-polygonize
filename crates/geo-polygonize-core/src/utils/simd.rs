@@ -79,10 +79,13 @@ fn contains_scalar(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool 
     crossings % 2 != 0
 }
 
+// Keep the native dispatch list compilable on the documented Rust 1.87 MSRV.
+// Rust 1.87 rejects the AVX-512 target features as unstable on x86_64; the
+// AVX2, AVX, SSE2, and scalar paths remain available until a documented minor
+// release can raise the compiler floor.
 #[cfg_attr(
     not(target_arch = "wasm32"),
     multiversion(targets(
-        "x86_64+avx512f+avx512dq",
         "x86_64+avx2",
         "x86+avx2",
         "x86_64+avx",

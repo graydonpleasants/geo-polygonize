@@ -86,6 +86,18 @@ jobs:
           cargo test --locked -p geo-polygonize-core --no-default-features --lib --tests
           cargo check --locked -p geo-polygonize-core --all-targets --all-features
 
+  msrv:
+    name: MSRV (Rust 1.87.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust 1.87.0
+        uses: dtolnay/rust-toolchain@1.87.0
+
+      - name: Check workspace at the MSRV
+        run: cargo check --locked --workspace --all-targets
+
   python-abi-build:
     name: Python abi3 wheel
     needs: changes
@@ -321,7 +333,7 @@ jobs:
 
   test:
     name: CI Required
-    needs: [changes, rust, python-abi-build, python-abi, release-tests, release-contract, supply-chain, wasm-build, js]
+    needs: [changes, rust, msrv, python-abi-build, python-abi, release-tests, release-contract, supply-chain, wasm-build, js]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -330,6 +342,7 @@ jobs:
         run: |
           [ "${{ needs.changes.result }}" = "success" ]
           [ "${{ needs.rust.result }}" = "success" ]
+          [ "${{ needs.msrv.result }}" = "success" ]
           [[ "${{ needs.python-abi-build.result }}" =~ ^(success|skipped)$ ]]
           [[ "${{ needs.python-abi.result }}" =~ ^(success|skipped)$ ]]
           [ "${{ needs.release-tests.result }}" = "success" ]

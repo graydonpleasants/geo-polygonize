@@ -97,8 +97,10 @@ fn scalar_contains(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool 
     crossings % 2 != 0
 }
 
+// Keep benchmark dispatch aligned with the library's Rust 1.87 MSRV gate.
+// AVX-512 target features are unstable there on x86_64, so this benchmark
+// retains the AVX2, AVX, SSE2, and scalar variants instead.
 #[multiversion(targets(
-    "x86_64+avx512f+avx512dq",
     "x86_64+avx2",
     "x86+avx2",
     "x86_64+avx",
