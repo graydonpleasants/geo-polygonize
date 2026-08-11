@@ -38,6 +38,7 @@ def publish(record_paths, runner_class, warmup_iterations):
         raise ValueError("record IDs must be unique")
     stable_fields = [
         "workload_id",
+        "artifact_sha256",
         "lane",
         "implementation",
         "correctness_gate",
@@ -51,7 +52,9 @@ def publish(record_paths, runner_class, warmup_iterations):
         for record in records[1:]
         for field in stable_fields
     ):
-        raise ValueError("records do not describe one commit, environment, and workload")
+        raise ValueError(
+            "records do not describe one commit, environment, workload, and artifact"
+        )
 
     p50_values = [record["measurement"]["p50_ms"] for record in records]
     median = statistics.median(p50_values)

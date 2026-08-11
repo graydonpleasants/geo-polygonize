@@ -13,9 +13,10 @@ both the manifest classification and a reason. Failed or unexplained runs are
 test artifacts, not timing records.
 
 Records pin the commit, compiler, operating system, architecture, implementation,
-features, and dependency versions. Phase names and throughput units are explicit
-strings so different runners can report their native phases without pretending
-unlike pipelines are equivalent.
+features, dependency versions, and the selected workload clip's manifest
+SHA-256. Phase names and throughput units are explicit strings so different
+runners can report their native phases without pretending unlike pipelines are
+equivalent.
 
 `production-corpus-v1.json` separately pins redistributable production-scale
 source metadata. It contains no geometry. Use

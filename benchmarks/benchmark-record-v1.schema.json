@@ -8,6 +8,7 @@
     "schema_version",
     "record_id",
     "workload_id",
+    "artifact_sha256",
     "lane",
     "implementation",
     "correctness_gate",
@@ -20,6 +21,7 @@
     "schema_version": {"const": 1},
     "record_id": {"type": "string", "minLength": 1},
     "workload_id": {"type": "string", "minLength": 1},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "lane": {
       "enum": [
         "already-noded-polygonization",
