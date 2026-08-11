@@ -108,6 +108,11 @@ fn benchmark_schema_requires_measurement_work_and_environment_evidence() {
             "commit_sha",
         ]))
     );
+    assert!(required(&schema).contains("artifact_sha256"));
+    assert_eq!(
+        schema["properties"]["artifact_sha256"]["pattern"],
+        "^[0-9a-f]{64}$"
+    );
 }
 
 #[test]

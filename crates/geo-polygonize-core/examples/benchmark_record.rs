@@ -456,6 +456,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schema_version": 1,
         "record_id": args.repetition.map_or(record_id.clone(), |repetition| format!("{record_id}-r{repetition}")),
         "workload_id": workload.id,
+        "artifact_sha256": workload.artifact.sha256,
         "lane": args.lane.record_name(),
         "implementation": {
             "name": "geo-polygonize-core",

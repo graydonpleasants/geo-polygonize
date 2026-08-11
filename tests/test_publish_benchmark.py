@@ -22,6 +22,7 @@ def record(index, p50=100.0):
         "schema_version": 1,
         "record_id": f"coverage-abcdef123456-already-noded-r{index}",
         "workload_id": "coverage",
+        "artifact_sha256": "c" * 64,
         "lane": "already-noded-polygonization",
         "implementation": {"name": "core", "version": "1", "features": []},
         "correctness_gate": {
@@ -154,6 +155,13 @@ def test_publication_enforces_decision_quality_policy(tmp_path):
     mixed[-1]["environment"]["commit_sha"] = "c" * 40
     with pytest.raises(ValueError, match="one commit"):
         PUBLISHER.publish(write_records(tmp_path / "mixed", mixed), "dedicated", 5)
+
+    mixed_artifact = [record(index) for index in range(1, 6)]
+    mixed_artifact[-1]["artifact_sha256"] = "d" * 64
+    with pytest.raises(ValueError, match="one commit, environment, workload, and artifact"):
+        PUBLISHER.publish(
+            write_records(tmp_path / "mixed-artifact", mixed_artifact), "dedicated", 5
+        )
 
     noisy = write_records(
         tmp_path / "noisy",

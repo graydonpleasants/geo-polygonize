@@ -228,6 +228,7 @@ Every decision-quality record must include:
 - peak RSS;
 - candidate pairs, exact predicates, split events, and segment expansion;
 - input/output sizes and workload descriptors;
+- selected workload artifact identity, including its manifest clip SHA-256;
 - architecture, OS, compiler, features, dependencies, and commit SHA;
 - predeclared minimum effect size and secondary regression budget.
 
