@@ -1,0 +1,80 @@
+name: Verify release publication
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "geo-polygonize-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to verify"
+        required: true
+        type: string
+      tag:
+        description: "Release tag carrying the publication"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify public registries and install smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify registries and install exact artifacts
+        id: verify
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ inputs.version }}"
+          tag="${{ inputs.tag }}"
+          if [ -z "$version" ]; then
+            version="${GITHUB_REF_NAME#geo-polygonize-v}"
+            version="${version#v}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          fi
+          python3 scripts/verify_release.py \
+            --version "$version" \
+            --tag "$tag" \
+            --repository "$GITHUB_REPOSITORY" \
+            --github-token "$GH_TOKEN" \
+            --report release-publication-report.json
+
+      - name: Upload machine-readable report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-publication-report-${{ github.ref_name }}
+          path: release-publication-report.json
+          if-no-files-found: error
+
+      - name: Attach complete report to the GitHub release
+        if: steps.verify.outcome == 'success' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release-publication-report.json --clobber
+
+      - name: Fail the release when the report is incomplete
+        if: steps.verify.outcome != 'success'
+        run: exit 1

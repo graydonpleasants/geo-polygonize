@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "release_version": "1.0.0",
+  "tag": "geo-polygonize-v1.0.0",
+  "verified_at": "2026-08-11T14:59:56Z",
+  "repository": "graydonpleasants/geo-polygonize",
+  "registries": [
+    {
+      "registry": "crates.io",
+      "package": "geo-polygonize-core",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:36:46.147755Z",
+      "artifact": {
+        "download_url": "https://crates.io/api/v1/crates/geo-polygonize-core/1.0.0/download",
+        "sha256": "5b2a404236c96004f419e036c2934579e79bed14884d3fcf6ee2b55d7f3c8811",
+        "size_bytes": 237447
+      },
+      "platforms": [
+        "source"
+      ]
+    },
+    {
+      "registry": "crates.io",
+      "package": "geo-polygonize-arrow",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:37:23.277083Z",
+      "artifact": {
+        "download_url": "https://crates.io/api/v1/crates/geo-polygonize-arrow/1.0.0/download",
+        "sha256": "8e25b9e80d90369f10592672fe772acc602701d6b8e2af62006b1638bc651d90",
+        "size_bytes": 35054
+      },
+      "platforms": [
+        "source"
+      ]
+    },
+    {
+      "registry": "crates.io",
+      "package": "geo-polygonize-flatgeobuf",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:37:34.270055Z",
+      "artifact": {
+        "download_url": "https://crates.io/api/v1/crates/geo-polygonize-flatgeobuf/1.0.0/download",
+        "sha256": "84b12c4d6702f1f05edb579d4717498b7fb9abe734c1fe417f35934a83f49749",
+        "size_bytes": 16602
+      },
+      "platforms": [
+        "source"
+      ]
+    },
+    {
+      "registry": "crates.io",
+      "package": "geo-polygonize-wasm",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:38:11.470284Z",
+      "artifact": {
+        "download_url": "https://crates.io/api/v1/crates/geo-polygonize-wasm/1.0.0/download",
+        "sha256": "d96ffcf45f39667e41740981f6db0ef8a3551382c506f8f136340bb156b0a93c",
+        "size_bytes": 32108
+      },
+      "platforms": [
+        "source"
+      ]
+    },
+    {
+      "registry": "npm",
+      "package": "geo-polygonize",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:45:56.622Z",
+      "artifact": {
+        "tarball": "https://registry.npmjs.org/geo-polygonize/-/geo-polygonize-1.0.0.tgz",
+        "shasum": "e08d6279cf0289a0b09d507280e49ece53ecbd72",
+        "integrity": "sha512-ljyfQ+Nh21yrIv+OZbmlm9tKh8zNfJk2EPpwEpprtEgC/hy6ib4F7bZSBQkXC+Cr34rkGTISV3v7ngofYMppfQ=="
+      },
+      "platforms": [
+        "node",
+        "wasm-scalar",
+        "wasm-slim"
+      ]
+    },
+    {
+      "registry": "pypi",
+      "package": "geo-polygonize-py",
+      "version": "1.0.0",
+      "status": "available",
+      "published_at": "2026-08-03T20:39:23",
+      "artifact": {
+        "files": [
+          {
+            "filename": "geo_polygonize_py-1.0.0-cp38-abi3-macosx_11_0_arm64.whl",
+            "packagetype": "bdist_wheel",
+            "python_version": "cp38",
+            "digests": {
+              "blake2b_256": "3035317b766710dd67787baa962cb22fa6ac0c1815aa2d658e0eed1140d77356",
+              "md5": "34a53350ee9190f5aff8425973b902b6",
+              "sha256": "f8cf41c53ed7975a29e75fb78742d03885f2a053a45ccc021aa398b5aba86f6f"
+            }
+          },
+          {
+            "filename": "geo_polygonize_py-1.0.0-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+            "packagetype": "bdist_wheel",
+            "python_version": "cp38",
+            "digests": {
+              "blake2b_256": "9ae68da86d5d3d8fe6e8ccf4b281d0ce2be6acae1852757903bb5ace690ed0a0",
+              "md5": "521966ff6427f1ebc7c5f17ec8e6bbaa",
+              "sha256": "49719daa939eaed4bb7cafdc0957a4c757b5620430e47e7f5ea3b68dcc06c257"
+            }
+          },
+          {
+            "filename": "geo_polygonize_py-1.0.0-cp38-abi3-manylinux_2_35_x86_64.whl",
+            "packagetype": "bdist_wheel",
+            "python_version": "cp38",
+            "digests": {
+              "blake2b_256": "02f70532fbc13f68e637d9a3395089010a881c9c94dfb224831d67740de4ec08",
+              "md5": "4a0eec44beabd65e1e6efdc994269879",
+              "sha256": "250215a0706fbb6053f36a1d0ec8cce02d0d72ed46e348c08eb85a5116720343"
+            }
+          },
+          {
+            "filename": "geo_polygonize_py-1.0.0-cp38-abi3-win_amd64.whl",
+            "packagetype": "bdist_wheel",
+            "python_version": "cp38",
+            "digests": {
+              "blake2b_256": "28cc204c1347d2f8c2cada0dd038b11ccac9006c331e9bef1dfd8daba470aba5",
+              "md5": "fc0d2ea876aee6eaf6c8506fd32d904c",
+              "sha256": "b2b8cbba371e6059dfa6c6ea33769157327c6fc4b5a69e48a0ab0fdaae3fec6c"
+            }
+          },
+          {
+            "filename": "geo_polygonize_py-1.0.0.tar.gz",
+            "packagetype": "sdist",
+            "python_version": "source",
+            "digests": {
+              "blake2b_256": "2cb3f8df34d3056a4f3e1b2d95203fd5ab1d1d311521f2d5050d416999883c6c",
+              "md5": "fd0511686ddd8d195177b669235194f8",
+              "sha256": "dae946d7f1ec363d3a2255ddecfd9f22ebc4f0d1e6841367c5b89eb652ec3318"
+            }
+          }
+        ]
+      },
+      "platforms": [
+        "1.0.0.tar.gz",
+        "macosx_11_0_arm64.whl",
+        "manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+        "manylinux_2_35_x86_64.whl",
+        "win_amd64.whl"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "workflow": "Publish Python Package",
+      "run_id": 30850949126,
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "d60fba054066bed348b4d4f594dbbb7bb3989c79",
+      "created_at": "2026-08-03T20:36:15Z",
+      "updated_at": "2026-08-03T20:39:43Z",
+      "url": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/30850949126"
+    },
+    {
+      "workflow": "Publish to crates.io",
+      "run_id": 30850949037,
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "d60fba054066bed348b4d4f594dbbb7bb3989c79",
+      "created_at": "2026-08-03T20:36:15Z",
+      "updated_at": "2026-08-03T20:38:18Z",
+      "url": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/30850949037"
+    },
+    {
+      "workflow": "Publish to npm",
+      "run_id": 30850951383,
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "d60fba054066bed348b4d4f594dbbb7bb3989c79",
+      "created_at": "2026-08-03T20:36:17Z",
+      "updated_at": "2026-08-03T20:46:11Z",
+      "url": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/30850951383"
+    }
+  ],
+  "smoke": {
+    "rust": {
+      "status": "passed",
+      "package": "geo-polygonize-core",
+      "version": "1.0.0",
+      "platform": "native-registry-consumer"
+    },
+    "npm": {
+      "status": "passed",
+      "package": "geo-polygonize",
+      "version": "1.0.0",
+      "platform": "node-standard-slim-wasm"
+    },
+    "python": {
+      "status": "passed",
+      "package": "geo-polygonize-py",
+      "version": "1.0.0",
+      "platform": "cp-abi3-registry-wheel"
+    }
+  },
+  "complete": true
+}

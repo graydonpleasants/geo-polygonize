@@ -16,7 +16,24 @@ permissions:
 name: release-please
 
 jobs:
+  release-publication-gate:
+    name: Verify previous release publication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Require a complete previous release report
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: python3 scripts/verify_release.py --check-previous --repository "${{ github.repository }}" --github-token "$GH_TOKEN"
+
   release-please:
+    needs: release-publication-gate
     runs-on: ubuntu-latest
     steps:
       - name: Run release-please on push

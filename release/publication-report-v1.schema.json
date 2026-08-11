@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/release/publication-report-v1.schema.json",
+  "title": "geo-polygonize cross-registry publication report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_version",
+    "tag",
+    "verified_at",
+    "repository",
+    "registries",
+    "workflows",
+    "smoke",
+    "complete"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "release_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
+    "tag": { "type": "string", "pattern": "^(?:v|geo-polygonize-v)[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "registries": {
+      "type": "array",
+      "minItems": 6,
+      "items": { "type": "object" }
+    },
+    "workflows": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "type": "object" }
+    },
+    "smoke": {
+      "type": "object",
+      "required": ["rust", "npm", "python"],
+      "properties": {
+        "rust": { "type": "object" },
+        "npm": { "type": "object" },
+        "python": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "complete": { "type": "boolean" },
+    "error": { "type": "string" }
+  }
+}
