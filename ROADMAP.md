@@ -123,16 +123,16 @@ completion externally verifiable and the 1.x support contract precise.
 Tracked by
 [#1285](https://github.com/graydonpleasants/geo-polygonize/issues/1285).
 
-- [ ] Verify the actual `1.0.0` state on crates.io, npm, and PyPI.
-- [ ] Repair any missing or failed publication before publishing another version.
-- [ ] Install exact released artifacts from each public registry.
-- [ ] Run canonical success and normalized-error smoke tests against those
+- [x] Verify the actual `1.0.0` state on crates.io, npm, and PyPI.
+- [x] Repair any missing or failed publication before publishing another version.
+- [x] Install exact released artifacts from each public registry.
+- [x] Run canonical success and normalized-error smoke tests against those
   registry artifacts.
-- [ ] Add a bounded tag-triggered post-publication verifier.
-- [ ] Emit a machine-readable publication report by package, registry, version,
+- [x] Add a bounded tag-triggered post-publication verifier.
+- [x] Emit a machine-readable publication report by package, registry, version,
   platform, and result.
-- [ ] Document publication repair and rerun procedures.
-- [ ] Prevent a later release from being treated as complete while the previous
+- [x] Document publication repair and rerun procedures.
+- [x] Prevent a later release from being treated as complete while the previous
   release report is incomplete.
 
 Draft release PR
