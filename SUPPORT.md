@@ -46,6 +46,11 @@ Wasm SIMD requires host SIMD support. Wasm threads additionally require shared
 memory, atomics, and the browser isolation headers described in the Wasm guide.
 The scalar package is the compatibility fallback.
 
+Native multiversion dispatch intentionally omits AVX-512 variants. Rust 1.87,
+the exact MSRV, rejects those target features as unstable on `x86_64`; AVX2,
+AVX, SSE2, and scalar paths remain available. Reintroducing AVX-512 dispatch
+requires a documented minor-release MSRV change.
+
 ## Feature combinations
 
 Supported Cargo feature combinations are intentionally small:

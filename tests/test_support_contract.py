@@ -38,3 +38,18 @@ def test_ci_has_an_exact_msrv_job_in_the_required_aggregate():
     assert "uses: dtolnay/rust-toolchain@1.87.0" in ci
     assert "needs: [changes, rust, msrv," in ci
     assert '[ "${{ needs.msrv.result }}" = "success" ]' in ci
+
+
+def test_native_simd_dispatch_stays_compilable_at_the_msrv():
+    simd = (ROOT / "crates/geo-polygonize-core/src/utils/simd.rs").read_text()
+    benchmark = (
+        ROOT / "crates/geo-polygonize-core/benches/hole_sort_bench.rs"
+    ).read_text()
+    support = (ROOT / "SUPPORT.md").read_text()
+
+    assert '"x86_64+avx512f+avx512dq"' not in simd.lower()
+    assert '"x86_64+avx512f+avx512dq"' not in benchmark.lower()
+    assert (
+        "Native multiversion dispatch intentionally omits AVX-512 variants"
+        in support
+    )

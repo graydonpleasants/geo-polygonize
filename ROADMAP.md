@@ -159,6 +159,10 @@ Tracked by
 - [x] Document a migration path toward a genuinely isolated research surface.
 - [x] Decide how internal-only features affect release-please semver.
 
+The exact MSRV gate is x86-sensitive: AVX-512 multiversion variants remain
+intentionally disabled because Rust 1.87 rejects those target features as
+unstable. Revisit them only with a documented minor-release MSRV change.
+
 `#[doc(hidden)]` is a documentation boundary, not Rust privacy. Do not silently
 stabilize those modules, but do not break experimental users in a patch release
 without a migration policy.
