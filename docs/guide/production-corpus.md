@@ -84,6 +84,27 @@ segments. GEOS/Shapely parity, repeated-run determinism, and serial/parallel
 equality passed for all three tiers. Those local checks are correctness
 evidence, not dedicated-runner timing publications.
 
+## Dedicated baseline publication
+
+Stage the generated `runner-manifest-v1.json` and its relative clip directory
+on the dedicated runner, then dispatch the publication workflow with its
+absolute manifest path:
+
+```bash
+gh workflow run benchmark-publication.yml --ref main \
+  -f workload=osm-california-highways-10k-v1 \
+  -f lane=floating \
+  -f manifest_path=/mnt/geo-polygonize/runner-manifest-v1.json
+```
+
+The workflow keeps the staged bundle out of Git, resolves clips relative to the
+manifest, and verifies each declared SHA-256 before generating a reference or
+running the Rust correctness gate. The five independent timing processes then
+publish only through the existing dedicated-runner policy. A certified-fixed
+manifest follows the same path through the pinned JTS container and must
+explicitly declare the certified-fixed profile; the materializer's current OSM
+manifest intentionally permits only the floating profile.
+
 The derived road tiers cover the network category. Coverage, hydrographic, and
 CAD categories remain represented by the existing public/procedural fixtures;
 the materialization report records those choices and reasons. No CFB or

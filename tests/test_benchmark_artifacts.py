@@ -58,6 +58,12 @@ def test_correctness_references_are_persistable_and_retained():
 def test_publication_requires_a_dedicated_runner_and_retains_gated_outputs():
     workflow = (ROOT / ".github/workflows/benchmark-publication.yml").read_text()
     assert "runs-on: [self-hosted, benchmark-dedicated, linux, x64]" in workflow
+    assert "manifest_path:" in workflow
+    assert "MANIFEST_PATH: ${{ inputs.manifest_path }}" in workflow
+    assert 'test -f "$MANIFEST_PATH"' in workflow
+    assert 'manifest_args+=(--manifest "$MANIFEST_PATH")' in workflow
+    assert 'jts_mount_args+=(-v "$manifest_directory:/external-manifest:ro")' in workflow
+    assert 'jts_manifest_args+=(--manifest "/external-manifest/$manifest_name")' in workflow
     assert workflow.count("--repetition") == 1
     assert "for repetition in 1 2 3 4 5" in workflow
     assert "--runner-class dedicated" in workflow

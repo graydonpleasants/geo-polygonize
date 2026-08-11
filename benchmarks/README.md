@@ -24,6 +24,24 @@ manifest and derived clips, then pass that manifest with `--manifest` to the
 reference and Rust runners. See the [production corpus guide](../docs/guide/production-corpus.md)
 for acquisition, attribution, and validation requirements.
 
+The dedicated publication workflow accepts the same operator-staged manifest
+without copying the source or derived clips into Git. Dispatch it with an
+absolute manifest path that exists on the `benchmark-dedicated` runner:
+
+```bash
+gh workflow run benchmark-publication.yml --ref main \
+  -f workload=osm-california-highways-10k-v1 \
+  -f lane=floating \
+  -f manifest_path=/mnt/geo-polygonize/runner-manifest-v1.json
+```
+
+The selected clip path is resolved relative to that manifest and its declared
+SHA-256 is verified by the GEOS reference, Rust benchmark runner, and JTS
+reference before any correctness or timing work. Certified-fixed dispatches
+mount the manifest parent into the JTS container; a manifest must explicitly
+permit that lane. The workflow publishes only the resulting gated records and
+does not download or retain the source material.
+
 `benchmark-decision-policy-v1.json` separates diagnostic runs from evidence
 that can support a performance decision. Shared or smoke-test measurements are
 diagnostic and nonpublishable. Decision-quality measurements require a

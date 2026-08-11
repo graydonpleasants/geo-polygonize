@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -47,3 +48,21 @@ def test_reference_loader_accepts_an_external_manifest():
     )
     assert external_workload == default_workload
     assert len(external_lines) == len(default_lines)
+
+
+def test_reference_loader_rejects_a_modified_external_artifact(tmp_path):
+    root = PATH.parents[1]
+    source_manifest = root / "crates/geo-polygonize-core/tests/workloads/manifest-v1.json"
+    manifest = json.loads(source_manifest.read_text())
+    workload = next(
+        value for value in manifest["workloads"] if value["id"] == "network-linework-v1"
+    )
+    source_clip = source_manifest.parent / workload["artifact"]["clip_path"]
+    clip = tmp_path / "network-linework.geojson"
+    clip.write_bytes(source_clip.read_bytes() + b"\n")
+    workload["artifact"]["clip_path"] = clip.name
+    external_manifest = tmp_path / "runner-manifest-v1.json"
+    external_manifest.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="workload artifact checksum mismatch"):
+        REFERENCE.load_workload(root, "network-linework-v1", external_manifest)

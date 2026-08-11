@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -114,6 +114,7 @@ struct Workload {
 #[derive(Deserialize)]
 struct Artifact {
     clip_path: String,
+    sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -295,7 +296,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    let lines = load_lines(&manifest_dir.join(&workload.artifact.clip_path))?;
+    let clip_path = manifest_dir.join(&workload.artifact.clip_path);
+    verify_artifact_sha256(&clip_path, &workload.artifact.sha256)?;
+    let lines = load_lines(&clip_path)?;
     if lines.len() != workload.size.segments {
         return Err(format!(
             "{} declares {} segments but contains {}",
@@ -565,6 +568,31 @@ fn load_lines(path: &Path) -> Result<Vec<Line3D>, Box<dyn std::error::Error>> {
     Ok(segments)
 }
 
+fn verify_artifact_sha256(path: &Path, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let expected = parse_sha256(expected)?;
+    let mut input = File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = input.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    let observed: [u8; 32] = digest.finalize().into();
+    if observed != expected {
+        return Err(format!(
+            "workload artifact checksum mismatch for {}: expected {}, observed {}",
+            path.display(),
+            hex(&expected),
+            hex(&observed),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn coordinate(position: &[f64]) -> Result<Coord3D, Box<dyn std::error::Error>> {
     if position.len() < 2 {
         return Err("GeoJSON position must contain x and y".into());
@@ -721,14 +749,14 @@ fn benchmark_fingerprint_sha256(topology: &BenchmarkTopologyFingerprintV1) -> [u
 
 fn parse_sha256(value: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     if value.len() != 64 {
-        return Err("expected fingerprint SHA-256 must contain 64 lowercase hex digits".into());
+        return Err("SHA-256 must contain 64 lowercase hex digits".into());
     }
     let mut result = [0; 32];
     for (index, byte) in result.iter_mut().enumerate() {
         *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)?;
     }
     if hex(&result) != value {
-        return Err("expected fingerprint SHA-256 must use lowercase hex".into());
+        return Err("SHA-256 must use lowercase hex".into());
     }
     Ok(result)
 }
@@ -907,6 +935,19 @@ mod tests {
         let hash = "00".repeat(32);
         assert_eq!(parse_sha256(&hash).unwrap(), [0; 32]);
         assert!(parse_sha256(&"AA".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn workload_artifact_sha256_is_verified() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let clip = root.join("tests/workloads/clips/network-linework.geojson");
+        let expected = "93d10a61d937c2fd2ff4cdc2a584589050de946b4f53a29b136a8a18ff9515fb";
+        assert!(verify_artifact_sha256(&clip, expected).is_ok());
+
+        let error = verify_artifact_sha256(&clip, &"00".repeat(32)).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("workload artifact checksum mismatch"));
     }
 
     #[test]

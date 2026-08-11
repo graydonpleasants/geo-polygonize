@@ -208,6 +208,12 @@ Tracked by
 - [x] Correctness-gate every materialized workload before timing.
 - [ ] Publish dedicated-runner baselines for current production algorithms.
 
+The publication workflow now accepts an operator-staged out-of-tree
+`runner-manifest-v1.json` and verifies each selected clip SHA-256 in the GEOS,
+Rust, and JTS reference paths. This evidence plumbing is complete, but the
+checkbox remains open until decision-quality dedicated-runner publications
+exist for the current production algorithms.
+
 No adaptive backend or graph-layout promotion decision may rely only on the
 tiny correctness corpus.
 

@@ -78,6 +78,14 @@ def canonical_json(value):
     return json.dumps(value, separators=(",", ":"), sort_keys=False)
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def geometries(collection):
     return list(collection.geoms)
 
@@ -124,6 +132,19 @@ def load_workload(root, workload_id, manifest_path=None):
     if workload is None:
         raise ValueError(f"unknown workload {workload_id}")
     clip = manifest_path.parent / workload["artifact"]["clip_path"]
+    expected = workload["artifact"]["sha256"]
+    if (
+        not isinstance(expected, str)
+        or len(expected) != 64
+        or any(character not in "0123456789abcdef" for character in expected)
+    ):
+        raise ValueError("workload artifact SHA-256 must use lowercase hex")
+    observed = sha256_file(clip)
+    if observed != expected:
+        raise ValueError(
+            f"workload artifact checksum mismatch for {workload_id}: "
+            f"expected {expected}, observed {observed}"
+        )
     collection = json.loads(clip.read_text())
     lines = []
     for feature in collection["features"]:

@@ -36,12 +36,20 @@ public final class JtsReference {
         Path root = Path.of(args.getOrDefault("--root", ".")).toAbsolutePath();
         String workloadId = required(args, "--workload");
         Path output = Path.of(required(args, "--output"));
-        Path workloads = root.resolve("crates/geo-polygonize-core/tests/workloads");
+        Path manifestPath = args.containsKey("--manifest")
+                ? Path.of(args.get("--manifest")).toAbsolutePath()
+                : root.resolve("crates/geo-polygonize-core/tests/workloads/manifest-v1.json");
+        Path manifestDirectory = manifestPath.getParent();
+        if (manifestDirectory == null) {
+            throw new IllegalArgumentException("manifest path has no parent directory");
+        }
         JsonNode workload = workload(
-                JSON.readTree(workloads.resolve("manifest-v1.json").toFile()), workloadId);
+                JSON.readTree(manifestPath.toFile()), workloadId);
         double gridSize = certifiedGridSize(workload);
+        Path clipPath = manifestDirectory.resolve(workload.at("/artifact/clip_path").asText());
+        verifyArtifactSha256(clipPath, workload.at("/artifact/sha256").asText());
         List<LineString> input = inputSegments(
-                JSON.readTree(workloads.resolve(workload.at("/artifact/clip_path").asText()).toFile()),
+                JSON.readTree(clipPath.toFile()),
                 new GeometryFactory());
 
         PrecisionModel precision = new PrecisionModel(1.0 / gridSize);
@@ -114,6 +122,26 @@ public final class JtsReference {
             }
         }
         return false;
+    }
+
+    private static void verifyArtifactSha256(Path path, String expected) throws Exception {
+        if (!expected.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("workload artifact SHA-256 must use lowercase hex");
+        }
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (var input = Files.newInputStream(path)) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        String observed = HexFormat.of().formatHex(digest.digest());
+        if (!observed.equals(expected)) {
+            throw new IllegalArgumentException(
+                    "workload artifact checksum mismatch for " + path
+                            + ": expected " + expected + ", observed " + observed);
+        }
     }
 
     private static double certifiedGridSize(JsonNode workload) {
