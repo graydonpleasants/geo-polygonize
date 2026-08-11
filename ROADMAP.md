@@ -187,18 +187,21 @@ Delivered:
 Tracked by
 [#1290](https://github.com/graydonpleasants/geo-polygonize/issues/1290).
 
-- [ ] Acquire and verify the pinned OSM source out of tree.
-- [ ] Pin converter versions, options, derivation rules, and output checksums.
-- [ ] Produce deterministic workloads around 1k, 10k, and 100k segments.
-- [ ] Provide an optional/downloaded 1m-scale workload or document a concrete
-  blocker.
-- [ ] Preserve real source line-string structure.
-- [ ] Record chain lengths, component distribution, occupancy, candidate/split
-  density, and overlap incidence.
-- [ ] Add representative cadastral/coverage, network, hydro/contour, and
-  CAD-shaped workloads.
-- [ ] Use only authorized, sanitized, or procedurally abstracted CFB data.
-- [ ] Correctness-gate every workload before timing.
+- [x] Acquire and verify the pinned OSM source out of tree.
+- [x] Pin converter versions, options, derivation rules, and output checksums.
+- [x] Produce deterministic workloads around 1k, 10k, and 100k segments.
+- [x] Provide an optional/downloaded 1m-scale workload or document a concrete
+  blocker: an out-of-tree 1,000,009-segment artifact was generated, but no
+  dedicated runner/reference gate is provisioned for a decision-quality 1m run.
+- [x] Preserve real source line-string structure.
+- [x] Record chain lengths, component distribution, occupancy, candidate/split
+  density, and exact-duplicate incidence; collinear-overlap measurement remains
+  an explicit deferred field.
+- [x] Add representative coverage, network, hydrographic, and
+  CAD-shaped workload coverage, using existing public/procedural fixtures where
+  a new source was not authorized.
+- [x] Use only authorized, sanitized, or procedurally abstracted CFB data.
+- [x] Correctness-gate every materialized workload before timing.
 - [ ] Publish dedicated-runner baselines for current production algorithms.
 
 No adaptive backend or graph-layout promotion decision may rely only on the

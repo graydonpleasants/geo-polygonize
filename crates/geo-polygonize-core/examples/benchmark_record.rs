@@ -36,7 +36,11 @@ struct Args {
     #[arg(long)]
     reference_result: PathBuf,
     #[arg(long)]
+    manifest: Option<PathBuf>,
+    #[arg(long)]
     check_only: bool,
+    #[arg(long)]
+    check_only_output: Option<PathBuf>,
     #[arg(long)]
     output: Option<PathBuf>,
     #[arg(long)]
@@ -260,10 +264,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !args.check_only && args.peak_rss_bytes.is_none() {
         return Err("peak RSS is required when recording timings".into());
     }
+    if args.check_only_output.is_some() && !args.check_only {
+        return Err("check-only output requires --check-only".into());
+    }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let manifest_dir = root.join("tests/workloads");
-    let manifest: Manifest =
-        serde_json::from_slice(&std::fs::read(manifest_dir.join("manifest-v1.json"))?)?;
+    let manifest_path = args
+        .manifest
+        .unwrap_or_else(|| root.join("tests/workloads/manifest-v1.json"));
+    let manifest_dir = manifest_path
+        .parent()
+        .ok_or("manifest path has no parent directory")?
+        .to_path_buf();
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(&manifest_path)?)?;
     let workload = manifest
         .workloads
         .into_iter()
@@ -295,8 +307,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut options = workload
         .options
-        .into_iter()
+        .iter()
         .find(|options| args.lane.accepts(options))
+        .cloned()
         .ok_or_else(|| format!("workload has no {} options", args.lane.profile()))?;
     options.provenance.enabled = true;
     options.provenance.include_boundary_line_ids = true;
@@ -380,6 +393,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
     if args.check_only {
+        if let Some(path) = args.check_only_output.as_deref() {
+            write_check_only_output(
+                path,
+                &workload,
+                args.lane,
+                &lines,
+                &correctness,
+                actual_topology,
+            )?;
+        }
         return Ok(());
     }
 
@@ -744,6 +767,52 @@ fn output_coordinates(result: &PolygonizerResult) -> usize {
         .chain(result.cut_edges.iter().map(Vec::len))
         .chain(result.invalid_rings.iter().map(Vec::len))
         .sum()
+}
+
+fn write_check_only_output(
+    path: &Path,
+    workload: &Workload,
+    lane: Lane,
+    lines: &[Line3D],
+    result: &PolygonizerResult,
+    topology: &BenchmarkTopologyFingerprintV1,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let diagnostics = result
+        .diagnostics
+        .as_ref()
+        .ok_or("check-only output requires diagnostics")?;
+    let input_segments = lines.len();
+    let output = json!({
+        "schema_version": 1,
+        "workload_id": workload.id,
+        "lane": lane.record_name(),
+        "status": "passed",
+        "fingerprint_sha256": hex(&benchmark_fingerprint_sha256(topology)),
+        "topology": {
+            "polygons": result.polygons.len(),
+            "rings": result.polygons.iter().map(|polygon| 1 + polygon.interiors.len()).sum::<usize>(),
+            "dangles": result.dangles.len(),
+            "cut_edges": result.cut_edges.len(),
+            "invalid_rings": result.invalid_rings.len(),
+            "provenance_sources": provenance_sources(result),
+        },
+        "work": {
+            "input_line_strings": workload.size.line_strings,
+            "input_segments": input_segments,
+            "input_coordinates": workload.size.coordinates,
+            "output_coordinates": output_coordinates(result),
+            "candidate_pairs": diagnostics.noding_work_stats.candidate_pairs,
+            "exact_predicate_calls": diagnostics.noding_work_stats.exact_intersection_calls,
+            "split_events": diagnostics.noding_work_stats.split_events,
+            "segment_expansion": {
+                "input_segments": diagnostics.input_segment_count,
+                "noded_segments": diagnostics.noded_segment_count,
+                "ratio": diagnostics.noded_segment_count as f64 / diagnostics.input_segment_count.max(1) as f64,
+            },
+        },
+    });
+    std::fs::write(path, serde_json::to_vec_pretty(&output)?)?;
+    Ok(())
 }
 
 fn dependencies(
