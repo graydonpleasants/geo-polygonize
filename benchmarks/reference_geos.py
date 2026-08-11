@@ -111,8 +111,12 @@ def canonical_topology(lines, lane):
     }
 
 
-def load_workload(root, workload_id):
-    manifest_path = root / "crates/geo-polygonize-core/tests/workloads/manifest-v1.json"
+def load_workload(root, workload_id, manifest_path=None):
+    manifest_path = Path(manifest_path) if manifest_path else (
+        root / "crates/geo-polygonize-core/tests/workloads/manifest-v1.json"
+    )
+    if not manifest_path.is_absolute():
+        manifest_path = root / manifest_path
     manifest = json.loads(manifest_path.read_text())
     workload = next(
         (value for value in manifest["workloads"] if value["id"] == workload_id), None
@@ -143,11 +147,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lane", choices=LANES, required=True)
     parser.add_argument("--workload", required=True)
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
-    workload, lines = load_workload(root, args.workload)
+    workload, lines = load_workload(root, args.workload, args.manifest)
     if workload["compatibility_class"] != "parity":
         raise ValueError(f"{args.workload} is not a parity-class workload")
     if args.lane not in workload["permitted_profiles"]:

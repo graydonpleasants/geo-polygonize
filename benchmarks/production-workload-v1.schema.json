@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/production-workload-v1.schema.json",
+  "title": "geo-polygonize materialized production workload report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "derivation", "workloads", "domain_coverage"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source": {"$ref": "#/$defs/source"},
+    "derivation": {"$ref": "#/$defs/derivation"},
+    "workloads": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/workload"}},
+    "domain_coverage": {"type": "object", "additionalProperties": {"$ref": "#/$defs/domain"}}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "filename", "download_url", "metadata_url", "license", "license_url", "attribution", "acquired_on", "byte_length", "md5", "sha256"],
+      "properties": {
+        "id": {"type": "string"},
+        "filename": {"type": "string"},
+        "download_url": {"type": "string", "format": "uri"},
+        "metadata_url": {"type": "string", "format": "uri"},
+        "license": {"type": "string"},
+        "license_url": {"type": "string", "format": "uri"},
+        "attribution": {"type": "string"},
+        "acquired_on": {"type": "string", "format": "date"},
+        "byte_length": {"type": "integer", "minimum": 1},
+        "md5": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "generator_version", "converter", "converter_version", "converter_command", "source_layer", "where", "output_options", "selection_order"],
+      "properties": {
+        "generator": {"type": "string"},
+        "generator_version": {"const": 1},
+        "converter": {"type": "string"},
+        "converter_version": {"type": "string"},
+        "converter_command": {"type": "array", "items": {"type": "string"}},
+        "source_layer": {"type": "string"},
+        "where": {"type": "string"},
+        "output_options": {"type": "array", "items": {"type": "string"}},
+        "selection_order": {"type": "string"}
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "target_segments", "source_selection", "artifact", "structure", "candidate_split_density", "contract"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+        "description": {"type": "string"},
+        "target_segments": {"type": "integer", "minimum": 1},
+        "source_selection": {"$ref": "#/$defs/source_selection"},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "structure": {"$ref": "#/$defs/structure"},
+        "candidate_split_density": {"$ref": "#/$defs/density"},
+        "contract": {"$ref": "#/$defs/contract"},
+        "validation": {"type": "object"}
+      }
+    },
+    "source_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "selected_feature_count", "first_osm_id", "last_osm_id", "bbox_wgs84"],
+      "properties": {
+        "rule": {"type": "string"},
+        "selected_feature_count": {"type": "integer", "minimum": 1},
+        "first_osm_id": {"type": "string"},
+        "last_osm_id": {"type": "string"},
+        "bbox_wgs84": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byte_length"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byte_length": {"type": "integer", "minimum": 1}
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_strings", "segments", "coordinates", "chain_lengths", "connected_components", "envelope_grid_occupancy", "duplicate_incidence"],
+      "properties": {
+        "line_strings": {"type": "integer", "minimum": 1},
+        "segments": {"type": "integer", "minimum": 1},
+        "coordinates": {"type": "integer", "minimum": 2},
+        "chain_lengths": {"$ref": "#/$defs/distribution"},
+        "connected_components": {"$ref": "#/$defs/components"},
+        "envelope_grid_occupancy": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "duplicate_incidence": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum", "mean", "p50", "p95"],
+      "properties": {
+        "minimum": {"type": "number", "minimum": 0},
+        "maximum": {"type": "number", "minimum": 0},
+        "mean": {"type": "number", "minimum": 0},
+        "p50": {"type": "number", "minimum": 0},
+        "p95": {"type": "number", "minimum": 0}
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition", "count", "largest_segments", "p50_segments", "p95_segments"],
+      "properties": {
+        "definition": {"type": "string"},
+        "count": {"type": "integer", "minimum": 1},
+        "largest_segments": {"type": "integer", "minimum": 1},
+        "p50_segments": {"type": "number", "minimum": 1},
+        "p95_segments": {"type": "number", "minimum": 1}
+      }
+    },
+    "density": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "candidate_pairs_per_input_segment", "exact_predicates_per_input_segment", "split_events_per_input_segment"],
+      "properties": {
+        "status": {"type": "string"},
+        "candidate_pairs_per_input_segment": {"type": ["number", "null"], "minimum": 0},
+        "exact_predicates_per_input_segment": {"type": ["number", "null"], "minimum": 0},
+        "split_events_per_input_segment": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate_reference", "units", "compatibility_class", "permitted_profiles", "retained_result_families", "z_behavior"],
+      "properties": {
+        "coordinate_reference": {"type": "string"},
+        "units": {"type": "string"},
+        "compatibility_class": {"enum": ["parity", "expected-divergence", "invalid", "ambiguous"]},
+        "permitted_profiles": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "retained_result_families": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "z_behavior": {"type": "string"}
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "workload_ids", "reason"],
+      "properties": {
+        "status": {"type": "string"},
+        "workload_ids": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/graydonpleasants/geo-polygonize/benchmarks/production-validation-v1.schema.json",
+  "title": "geo-polygonize production workload correctness evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workload_id", "lane", "status", "fingerprint_sha256", "topology", "work"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workload_id": {"type": "string", "minLength": 1},
+    "lane": {"type": "string", "minLength": 1},
+    "status": {"const": "passed"},
+    "fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["polygons", "rings", "dangles", "cut_edges", "invalid_rings", "provenance_sources"],
+      "properties": {
+        "polygons": {"type": "integer", "minimum": 0},
+        "rings": {"type": "integer", "minimum": 0},
+        "dangles": {"type": "integer", "minimum": 0},
+        "cut_edges": {"type": "integer", "minimum": 0},
+        "invalid_rings": {"type": "integer", "minimum": 0},
+        "provenance_sources": {"type": "integer", "minimum": 0}
+      }
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_line_strings", "input_segments", "input_coordinates", "output_coordinates", "candidate_pairs", "exact_predicate_calls", "split_events", "segment_expansion"],
+      "properties": {
+        "input_line_strings": {"type": "integer", "minimum": 0},
+        "input_segments": {"type": "integer", "minimum": 0},
+        "input_coordinates": {"type": "integer", "minimum": 0},
+        "output_coordinates": {"type": "integer", "minimum": 0},
+        "candidate_pairs": {"type": "integer", "minimum": 0},
+        "exact_predicate_calls": {"type": "integer", "minimum": 0},
+        "split_events": {"type": "integer", "minimum": 0},
+        "segment_expansion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input_segments", "noded_segments", "ratio"],
+          "properties": {
+            "input_segments": {"type": "integer", "minimum": 0},
+            "noded_segments": {"type": "integer", "minimum": 0},
+            "ratio": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

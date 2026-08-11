@@ -18,9 +18,11 @@ strings so different runners can report their native phases without pretending
 unlike pipelines are equivalent.
 
 `production-corpus-v1.json` separately pins redistributable production-scale
-source metadata. It contains no geometry and is not accepted by the benchmark
-runner; see the [production corpus guide](../docs/guide/production-corpus.md)
-for acquisition and later materialization requirements.
+source metadata. It contains no geometry. Use
+`scripts/materialize_production_workloads.py` to create an out-of-tree runner
+manifest and derived clips, then pass that manifest with `--manifest` to the
+reference and Rust runners. See the [production corpus guide](../docs/guide/production-corpus.md)
+for acquisition, attribution, and validation requirements.
 
 `benchmark-decision-policy-v1.json` separates diagnostic runs from evidence
 that can support a performance decision. Shared or smoke-test measurements are

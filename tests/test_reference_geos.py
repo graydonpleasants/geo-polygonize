@@ -36,3 +36,14 @@ def test_reference_generation_is_deterministic(workload, lane):
     first = REFERENCE.canonical_topology(lines, lane)
     second = REFERENCE.canonical_topology(list(reversed(lines)), lane)
     assert REFERENCE.canonical_json(first) == REFERENCE.canonical_json(second)
+
+
+def test_reference_loader_accepts_an_external_manifest():
+    root = PATH.parents[1]
+    manifest = root / "crates/geo-polygonize-core/tests/workloads/manifest-v1.json"
+    default_workload, default_lines = REFERENCE.load_workload(root, "network-linework-v1")
+    external_workload, external_lines = REFERENCE.load_workload(
+        root, "network-linework-v1", manifest
+    )
+    assert external_workload == default_workload
+    assert len(external_lines) == len(default_lines)

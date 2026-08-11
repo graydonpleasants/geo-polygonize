@@ -15,6 +15,11 @@ def test_production_corpus_is_schema_valid_and_source_pinned():
     corpus = json.loads(manifest.read_text())
     validate(corpus, json.loads(schema.read_text()))
 
+    source_artifact = corpus["sources"][0]["artifact"]
+    assert source_artifact["filename"] == "california-260801.osm.pbf"
+    assert source_artifact["byte_length"] == 1322245000
+    assert source_artifact["checksum"]["value"] == "3be0a7bdf02572622c791b89063638a0"
+
     sources = {source["id"]: source for source in corpus["sources"]}
     assert len(sources) == len(corpus["sources"])
     workload_ids = {workload["id"] for workload in corpus["workloads"]}
@@ -39,6 +44,9 @@ def test_correctness_references_are_persistable_and_retained():
         text=True,
     ).stdout
     assert "--output-dir" in help_text
+    assert "--manifest" in help_text
+    assert "--validation-output-dir" in help_text
+    assert "--serial-binary" in help_text
 
     workflow = (ROOT / ".github/workflows/benchmark-evidence.yml").read_text()
     assert "--output-dir target/geos-reference" in workflow
