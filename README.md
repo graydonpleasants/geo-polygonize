@@ -25,6 +25,9 @@ Supported APIs, toolchains, targets, feature combinations, compatibility
 windows, and failure/threading contracts are defined in
 [SUPPORT.md](SUPPORT.md).
 
+Users migrating from the 0.x API should also read the
+[0.x to 1.0 migration guide](docs/guide/migration-1-0.md).
+
 ## Usage
 
 ### Library
@@ -59,7 +62,10 @@ needed.
 
 Rust consumers should import the supported facade from the crate root. Graph,
 noding, containment, utility, mutable-builder, and tiled APIs are internal or
-experimental and may change without compatibility guarantees before `1.0`.
+experimental research surfaces and may change without 1.x compatibility
+guarantees. `#[doc(hidden)]` is documentation guidance, not Rust privacy;
+compiler-public research items are governed separately from the supported
+facade.
 `TiledPolygonizer` validates its grid/options and propagates per-tile errors,
 but callers must still choose a sufficient buffer and verify untiled equivalence
 for their workload. Its result includes per-tile topology counts and merge/dedup

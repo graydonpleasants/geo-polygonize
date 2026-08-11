@@ -2,9 +2,13 @@
 name = "geo-polygonize-python"
 version = "1.0.0"
 edition = "2021"
+rust-version = "1.87"
 publish = false
 description = "Python extension module for geo-polygonize-core."
 license = "MIT OR Apache-2.0"
+authors = ["Graydon Pleasants <graydonpleasants@gmail.com>"]
+repository = "https://github.com/graydonpleasants/geo-polygonize"
+homepage = "https://github.com/graydonpleasants/geo-polygonize"
 
 [lib]
 name = "geo_polygonize_core"

@@ -3,8 +3,17 @@
 //! This crate allows you to reconstruct valid polygons from a set of lines,
 //! including handling of complex topologies like holes, nested shells, and disconnected components.
 //!
+//! The supported 1.x facade is the non-hidden API exported at this crate root.
+//! Graph, noding, containment, tiling, trace, differential, utility, and
+//! mutable-builder modules are compiler-public research surfaces for repository
+//! tooling and are not covered by the support policy. The checked-in
+//! `release/stable-api-v1.txt` allowlist records the supported root exports.
+//!
 //! # Features
-//! - **Robust Noding**: Uses Iterated Snap Rounding to handle dirty inputs.
+//! - **Unchecked iterative noding**: Grid iteration is available for dirty
+//!   linework, but does not claim a certified snap-rounding guarantee.
+//! - **Certified fixed-precision noding**: Hot-pixel snap rounding plus an
+//!   independent full-noding validation is available when explicitly selected.
 //! - **Performance**: SIMD-accelerated predicates and efficient memory layout.
 //! - **Wasm**: Optimized for WebAssembly environments.
 

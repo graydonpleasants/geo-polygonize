@@ -7,11 +7,13 @@ This policy describes the compatibility commitments for published
 ## Supported API surface
 
 For Rust, the supported facade is the non-hidden API exported from the
-`geo-polygonize-core` crate root. Modules and exports marked `#[doc(hidden)]`
-exist for repository tooling, benchmarks, diagnostics, or experimental use;
-they are not stable API. In particular, graph, noding, containment, tiling,
-trace, differential, utility, and mutable-builder interfaces may change before
-`1.0`.
+`geo-polygonize-core` crate root. The checked-in
+[`stable-api-v1.txt`](release/stable-api-v1.txt) allowlist is the compatibility
+gate for that facade. Modules and exports marked `#[doc(hidden)]` exist for
+repository tooling, benchmarks, diagnostics, or experimental use; they are
+not stable API. In particular, graph, noding, containment, tiling, trace,
+differential, utility, and mutable-builder interfaces remain unsupported 1.x
+research surfaces.
 
 For JavaScript and Python, only documented package exports are supported.
 Generated Wasm glue, generated TypeScript bindings, the native Python extension
@@ -19,11 +21,10 @@ module, and repository scripts are implementation details.
 
 ## Rust toolchain and targets
 
-The minimum supported Rust version (MSRV) is the latest stable Rust release.
-There is currently no fixed numeric MSRV and no `package.rust-version` value.
-Pull-request CI uses the stable channel, so the supported compiler may advance
-with a minor release before `1.0`. A fixed MSRV will be declared in Cargo
-metadata only when that exact toolchain is continuously tested.
+The minimum supported Rust version (MSRV) is Rust `1.87.0`. Published Cargo
+packages declare `rust-version = "1.87"`, and CI continuously checks the
+workspace with that exact toolchain. The MSRV may advance only in a documented
+minor release with migration guidance; patch releases never raise it.
 
 The required target gates are:
 
@@ -38,8 +39,8 @@ The required target gates are:
 Other native Rust targets are best-effort unless a release workflow emits and
 tests an artifact for that target. Release-time Python wheel builds cover the
 platforms listed in `.github/workflows/publish-python.yml`; those builds do not
-expand the native Rust CI guarantee. PyPy is not supported until it has an
-import-and-call CI gate.
+expand the native Rust CI guarantee. PyPy is unsupported and is intentionally
+not advertised as a package classifier.
 
 Wasm SIMD requires host SIMD support. Wasm threads additionally require shared
 memory, atomics, and the browser isolation headers described in the Wasm guide.
@@ -64,10 +65,10 @@ target feature rather than a Cargo feature.
 
 ## Versions, semver, and deprecation
 
-Until `1.0`, incompatible changes to the supported facade may ship in a minor
-release. Patch releases are reserved for compatible fixes and documentation.
-After `1.0`, the supported facade follows standard semantic versioning.
-Hidden or explicitly experimental APIs are excluded from these guarantees.
+The supported facade follows standard semantic versioning. Patch releases are
+reserved for compatible fixes and documentation; minor releases may add
+supported functionality and may raise the documented MSRV. Hidden or
+explicitly experimental APIs are excluded from these guarantees.
 
 When practical, a planned breaking rename or replacement is deprecated for at
 least one minor release and includes migration guidance in the changelog.
@@ -75,18 +76,35 @@ Incorrect, unsafe, or unsupportable behavior may be removed immediately; the
 release notes must identify the exception and replacement.
 
 The retired `NodingBackend::Advanced` compatibility alias was removed before
-`1.0`; use `NodingBackend::Snap` with `PrecisionModel::Floating` for the same
-exact snap-noding behavior.
+the 1.0 release; use `NodingBackend::Snap` with `PrecisionModel::Floating` for
+the same exact snap-noding behavior.
 
 The retired `TileOwnershipPolicy::CanonicalBoundaryHash` compatibility alias
-was removed before `1.0`; use `RepresentativePointInsidePolygon`, which already
-provided the same ownership behavior.
+was removed before the 1.0 release; use `RepresentativePointInsidePolygon`,
+which already provided the same ownership behavior.
 
 Source versions for the Rust crates, npm package, and Python package must match.
 The required release-contract check enforces this before merge. Registry
 publication is performed by separate tag-triggered workflows and is not atomic;
-if one registry fails, maintainers repair that publication before starting a
-new release.
+the post-publication report gate requires maintainers to repair a failed
+publication before starting a new release.
+
+The root facade is the only supported Rust compatibility surface. A
+`#[doc(hidden)]` item is still compiler-public, so hiding it from rustdoc does
+not stabilize it or make it private. Research changes remain in the current
+crate for 1.x compatibility with experimental consumers, but they must not be
+added to the stable allowlist or re-exported from a supported binding. The
+longer-term isolation path is a separate research crate or explicit unstable
+feature in the next planned major release.
+
+Release-please cannot infer public API impact from Rust implementation details.
+The repository therefore keeps the conservative rule that internal
+`feat(core)` commits may produce a minor release; agents must not relabel them
+as patch changes merely because the touched item is doc-hidden. The changelog
+and stable allowlist remain the review gates for public impact.
+
+For the 0.x to 1.x migration, see the
+[0.x to 1.0 migration guide](docs/guide/migration-1-0.md).
 
 ## Errors, panics, and execution control
 

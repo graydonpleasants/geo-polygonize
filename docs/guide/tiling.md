@@ -6,7 +6,7 @@ by a caller-selected buffer, polygonizes the intersecting input geometries, and
 keeps each face in exactly the tile selected by its ownership point.
 
 It is not boundary-graph stitching, streaming ingest, or a certified coverage
-algorithm. The tiled API remains outside the stable facade before `1.0`.
+algorithm. The tiled API remains outside the stable 1.x facade.
 
 ## Current equivalence contract
 
