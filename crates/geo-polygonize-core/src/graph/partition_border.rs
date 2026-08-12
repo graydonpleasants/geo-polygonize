@@ -308,6 +308,12 @@ pub struct PartitionBorderHalfEdge {
     /// Component-local face ID retained for existing debug consumers.
     pub face_id: Option<FaceId>,
     pub(crate) face_ref: Option<PartitionFaceRef>,
+    /// Face-walk successor from the local arrangement, when a qualified face
+    /// was assigned. This is evidence for a future global face plan, not a
+    /// global `next` link.
+    pub(crate) local_face_successor: Option<DirEdgeId>,
+    /// Whether the local face containing this directed edge is unbounded.
+    pub(crate) local_face_is_unbounded: bool,
     pub source_line_ids: Vec<u32>,
     /// The deterministic representative source ID carried by the local edge.
     /// This is the first ID in the sorted source set, or `None` for synthetic
@@ -370,6 +376,8 @@ impl PartitionBorderHalfEdge {
             local_dir_edge_id,
             face_id: face_ref.map(|face_ref| face_ref.face_id),
             face_ref,
+            local_face_successor: None,
+            local_face_is_unbounded: false,
             source_line_ids,
             representative_line_id,
         })
@@ -579,6 +587,40 @@ pub(crate) struct PartitionBorderGlobalComponentReconciliationStats {
     pub(crate) twin_link_count: usize,
 }
 
+/// One qualified local border half-edge prepared for a future global face
+/// walk. The successor remains in the local directed-edge identity space;
+/// this record does not rewrite it into a global arrangement.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PartitionBorderFaceBoundaryCandidate {
+    pub(crate) observation_id: PartitionBorderObservationId,
+    pub(crate) edge_key: PartitionBorderEdgeKey,
+    pub(crate) face_ref: PartitionFaceRef,
+    pub(crate) local_dir_edge_id: DirEdgeId,
+    pub(crate) local_face_successor: DirEdgeId,
+    pub(crate) local_face_is_unbounded: bool,
+}
+
+/// Deterministic boundary evidence grouped by qualified local face identity.
+/// Cross-partition twin edges are retained separately so a later stitcher can
+/// validate transitions before assigning global `next` links or face IDs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFacePlan {
+    pub(crate) face_ref: PartitionFaceRef,
+    pub(crate) candidates: Vec<PartitionBorderFaceBoundaryCandidate>,
+    pub(crate) twin_edge_keys: Vec<PartitionBorderEdgeKey>,
+    pub(crate) local_face_is_unbounded: bool,
+}
+
+/// Counts from the retained global face-boundary plan.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFacePlanStats {
+    pub(crate) face_count: usize,
+    pub(crate) candidate_count: usize,
+    pub(crate) missing_successor_count: usize,
+    pub(crate) unbounded_face_count: usize,
+    pub(crate) linked_face_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -606,6 +648,7 @@ pub struct PartitionBorderGraph {
     applied_face_twins: Vec<PartitionBorderFaceTwin>,
     reconciled_nodes: Vec<PartitionBorderNodePayload>,
     global_components: Vec<PartitionBorderGlobalComponent>,
+    global_face_plans: Vec<PartitionBorderGlobalFacePlan>,
 }
 
 impl PartitionBorderGraph {
@@ -642,6 +685,7 @@ impl PartitionBorderGraph {
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
         self.global_components.clear();
+        self.global_face_plans.clear();
         Ok(())
     }
 
@@ -650,6 +694,7 @@ impl PartitionBorderGraph {
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
         self.global_components.clear();
+        self.global_face_plans.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -899,6 +944,7 @@ impl PartitionBorderGraph {
         stats.applied_twin_count = applied_face_twins.len();
         self.applied_face_twins = applied_face_twins;
         self.global_components.clear();
+        self.global_face_plans.clear();
         Ok(stats)
     }
 
@@ -1038,6 +1084,7 @@ impl PartitionBorderGraph {
         }
         self.reconciled_nodes = reconciled_nodes;
         self.global_components.clear();
+        self.global_face_plans.clear();
         Ok(stats)
     }
 
@@ -1180,11 +1227,120 @@ impl PartitionBorderGraph {
             twin_link_count: self.applied_face_twins.len(),
         };
         self.global_components = global_components;
+        self.global_face_plans.clear();
         Ok(stats)
     }
 
     pub(crate) fn global_components(&self) -> &[PartitionBorderGlobalComponent] {
         &self.global_components
+    }
+
+    /// Builds deterministic face-boundary evidence from qualified local
+    /// observations and their local face-walk successors. Missing successors
+    /// are reported and excluded from the plan; no local `next`, face ID, or
+    /// tiled output is mutated.
+    pub(crate) fn reconcile_global_face_plans(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFacePlanStats> {
+        execution_policy.check_cancelled("partition_border_global_face_plan")?;
+
+        let mut candidates = Vec::new();
+        let mut missing_successor_count = 0;
+        for (observation_index, observation) in self.observations.values().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_plan", observation_index)?;
+            let Some(face_ref) = observation.face_ref else {
+                continue;
+            };
+            let Some(local_face_successor) = observation.local_face_successor else {
+                missing_successor_count += 1;
+                continue;
+            };
+            candidates.push(PartitionBorderFaceBoundaryCandidate {
+                observation_id: observation.observation_id(),
+                edge_key: observation.edge_key,
+                face_ref,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                local_face_successor,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+            });
+        }
+        execution_policy.check(
+            "partition_border_global_face_candidates",
+            execution_policy.max_graph_edges,
+            candidates.len(),
+        )?;
+
+        let mut face_groups = BTreeMap::<
+            PartitionFaceRef,
+            (
+                BTreeSet<PartitionBorderFaceBoundaryCandidate>,
+                BTreeSet<PartitionBorderEdgeKey>,
+                bool,
+            ),
+        >::new();
+        for candidate in candidates {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_plan", face_groups.len())?;
+            let group = face_groups.entry(candidate.face_ref).or_default();
+            group.0.insert(candidate);
+            group.2 |= candidate.local_face_is_unbounded;
+        }
+
+        for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_plan", twin_index)?;
+            face_groups
+                .entry(twin.forward_face_ref)
+                .or_default()
+                .1
+                .insert(twin.twin.edge_key);
+            face_groups
+                .entry(twin.reverse_face_ref)
+                .or_default()
+                .1
+                .insert(twin.twin.edge_key);
+        }
+
+        execution_policy.check(
+            "partition_border_global_faces",
+            execution_policy.max_graph_nodes,
+            face_groups.len(),
+        )?;
+        let mut global_face_plans = Vec::with_capacity(face_groups.len());
+        let mut unbounded_face_count = 0;
+        let mut linked_face_count = 0;
+        for (face_ref, (candidates, twin_edge_keys, local_face_is_unbounded)) in face_groups {
+            if local_face_is_unbounded {
+                unbounded_face_count += 1;
+            }
+            if !twin_edge_keys.is_empty() {
+                linked_face_count += 1;
+            }
+            global_face_plans.push(PartitionBorderGlobalFacePlan {
+                face_ref,
+                candidates: candidates.into_iter().collect(),
+                twin_edge_keys: twin_edge_keys.into_iter().collect(),
+                local_face_is_unbounded,
+            });
+        }
+        let stats = PartitionBorderGlobalFacePlanStats {
+            face_count: global_face_plans.len(),
+            candidate_count: global_face_plans
+                .iter()
+                .map(|plan| plan.candidates.len())
+                .sum(),
+            missing_successor_count,
+            unbounded_face_count,
+            linked_face_count,
+        };
+        self.global_face_plans = global_face_plans;
+        Ok(stats)
+    }
+
+    pub(crate) fn global_face_plans(&self) -> &[PartitionBorderGlobalFacePlan] {
+        &self.global_face_plans
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -1375,6 +1531,15 @@ mod tests {
         );
         graph.insert(reverse).unwrap();
         graph.insert(forward).unwrap();
+        graph
+    }
+
+    fn exact_face_twin_graph_with_successors() -> PartitionBorderGraph {
+        let mut graph = exact_face_twin_graph();
+        for observation in graph.observations.values_mut() {
+            observation.local_face_successor = Some(observation.local_dir_edge_id + 100);
+            observation.local_face_is_unbounded = false;
+        }
         graph
     }
 
@@ -2254,6 +2419,104 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_components"
+        ));
+        assert_eq!(cancelled, before);
+    }
+
+    #[test]
+    fn global_face_plan_retains_local_successors_and_twin_edges_deterministically() {
+        let mut graph = exact_face_twin_graph_with_successors();
+        graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = graph
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFacePlanStats {
+                face_count: 2,
+                candidate_count: 2,
+                missing_successor_count: 0,
+                unbounded_face_count: 0,
+                linked_face_count: 2,
+            }
+        );
+        assert_eq!(graph.global_face_plans().len(), 2);
+        assert!(graph.global_face_plans().iter().all(|plan| {
+            plan.candidates.len() == 1
+                && plan.twin_edge_keys.len() == 1
+                && plan.candidates[0].local_face_successor >= 100
+                && !plan.local_face_is_unbounded
+        }));
+
+        let mut reordered = PartitionBorderGraph::default();
+        for adjacency in graph.adjacencies.iter().copied() {
+            reordered.declare_adjacency(adjacency);
+        }
+        for observation in graph.observations.values().rev().cloned() {
+            reordered.insert(observation).unwrap();
+        }
+        reordered
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(reordered.global_face_plans(), graph.global_face_plans());
+    }
+
+    #[test]
+    fn global_face_plan_reports_missing_successors_and_fails_closed_on_limits() {
+        let mut missing = exact_face_twin_graph();
+        missing
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = missing
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.face_count, 2);
+        assert_eq!(stats.candidate_count, 0);
+        assert_eq!(stats.missing_successor_count, 2);
+        assert_eq!(stats.linked_face_count, 2);
+        assert!(missing
+            .global_face_plans()
+            .iter()
+            .all(|plan| plan.candidates.is_empty()));
+
+        let mut limited = exact_face_twin_graph_with_successors();
+        let before = limited.clone();
+        let error = limited
+            .reconcile_global_face_plans(&ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_faces"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_twin_graph_with_successors();
+        let before = cancelled.clone();
+        let error = cancelled
+            .reconcile_global_face_plans(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_plan"
         ));
         assert_eq!(cancelled, before);
     }

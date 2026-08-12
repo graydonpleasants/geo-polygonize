@@ -140,6 +140,45 @@ mod tests {
                 .map(|component| component.face_refs.len())
                 .sum::<usize>()
         );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_plan_count,
+            result.partition_border_graph.global_face_plans().len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_candidate_count,
+            result
+                .partition_border_graph
+                .global_face_plans()
+                .iter()
+                .map(|plan| plan.candidates.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_count,
+            result
+                .partition_border_graph
+                .global_face_plans()
+                .iter()
+                .filter(|plan| plan.local_face_is_unbounded)
+                .count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_linked_count,
+            result
+                .partition_border_graph
+                .global_face_plans()
+                .iter()
+                .filter(|plan| !plan.twin_edge_keys.is_empty())
+                .count()
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -360,6 +399,57 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_linked_face_count as u64
+            )
+        );
+        let global_face_plan = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_plan")
+            .expect("global face plan evidence");
+        assert_eq!(
+            global_face_plan.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_plan_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_plan.payload["candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_plan.payload["missing_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_missing_successor_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_plan.payload["unbounded_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_plan.payload["linked_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_linked_count as u64
             )
         );
     }

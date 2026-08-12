@@ -461,6 +461,9 @@ Blocked by #1288.
   qualified border faces, including explicit singleton faces and linked twin
   edges with fail-closed limit and cancellation behavior; do not mutate local
   or tiled topology.
+- [x] Retain qualified local face-walk successor and unbounded-face evidence
+  in a deterministic global face-boundary plan, reporting missing successors
+  without mutating local `next`, face IDs, or tiled output.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
