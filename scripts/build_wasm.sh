@@ -47,11 +47,11 @@ setup_wasm_tools() {
 
     if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
         echo "wasm-opt not found. Attempting to install via npm..."
-        npm install -g --allow-scripts=wasm-opt wasm-opt
-        if ! command -v wasm-opt &> /dev/null; then
-            echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
-        else
+        if npm install -g --allow-scripts=wasm-opt wasm-opt \
+            && command -v wasm-opt &> /dev/null; then
             echo "Successfully installed wasm-opt: $(wasm-opt --version)"
+        else
+            echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
         fi
     elif [ "$SITE_BUILD" != "1" ]; then
         echo "Found wasm-opt: $(wasm-opt --version)"

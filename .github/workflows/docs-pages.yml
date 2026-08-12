@@ -72,11 +72,34 @@ jobs:
       - name: Generate Docs Metadata
         run: npm run docs:gen
 
+      - name: Install Lychee
+        env:
+          LYCHEE_VERSION: v0.24.2
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          filename="lychee-${arch}-unknown-linux-gnu.tar.gz"
+          url="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}/${filename}"
+          install_dir="${RUNNER_TEMP}/lychee"
+          mkdir -p "${install_dir}"
+          for attempt in 1 2 3 4 5; do
+            echo "Downloading Lychee (attempt ${attempt}/5)"
+            if curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 \
+              --output "${install_dir}/${filename}" "${url}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 5 ]; then
+              echo "Lychee download failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            rm -f "${install_dir}/${filename}"
+            sleep 2
+          done
+          tar -xzf "${install_dir}/${filename}" -C "${install_dir}"
+          echo "${install_dir}" >> "${GITHUB_PATH}"
+
       - name: Check documentation links
-        uses: lycheeverse/lychee-action@v2
-        with:
-          args: --no-progress README.md docs
-          fail: true
+        run: lychee --no-progress README.md docs
 
       - name: Build Site Wasm Library
         run: npm run build:site-lib
