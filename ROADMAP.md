@@ -429,7 +429,9 @@ Tracked by
 - [x] Preserve provenance, representative IDs, Z interpolation/conflicts, and
   qualified component identity through boundary export and observation
   normalization.
-- [ ] Preserve cancellation and resource limits through boundary noding.
+- [x] Preserve cancellation and resource limits through boundary noding, with
+  fail-closed pre-mutation checks for split events, graph nodes, noded
+  segments, and cooperative cancellation.
 - [x] Export only halfedges physically present on the boundary-noded arrangement.
 - [x] Introduce collision-free atomic observation identity.
 - [x] Emit bounded trace evidence for boundary-noding counts, atomic border

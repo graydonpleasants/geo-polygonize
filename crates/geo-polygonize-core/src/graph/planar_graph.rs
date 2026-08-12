@@ -3130,6 +3130,46 @@ impl ComponentScratch {
 #[cfg(test)]
 mod arrangement_ring_invariant_tests {
     use super::*;
+    use crate::CancellationToken;
+
+    type BoundaryEdgeSnapshot = ([u64; 3], [u64; 3], u32, Vec<u32>, [DirEdgeId; 2]);
+    type BoundaryGraphSnapshot = (
+        Vec<[u64; 3]>,
+        Vec<BoundaryEdgeSnapshot>,
+        Vec<Vec<DirEdgeId>>,
+    );
+
+    fn boundary_graph_snapshot(graph: &PlanarGraph) -> BoundaryGraphSnapshot {
+        let nodes = graph
+            .nodes_x
+            .iter()
+            .zip(&graph.nodes_y)
+            .zip(&graph.nodes_z)
+            .map(|((x, y), z)| [x.to_bits(), y.to_bits(), z.to_bits()])
+            .collect();
+        let edges = graph
+            .edges
+            .iter()
+            .map(|edge| {
+                (
+                    [
+                        edge.line.start.x.to_bits(),
+                        edge.line.start.y.to_bits(),
+                        edge.line.start.z.to_bits(),
+                    ],
+                    [
+                        edge.line.end.x.to_bits(),
+                        edge.line.end.y.to_bits(),
+                        edge.line.end.z.to_bits(),
+                    ],
+                    edge.line.line_id,
+                    edge.sources.line_ids.to_vec(),
+                    edge.dir_edges,
+                )
+            })
+            .collect();
+        (nodes, edges, graph.nodes_outgoing.clone())
+    }
 
     fn next_links(graph: &mut PlanarGraph) -> Vec<DirEdgeId> {
         graph.compute_next_cw_edges(None).unwrap();
@@ -4005,6 +4045,7 @@ mod arrangement_ring_invariant_tests {
             max_graph_edges: Some(1),
             ..Default::default()
         };
+        let before = boundary_graph_snapshot(&graph);
         let error = graph
             .node_partition_boundaries_with_execution_policy(
                 0,
@@ -4014,7 +4055,103 @@ mod arrangement_ring_invariant_tests {
             )
             .unwrap_err();
         assert!(error.to_string().contains("graph_edges"));
-        assert_eq!(graph.edges.len(), 1);
-        assert_eq!(graph.nodes_x.len(), 2);
+        assert_eq!(boundary_graph_snapshot(&graph), before);
+    }
+
+    #[test]
+    fn partition_boundary_noding_rejects_all_planned_growth_limits_before_mutation() {
+        let assert_limit = |policy: ExecutionPolicy,
+                            expected_stage: &str,
+                            expected_limit: usize,
+                            expected_observed: usize| {
+            let mut graph = PlanarGraph::new();
+            graph.add_line(Line3D::new(
+                Coord3D::new(-1.0, 2.0, 0.0),
+                Coord3D::new(11.0, 2.0, 12.0),
+                31,
+            ));
+            let before = boundary_graph_snapshot(&graph);
+            let error = graph
+                .node_partition_boundaries_with_execution_policy(
+                    0,
+                    Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+                    &policy,
+                    None,
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                crate::PolygonizeError::ResourceLimitExceeded {
+                    stage,
+                    limit,
+                    observed,
+                } if stage == expected_stage
+                    && limit == expected_limit
+                    && observed == expected_observed
+            ));
+            assert_eq!(boundary_graph_snapshot(&graph), before);
+        };
+
+        assert_limit(
+            ExecutionPolicy {
+                max_split_events: Some(1),
+                ..Default::default()
+            },
+            "split_events",
+            1,
+            2,
+        );
+        assert_limit(
+            ExecutionPolicy {
+                max_graph_nodes: Some(3),
+                ..Default::default()
+            },
+            "graph_nodes",
+            3,
+            4,
+        );
+        assert_limit(
+            ExecutionPolicy {
+                max_noded_segments: Some(2),
+                ..Default::default()
+            },
+            "noded_segments",
+            2,
+            3,
+        );
+    }
+
+    #[test]
+    fn partition_boundary_noding_observes_midflight_cancellation_before_mutation() {
+        let mut graph = PlanarGraph::new();
+        for index in 0..160 {
+            let y = index as f64 + 0.25;
+            graph.add_line(Line3D::new(
+                Coord3D::new(-1.0, y, 0.0),
+                Coord3D::new(11.0, y, 12.0),
+                index as u32,
+            ));
+        }
+        let before = boundary_graph_snapshot(&graph);
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+
+        let error = graph
+            .node_partition_boundaries_with_execution_policy(
+                0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 200.0 }),
+                &policy,
+                None,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { stage } if stage == "boundary_noding"
+        ));
+        assert_eq!(boundary_graph_snapshot(&graph), before);
     }
 }
