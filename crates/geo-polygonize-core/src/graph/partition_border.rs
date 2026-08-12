@@ -788,6 +788,32 @@ pub(crate) struct PartitionBorderGlobalNextLineageIntegrationStats {
     pub(crate) integration_ready: bool,
 }
 
+/// Counts detached cycle-to-face lineage integration. Every closed candidate
+/// cycle must map to exactly one candidate face plan whose observation slots,
+/// qualified local faces, and unbounded marker agree; this remains evidence
+/// only and never promotes topology or output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalCycleFaceLineageStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) plan_count: usize,
+    pub(crate) closed_cycle_count: usize,
+    pub(crate) mapped_cycle_count: usize,
+    pub(crate) incomplete_cycle_count: usize,
+    pub(crate) invalid_cycle_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) duplicate_face_id_plan_count: usize,
+    pub(crate) unmapped_plan_count: usize,
+    pub(crate) cycle_plan_mismatch_count: usize,
+    pub(crate) cycle_face_ref_mismatch_count: usize,
+    pub(crate) duplicate_plan_face_ref_count: usize,
+    pub(crate) observation_lineage_mismatch_count: usize,
+    pub(crate) unbounded_lineage_mismatch_count: usize,
+    pub(crate) identity_ready: bool,
+    pub(crate) next_lineage_ready: bool,
+    pub(crate) lineage_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -1956,6 +1982,217 @@ impl PartitionBorderGraph {
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
         self.global_face_nodes.clear();
+        Ok(stats)
+    }
+
+    /// Validates that each detached closed successor cycle maps exactly once
+    /// to a candidate global face plan. Observation slots, qualified local
+    /// face references, and local-unbounded markers must agree with the
+    /// mapped plan; incomplete cycles remain evidence rather than becoming a
+    /// topology error.
+    pub(crate) fn validate_global_cycle_face_lineage(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        identity: PartitionBorderGlobalFaceIdentityInvariantStats,
+        next_lineage: PartitionBorderGlobalNextLineageIntegrationStats,
+    ) -> crate::Result<PartitionBorderGlobalCycleFaceLineageStats> {
+        execution_policy.check_cancelled("partition_border_global_cycle_face_lineage")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_cycle_face_lineage_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global cycle face lineage has no detached topology candidate".to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != edge_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global cycle face lineage successor length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    edge_count
+                ),
+            });
+        }
+        execution_policy.check(
+            "partition_border_global_cycle_face_lineage_cycles",
+            execution_policy.max_graph_nodes,
+            candidate.cycle_start_global_dir_edge_ids.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_cycle_face_lineage_plans",
+            execution_policy.max_graph_nodes,
+            self.global_face_id_plans.len(),
+        )?;
+
+        let mut stats = PartitionBorderGlobalCycleFaceLineageStats {
+            edge_count,
+            cycle_count: candidate.cycle_start_global_dir_edge_ids.len(),
+            plan_count: self.global_face_id_plans.len(),
+            identity_ready: identity.invariants_ready,
+            next_lineage_ready: next_lineage.integration_ready,
+            ..Default::default()
+        };
+        let mut edge_slot_by_observation = BTreeMap::<PartitionBorderObservationId, usize>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_cycle_face_lineage_edges",
+                edge_index,
+            )?;
+            let observation_id = PartitionBorderObservationId {
+                partition_id: edge.partition_id,
+                local_dir_edge_id: edge.local_dir_edge_id,
+                edge_key: edge.edge_key,
+            };
+            if edge_slot_by_observation
+                .insert(observation_id, edge_index)
+                .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global cycle face lineage duplicates observation {:?}",
+                        observation_id
+                    ),
+                });
+            }
+        }
+
+        let mut plan_by_face_id = BTreeMap::<usize, usize>::new();
+        for (plan_index, plan) in self.global_face_id_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_cycle_face_lineage_plans",
+                plan_index,
+            )?;
+            let Some(face_id) = plan.candidate_global_face_id else {
+                continue;
+            };
+            if plan_by_face_id.insert(face_id, plan_index).is_some() {
+                stats.duplicate_face_id_plan_count += 1;
+            }
+            let unique_face_refs = plan.face_refs.iter().copied().collect::<BTreeSet<_>>();
+            stats.duplicate_plan_face_ref_count +=
+                plan.face_refs.len().saturating_sub(unique_face_refs.len());
+        }
+
+        let mut used_plans = BTreeSet::new();
+        for (cycle_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_cycle_face_lineage_cycles",
+                cycle_index,
+            )?;
+            if start >= edge_count {
+                stats.invalid_cycle_count += 1;
+                continue;
+            }
+            let mut cycle_edges = BTreeSet::new();
+            let mut current = start;
+            let mut closed = true;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_cycle_face_lineage_cycle_edges",
+                    cycle_edges.len(),
+                )?;
+                if !cycle_edges.insert(current) {
+                    if current != start {
+                        stats.invalid_cycle_count += 1;
+                        closed = false;
+                    }
+                    break;
+                }
+                let Some(successor) = candidate.next_global_dir_edge_ids[current] else {
+                    stats.incomplete_cycle_count += 1;
+                    closed = false;
+                    break;
+                };
+                if successor >= edge_count {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global cycle face lineage successor {} exceeds {} edges",
+                            successor, edge_count
+                        ),
+                    });
+                }
+                current = successor;
+            }
+            if !closed {
+                continue;
+            }
+            stats.closed_cycle_count += 1;
+            let Some(face_id) = self
+                .global_face_id_by_cycle_start
+                .get(cycle_index)
+                .copied()
+                .flatten()
+            else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            let Some(&plan_index) = plan_by_face_id.get(&face_id) else {
+                stats.cycle_plan_mismatch_count += 1;
+                continue;
+            };
+            if !used_plans.insert(plan_index) {
+                stats.cycle_plan_mismatch_count += 1;
+                continue;
+            }
+            let plan = &self.global_face_id_plans[plan_index];
+            let mut plan_edges = BTreeSet::new();
+            for observation_id in &plan.boundary_observation_ids {
+                let Some(&edge_index) = edge_slot_by_observation.get(observation_id) else {
+                    stats.observation_lineage_mismatch_count += 1;
+                    continue;
+                };
+                plan_edges.insert(edge_index);
+            }
+            if plan_edges != cycle_edges || !plan.closed {
+                stats.cycle_plan_mismatch_count += 1;
+            }
+
+            let cycle_face_refs = cycle_edges
+                .iter()
+                .filter_map(|&edge_index| self.global_face_edge_map[edge_index].face_ref)
+                .collect::<BTreeSet<_>>();
+            let plan_face_refs = plan.face_refs.iter().copied().collect::<BTreeSet<_>>();
+            if cycle_face_refs != plan_face_refs {
+                stats.cycle_face_ref_mismatch_count += 1;
+            }
+            let cycle_unbounded_count = cycle_edges
+                .iter()
+                .filter(|&&edge_index| {
+                    self.global_face_edge_map[edge_index].local_face_is_unbounded
+                })
+                .count();
+            if cycle_unbounded_count != plan.local_unbounded_face_count {
+                stats.unbounded_lineage_mismatch_count += 1;
+            }
+            stats.mapped_cycle_count += 1;
+        }
+        stats.unmapped_plan_count = self
+            .global_face_id_plans
+            .iter()
+            .enumerate()
+            .filter(|(plan_index, plan)| {
+                plan.candidate_global_face_id.is_some() && !used_plans.contains(plan_index)
+            })
+            .count();
+        stats.lineage_ready = stats.identity_ready
+            && stats.next_lineage_ready
+            && stats.closed_cycle_count == stats.cycle_count
+            && stats.mapped_cycle_count == stats.cycle_count
+            && stats.plan_count == stats.cycle_count
+            && stats.incomplete_cycle_count == 0
+            && stats.invalid_cycle_count == 0
+            && stats.missing_face_id_count == 0
+            && stats.duplicate_face_id_plan_count == 0
+            && stats.unmapped_plan_count == 0
+            && stats.cycle_plan_mismatch_count == 0
+            && stats.cycle_face_ref_mismatch_count == 0
+            && stats.duplicate_plan_face_ref_count == 0
+            && stats.observation_lineage_mismatch_count == 0
+            && stats.unbounded_lineage_mismatch_count == 0;
         Ok(stats)
     }
 
@@ -12070,6 +12307,210 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_next_lineage_integration"
+        ));
+    }
+
+    #[test]
+    fn global_cycle_face_lineage_maps_cycle_and_face_payload_without_mutation() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: Some(edge_index),
+                to_global_node_id: Some(1 - edge_index),
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(1), Some(0)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        graph.global_face_id_by_cycle_start = vec![Some(0)];
+        graph.global_face_id_plans = vec![PartitionBorderGlobalFaceIdPlan {
+            candidate_global_face_id: Some(0),
+            component_index: 0,
+            boundary_observation_ids: observations
+                .iter()
+                .map(PartitionBorderHalfEdge::observation_id)
+                .collect(),
+            face_refs: observations
+                .iter()
+                .filter_map(|observation| observation.face_ref)
+                .collect(),
+            local_unbounded_face_count: 0,
+            closed: true,
+        }];
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_cycle_face_lineage(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalNextLineageIntegrationStats {
+                    integration_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalCycleFaceLineageStats {
+                edge_count: 2,
+                cycle_count: 1,
+                plan_count: 1,
+                closed_cycle_count: 1,
+                mapped_cycle_count: 1,
+                identity_ready: true,
+                next_lineage_ready: true,
+                lineage_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_cycle_face_lineage_rejects_face_and_observation_drift() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: Some(edge_index),
+                to_global_node_id: Some(1 - edge_index),
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(1), Some(0)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        graph.global_face_id_by_cycle_start = vec![Some(0)];
+        graph.global_face_id_plans = vec![PartitionBorderGlobalFaceIdPlan {
+            candidate_global_face_id: Some(0),
+            component_index: 0,
+            boundary_observation_ids: vec![observations[0].observation_id()],
+            face_refs: vec![observations[0].face_ref.unwrap()],
+            local_unbounded_face_count: 0,
+            closed: true,
+        }];
+        let stats = graph
+            .validate_global_cycle_face_lineage(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalNextLineageIntegrationStats {
+                    integration_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!stats.lineage_ready);
+        assert_eq!(stats.cycle_plan_mismatch_count, 1);
+        assert_eq!(stats.cycle_face_ref_mismatch_count, 1);
+    }
+
+    #[test]
+    fn global_cycle_face_lineage_is_bounded_and_cancellable() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: None,
+                to_global_node_id: None,
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(1), Some(0)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        let error = graph
+            .validate_global_cycle_face_lineage(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+                PartitionBorderGlobalNextLineageIntegrationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 2,
+            } if stage == "partition_border_global_cycle_face_lineage_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_cycle_face_lineage(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+                PartitionBorderGlobalNextLineageIntegrationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_cycle_face_lineage"
         ));
     }
 

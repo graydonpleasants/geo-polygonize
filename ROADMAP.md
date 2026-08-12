@@ -555,6 +555,10 @@ Blocked by #1288.
   local face successors, retained boundary overrides, per-edge face identity,
   and reciprocal face-qualified cross-partition twins without mutating
   topology or output.
+- [x] Map each detached closed successor cycle exactly once to its candidate
+  global face plan, validating observation slots, qualified local face
+  lineage, and local-unbounded marker lineage without mutating topology or
+  output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
