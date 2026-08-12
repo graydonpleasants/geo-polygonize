@@ -119,6 +119,67 @@ mod tests {
                 .partition_border_global_component_count,
             result.partition_border_graph.global_components().len()
         );
+        let component_payloads = result.partition_border_graph.global_component_payloads();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_count,
+            component_payloads.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_source_line_count,
+            component_payloads
+                .iter()
+                .map(|payload| payload.source_line_ids.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_representative_line_count,
+            component_payloads
+                .iter()
+                .map(|payload| payload.representative_line_ids.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_z_candidate_count,
+            component_payloads
+                .iter()
+                .map(|payload| payload.z_bits.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_selected_z_node_count,
+            component_payloads
+                .iter()
+                .map(|payload| payload.selected_z_bits.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_z_conflict_node_count,
+            component_payloads
+                .iter()
+                .map(|payload| payload.z_conflict_node_count)
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_payload_z_conflict_component_count,
+            component_payloads
+                .iter()
+                .filter(|payload| payload.z_conflict_node_count > 0)
+                .count()
+        );
         assert_eq!(
             result.stitching_report.partition_border_global_face_count,
             result
@@ -578,6 +639,81 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_linked_face_count as u64
+            )
+        );
+        let global_component_payloads = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_component_payloads")
+            .expect("global component payload evidence");
+        assert_eq!(
+            global_component_payloads.payload["component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_count as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["source_line_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_source_line_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["representative_line_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_representative_line_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["z_candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_z_candidate_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["selected_z_node_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_selected_z_node_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["z_conflict_node_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_z_conflict_node_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_component_payloads.payload["z_conflict_component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_payload_z_conflict_component_count
+                    as u64
             )
         );
         let global_face_plan = traced

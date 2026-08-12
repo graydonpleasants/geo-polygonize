@@ -2,12 +2,13 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -671,6 +672,25 @@ impl TraceRecorderV1 {
                 "face_count": stats.face_count,
                 "linked_face_count": stats.linked_face_count,
                 "twin_link_count": stats.twin_link_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_component_payloads(
+        &mut self,
+        stats: PartitionBorderGlobalComponentPayloadStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_component_payloads",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "source_line_count": stats.source_line_count,
+                "representative_line_count": stats.representative_line_count,
+                "z_candidate_count": stats.z_candidate_count,
+                "selected_z_node_count": stats.selected_z_node_count,
+                "z_conflict_node_count": stats.z_conflict_node_count,
+                "z_conflict_component_count": stats.z_conflict_component_count,
             }),
         )
     }

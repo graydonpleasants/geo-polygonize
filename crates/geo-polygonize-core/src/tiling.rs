@@ -262,6 +262,20 @@ pub struct StitchingReport {
     pub partition_border_node_z_conflict_count: usize,
     /// Deterministic connected components of qualified border-face evidence.
     pub partition_border_global_component_count: usize,
+    /// Retained deterministic payload plans for qualified border components.
+    pub partition_border_global_component_payload_count: usize,
+    /// Source IDs retained in component-level border payload plans.
+    pub partition_border_global_component_payload_source_line_count: usize,
+    /// Representative IDs retained in component-level border payload plans.
+    pub partition_border_global_component_payload_representative_line_count: usize,
+    /// Distinct endpoint Z candidates retained in component-level payload plans.
+    pub partition_border_global_component_payload_z_candidate_count: usize,
+    /// Selected endpoint Z decisions retained for component-level payload plans.
+    pub partition_border_global_component_payload_selected_z_node_count: usize,
+    /// Reconciled nodes with explicit Z conflicts in component payload plans.
+    pub partition_border_global_component_payload_z_conflict_node_count: usize,
+    /// Components containing at least one explicit Z conflict.
+    pub partition_border_global_component_payload_z_conflict_component_count: usize,
     /// Qualified face references included in the retained global plan.
     pub partition_border_global_face_count: usize,
     /// Face references participating in at least one retained twin link.
@@ -2349,6 +2363,12 @@ impl<'a> TiledPolygonizer<'a> {
             global_component_count,
             partition_border_global_component_reconciliation.component_count
         );
+        let partition_border_global_component_payloads =
+            partition_border_graph.reconcile_global_component_payloads(&self.execution_policy)?;
+        debug_assert_eq!(
+            partition_border_global_component_payloads.component_count,
+            global_component_count
+        );
         let partition_border_global_face_plan =
             partition_border_graph.reconcile_global_face_plans(&self.execution_policy)?;
         let global_face_plan_count = partition_border_graph.global_face_plans().len();
@@ -2408,6 +2428,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_component_reconciliation(
                 partition_border_global_component_reconciliation,
+            );
+            trace.record_partition_border_global_component_payloads(
+                partition_border_global_component_payloads,
             );
             trace.record_partition_border_global_face_plan(partition_border_global_face_plan);
             trace.record_partition_border_global_face_validation(
@@ -2660,6 +2683,20 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_node_z_conflict_count: partition_border_node_reconciliation
                     .z_conflict_count,
                 partition_border_global_component_count: global_component_count,
+                partition_border_global_component_payload_count:
+                    partition_border_global_component_payloads.component_count,
+                partition_border_global_component_payload_source_line_count:
+                    partition_border_global_component_payloads.source_line_count,
+                partition_border_global_component_payload_representative_line_count:
+                    partition_border_global_component_payloads.representative_line_count,
+                partition_border_global_component_payload_z_candidate_count:
+                    partition_border_global_component_payloads.z_candidate_count,
+                partition_border_global_component_payload_selected_z_node_count:
+                    partition_border_global_component_payloads.selected_z_node_count,
+                partition_border_global_component_payload_z_conflict_node_count:
+                    partition_border_global_component_payloads.z_conflict_node_count,
+                partition_border_global_component_payload_z_conflict_component_count:
+                    partition_border_global_component_payloads.z_conflict_component_count,
                 partition_border_global_face_count:
                     partition_border_global_component_reconciliation.face_count,
                 partition_border_global_linked_face_count:
