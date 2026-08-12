@@ -1,5 +1,6 @@
 use crate::types::{Coord3D, PartitionFaceRef};
 use crate::utils::canonical_coordinate_bits;
+use crate::ExecutionPolicy;
 use geo_types::Rect;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -512,6 +513,27 @@ pub struct PartitionBorderTwinPayload {
     pub end_z_bits: Vec<u64>,
 }
 
+/// One face-qualified twin link that is safe to carry into a future global
+/// arrangement. The local observations and their payload remain immutable;
+/// this relation does not rewrite either partition's local adjacency.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderFaceTwin {
+    pub(crate) twin: PartitionBorderTwin,
+    pub(crate) forward_face_ref: PartitionFaceRef,
+    pub(crate) reverse_face_ref: PartitionFaceRef,
+    pub(crate) payload: PartitionBorderTwinPayload,
+}
+
+/// Evidence from attempting to apply exact declared-adjacency twins to
+/// qualified local faces.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderTwinApplicationStats {
+    pub(crate) candidate_twin_count: usize,
+    pub(crate) applied_twin_count: usize,
+    pub(crate) missing_face_ref_count: usize,
+    pub(crate) invalid_face_ref_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -536,6 +558,7 @@ pub struct PartitionBorderGraph {
     observations: BTreeMap<PartitionBorderObservationId, PartitionBorderHalfEdge>,
     adjacencies: BTreeSet<PartitionBorderAdjacency>,
     edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
+    applied_face_twins: Vec<PartitionBorderFaceTwin>,
 }
 
 impl PartitionBorderGraph {
@@ -569,11 +592,13 @@ impl PartitionBorderGraph {
             .or_default()
             .insert(half_edge.clone());
         self.observations.insert(observation_id, half_edge);
+        self.applied_face_twins.clear();
         Ok(())
     }
 
     pub fn declare_adjacency(&mut self, adjacency: PartitionBorderAdjacency) {
         self.adjacencies.insert(adjacency);
+        self.applied_face_twins.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -712,46 +737,130 @@ impl PartitionBorderGraph {
         }
     }
 
+    fn twin_payload_from_edges(
+        &self,
+        edges: &BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
+        twin: PartitionBorderTwin,
+    ) -> Option<PartitionBorderTwinPayload> {
+        let observations = edges.get(&twin.edge_key)?;
+        let forward = observations
+            .iter()
+            .find(|observation| observation.observation_id() == twin.forward)?;
+        let reverse = observations
+            .iter()
+            .find(|observation| observation.observation_id() == twin.reverse)?;
+
+        let mut source_line_ids = forward
+            .source_line_ids
+            .iter()
+            .chain(&reverse.source_line_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        source_line_ids.sort_unstable();
+        source_line_ids.dedup();
+
+        let mut start_z_bits = vec![forward.from_z_bits, reverse.to_z_bits];
+        start_z_bits.sort_unstable();
+        start_z_bits.dedup();
+        let mut end_z_bits = vec![forward.to_z_bits, reverse.from_z_bits];
+        end_z_bits.sort_unstable();
+        end_z_bits.dedup();
+
+        Some(PartitionBorderTwinPayload {
+            twin,
+            source_line_ids,
+            forward_representative_line_id: forward.representative_line_id,
+            reverse_representative_line_id: reverse.representative_line_id,
+            start_z_bits,
+            end_z_bits,
+        })
+    }
+
+    /// Applies only exact declared-adjacency twins whose two observations
+    /// carry qualified, partition-matching local face references. The
+    /// resulting links are retained on this exported graph for later global
+    /// arrangement work; no local adjacency, output polygon, or Z policy is
+    /// mutated here.
+    pub(crate) fn apply_unambiguous_face_twins(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderTwinApplicationStats> {
+        execution_policy.check_cancelled("partition_border_twin_application")?;
+        let edges = self.normalized_edges();
+        let twins = self.twin_pairs_from_edges(&edges);
+        execution_policy.check(
+            "partition_border_twin_applications",
+            execution_policy.max_graph_edges,
+            twins.len(),
+        )?;
+        let mut stats = PartitionBorderTwinApplicationStats {
+            candidate_twin_count: twins.len(),
+            ..Default::default()
+        };
+        let mut applied_face_twins = Vec::new();
+
+        for (twin_index, twin) in twins.into_iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_twin_application", twin_index)?;
+            let Some(observations) = edges.get(&twin.edge_key) else {
+                stats.invalid_face_ref_count += 1;
+                continue;
+            };
+            let Some(forward) = observations
+                .iter()
+                .find(|observation| observation.observation_id() == twin.forward)
+            else {
+                stats.invalid_face_ref_count += 1;
+                continue;
+            };
+            let Some(reverse) = observations
+                .iter()
+                .find(|observation| observation.observation_id() == twin.reverse)
+            else {
+                stats.invalid_face_ref_count += 1;
+                continue;
+            };
+
+            let (Some(forward_face_ref), Some(reverse_face_ref)) =
+                (forward.face_ref, reverse.face_ref)
+            else {
+                stats.missing_face_ref_count += 1;
+                continue;
+            };
+            if forward_face_ref.partition_id != forward.partition_id
+                || reverse_face_ref.partition_id != reverse.partition_id
+                || forward_face_ref.partition_id == reverse_face_ref.partition_id
+            {
+                stats.invalid_face_ref_count += 1;
+                continue;
+            }
+            let Some(payload) = self.twin_payload_from_edges(&edges, twin) else {
+                stats.invalid_face_ref_count += 1;
+                continue;
+            };
+            applied_face_twins.push(PartitionBorderFaceTwin {
+                twin,
+                forward_face_ref,
+                reverse_face_ref,
+                payload,
+            });
+        }
+        stats.applied_twin_count = applied_face_twins.len();
+        self.applied_face_twins = applied_face_twins;
+        Ok(stats)
+    }
+
+    pub(crate) fn applied_face_twins(&self) -> &[PartitionBorderFaceTwin] {
+        &self.applied_face_twins
+    }
+
     /// Merges source IDs and retains every distinct Z candidate for each
     /// canonical endpoint. No Z conflict policy is applied here.
     pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
         let edges = self.normalized_edges();
         self.twin_pairs_from_edges(&edges)
             .into_iter()
-            .filter_map(|twin| {
-                let observations = edges.get(&twin.edge_key)?;
-                let forward = observations
-                    .iter()
-                    .find(|observation| observation.observation_id() == twin.forward)?;
-                let reverse = observations
-                    .iter()
-                    .find(|observation| observation.observation_id() == twin.reverse)?;
-
-                let mut source_line_ids = forward
-                    .source_line_ids
-                    .iter()
-                    .chain(&reverse.source_line_ids)
-                    .copied()
-                    .collect::<Vec<_>>();
-                source_line_ids.sort_unstable();
-                source_line_ids.dedup();
-
-                let mut start_z_bits = vec![forward.from_z_bits, reverse.to_z_bits];
-                start_z_bits.sort_unstable();
-                start_z_bits.dedup();
-                let mut end_z_bits = vec![forward.to_z_bits, reverse.from_z_bits];
-                end_z_bits.sort_unstable();
-                end_z_bits.dedup();
-
-                Some(PartitionBorderTwinPayload {
-                    twin,
-                    source_line_ids,
-                    forward_representative_line_id: forward.representative_line_id,
-                    reverse_representative_line_id: reverse.representative_line_id,
-                    start_z_bits,
-                    end_z_bits,
-                })
-            })
+            .filter_map(|twin| self.twin_payload_from_edges(&edges, twin))
             .collect()
     }
 
@@ -772,6 +881,7 @@ mod tests {
     use super::*;
     use crate::graph::PlanarGraph;
     use crate::types::Line3D;
+    use crate::CancellationToken;
 
     fn coord(x: f64, y: f64, z: f64) -> Coord3D {
         Coord3D::new(x, y, z)
@@ -896,6 +1006,43 @@ mod tests {
             component_id,
             face_id,
         }
+    }
+
+    fn exact_face_twin_graph() -> PartitionBorderGraph {
+        let forward = PartitionBorderHalfEdge::new_with_face_ref(
+            1,
+            7,
+            Some(face(1, 4, 9)),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(2.0, 0.0, 2.0),
+            [8],
+        )
+        .unwrap();
+        let reverse = PartitionBorderHalfEdge::new_with_face_ref(
+            2,
+            9,
+            Some(face(2, 6, 11)),
+            PartitionBorderSide::MaxY,
+            coord(2.0, 0.0, 20.0),
+            coord(0.0, 0.0, 10.0),
+            [7],
+        )
+        .unwrap();
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
+        graph
     }
 
     #[test]
@@ -1336,6 +1483,213 @@ mod tests {
                 end_z_bits: vec![2.0f64.to_bits()],
             }]
         );
+    }
+
+    #[test]
+    fn face_twin_application_retains_qualified_faces_and_payload_lineage() {
+        let forward = PartitionBorderHalfEdge::new_with_face_ref(
+            1,
+            7,
+            Some(face(1, 4, 9)),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(2.0, 0.0, 2.0),
+            [8, 3],
+        )
+        .unwrap();
+        let reverse = PartitionBorderHalfEdge::new_with_face_ref(
+            2,
+            9,
+            Some(face(2, 6, 11)),
+            PartitionBorderSide::MaxY,
+            coord(2.0, 0.0, 20.0),
+            coord(0.0, 0.0, 10.0),
+            [7, 3],
+        )
+        .unwrap();
+        let twin = PartitionBorderTwin {
+            edge_key: forward.edge_key,
+            forward: forward.observation_id(),
+            reverse: reverse.observation_id(),
+        };
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
+
+        let stats = graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderTwinApplicationStats {
+                candidate_twin_count: 1,
+                applied_twin_count: 1,
+                missing_face_ref_count: 0,
+                invalid_face_ref_count: 0,
+            }
+        );
+        assert_eq!(graph.applied_face_twins().len(), 1);
+        let application = &graph.applied_face_twins()[0];
+        assert_eq!(application.twin, twin);
+        assert_eq!(application.forward_face_ref, face(1, 4, 9));
+        assert_eq!(application.reverse_face_ref, face(2, 6, 11));
+        assert_eq!(application.payload.source_line_ids, vec![3, 7, 8]);
+        assert_eq!(application.payload.forward_representative_line_id, Some(3));
+        assert_eq!(application.payload.reverse_representative_line_id, Some(3));
+        assert_eq!(
+            application.payload.start_z_bits,
+            vec![1.0f64.to_bits(), 10.0f64.to_bits()]
+        );
+        assert_eq!(
+            application.payload.end_z_bits,
+            vec![2.0f64.to_bits(), 20.0f64.to_bits()]
+        );
+    }
+
+    #[test]
+    fn face_twin_application_declines_missing_face_identity_without_mutating_observations() {
+        let forward = PartitionBorderHalfEdge::new_with_face_ref(
+            1,
+            7,
+            None,
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(2.0, 0.0, 2.0),
+            [8],
+        )
+        .unwrap();
+        let reverse = PartitionBorderHalfEdge::new_with_face_ref(
+            2,
+            9,
+            Some(face(2, 6, 11)),
+            PartitionBorderSide::MaxY,
+            coord(2.0, 0.0, 20.0),
+            coord(0.0, 0.0, 10.0),
+            [7],
+        )
+        .unwrap();
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(forward).unwrap();
+        graph.insert(reverse).unwrap();
+        let before = graph.clone();
+
+        let stats = graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.candidate_twin_count, 1);
+        assert_eq!(stats.applied_twin_count, 0);
+        assert_eq!(stats.missing_face_ref_count, 1);
+        assert_eq!(stats.invalid_face_ref_count, 0);
+        assert!(graph.applied_face_twins().is_empty());
+        assert_eq!(graph.observations, before.observations);
+        assert_eq!(graph.edges, before.edges);
+    }
+
+    #[test]
+    fn face_twin_application_declines_malformed_face_partition_identity() {
+        let forward = PartitionBorderHalfEdge::new_with_face_ref(
+            1,
+            7,
+            Some(face(99, 4, 9)),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(2.0, 0.0, 2.0),
+            [8],
+        )
+        .unwrap();
+        let reverse = PartitionBorderHalfEdge::new_with_face_ref(
+            2,
+            9,
+            Some(face(2, 6, 11)),
+            PartitionBorderSide::MaxY,
+            coord(2.0, 0.0, 20.0),
+            coord(0.0, 0.0, 10.0),
+            [7],
+        )
+        .unwrap();
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        graph.insert(reverse).unwrap();
+        graph.insert(forward).unwrap();
+
+        let stats = graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.candidate_twin_count, 1);
+        assert_eq!(stats.applied_twin_count, 0);
+        assert_eq!(stats.missing_face_ref_count, 0);
+        assert_eq!(stats.invalid_face_ref_count, 1);
+        assert!(graph.applied_face_twins().is_empty());
+    }
+
+    #[test]
+    fn face_twin_application_is_bounded_and_cancellable_before_mutation() {
+        let mut limited = exact_face_twin_graph();
+        let before = limited.clone();
+        let error = limited
+            .apply_unambiguous_face_twins(&ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "partition_border_twin_applications"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_twin_graph();
+        let before = cancelled.clone();
+        let error = cancelled
+            .apply_unambiguous_face_twins(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_twin_application"
+        ));
+        assert_eq!(cancelled, before);
     }
 
     #[test]

@@ -255,6 +255,15 @@ pub struct StitchingReport {
     pub partition_border_twin_count: usize,
     /// Normalized border buckets conservatively left unmatched.
     pub partition_border_unmatched_edge_count: usize,
+    /// Exact twin pairs whose observations also carried valid qualified local
+    /// face references and were retained as face-level links.
+    pub partition_border_face_twin_count: usize,
+    /// Exact twin pairs declined because at least one observation had no face
+    /// reference.
+    pub partition_border_face_twin_missing_face_count: usize,
+    /// Exact twin pairs declined because a face reference was malformed or
+    /// did not match its observation's partition.
+    pub partition_border_face_twin_invalid_face_count: usize,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -275,9 +284,10 @@ pub struct TiledPolygonizeResult {
     pub polygons: Vec<Polygon3D>,
     pub tile_reports: Vec<TileReport>,
     pub stitching_report: StitchingReport,
-    /// Canonical observations captured from physical tile arrangements.
-    ///
-    /// These are exported only; tiled output does not stitch or reconcile them.
+    /// Canonical observations captured from physical tile arrangements. A
+    /// conservative face-qualified twin-link plan may be retained on this
+    /// graph, but tiled output does not build a global arrangement or replace
+    /// replicate-and-own polygons with stitched output.
     #[doc(hidden)]
     pub partition_border_graph: PartitionBorderGraph,
 }
@@ -2248,8 +2258,16 @@ impl<'a> TiledPolygonizer<'a> {
         }
         self.declare_partition_adjacencies(&mut partition_border_graph, &tile_reports)?;
         let partition_border_reconciliation = partition_border_graph.reconciliation_stats();
+        let partition_border_twin_application =
+            partition_border_graph.apply_unambiguous_face_twins(&self.execution_policy)?;
+        let applied_face_twin_count = partition_border_graph.applied_face_twins().len();
+        debug_assert_eq!(
+            applied_face_twin_count,
+            partition_border_twin_application.applied_twin_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
+            trace.record_partition_border_twin_application(partition_border_twin_application);
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
@@ -2478,6 +2496,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_twin_count: partition_border_reconciliation.matched_twin_count,
                 partition_border_unmatched_edge_count: partition_border_reconciliation
                     .unmatched_edge_count,
+                partition_border_face_twin_count: applied_face_twin_count,
+                partition_border_face_twin_missing_face_count: partition_border_twin_application
+                    .missing_face_ref_count,
+                partition_border_face_twin_invalid_face_count: partition_border_twin_application
+                    .invalid_face_ref_count,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,

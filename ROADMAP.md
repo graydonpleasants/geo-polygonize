@@ -449,6 +449,10 @@ Blocked by #1288.
 - [x] Emit deterministic declared-adjacency twin/payload reconciliation
   evidence while leaving ambiguous, unrelated, and replicate-and-own output
   cases untouched.
+- [x] Build and retain a deterministic face-qualified twin-link plan for exact
+  declared-adjacency pairs with valid partition-matching local face identity;
+  report and trace missing or malformed face lineage without mutating local
+  adjacency or tiled output.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
