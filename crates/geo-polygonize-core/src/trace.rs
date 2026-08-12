@@ -2,10 +2,10 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFacePlanStats,
-    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -686,6 +686,24 @@ impl TraceRecorderV1 {
                 "missing_successor_count": stats.missing_successor_count,
                 "unbounded_face_count": stats.unbounded_face_count,
                 "linked_face_count": stats.linked_face_count,
+                "missing_boundary_successor_count": stats.missing_boundary_successor_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_mutation_gate(
+        &mut self,
+        stats: PartitionBorderGlobalFaceMutationGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_mutation_gate",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "candidate_count": stats.candidate_count,
+                "boundary_transition_count": stats.boundary_transition_count,
+                "missing_boundary_successor_count": stats.missing_boundary_successor_count,
+                "mutation_ready_face_count": stats.mutation_ready_face_count,
             }),
         )
     }
@@ -716,6 +734,14 @@ impl TraceRecorderV1 {
                 .map(|bits| format!("0x{bits:016x}"))
                 .collect::<Vec<_>>()
         };
+        let boundary_successor = observation.local_face_boundary_successor.map(|successor| {
+            let (start, end) = successor.edge_key.endpoints();
+            serde_json::json!({
+                "partition_id": successor.partition_id,
+                "local_dir_edge_id": successor.local_dir_edge_id,
+                "edge_key": [endpoint(start), endpoint(end)],
+            })
+        });
         let (edge_start, edge_end) = observation.edge_key.endpoints();
         self.record(
             TraceStageV1::Graph,
@@ -733,6 +759,7 @@ impl TraceRecorderV1 {
                 "component_id": observation.component_id,
                 "local_face_successor": observation.local_face_successor,
                 "local_face_is_unbounded": observation.local_face_is_unbounded,
+                "local_face_boundary_successor": boundary_successor,
                 "source_count": observation.source_line_ids.len(),
                 "first_source_line_id": observation.source_line_ids.first(),
                 "last_source_line_id": observation.source_line_ids.last(),
@@ -752,6 +779,14 @@ impl TraceRecorderV1 {
                 .map(|bits| format!("0x{bits:016x}"))
                 .collect::<Vec<_>>()
         };
+        let boundary_successor = observation.local_face_boundary_successor.map(|successor| {
+            let (start, end) = successor.edge_key.endpoints();
+            serde_json::json!({
+                "partition_id": successor.partition_id,
+                "local_dir_edge_id": successor.local_dir_edge_id,
+                "edge_key": [endpoint(start), endpoint(end)],
+            })
+        });
         let (edge_start, edge_end) = observation.edge_key.endpoints();
         self.record(
             TraceStageV1::Graph,
@@ -764,6 +799,7 @@ impl TraceRecorderV1 {
                 "component_id": observation.component_id,
                 "local_face_successor": observation.local_face_successor,
                 "local_face_is_unbounded": observation.local_face_is_unbounded,
+                "local_face_boundary_successor": boundary_successor,
                 "representative_line_id": observation.representative_line_id,
                 "reason": reason,
             }),

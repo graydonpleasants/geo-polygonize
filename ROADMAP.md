@@ -467,6 +467,9 @@ Blocked by #1288.
 - [x] Validate retained face-boundary plan identity, successor lineage, twin
   coverage, deterministic grouping, limits, and cancellation without mutating
   local or global topology.
+- [x] Retain deterministic local face-boundary successor identities and report
+  closed-cycle mutation readiness without assigning global `next` links, face
+  IDs, or tiled output.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

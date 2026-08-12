@@ -13,7 +13,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use super::partition_border::{
-    partition_boundary_intersections, PartitionBorderHalfEdge, PartitionBorderSide,
+    partition_boundary_intersections, PartitionBorderEdgeKey, PartitionBorderHalfEdge,
+    PartitionBorderNodeKey, PartitionBorderSide,
 };
 
 /// Index of a node in the graph.
@@ -3037,23 +3038,140 @@ impl ComponentScratch {
         component_id: usize,
         export: PartitionBorderExport,
     ) -> Vec<PartitionBorderHalfEdge> {
-        (0..self.graph.directed_edges.len())
-            .filter_map(|local_dir_edge_id| {
-                let side = self.border_side(local_dir_edge_id, export.bbox)?;
-                let global_dir_edge_id = self.global_dir_edge_id(local_dir_edge_id)?;
-                let mut observation = self.graph.partition_border_half_edge_for_component(
-                    export.partition_id,
-                    component_id,
-                    local_dir_edge_id,
-                    side,
-                )?;
-                observation.local_dir_edge_id = global_dir_edge_id;
-                observation.local_face_successor = observation
-                    .local_face_successor
-                    .and_then(|successor| self.global_dir_edge_id(successor));
-                Some(observation)
-            })
+        let border_sides = (0..self.graph.directed_edges.len())
+            .map(|local_dir_edge_id| self.border_side(local_dir_edge_id, export.bbox))
+            .collect::<Vec<_>>();
+        let boundary_successors = self.local_face_boundary_successors(&border_sides);
+        let mut pending = Vec::new();
+        for (local_dir_edge_id, side) in border_sides.into_iter().enumerate() {
+            let Some(side) = side else {
+                continue;
+            };
+            let Some(global_dir_edge_id) = self.global_dir_edge_id(local_dir_edge_id) else {
+                continue;
+            };
+            let Some(mut observation) = self.graph.partition_border_half_edge_for_component(
+                export.partition_id,
+                component_id,
+                local_dir_edge_id,
+                side,
+            ) else {
+                continue;
+            };
+            observation.local_dir_edge_id = global_dir_edge_id;
+            observation.local_face_successor = observation
+                .local_face_successor
+                .and_then(|successor| self.global_dir_edge_id(successor));
+            let boundary_successor = boundary_successors
+                .get(local_dir_edge_id)
+                .copied()
+                .flatten()
+                .and_then(|successor| {
+                    Some((
+                        self.global_dir_edge_id(successor)?,
+                        self.local_dir_edge_key(successor)?,
+                    ))
+                });
+            pending.push((observation, boundary_successor));
+        }
+
+        let mut observation_ids = HashMap::with_capacity(pending.len());
+        for (observation, _) in &pending {
+            observation_ids.insert(
+                (observation.local_dir_edge_id, observation.edge_key),
+                observation.observation_id(),
+            );
+        }
+        for (observation, boundary_successor) in &mut pending {
+            observation.local_face_boundary_successor =
+                boundary_successor.and_then(|identity| observation_ids.get(&identity).copied());
+        }
+        pending
+            .into_iter()
+            .map(|(observation, _)| observation)
             .collect()
+    }
+
+    fn local_face_boundary_successors(
+        &self,
+        border_sides: &[Option<PartitionBorderSide>],
+    ) -> Vec<Option<DirEdgeId>> {
+        let directed_edge_count = self.graph.directed_edges.len();
+        let mut boundary_successors = vec![None; directed_edge_count];
+        let mut visited = vec![false; directed_edge_count];
+        for start in 0..directed_edge_count {
+            if visited[start] {
+                continue;
+            }
+            let mut cycle = Vec::new();
+            let mut current = start;
+            let mut closed = false;
+            loop {
+                if current >= directed_edge_count || visited[current] {
+                    closed = current == start;
+                    break;
+                }
+                visited[current] = true;
+                cycle.push(current);
+                let Some(twin) = self
+                    .graph
+                    .directed_edges
+                    .get(current)
+                    .map(|edge| edge.sym_idx)
+                else {
+                    break;
+                };
+                let Some(next) = self
+                    .graph
+                    .directed_edges
+                    .get(twin)
+                    .and_then(|edge| edge.next_idx)
+                else {
+                    break;
+                };
+                current = next;
+                if current == start {
+                    closed = true;
+                    break;
+                }
+                if cycle.len() > directed_edge_count {
+                    break;
+                }
+            }
+            if !closed {
+                continue;
+            }
+            let border_edges = cycle
+                .iter()
+                .copied()
+                .filter(|&dir_edge_id| border_sides.get(dir_edge_id).is_some_and(Option::is_some))
+                .collect::<Vec<_>>();
+            if border_edges.is_empty() {
+                continue;
+            }
+            for (index, &dir_edge_id) in border_edges.iter().enumerate() {
+                boundary_successors[dir_edge_id] =
+                    Some(border_edges[(index + 1) % border_edges.len()]);
+            }
+        }
+        boundary_successors
+    }
+
+    fn local_dir_edge_key(&self, local_dir_edge_id: DirEdgeId) -> Option<PartitionBorderEdgeKey> {
+        let directed = self.graph.directed_edges.get(local_dir_edge_id)?;
+        let start = directed.src;
+        let end = directed.dst;
+        let start = PartitionBorderNodeKey::from_coord(Coord3D::new(
+            *self.graph.nodes_x.get(start)?,
+            *self.graph.nodes_y.get(start)?,
+            0.0,
+        ));
+        let end = PartitionBorderNodeKey::from_coord(Coord3D::new(
+            *self.graph.nodes_x.get(end)?,
+            *self.graph.nodes_y.get(end)?,
+            0.0,
+        ));
+        PartitionBorderEdgeKey::new(start, end)
     }
 
     fn global_dir_edge_id(&self, local_dir_edge_id: DirEdgeId) -> Option<DirEdgeId> {
@@ -3913,6 +4031,10 @@ mod arrangement_ring_invariant_tests {
             .iter()
             .filter(|observation| observation.face_ref.is_some())
             .all(|observation| observation.local_face_successor.is_some()));
+        assert!(observations
+            .iter()
+            .filter(|observation| observation.face_ref.is_some())
+            .all(|observation| observation.local_face_boundary_successor.is_some()));
     }
 
     #[test]
