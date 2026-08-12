@@ -4,10 +4,10 @@ use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentCoverageStats, PartitionBorderGlobalComponentPayloadStats,
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceEdgeMapStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdPlanStats,
-    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -1035,6 +1035,27 @@ impl TraceRecorderV1 {
                 "unbounded_candidate_count": stats.unbounded_candidate_count,
                 "incomplete_plan_count": stats.incomplete_plan_count,
                 "assignment_ready": stats.assignment_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_id_application(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdApplicationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_id_application",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "assigned_face_count": stats.assigned_face_count,
+                "candidate_cycle_start_count": stats.candidate_cycle_start_count,
+                "mapped_cycle_count": stats.mapped_cycle_count,
+                "unmapped_plan_count": stats.unmapped_plan_count,
+                "duplicate_face_id_count": stats.duplicate_face_id_count,
+                "non_contiguous_face_id_count": stats.non_contiguous_face_id_count,
+                "application_ready": stats.application_ready,
             }),
         )
     }

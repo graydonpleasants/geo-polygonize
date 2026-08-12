@@ -525,6 +525,9 @@ Blocked by #1288.
 - [x] Reconcile deterministic global connected components and verify that
   every face-qualified detached edge is covered exactly once without duplicate
   faces or twin ownership.
+- [x] Validate that deterministic candidate global face IDs map one-to-one
+  onto detached closed candidate cycles with contiguous IDs; retain incomplete,
+  duplicate, or unmapped evidence without mutating topology.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

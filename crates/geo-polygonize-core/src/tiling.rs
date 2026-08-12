@@ -392,6 +392,22 @@ pub struct StitchingReport {
     pub partition_border_global_face_id_incomplete_plan_count: usize,
     /// Whether every retained boundary cycle received a candidate ID.
     pub partition_border_global_face_id_assignment_ready: bool,
+    /// Boundary face-ID plans mapped one-to-one onto detached candidate cycles.
+    pub partition_border_global_face_id_application_candidate_cycle_count: usize,
+    /// Candidate face-ID plans with an assigned deterministic ID.
+    pub partition_border_global_face_id_application_assigned_face_count: usize,
+    /// Closed cycles retained by the detached global topology candidate.
+    pub partition_border_global_face_id_application_cycle_start_count: usize,
+    /// Face-ID plans whose observations matched a detached candidate cycle.
+    pub partition_border_global_face_id_application_mapped_cycle_count: usize,
+    /// Face-ID plans that could not map to a detached candidate cycle.
+    pub partition_border_global_face_id_application_unmapped_plan_count: usize,
+    /// Duplicate candidate face IDs retained by the evidence gate.
+    pub partition_border_global_face_id_application_duplicate_face_id_count: usize,
+    /// Missing IDs in the expected contiguous candidate ID range.
+    pub partition_border_global_face_id_application_non_contiguous_face_id_count: usize,
+    /// Whether candidate face IDs are ready to map onto detached cycles.
+    pub partition_border_global_face_id_application_ready: bool,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2630,6 +2646,8 @@ impl<'a> TiledPolygonizer<'a> {
             .validate_global_topology_application_gate(&self.execution_policy)?;
         let partition_border_global_component_coverage =
             partition_border_graph.validate_global_component_coverage(&self.execution_policy)?;
+        let partition_border_global_face_id_application =
+            partition_border_graph.validate_global_face_id_application(&self.execution_policy)?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2694,6 +2712,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_component_coverage(
                 partition_border_global_component_coverage,
+            );
+            trace.record_partition_border_global_face_id_application(
+                partition_border_global_face_id_application,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -3055,6 +3076,22 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_id_plans.incomplete_plan_count,
                 partition_border_global_face_id_assignment_ready:
                     partition_border_global_face_id_plans.assignment_ready,
+                partition_border_global_face_id_application_candidate_cycle_count:
+                    partition_border_global_face_id_application.candidate_cycle_count,
+                partition_border_global_face_id_application_assigned_face_count:
+                    partition_border_global_face_id_application.assigned_face_count,
+                partition_border_global_face_id_application_cycle_start_count:
+                    partition_border_global_face_id_application.candidate_cycle_start_count,
+                partition_border_global_face_id_application_mapped_cycle_count:
+                    partition_border_global_face_id_application.mapped_cycle_count,
+                partition_border_global_face_id_application_unmapped_plan_count:
+                    partition_border_global_face_id_application.unmapped_plan_count,
+                partition_border_global_face_id_application_duplicate_face_id_count:
+                    partition_border_global_face_id_application.duplicate_face_id_count,
+                partition_border_global_face_id_application_non_contiguous_face_id_count:
+                    partition_border_global_face_id_application.non_contiguous_face_id_count,
+                partition_border_global_face_id_application_ready:
+                    partition_border_global_face_id_application.application_ready,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:
