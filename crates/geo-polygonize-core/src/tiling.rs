@@ -247,6 +247,14 @@ pub struct StitchingReport {
     pub retried_tile_count: usize,
     pub retry_attempt_count: usize,
     pub retry_exhausted_tile_count: usize,
+    /// Number of declared geometric adjacencies used for border matching.
+    pub partition_border_adjacency_count: usize,
+    /// Number of normalized border edge buckets covered by those adjacencies.
+    pub partition_border_normalized_edge_count: usize,
+    /// Number of unambiguous opposite-direction border pairs.
+    pub partition_border_twin_count: usize,
+    /// Normalized border buckets conservatively left unmatched.
+    pub partition_border_unmatched_edge_count: usize,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -2239,6 +2247,10 @@ impl<'a> TiledPolygonizer<'a> {
             }
         }
         self.declare_partition_adjacencies(&mut partition_border_graph, &tile_reports)?;
+        let partition_border_reconciliation = partition_border_graph.reconciliation_stats();
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.record_partition_border_reconciliation(partition_border_reconciliation);
+        }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
         let (component_fallback, component_fallback_decline_reason) =
@@ -2459,6 +2471,13 @@ impl<'a> TiledPolygonizer<'a> {
                 retried_tile_count,
                 retry_attempt_count,
                 retry_exhausted_tile_count,
+                partition_border_adjacency_count: partition_border_reconciliation
+                    .declared_adjacency_count,
+                partition_border_normalized_edge_count: partition_border_reconciliation
+                    .normalized_edge_count,
+                partition_border_twin_count: partition_border_reconciliation.matched_twin_count,
+                partition_border_unmatched_edge_count: partition_border_reconciliation
+                    .unmatched_edge_count,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,

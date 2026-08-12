@@ -446,6 +446,9 @@ Tracked by
 [#1289](https://github.com/graydonpleasants/geo-polygonize/issues/1289).
 Blocked by #1288.
 
+- [x] Emit deterministic declared-adjacency twin/payload reconciliation
+  evidence while leaving ambiguous, unrelated, and replicate-and-own output
+  cases untouched.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
