@@ -38,24 +38,20 @@ setup_wasm_tools() {
 
     if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
         echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-        if command -v cargo-binstall &> /dev/null; then
-            cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-        else
-            cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-        fi
+        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --locked
     fi
     if ! command -v wasm-bindgen &> /dev/null; then
-        cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+        cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --locked
     fi
     WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
     if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
         echo "wasm-opt not found. Attempting to install via npm..."
-        npm install -g --allow-scripts=wasm-opt wasm-opt
-        if ! command -v wasm-opt &> /dev/null; then
-            echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
-        else
+        if npm install -g --allow-scripts=wasm-opt wasm-opt \
+            && command -v wasm-opt &> /dev/null; then
             echo "Successfully installed wasm-opt: $(wasm-opt --version)"
+        else
+            echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
         fi
     elif [ "$SITE_BUILD" != "1" ]; then
         echo "Found wasm-opt: $(wasm-opt --version)"
