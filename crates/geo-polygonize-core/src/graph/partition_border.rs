@@ -1,5 +1,6 @@
 use crate::types::{Coord3D, PartitionFaceRef};
 use crate::utils::canonical_coordinate_bits;
+use geo_types::Rect;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::planar_graph::{DirEdgeId, FaceId};
@@ -31,6 +32,237 @@ impl PartitionBorderSide {
                 | (Self::MaxY, Self::MinY)
         )
     }
+}
+
+/// One exact intersection between a local arrangement edge and a declared
+/// partition-boundary segment.
+///
+/// The parameter is measured from the edge's original start coordinate. A
+/// corner can therefore produce two records with the same point and parameter
+/// while retaining both boundary sides for deterministic classification.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PartitionBoundaryIntersection {
+    pub(crate) side: PartitionBorderSide,
+    pub(crate) t: f64,
+    pub(crate) point: Coord3D,
+}
+
+fn push_boundary_intersection(
+    intersections: &mut Vec<PartitionBoundaryIntersection>,
+    side: PartitionBorderSide,
+    mut t: f64,
+    start: Coord3D,
+    end: Coord3D,
+    boundary_coordinate: f64,
+    tangent_min: f64,
+    tangent_max: f64,
+) {
+    if !t.is_finite() || t < 0.0 || t > 1.0 {
+        return;
+    }
+    t = if t <= 0.0 {
+        0.0
+    } else if t >= 1.0 {
+        1.0
+    } else {
+        t
+    };
+
+    let mut point = Coord3D::new(
+        start.x + (end.x - start.x) * t,
+        start.y + (end.y - start.y) * t,
+        start.z + (end.z - start.z) * t,
+    );
+    match side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => {
+            point.x = boundary_coordinate;
+        }
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => {
+            point.y = boundary_coordinate;
+        }
+    }
+    let tangent = match side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => point.y,
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => point.x,
+    };
+    if tangent < tangent_min || tangent > tangent_max {
+        return;
+    }
+
+    let point_key = [
+        canonical_coordinate_bits(point.x),
+        canonical_coordinate_bits(point.y),
+    ];
+    if intersections.iter().any(|intersection| {
+        intersection.side == side
+            && [
+                canonical_coordinate_bits(intersection.point.x),
+                canonical_coordinate_bits(intersection.point.y),
+            ] == point_key
+    }) {
+        return;
+    }
+    intersections.push(PartitionBoundaryIntersection { side, t, point });
+}
+
+fn append_boundary_side_intersections(
+    intersections: &mut Vec<PartitionBoundaryIntersection>,
+    side: PartitionBorderSide,
+    boundary_coordinate: f64,
+    tangent_min: f64,
+    tangent_max: f64,
+    axis_start: f64,
+    axis_end: f64,
+    tangent_start: f64,
+    tangent_end: f64,
+    start: Coord3D,
+    end: Coord3D,
+) {
+    let axis_start_on_boundary =
+        canonical_coordinate_bits(axis_start) == canonical_coordinate_bits(boundary_coordinate);
+    let axis_end_on_boundary =
+        canonical_coordinate_bits(axis_end) == canonical_coordinate_bits(boundary_coordinate);
+
+    if axis_start_on_boundary && axis_end_on_boundary {
+        // A collinear edge can extend beyond the finite partition side. Add
+        // the side endpoints as breakpoints so the in-border span becomes a
+        // physical graph edge after splitting.
+        push_boundary_intersection(
+            intersections,
+            side,
+            0.0,
+            start,
+            end,
+            boundary_coordinate,
+            tangent_min,
+            tangent_max,
+        );
+        push_boundary_intersection(
+            intersections,
+            side,
+            1.0,
+            start,
+            end,
+            boundary_coordinate,
+            tangent_min,
+            tangent_max,
+        );
+        if tangent_start != tangent_end {
+            for tangent in [tangent_min, tangent_max] {
+                let t = (tangent - tangent_start) / (tangent_end - tangent_start);
+                push_boundary_intersection(
+                    intersections,
+                    side,
+                    t,
+                    start,
+                    end,
+                    boundary_coordinate,
+                    tangent_min,
+                    tangent_max,
+                );
+            }
+        }
+        return;
+    }
+
+    if axis_start == axis_end {
+        return;
+    }
+    let t = (boundary_coordinate - axis_start) / (axis_end - axis_start);
+    push_boundary_intersection(
+        intersections,
+        side,
+        t,
+        start,
+        end,
+        boundary_coordinate,
+        tangent_min,
+        tangent_max,
+    );
+}
+
+/// Returns the exact partition-boundary events for one live graph edge.
+///
+/// The graph has already passed the configured precision/noding pipeline, so
+/// this helper does not snap or infer from polygon envelopes. It only uses the
+/// exact rectangle coordinates supplied by the tile partition. Events are
+/// sorted along the directed edge, with a stable side order at corners.
+pub(crate) fn partition_boundary_intersections(
+    start: Coord3D,
+    end: Coord3D,
+    bbox: Rect<f64>,
+) -> Vec<PartitionBoundaryIntersection> {
+    let min = bbox.min();
+    let max = bbox.max();
+    let mut intersections = Vec::with_capacity(8);
+
+    append_boundary_side_intersections(
+        &mut intersections,
+        PartitionBorderSide::MinX,
+        min.x,
+        min.y,
+        max.y,
+        start.x,
+        end.x,
+        start.y,
+        end.y,
+        start,
+        end,
+    );
+    append_boundary_side_intersections(
+        &mut intersections,
+        PartitionBorderSide::MaxX,
+        max.x,
+        min.y,
+        max.y,
+        start.x,
+        end.x,
+        start.y,
+        end.y,
+        start,
+        end,
+    );
+    append_boundary_side_intersections(
+        &mut intersections,
+        PartitionBorderSide::MinY,
+        min.y,
+        min.x,
+        max.x,
+        start.y,
+        end.y,
+        start.x,
+        end.x,
+        start,
+        end,
+    );
+    append_boundary_side_intersections(
+        &mut intersections,
+        PartitionBorderSide::MaxY,
+        max.y,
+        min.x,
+        max.x,
+        start.y,
+        end.y,
+        start.x,
+        end.x,
+        start,
+        end,
+    );
+
+    intersections.sort_unstable_by(|left, right| {
+        left.t
+            .total_cmp(&right.t)
+            .then_with(|| left.side.cmp(&right.side))
+            .then_with(|| {
+                canonical_coordinate_bits(left.point.x)
+                    .cmp(&canonical_coordinate_bits(right.point.x))
+            })
+            .then_with(|| {
+                canonical_coordinate_bits(left.point.y)
+                    .cmp(&canonical_coordinate_bits(right.point.y))
+            })
+    });
+    intersections
 }
 
 /// Exact 2D identity of a node on a partition border.
@@ -522,6 +754,119 @@ mod tests {
 
     fn coord(x: f64, y: f64, z: f64) -> Coord3D {
         Coord3D::new(x, y, z)
+    }
+
+    fn unit_bbox() -> Rect<f64> {
+        Rect::new(
+            geo_types::Coord { x: 0.0, y: 0.0 },
+            geo_types::Coord { x: 10.0, y: 10.0 },
+        )
+    }
+
+    #[test]
+    fn boundary_intersections_cover_crossings_endpoints_and_corners() {
+        let bbox = unit_bbox();
+        let vertical =
+            partition_boundary_intersections(coord(-1.0, 2.0, 0.0), coord(11.0, 2.0, 12.0), bbox);
+        assert_eq!(
+            vertical
+                .iter()
+                .map(|intersection| (
+                    intersection.side,
+                    intersection.point.x,
+                    intersection.point.y
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (PartitionBorderSide::MinX, 0.0, 2.0),
+                (PartitionBorderSide::MaxX, 10.0, 2.0),
+            ]
+        );
+        assert!(vertical[0].t < vertical[1].t);
+
+        let horizontal =
+            partition_boundary_intersections(coord(2.0, -1.0, 0.0), coord(2.0, 11.0, 12.0), bbox);
+        assert_eq!(
+            horizontal
+                .iter()
+                .map(|intersection| (
+                    intersection.side,
+                    intersection.point.x,
+                    intersection.point.y
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (PartitionBorderSide::MinY, 2.0, 0.0),
+                (PartitionBorderSide::MaxY, 2.0, 10.0),
+            ]
+        );
+
+        let endpoint =
+            partition_boundary_intersections(coord(0.0, 2.0, 3.0), coord(5.0, 3.0, 8.0), bbox);
+        assert_eq!(endpoint.len(), 1);
+        assert_eq!(endpoint[0].side, PartitionBorderSide::MinX);
+        assert_eq!(endpoint[0].t, 0.0);
+        assert_eq!(endpoint[0].point.z, 3.0);
+
+        let corner =
+            partition_boundary_intersections(coord(-1.0, -1.0, 0.0), coord(11.0, 11.0, 12.0), bbox);
+        assert_eq!(corner.len(), 4);
+        assert_eq!(
+            corner
+                .iter()
+                .filter(|intersection| intersection.t == corner[0].t)
+                .map(|intersection| intersection.side)
+                .collect::<Vec<_>>(),
+            vec![PartitionBorderSide::MinX, PartitionBorderSide::MinY]
+        );
+        assert_eq!(
+            corner
+                .iter()
+                .filter(|intersection| intersection.t == corner[2].t)
+                .map(|intersection| intersection.side)
+                .collect::<Vec<_>>(),
+            vec![PartitionBorderSide::MaxX, PartitionBorderSide::MaxY]
+        );
+    }
+
+    #[test]
+    fn boundary_intersections_split_collinear_edges_at_finite_side_endpoints() {
+        let intersections = partition_boundary_intersections(
+            coord(-2.0, 0.0, 1.0),
+            coord(12.0, 0.0, 15.0),
+            unit_bbox(),
+        );
+        let min_y = intersections
+            .iter()
+            .filter(|intersection| intersection.side == PartitionBorderSide::MinY)
+            .collect::<Vec<_>>();
+        assert_eq!(min_y.len(), 2);
+        assert_eq!(min_y[0].point, coord(0.0, 0.0, 3.0));
+        assert_eq!(min_y[1].point, coord(10.0, 0.0, 13.0));
+        assert!(min_y[0].t < min_y[1].t);
+    }
+
+    #[test]
+    fn boundary_intersections_normalize_signed_zero_and_reverse_deterministically() {
+        let bbox = Rect::new(
+            geo_types::Coord { x: -0.0, y: -1.0 },
+            geo_types::Coord { x: 1.0, y: 1.0 },
+        );
+        let forward =
+            partition_boundary_intersections(coord(-1.0, -0.0, 0.0), coord(1.0, 0.0, 2.0), bbox);
+        let reverse =
+            partition_boundary_intersections(coord(1.0, 0.0, 2.0), coord(-1.0, -0.0, 0.0), bbox);
+        let forward_min_x = forward
+            .iter()
+            .find(|intersection| intersection.side == PartitionBorderSide::MinX)
+            .unwrap();
+        let reverse_min_x = reverse
+            .iter()
+            .find(|intersection| intersection.side == PartitionBorderSide::MinX)
+            .unwrap();
+        assert_eq!(canonical_coordinate_bits(forward_min_x.point.x), 0);
+        assert_eq!(forward_min_x.point, reverse_min_x.point);
+        assert_eq!(forward_min_x.t + reverse_min_x.t, 1.0);
     }
 
     fn face(partition_id: usize, component_id: usize, face_id: usize) -> PartitionFaceRef {
