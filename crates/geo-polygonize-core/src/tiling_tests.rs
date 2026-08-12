@@ -10,7 +10,7 @@ mod tests {
         PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
         TileComponentConnection, TileCoverageGuarantee, TileCoverageIssue,
         TileCoverageResolutionKind, TileExcludedComponentIssue, TileExecutionPolicy, TileReport,
-        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
+        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer, ZOptions,
     };
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
     use std::collections::BTreeSet;
@@ -147,6 +147,67 @@ mod tests {
                 && edge
                     .local_face_successor_global_dir_edge_id
                     .is_none_or(|successor| successor < global_face_edge_map.len())
+        }));
+        let global_face_nodes = result.partition_border_graph.global_face_nodes();
+        let global_face_node_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_face_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_edge_count,
+            global_face_node_stats.edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_count,
+            global_face_nodes.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_endpoint_count,
+            global_face_node_stats.endpoint_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_observation_count,
+            global_face_node_stats.mapped_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_unmapped_observation_count,
+            global_face_node_stats.unmapped_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_z_candidate_count,
+            global_face_node_stats.z_candidate_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_z_conflict_count,
+            global_face_node_stats.z_conflict_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_node_ready,
+            global_face_node_stats.node_map_ready
+        );
+        assert!(global_face_edge_map.iter().all(|edge| {
+            edge.from_global_node_id
+                .is_some_and(|node| node < global_face_nodes.len())
+                && edge
+                    .to_global_node_id
+                    .is_some_and(|node| node < global_face_nodes.len())
         }));
         assert_eq!(
             result
@@ -965,6 +1026,67 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_edge_map_ready
+            )
+        );
+        let global_face_nodes = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_nodes")
+            .expect("global face node evidence");
+        assert_eq!(
+            global_face_nodes.payload["edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_edge_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_nodes.payload["node_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_nodes.payload["endpoint_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_endpoint_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_nodes.payload["mapped_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_observation_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_nodes.payload["unmapped_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_unmapped_observation_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_nodes.payload["node_map_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_node_ready
             )
         );
         let node_reconciliation = traced
