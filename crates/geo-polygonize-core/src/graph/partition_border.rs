@@ -715,6 +715,19 @@ pub(crate) struct PartitionBorderGlobalFaceIdMutationStats {
     pub(crate) applied: bool,
 }
 
+/// Counts the atomic promotion of the uniquely proven unbounded face onto
+/// detached global identity state. Local face identities and output payloads
+/// remain private until their own promotion proofs exist.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalUnboundedFaceMutationStats {
+    pub(crate) candidate_cycle_count: usize,
+    pub(crate) candidate_unbounded_face_id_count: usize,
+    pub(crate) applied_unbounded_face_id: Option<usize>,
+    pub(crate) applied_cycle_start_global_dir_edge_id: Option<usize>,
+    pub(crate) mutation_ready: bool,
+    pub(crate) applied: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -1203,6 +1216,7 @@ pub struct PartitionBorderGraph {
     global_topology_candidate: Option<PartitionBorderGlobalTopologyCandidate>,
     global_next_global_dir_edge_ids: Vec<Option<usize>>,
     global_face_id_by_cycle_start: Vec<Option<usize>>,
+    global_unbounded_face_id_by_cycle_start: Option<(usize, usize)>,
 }
 
 impl PartitionBorderGraph {
@@ -1252,6 +1266,7 @@ impl PartitionBorderGraph {
         self.global_topology_candidate = None;
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
+        self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1291,6 +1306,7 @@ impl PartitionBorderGraph {
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
         self.global_face_id_by_cycle_start.clear();
+        self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1319,6 +1335,7 @@ impl PartitionBorderGraph {
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
         self.global_face_id_by_cycle_start.clear();
+        self.global_unbounded_face_id_by_cycle_start = None;
     }
 
     pub fn node_count(&self) -> usize {
@@ -4536,6 +4553,7 @@ impl PartitionBorderGraph {
         self.global_topology_candidate = None;
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
+        self.global_unbounded_face_id_by_cycle_start = None;
         Ok(stats)
     }
 
@@ -5268,6 +5286,7 @@ impl PartitionBorderGraph {
         };
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
+        self.global_unbounded_face_id_by_cycle_start = None;
         self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
             next_global_dir_edge_ids,
             cycle_start_global_dir_edge_ids,
@@ -5522,6 +5541,98 @@ impl PartitionBorderGraph {
             candidate_cycle_count,
             applied_face_id_count,
             unbounded_face_id_count,
+            mutation_ready: true,
+            applied: true,
+        })
+    }
+
+    /// Promotes the uniquely proven unbounded face onto detached identity
+    /// state after detached successors and deterministic face IDs are both
+    /// committed. This never changes local face IDs, local links, or output.
+    pub(crate) fn apply_global_unbounded_face_with_evidence(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        topology_mutation: PartitionBorderGlobalTopologyMutationStats,
+        face_id_mutation: PartitionBorderGlobalFaceIdMutationStats,
+        unbounded_face_application: PartitionBorderGlobalUnboundedFaceApplicationStats,
+    ) -> crate::Result<PartitionBorderGlobalUnboundedFaceMutationStats> {
+        execution_policy.check_cancelled("partition_border_global_unbounded_face_mutation")?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global unbounded face mutation has no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        let candidate_cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        execution_policy.check(
+            "partition_border_global_unbounded_face_mutation_cycles",
+            execution_policy.max_graph_nodes,
+            candidate_cycle_count,
+        )?;
+        let candidate_unbounded_face_id_count =
+            unbounded_face_application.candidate_unbounded_face_id_count;
+        let mutation_ready = topology_mutation.applied
+            && topology_mutation.mutation_ready
+            && face_id_mutation.applied
+            && face_id_mutation.mutation_ready
+            && unbounded_face_application.application_ready
+            && candidate_cycle_count == face_id_mutation.candidate_cycle_count
+            && face_id_mutation.applied_face_id_count == candidate_cycle_count
+            && candidate_unbounded_face_id_count == 1;
+        if !mutation_ready {
+            return Ok(PartitionBorderGlobalUnboundedFaceMutationStats {
+                candidate_cycle_count,
+                candidate_unbounded_face_id_count,
+                ..Default::default()
+            });
+        }
+
+        let unbounded_plans = self
+            .global_face_id_plans
+            .iter()
+            .enumerate()
+            .filter(|(_, plan)| plan.local_unbounded_face_count > 0)
+            .collect::<Vec<_>>();
+        if unbounded_plans.len() != 1 {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global unbounded face mutation expected one marked plan, found {}",
+                    unbounded_plans.len()
+                ),
+            });
+        }
+        let (_, unbounded_plan) = unbounded_plans[0];
+        let unbounded_face_id = unbounded_plan.candidate_global_face_id.ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global unbounded face mutation plan has no candidate face ID".to_string(),
+            }
+        })?;
+        let cycle_index = self
+            .global_face_id_by_cycle_start
+            .iter()
+            .position(|face_id| *face_id == Some(unbounded_face_id))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global unbounded face mutation cannot map candidate face ID {}",
+                    unbounded_face_id
+                ),
+            })?;
+        let cycle_start = candidate
+            .cycle_start_global_dir_edge_ids
+            .get(cycle_index)
+            .copied()
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global unbounded face mutation cycle index {} exceeds candidate starts",
+                    cycle_index
+                ),
+            })?;
+        self.global_unbounded_face_id_by_cycle_start = Some((unbounded_face_id, cycle_start));
+        Ok(PartitionBorderGlobalUnboundedFaceMutationStats {
+            candidate_cycle_count,
+            candidate_unbounded_face_id_count,
+            applied_unbounded_face_id: Some(unbounded_face_id),
+            applied_cycle_start_global_dir_edge_id: Some(cycle_start),
             mutation_ready: true,
             applied: true,
         })
@@ -10561,6 +10672,32 @@ mod tests {
             .global_face_id_by_cycle_start
             .iter()
             .all(Option::is_some));
+        let unbounded_stats = graph
+            .apply_global_unbounded_face_with_evidence(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalTopologyMutationStats {
+                    applied: true,
+                    mutation_ready: true,
+                    ..Default::default()
+                },
+                stats,
+                PartitionBorderGlobalUnboundedFaceApplicationStats {
+                    candidate_unbounded_face_id_count: 1,
+                    application_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(unbounded_stats.candidate_cycle_count, 1);
+        assert_eq!(unbounded_stats.candidate_unbounded_face_id_count, 1);
+        assert_eq!(unbounded_stats.applied_unbounded_face_id, Some(0));
+        assert_eq!(
+            unbounded_stats.applied_cycle_start_global_dir_edge_id,
+            Some(0)
+        );
+        assert!(unbounded_stats.mutation_ready);
+        assert!(unbounded_stats.applied);
+        assert_eq!(graph.global_unbounded_face_id_by_cycle_start, Some((0, 0)));
     }
 
     #[test]
@@ -10610,6 +10747,56 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_id_mutation"
+        ));
+    }
+
+    #[test]
+    fn global_unbounded_face_mutation_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .apply_global_unbounded_face_with_evidence(
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalTopologyMutationStats::default(),
+                PartitionBorderGlobalFaceIdMutationStats::default(),
+                PartitionBorderGlobalUnboundedFaceApplicationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 2,
+            } if stage == "partition_border_global_unbounded_face_mutation_cycles"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .apply_global_unbounded_face_with_evidence(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalTopologyMutationStats::default(),
+                PartitionBorderGlobalFaceIdMutationStats::default(),
+                PartitionBorderGlobalUnboundedFaceApplicationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_unbounded_face_mutation"
         ));
     }
 

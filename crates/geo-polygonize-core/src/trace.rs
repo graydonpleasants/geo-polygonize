@@ -15,9 +15,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
-    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalUnboundedFaceMutationStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -1024,6 +1024,25 @@ impl TraceRecorderV1 {
                 "candidate_cycle_count": stats.candidate_cycle_count,
                 "applied_face_id_count": stats.applied_face_id_count,
                 "unbounded_face_id_count": stats.unbounded_face_id_count,
+                "mutation_ready": stats.mutation_ready,
+                "applied": stats.applied,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_unbounded_face_mutation(
+        &mut self,
+        stats: PartitionBorderGlobalUnboundedFaceMutationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_unbounded_face_mutation",
+            serde_json::json!({
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "candidate_unbounded_face_id_count": stats.candidate_unbounded_face_id_count,
+                "applied_unbounded_face_id": stats.applied_unbounded_face_id,
+                "applied_cycle_start_global_dir_edge_id":
+                    stats.applied_cycle_start_global_dir_edge_id,
                 "mutation_ready": stats.mutation_ready,
                 "applied": stats.applied,
             }),

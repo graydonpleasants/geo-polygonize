@@ -1260,6 +1260,31 @@ mod tests {
                 1
             );
         }
+        assert!(
+            !result
+                .stitching_report
+                .partition_border_global_unbounded_face_mutation_applied
+                || result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_ready
+        );
+        if result
+            .stitching_report
+            .partition_border_global_unbounded_face_mutation_applied
+        {
+            assert_eq!(
+                result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_candidate_unbounded_face_id_count,
+                1
+            );
+            assert_eq!(
+                result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_applied_unbounded_face_id,
+                Some(0)
+            );
+        }
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -3044,6 +3069,50 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_id_mutation_applied
+            )
+        );
+        let unbounded_face_mutation = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_unbounded_face_mutation")
+            .expect("global unbounded face mutation evidence");
+        assert_eq!(
+            unbounded_face_mutation.payload["candidate_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_candidate_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            unbounded_face_mutation.payload["candidate_unbounded_face_id_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_candidate_unbounded_face_id_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            unbounded_face_mutation.payload["mutation_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_ready
+            )
+        );
+        assert_eq!(
+            unbounded_face_mutation.payload["applied"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_mutation_applied
             )
         );
     }
