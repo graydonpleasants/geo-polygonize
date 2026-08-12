@@ -541,6 +541,9 @@ Blocked by #1288.
   starts only after unique cycle mapping, contiguous IDs, successor mutation,
   and exactly-one-unbounded evidence are ready; keep local IDs and output
   payloads untouched.
+- [x] Atomically promote the uniquely proven unbounded candidate onto detached
+  global identity state only after successor and face-ID commits; retain the
+  cycle start and candidate ID without changing local IDs or output payloads.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
