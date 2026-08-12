@@ -690,6 +690,54 @@ mod tests {
     }
 
     #[test]
+    fn component_memory_shape_contract_is_shared_by_feature_builds() {
+        // This test intentionally runs in both the default (parallel) and
+        // --no-default-features (serial) builds. Shape/capacity evidence must
+        // remain stable; worker and scratch-state cardinality are execution
+        // details and are checked only as bounded values.
+        let mut poly = Polygonizer::new();
+        poly.options_mut().diagnostics.enabled = true;
+        for offset in [0.0, 20.0] {
+            poly.add_geometry(
+                LineString::from(vec![
+                    (offset, 0.0),
+                    (offset + 10.0, 0.0),
+                    (offset + 10.0, 10.0),
+                    (offset, 10.0),
+                    (offset, 0.0),
+                ])
+                .into(),
+            );
+        }
+
+        let result = poly.polygonize().unwrap();
+        let stats = result.diagnostics.unwrap().component_memory_stats;
+        assert_eq!(result.polygons.len(), 2);
+        assert_eq!(stats.component_count, 2);
+        assert_eq!(stats.active_node_count, 8);
+        assert_eq!(stats.active_edge_count, 8);
+        assert_eq!(stats.largest_component_node_count, 4);
+        assert_eq!(stats.largest_component_edge_count, 4);
+        assert_eq!(stats.partition_node_capacity, 8);
+        assert_eq!(stats.partition_edge_capacity, 8);
+        assert_eq!(stats.global_graph_node_capacity, 8);
+        assert_eq!(stats.global_graph_edge_capacity, 8);
+        assert_eq!(stats.global_graph_directed_edge_capacity, 16);
+        assert_eq!(stats.global_graph_adjacency_capacity, 32);
+        assert_eq!(stats.max_scratch_node_capacity, 4);
+        assert_eq!(stats.max_scratch_edge_capacity, 4);
+        assert_eq!(stats.max_scratch_directed_edge_capacity, 8);
+        assert_eq!(stats.max_scratch_adjacency_capacity, 16);
+        assert_eq!(stats.max_scratch_global_node_capacity, 4);
+        assert_eq!(stats.max_scratch_local_node_capacity, 7);
+        assert_eq!(stats.max_scratch_global_dir_edge_capacity, 4);
+        assert_eq!(stats.max_merged_output_item_count, 4);
+        assert_eq!(stats.max_merged_output_coordinate_capacity, 20);
+        assert!(stats.scratch_instance_count >= 1);
+        assert!(stats.execution_worker_count >= 1);
+    }
+
+    #[test]
     fn diagnostics_report_noding_iterations() {
         let mut poly = Polygonizer::new();
         poly.options_mut().node_input = true;
