@@ -1,6 +1,8 @@
 //! Internal bounded topology trace schema.
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
+use crate::graph::partition_border::PartitionBorderHalfEdge;
+use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::grid::{
     UniformGridCandidateTrace, UniformGridCellTrace, UniformGridGlobalLineTrace,
@@ -582,6 +584,79 @@ impl TraceRecorderV1 {
 
     pub fn finish(self) -> TopologyTraceV1 {
         self.trace
+    }
+
+    pub(crate) fn record_partition_boundary_noding(
+        &mut self,
+        partition_id: usize,
+        stats: PartitionBoundaryNodingStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_boundary_noding",
+            serde_json::json!({
+                "partition_id": partition_id,
+                "added_node_count": stats.added_node_count,
+                "added_edge_count": stats.added_edge_count,
+                "split_event_count": stats.split_event_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_observation(
+        &mut self,
+        observation: &PartitionBorderHalfEdge,
+    ) -> bool {
+        let endpoint = |key: crate::graph::partition_border::PartitionBorderNodeKey| {
+            key.xy_bits()
+                .into_iter()
+                .map(|bits| format!("0x{bits:016x}"))
+                .collect::<Vec<_>>()
+        };
+        let (edge_start, edge_end) = observation.edge_key.endpoints();
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_atomic_observation",
+            serde_json::json!({
+                "partition_id": observation.partition_id,
+                "local_dir_edge_id": observation.local_dir_edge_id,
+                "edge_key": [endpoint(edge_start), endpoint(edge_end)],
+                "from": endpoint(observation.from),
+                "to": endpoint(observation.to),
+                "from_z_bits": format!("0x{:016x}", observation.from_z_bits),
+                "to_z_bits": format!("0x{:016x}", observation.to_z_bits),
+                "side": format!("{:?}", observation.side),
+                "face_id": observation.face_id,
+                "source_count": observation.source_line_ids.len(),
+                "first_source_line_id": observation.source_line_ids.first(),
+                "last_source_line_id": observation.source_line_ids.last(),
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_rejection(
+        &mut self,
+        observation: &PartitionBorderHalfEdge,
+        reason: &str,
+    ) -> bool {
+        let endpoint = |key: crate::graph::partition_border::PartitionBorderNodeKey| {
+            key.xy_bits()
+                .into_iter()
+                .map(|bits| format!("0x{bits:016x}"))
+                .collect::<Vec<_>>()
+        };
+        let (edge_start, edge_end) = observation.edge_key.endpoints();
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_observation_rejected",
+            serde_json::json!({
+                "partition_id": observation.partition_id,
+                "local_dir_edge_id": observation.local_dir_edge_id,
+                "edge_key": [endpoint(edge_start), endpoint(edge_end)],
+                "side": format!("{:?}", observation.side),
+                "reason": reason,
+            }),
+        )
     }
 
     pub(crate) fn record_diagnostics_summary(&mut self, diagnostics: &PolygonizerDiagnostics) {
@@ -1690,6 +1765,35 @@ mod tests {
         assert!(!budget.capture(&mut values, split));
         assert_eq!(values.len(), 2);
         assert!(budget.truncated());
+    }
+
+    #[test]
+    fn partition_border_rejection_trace_retains_atomic_identity() {
+        let options = PolygonizerOptions::default();
+        let mut recorder =
+            TraceRecorderV1::new(Some(TraceLevelV1::Full), usize::MAX, &options).unwrap();
+        let observation = crate::graph::partition_border::PartitionBorderHalfEdge::new(
+            3,
+            17,
+            Some(9),
+            crate::graph::partition_border::PartitionBorderSide::MinY,
+            Coord3D::new(0.0, 0.0, 1.0),
+            Coord3D::new(1.0, 0.0, 2.0),
+            [4, 8],
+        )
+        .unwrap();
+
+        assert!(recorder.record_partition_border_rejection(&observation, "conflict"));
+        let trace = recorder.finish();
+        let event = trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_observation_rejected")
+            .unwrap();
+        assert_eq!(event.payload["partition_id"], 3);
+        assert_eq!(event.payload["local_dir_edge_id"], 17);
+        assert_eq!(event.payload["edge_key"].as_array().unwrap().len(), 2);
+        assert_eq!(event.payload["reason"], "conflict");
     }
 
     #[test]

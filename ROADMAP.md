@@ -430,6 +430,8 @@ Tracked by
   component identity, cancellation, and limits.
 - [x] Export only halfedges physically present on the boundary-noded arrangement.
 - [x] Introduce collision-free atomic observation identity.
+- [x] Emit bounded trace evidence for boundary-noding counts, atomic border
+  observations, and rejected observations.
 - [x] Run arrangement and face-walk validators after boundary noding.
 - [x] Leave replicate-and-own output unchanged.
 
