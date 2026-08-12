@@ -348,6 +348,70 @@ mod tests {
             global_topology_candidate.next_global_dir_edge_ids.len(),
             global_topology_candidate_stats.edge_count
         );
+        let global_topology_application_gate_stats = result
+            .partition_border_graph
+            .validate_global_topology_application_gate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_edge_count,
+            global_topology_application_gate_stats.edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_successor_count,
+            global_topology_application_gate_stats.candidate_successor_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_adjacency_count,
+            global_topology_application_gate_stats.declared_adjacency_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_applied_twin_count,
+            global_topology_application_gate_stats.applied_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_mapped_twin_count,
+            global_topology_application_gate_stats.mapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_unmapped_twin_count,
+            global_topology_application_gate_stats.unmapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_invalid_twin_count,
+            global_topology_application_gate_stats.invalid_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_predecessor_conflict_count,
+            global_topology_application_gate_stats.predecessor_conflict_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_node_discontinuity_count,
+            global_topology_application_gate_stats.node_discontinuity_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_application_gate_ready,
+            global_topology_application_gate_stats.application_ready
+        );
         assert_eq!(
             result
                 .stitching_report
@@ -1424,6 +1488,111 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_topology_candidate_ready
+            )
+        );
+        let topology_application_gate = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_topology_application_gate")
+            .expect("global topology application gate evidence");
+        assert_eq!(
+            topology_application_gate.payload["edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["candidate_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_successor_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["declared_adjacency_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_adjacency_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["applied_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_applied_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["mapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_mapped_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["unmapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_unmapped_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["invalid_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_invalid_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["predecessor_conflict_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_predecessor_conflict_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["node_discontinuity_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_node_discontinuity_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_application_gate.payload["application_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_application_gate_ready
             )
         );
         let node_reconciliation = traced

@@ -10,9 +10,10 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalTopologyCandidateStats, PartitionBorderGlobalUnboundedFaceProofStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
+    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -727,6 +728,28 @@ impl TraceRecorderV1 {
                 "node_discontinuity_count": stats.node_discontinuity_count,
                 "incomplete_application_plan_count": stats.incomplete_application_plan_count,
                 "candidate_ready": stats.candidate_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_topology_application_gate(
+        &mut self,
+        stats: PartitionBorderGlobalTopologyApplicationGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_topology_application_gate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "candidate_successor_count": stats.candidate_successor_count,
+                "declared_adjacency_count": stats.declared_adjacency_count,
+                "applied_twin_count": stats.applied_twin_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "unmapped_twin_count": stats.unmapped_twin_count,
+                "invalid_twin_count": stats.invalid_twin_count,
+                "predecessor_conflict_count": stats.predecessor_conflict_count,
+                "node_discontinuity_count": stats.node_discontinuity_count,
+                "application_ready": stats.application_ready,
             }),
         )
     }

@@ -517,7 +517,9 @@ Blocked by #1288.
 - [x] Materialize a detached full global directed-edge successor candidate from
   local successors plus validated boundary overrides, and require complete
   one-in/one-out endpoint-continuous closed cycles before any future mutation.
-- [ ] Apply unambiguous twins only across declared adjacent borders.
+- [x] Gate detached topology application on unambiguous twins remaining backed
+  by declared adjacent borders and reciprocal global edge slots; retain
+  malformed or incomplete evidence as not ready without mutating topology.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
 - [ ] Reconcile deterministic global connected components.

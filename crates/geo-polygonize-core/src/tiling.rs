@@ -479,6 +479,26 @@ pub struct StitchingReport {
     pub partition_border_global_topology_candidate_incomplete_application_plan_count: usize,
     /// Whether the detached candidate is a complete cycle system.
     pub partition_border_global_topology_candidate_ready: bool,
+    /// Edge slots checked by the final detached-topology application gate.
+    pub partition_border_global_topology_application_gate_edge_count: usize,
+    /// Candidate successor links checked by the final application gate.
+    pub partition_border_global_topology_application_gate_successor_count: usize,
+    /// Declared partition adjacencies available to the application gate.
+    pub partition_border_global_topology_application_gate_adjacency_count: usize,
+    /// Face-qualified twins retained from declared-adjacency application.
+    pub partition_border_global_topology_application_gate_applied_twin_count: usize,
+    /// Twin pairs mapped into reciprocal global edge slots.
+    pub partition_border_global_topology_application_gate_mapped_twin_count: usize,
+    /// Global twin pairs without complete applied evidence.
+    pub partition_border_global_topology_application_gate_unmapped_twin_count: usize,
+    /// Applied twin records rejected by the final adjacency/lineage gate.
+    pub partition_border_global_topology_application_gate_invalid_twin_count: usize,
+    /// Candidate successor targets with multiple predecessors at the gate.
+    pub partition_border_global_topology_application_gate_predecessor_conflict_count: usize,
+    /// Candidate links with discontinuous endpoint node slots at the gate.
+    pub partition_border_global_topology_application_gate_node_discontinuity_count: usize,
+    /// Whether the detached candidate is safe for a future mutation phase.
+    pub partition_border_global_topology_application_gate_ready: bool,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -2588,6 +2608,8 @@ impl<'a> TiledPolygonizer<'a> {
             .reconcile_global_face_next_application_plans(&self.execution_policy)?;
         let partition_border_global_topology_candidate =
             partition_border_graph.reconcile_global_topology_candidate(&self.execution_policy)?;
+        let partition_border_global_topology_application_gate = partition_border_graph
+            .validate_global_topology_application_gate(&self.execution_policy)?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2646,6 +2668,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_topology_candidate(
                 partition_border_global_topology_candidate,
+            );
+            trace.record_partition_border_global_topology_application_gate(
+                partition_border_global_topology_application_gate,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -3090,6 +3115,26 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_topology_candidate.incomplete_application_plan_count,
                 partition_border_global_topology_candidate_ready:
                     partition_border_global_topology_candidate.candidate_ready,
+                partition_border_global_topology_application_gate_edge_count:
+                    partition_border_global_topology_application_gate.edge_count,
+                partition_border_global_topology_application_gate_successor_count:
+                    partition_border_global_topology_application_gate.candidate_successor_count,
+                partition_border_global_topology_application_gate_adjacency_count:
+                    partition_border_global_topology_application_gate.declared_adjacency_count,
+                partition_border_global_topology_application_gate_applied_twin_count:
+                    partition_border_global_topology_application_gate.applied_twin_count,
+                partition_border_global_topology_application_gate_mapped_twin_count:
+                    partition_border_global_topology_application_gate.mapped_twin_count,
+                partition_border_global_topology_application_gate_unmapped_twin_count:
+                    partition_border_global_topology_application_gate.unmapped_twin_count,
+                partition_border_global_topology_application_gate_invalid_twin_count:
+                    partition_border_global_topology_application_gate.invalid_twin_count,
+                partition_border_global_topology_application_gate_predecessor_conflict_count:
+                    partition_border_global_topology_application_gate.predecessor_conflict_count,
+                partition_border_global_topology_application_gate_node_discontinuity_count:
+                    partition_border_global_topology_application_gate.node_discontinuity_count,
+                partition_border_global_topology_application_gate_ready:
+                    partition_border_global_topology_application_gate.application_ready,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,
