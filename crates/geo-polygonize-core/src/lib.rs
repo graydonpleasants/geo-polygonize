@@ -47,8 +47,8 @@ pub mod utils;
 mod polygonizer_tests;
 
 pub use diagnostics::{
-    ContainmentStats, IntersectionStats, NodingIterationStats, NodingWorkStats,
-    PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
+    ComponentMemoryStats, ContainmentStats, IntersectionStats, NodingIterationStats,
+    NodingWorkStats, PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
     POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION,
 };
 pub use error::{NodingValidationKind, PolygonizeError, PolygonizeErrorKind, Result};

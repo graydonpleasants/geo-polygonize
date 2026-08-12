@@ -1,3 +1,4 @@
+use crate::diagnostics::{ComponentMemoryStats, ComponentScratchEvidence};
 use crate::options::ExecutionPolicy;
 use crate::trace::TraceCaptureBudget;
 use crate::types::{Coord3D, EdgeSources, Line3D, LocalFaceRef};
@@ -148,6 +149,7 @@ struct ComponentScratch {
     global_node_ids: Vec<NodeId>,
     local_node_ids: HashMap<NodeId, NodeId>,
     global_dir_edge_ids: Vec<[DirEdgeId; 2]>,
+    processed_components: usize,
 }
 
 fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput) {
@@ -155,6 +157,25 @@ fn append_component_output(target: &mut ComponentOutput, output: ComponentOutput
     target.1.extend(output.1);
     target.2.extend(output.2);
     target.3.extend(output.3);
+}
+
+fn component_output_item_count(output: &ComponentOutput) -> usize {
+    output.0.len() + output.1.len() + output.2.len() + output.3.len()
+}
+
+fn component_output_coordinate_capacity(output: &ComponentOutput) -> usize {
+    output
+        .0
+        .iter()
+        .chain(&output.1)
+        .map(Vec::capacity)
+        .sum::<usize>()
+        + output
+            .2
+            .iter()
+            .chain(&output.3)
+            .map(|ring| ring.coords.capacity())
+            .sum::<usize>()
 }
 
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
@@ -1933,7 +1954,7 @@ impl PlanarGraph {
     fn active_component_partitions(
         &self,
         execution_policy: &ExecutionPolicy,
-    ) -> crate::Result<Vec<ComponentPartition>> {
+    ) -> crate::Result<(Vec<ComponentPartition>, ComponentMemoryStats)> {
         let component_ids =
             self.active_component_ids_with_execution_policy(Some(execution_policy))?;
         let component_count = component_ids
@@ -1986,11 +2007,29 @@ impl PlanarGraph {
             component_edges.sort_unstable();
         }
 
-        Ok(nodes
+        let mut memory_stats = ComponentMemoryStats {
+            component_count,
+            global_graph_node_capacity: self.nodes_x.capacity(),
+            global_graph_edge_capacity: self.edges.capacity(),
+            global_graph_directed_edge_capacity: self.directed_edges.capacity(),
+            global_graph_adjacency_capacity: self.nodes_outgoing.iter().map(Vec::capacity).sum(),
+            ..Default::default()
+        };
+        let partitions = nodes
             .into_iter()
             .zip(edges)
-            .map(|(nodes, edges)| ComponentPartition { nodes, edges })
-            .collect())
+            .map(|(nodes, edges)| {
+                memory_stats.observe_partition(
+                    nodes.len(),
+                    edges.len(),
+                    nodes.capacity(),
+                    edges.capacity(),
+                );
+                ComponentPartition { nodes, edges }
+            })
+            .collect();
+
+        Ok((partitions, memory_stats))
     }
 
     fn load_component_scratch(
@@ -2070,10 +2109,16 @@ impl PlanarGraph {
         noding_postcondition_validated: bool,
         capture_byte_limit: Option<usize>,
         border_export: Option<PartitionBorderExport>,
-    ) -> crate::Result<(ComponentOutput, Vec<PartitionBorderHalfEdge>, bool)> {
-        let partitions = self.active_component_partitions(execution_policy)?;
+    ) -> crate::Result<(
+        ComponentOutput,
+        Vec<PartitionBorderHalfEdge>,
+        bool,
+        ComponentMemoryStats,
+    )> {
+        let (partitions, mut memory_stats) = self.active_component_partitions(execution_policy)?;
         let mut merged = ComponentOutput::default();
         let mut border_observations = Vec::new();
+        memory_stats.execution_worker_count = 1;
 
         let capture_truncated = if border_export.is_some() || capture_byte_limit.is_some() {
             let mut capture_budget = capture_byte_limit.map(TraceCaptureBudget::new);
@@ -2085,7 +2130,7 @@ impl PlanarGraph {
                     partition,
                     execution_policy,
                 )?;
-                let (output, observations) = scratch.process(
+                let (output, observations, scratch_stats) = scratch.process(
                     component_id,
                     include_graph_ids,
                     include_source_ids,
@@ -2094,36 +2139,44 @@ impl PlanarGraph {
                     capture_budget.as_mut(),
                     border_export,
                 )?;
+                memory_stats.merge_execution(&scratch_stats);
                 append_component_output(&mut merged, output);
+                memory_stats.observe_merged_output(
+                    component_output_item_count(&merged),
+                    component_output_coordinate_capacity(&merged),
+                );
                 border_observations.extend(observations);
             }
             capture_budget.is_some_and(|budget| budget.truncated())
         } else {
             #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-            let outputs: Vec<_> = partitions
-                .into_par_iter()
-                .enumerate()
-                .map_init(
-                    ComponentScratch::default,
-                    |scratch, (component_id, partition)| {
-                        self.load_component_scratch(
-                            scratch,
-                            component_id,
-                            partition,
-                            execution_policy,
-                        )?;
-                        scratch.process(
-                            component_id,
-                            include_graph_ids,
-                            include_source_ids,
-                            execution_policy,
-                            noding_postcondition_validated,
-                            None,
-                            None,
-                        )
-                    },
-                )
-                .collect();
+            let outputs: Vec<_> = {
+                memory_stats.execution_worker_count = rayon::current_num_threads();
+                partitions
+                    .into_par_iter()
+                    .enumerate()
+                    .map_init(
+                        ComponentScratch::default,
+                        |scratch, (component_id, partition)| {
+                            self.load_component_scratch(
+                                scratch,
+                                component_id,
+                                partition,
+                                execution_policy,
+                            )?;
+                            scratch.process(
+                                component_id,
+                                include_graph_ids,
+                                include_source_ids,
+                                execution_policy,
+                                noding_postcondition_validated,
+                                None,
+                                None,
+                            )
+                        },
+                    )
+                    .collect()
+            };
             #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
             let outputs: Vec<_> = {
                 let mut scratch = ComponentScratch::default();
@@ -2149,14 +2202,19 @@ impl PlanarGraph {
             };
 
             for output in outputs {
-                let (output, observations) = output?;
+                let (output, observations, scratch_stats) = output?;
                 debug_assert!(observations.is_empty());
+                memory_stats.merge_execution(&scratch_stats);
                 append_component_output(&mut merged, output);
+                memory_stats.observe_merged_output(
+                    component_output_item_count(&merged),
+                    component_output_coordinate_capacity(&merged),
+                );
             }
             false
         };
 
-        Ok((merged, border_observations, capture_truncated))
+        Ok((merged, border_observations, capture_truncated, memory_stats))
     }
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
@@ -2441,7 +2499,12 @@ impl ComponentScratch {
         noding_postcondition_validated: bool,
         capture_budget: Option<&mut TraceCaptureBudget>,
         border_export: Option<PartitionBorderExport>,
-    ) -> crate::Result<(ComponentOutput, Vec<PartitionBorderHalfEdge>)> {
+    ) -> crate::Result<(
+        ComponentOutput,
+        Vec<PartitionBorderHalfEdge>,
+        ComponentMemoryStats,
+    )> {
+        let is_new_scratch_instance = self.processed_components == 0;
         self.graph
             .sort_edges_with_execution_policy(execution_policy)?;
         let dangles = self
@@ -2479,7 +2542,23 @@ impl ComponentScratch {
             .unwrap_or_default();
         self.remap_rings(&mut maximal, component_id, include_graph_ids)?;
         self.remap_rings(&mut minimal, component_id, include_graph_ids)?;
-        Ok(((dangles, cut_edges, maximal, minimal), observations))
+        self.processed_components = self.processed_components.saturating_add(1);
+        let mut scratch_stats = ComponentMemoryStats::default();
+        scratch_stats.observe_scratch(ComponentScratchEvidence {
+            is_new_instance: is_new_scratch_instance,
+            node_capacity: self.graph.nodes_x.capacity(),
+            edge_capacity: self.graph.edges.capacity(),
+            directed_edge_capacity: self.graph.directed_edges.capacity(),
+            adjacency_capacity: self.graph.nodes_outgoing.iter().map(Vec::capacity).sum(),
+            global_node_capacity: self.global_node_ids.capacity(),
+            local_node_capacity: self.local_node_ids.capacity(),
+            global_dir_edge_capacity: self.global_dir_edge_ids.capacity(),
+        });
+        Ok((
+            (dangles, cut_edges, maximal, minimal),
+            observations,
+            scratch_stats,
+        ))
     }
 
     fn partition_border_observations(
@@ -2754,7 +2833,7 @@ mod arrangement_ring_invariant_tests {
         assert_eq!(incremental.edges.len(), 3);
 
         let policy = ExecutionPolicy::default();
-        let mut partitions = bulk.active_component_partitions(&policy).unwrap();
+        let (mut partitions, _) = bulk.active_component_partitions(&policy).unwrap();
         assert_eq!(partitions.len(), 1);
         let mut scratch = ComponentScratch::default();
         bulk.load_component_scratch(&mut scratch, 0, partitions.remove(0), &policy)
@@ -3156,7 +3235,7 @@ mod arrangement_ring_invariant_tests {
         }
 
         let policy = ExecutionPolicy::default();
-        let mut partitions = graph.active_component_partitions(&policy).unwrap();
+        let (mut partitions, _) = graph.active_component_partitions(&policy).unwrap();
         let mut scratch = ComponentScratch::default();
         graph
             .load_component_scratch(&mut scratch, 0, partitions.remove(0), &policy)
@@ -3191,7 +3270,7 @@ mod arrangement_ring_invariant_tests {
         }
 
         let policy = ExecutionPolicy::default();
-        let partitions = graph.active_component_partitions(&policy).unwrap();
+        let (partitions, _) = graph.active_component_partitions(&policy).unwrap();
         assert_eq!(partitions.len(), 4);
         let mut scratch = ComponentScratch::default();
         for (component_id, (node_count, partition)) in
@@ -3234,7 +3313,7 @@ mod arrangement_ring_invariant_tests {
         }
 
         let policy = ExecutionPolicy::default();
-        let ((_, _, _, rings), _, _) = graph
+        let ((_, _, _, rings), _, _, _) = graph
             .process_components_with_execution_policy(true, true, &policy, true, None, None)
             .unwrap();
         let refs = rings

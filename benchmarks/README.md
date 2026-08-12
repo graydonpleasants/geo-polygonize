@@ -92,7 +92,13 @@ every GEOS-comparable parity workload using `reference-requirements.txt`.
 
 Peak RSS remains an explicit harness input because the Rust standard library
 does not expose a portable process peak. The runner measures allocations with
-the repository's existing `dhat` allocator.
+the repository's existing `dhat` allocator. Each generated record also carries
+`work.component_memory`, which reports deterministic component distribution,
+global `Vec<Vec<DirEdgeId>>` adjacency capacity, reusable scratch high-water
+capacities, scratch-state instances, configured execution workers, and merged
+output buffering.
+Those fields are element capacities rather than byte estimates; use them with
+allocation and peak-RSS measurements when evaluating a layout change.
 
 Run the benchmark in five separate processes with unique `--repetition` values,
 then gate the records before publication:

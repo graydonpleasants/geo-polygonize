@@ -45,6 +45,58 @@
             "noded_segments": {"type": "integer", "minimum": 0},
             "ratio": {"type": "number", "minimum": 0}
           }
+        },
+        "component_memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "component_count",
+            "active_node_count",
+            "active_edge_count",
+            "largest_component_node_count",
+            "largest_component_edge_count",
+            "partition_node_capacity",
+            "partition_edge_capacity",
+            "global_graph_node_capacity",
+            "global_graph_edge_capacity",
+            "global_graph_directed_edge_capacity",
+            "global_graph_adjacency_capacity",
+            "scratch_instance_count",
+            "execution_worker_count",
+            "max_scratch_node_capacity",
+            "max_scratch_edge_capacity",
+            "max_scratch_directed_edge_capacity",
+            "max_scratch_adjacency_capacity",
+            "max_scratch_global_node_capacity",
+            "max_scratch_local_node_capacity",
+            "max_scratch_global_dir_edge_capacity",
+            "max_merged_output_item_count",
+            "max_merged_output_coordinate_capacity"
+          ],
+          "properties": {
+            "component_count": {"type": "integer", "minimum": 0},
+            "active_node_count": {"type": "integer", "minimum": 0},
+            "active_edge_count": {"type": "integer", "minimum": 0},
+            "largest_component_node_count": {"type": "integer", "minimum": 0},
+            "largest_component_edge_count": {"type": "integer", "minimum": 0},
+            "partition_node_capacity": {"type": "integer", "minimum": 0},
+            "partition_edge_capacity": {"type": "integer", "minimum": 0},
+            "global_graph_node_capacity": {"type": "integer", "minimum": 0},
+            "global_graph_edge_capacity": {"type": "integer", "minimum": 0},
+            "global_graph_directed_edge_capacity": {"type": "integer", "minimum": 0},
+            "global_graph_adjacency_capacity": {"type": "integer", "minimum": 0},
+            "scratch_instance_count": {"type": "integer", "minimum": 0},
+            "execution_worker_count": {"type": "integer", "minimum": 0},
+            "max_scratch_node_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_edge_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_directed_edge_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_adjacency_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_global_node_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_local_node_capacity": {"type": "integer", "minimum": 0},
+            "max_scratch_global_dir_edge_capacity": {"type": "integer", "minimum": 0},
+            "max_merged_output_item_count": {"type": "integer", "minimum": 0},
+            "max_merged_output_coordinate_capacity": {"type": "integer", "minimum": 0}
+          }
         }
       }
     }

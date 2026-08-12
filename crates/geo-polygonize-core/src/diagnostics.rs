@@ -74,6 +74,124 @@ impl ContainmentStats {
     }
 }
 
+/// Allocation-shape evidence for deterministic connected-component
+/// processing.
+///
+/// Capacity fields are element capacities, not byte estimates. They are
+/// intentionally recorded alongside allocator and peak-RSS measurements so
+/// layout decisions can distinguish graph shape from allocator noise.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ComponentMemoryStats {
+    pub component_count: usize,
+    pub active_node_count: usize,
+    pub active_edge_count: usize,
+    pub largest_component_node_count: usize,
+    pub largest_component_edge_count: usize,
+    pub partition_node_capacity: usize,
+    pub partition_edge_capacity: usize,
+    pub global_graph_node_capacity: usize,
+    pub global_graph_edge_capacity: usize,
+    pub global_graph_directed_edge_capacity: usize,
+    pub global_graph_adjacency_capacity: usize,
+    pub scratch_instance_count: usize,
+    pub execution_worker_count: usize,
+    pub max_scratch_node_capacity: usize,
+    pub max_scratch_edge_capacity: usize,
+    pub max_scratch_directed_edge_capacity: usize,
+    pub max_scratch_adjacency_capacity: usize,
+    pub max_scratch_global_node_capacity: usize,
+    pub max_scratch_local_node_capacity: usize,
+    pub max_scratch_global_dir_edge_capacity: usize,
+    pub max_merged_output_item_count: usize,
+    pub max_merged_output_coordinate_capacity: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ComponentScratchEvidence {
+    pub(crate) is_new_instance: bool,
+    pub(crate) node_capacity: usize,
+    pub(crate) edge_capacity: usize,
+    pub(crate) directed_edge_capacity: usize,
+    pub(crate) adjacency_capacity: usize,
+    pub(crate) global_node_capacity: usize,
+    pub(crate) local_node_capacity: usize,
+    pub(crate) global_dir_edge_capacity: usize,
+}
+
+impl ComponentMemoryStats {
+    pub(crate) fn observe_partition(
+        &mut self,
+        node_count: usize,
+        edge_count: usize,
+        node_capacity: usize,
+        edge_capacity: usize,
+    ) {
+        self.active_node_count = self.active_node_count.saturating_add(node_count);
+        self.active_edge_count = self.active_edge_count.saturating_add(edge_count);
+        self.largest_component_node_count = self.largest_component_node_count.max(node_count);
+        self.largest_component_edge_count = self.largest_component_edge_count.max(edge_count);
+        self.partition_node_capacity = self.partition_node_capacity.saturating_add(node_capacity);
+        self.partition_edge_capacity = self.partition_edge_capacity.saturating_add(edge_capacity);
+    }
+
+    pub(crate) fn observe_scratch(&mut self, evidence: ComponentScratchEvidence) {
+        if evidence.is_new_instance {
+            self.scratch_instance_count = self.scratch_instance_count.saturating_add(1);
+        }
+        self.max_scratch_node_capacity = self.max_scratch_node_capacity.max(evidence.node_capacity);
+        self.max_scratch_edge_capacity = self.max_scratch_edge_capacity.max(evidence.edge_capacity);
+        self.max_scratch_directed_edge_capacity = self
+            .max_scratch_directed_edge_capacity
+            .max(evidence.directed_edge_capacity);
+        self.max_scratch_adjacency_capacity = self
+            .max_scratch_adjacency_capacity
+            .max(evidence.adjacency_capacity);
+        self.max_scratch_global_node_capacity = self
+            .max_scratch_global_node_capacity
+            .max(evidence.global_node_capacity);
+        self.max_scratch_local_node_capacity = self
+            .max_scratch_local_node_capacity
+            .max(evidence.local_node_capacity);
+        self.max_scratch_global_dir_edge_capacity = self
+            .max_scratch_global_dir_edge_capacity
+            .max(evidence.global_dir_edge_capacity);
+    }
+
+    pub(crate) fn merge_execution(&mut self, other: &Self) {
+        self.scratch_instance_count = self
+            .scratch_instance_count
+            .saturating_add(other.scratch_instance_count);
+        self.max_scratch_node_capacity = self
+            .max_scratch_node_capacity
+            .max(other.max_scratch_node_capacity);
+        self.max_scratch_edge_capacity = self
+            .max_scratch_edge_capacity
+            .max(other.max_scratch_edge_capacity);
+        self.max_scratch_directed_edge_capacity = self
+            .max_scratch_directed_edge_capacity
+            .max(other.max_scratch_directed_edge_capacity);
+        self.max_scratch_adjacency_capacity = self
+            .max_scratch_adjacency_capacity
+            .max(other.max_scratch_adjacency_capacity);
+        self.max_scratch_global_node_capacity = self
+            .max_scratch_global_node_capacity
+            .max(other.max_scratch_global_node_capacity);
+        self.max_scratch_local_node_capacity = self
+            .max_scratch_local_node_capacity
+            .max(other.max_scratch_local_node_capacity);
+        self.max_scratch_global_dir_edge_capacity = self
+            .max_scratch_global_dir_edge_capacity
+            .max(other.max_scratch_global_dir_edge_capacity);
+    }
+
+    pub(crate) fn observe_merged_output(&mut self, item_count: usize, coordinate_capacity: usize) {
+        self.max_merged_output_item_count = self.max_merged_output_item_count.max(item_count);
+        self.max_merged_output_coordinate_capacity = self
+            .max_merged_output_coordinate_capacity
+            .max(coordinate_capacity);
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodingWorkStats {
     pub grid_cells: usize,
@@ -198,6 +316,8 @@ pub struct PolygonizerDiagnostics {
     pub z_conflicts: ZConflictStats,
     pub containment_stats: ContainmentStats,
     pub noding_work_stats: NodingWorkStats,
+    #[serde(default)]
+    pub component_memory_stats: ComponentMemoryStats,
 }
 
 fn diagnostics_schema_version() -> u32 {
@@ -226,6 +346,7 @@ impl Default for PolygonizerDiagnostics {
             z_conflicts: ZConflictStats::default(),
             containment_stats: ContainmentStats::default(),
             noding_work_stats: NodingWorkStats::default(),
+            component_memory_stats: ComponentMemoryStats::default(),
         }
     }
 }
@@ -236,9 +357,46 @@ mod tests {
 
     #[test]
     fn diagnostics_include_a_schema_version() {
+        let value = serde_json::to_value(PolygonizerDiagnostics::default()).unwrap();
         assert_eq!(
-            serde_json::to_value(PolygonizerDiagnostics::default()).unwrap()["schema_version"],
+            value["schema_version"],
             POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION
         );
+        assert!(value.get("component_memory_stats").is_some());
+    }
+
+    #[test]
+    fn component_memory_stats_track_maxima_without_overflowing() {
+        let mut stats = ComponentMemoryStats::default();
+        stats.observe_partition(3, 3, 4, 5);
+        stats.observe_partition(10, 9, 12, 16);
+        stats.observe_scratch(ComponentScratchEvidence {
+            is_new_instance: true,
+            node_capacity: 10,
+            edge_capacity: 20,
+            directed_edge_capacity: 40,
+            adjacency_capacity: 30,
+            global_node_capacity: 12,
+            local_node_capacity: 14,
+            global_dir_edge_capacity: 18,
+        });
+        stats.observe_scratch(ComponentScratchEvidence {
+            edge_capacity: 24,
+            directed_edge_capacity: 48,
+            adjacency_capacity: 32,
+            global_node_capacity: 16,
+            local_node_capacity: 18,
+            global_dir_edge_capacity: 20,
+            ..Default::default()
+        });
+        stats.observe_merged_output(7, 11);
+
+        assert_eq!(stats.active_node_count, 13);
+        assert_eq!(stats.active_edge_count, 12);
+        assert_eq!(stats.largest_component_node_count, 10);
+        assert_eq!(stats.partition_node_capacity, 16);
+        assert_eq!(stats.scratch_instance_count, 1);
+        assert_eq!(stats.max_scratch_edge_capacity, 24);
+        assert_eq!(stats.max_merged_output_item_count, 7);
     }
 }

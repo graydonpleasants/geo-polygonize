@@ -99,6 +99,22 @@ fn benchmark_schema_requires_measurement_work_and_environment_evidence() {
         "split_events",
         "segment_expansion",
     ])));
+    let component_memory = &properties["work"]["properties"]["component_memory"];
+    assert_eq!(component_memory["additionalProperties"], false);
+    assert!(required(component_memory).is_superset(&HashSet::from([
+        "component_count",
+        "active_node_count",
+        "active_edge_count",
+        "largest_component_node_count",
+        "largest_component_edge_count",
+        "partition_node_capacity",
+        "partition_edge_capacity",
+        "global_graph_adjacency_capacity",
+        "scratch_instance_count",
+        "execution_worker_count",
+        "max_scratch_adjacency_capacity",
+        "max_merged_output_coordinate_capacity",
+    ])));
     assert!(
         required(&properties["environment"]).is_superset(&HashSet::from([
             "architecture",

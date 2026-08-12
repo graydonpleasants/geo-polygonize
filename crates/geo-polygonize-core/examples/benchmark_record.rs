@@ -516,6 +516,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "noded_segments": diagnostics.noded_segment_count,
                 "ratio": diagnostics.noded_segment_count as f64 / diagnostics.input_segment_count.max(1) as f64,
             },
+            "component_memory": &diagnostics.component_memory_stats,
         },
         "environment": {
             "architecture": std::env::consts::ARCH,
@@ -838,6 +839,7 @@ fn write_check_only_output(
                 "noded_segments": diagnostics.noded_segment_count,
                 "ratio": diagnostics.noded_segment_count as f64 / diagnostics.input_segment_count.max(1) as f64,
             },
+            "component_memory": &diagnostics.component_memory_stats,
         },
     });
     std::fs::write(path, serde_json::to_vec_pretty(&output)?)?;

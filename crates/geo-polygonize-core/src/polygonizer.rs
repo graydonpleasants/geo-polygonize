@@ -860,6 +860,7 @@ impl Polygonizer {
             (mut dangles, mut cut_edges, maximal, rings_with_ids),
             border_observations,
             capture_truncated,
+            component_memory_stats,
         ) = self.graph.process_components_with_execution_policy(
             self.options.node_input,
             include_source_ids,
@@ -891,6 +892,7 @@ impl Polygonizer {
             d.ring_count = rings_with_ids.len();
             d.cut_edge_count = cut_edges.len();
             d.dangle_count = dangles.len();
+            d.component_memory_stats = component_memory_stats;
         }
 
         // 4. Classify Rings (Shell vs Hole)
