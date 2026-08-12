@@ -683,6 +683,34 @@ pub(crate) struct PartitionBorderGlobalFaceNextApplicationStats {
     pub(crate) application_ready: bool,
 }
 
+/// A detached full directed-edge successor candidate assembled from local
+/// successors and any validated global boundary overrides. It is deliberately
+/// separate from the production graph, so cycle validation cannot mutate a
+/// local or tiled `next` link by accident.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalTopologyCandidate {
+    pub(crate) next_global_dir_edge_ids: Vec<Option<usize>>,
+    pub(crate) cycle_start_global_dir_edge_ids: Vec<usize>,
+}
+
+/// Counts from validating a detached global directed-edge topology candidate.
+/// Readiness requires complete application evidence, one predecessor and one
+/// successor per edge, endpoint continuity, and closed cycles.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalTopologyCandidateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) local_successor_count: usize,
+    pub(crate) global_override_count: usize,
+    pub(crate) assigned_next_count: usize,
+    pub(crate) unassigned_next_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) closed_cycle_edge_count: usize,
+    pub(crate) predecessor_conflict_count: usize,
+    pub(crate) node_discontinuity_count: usize,
+    pub(crate) incomplete_application_plan_count: usize,
+    pub(crate) candidate_ready: bool,
+}
+
 /// Canonical evidence for one border node after all physical observations
 /// have been grouped by exact XY identity. The selected Z value is retained
 /// as a policy decision, while every candidate and contributing identity
@@ -1060,6 +1088,7 @@ pub struct PartitionBorderGraph {
     global_face_next_mutation_plans: Vec<PartitionBorderGlobalFaceNextMutationPlan>,
     global_face_id_plans: Vec<PartitionBorderGlobalFaceIdPlan>,
     global_face_next_application_plans: Vec<PartitionBorderGlobalFaceNextApplicationPlan>,
+    global_topology_candidate: Option<PartitionBorderGlobalTopologyCandidate>,
 }
 
 impl PartitionBorderGraph {
@@ -1106,6 +1135,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1143,6 +1173,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1169,6 +1200,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
     }
 
     pub fn node_count(&self) -> usize {
@@ -1427,6 +1459,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(stats)
@@ -1699,6 +1732,7 @@ impl PartitionBorderGraph {
         };
         self.global_face_edge_map = global_edges;
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         self.global_face_nodes.clear();
         Ok(stats)
     }
@@ -1992,6 +2026,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -2141,6 +2176,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -2292,6 +2328,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -2606,6 +2643,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -3118,6 +3156,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -3260,6 +3299,7 @@ impl PartitionBorderGraph {
         self.global_face_next_mutation_plans.clear();
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -4271,6 +4311,7 @@ impl PartitionBorderGraph {
         };
         self.global_face_id_plans = plans;
         self.global_face_next_application_plans.clear();
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -4587,6 +4628,7 @@ impl PartitionBorderGraph {
                 && node_discontinuity_count == 0,
         };
         self.global_face_next_application_plans = plans;
+        self.global_topology_candidate = None;
         Ok(stats)
     }
 
@@ -4595,6 +4637,232 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalFaceNextApplicationPlan] {
         &self.global_face_next_application_plans
+    }
+
+    /// Builds a detached full directed-edge successor candidate from the
+    /// captured local successors and closed global boundary overrides. The
+    /// candidate is validated as a one-in/one-out cycle system, but no
+    /// production `next` link is written.
+    pub(crate) fn reconcile_global_topology_candidate(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalTopologyCandidateStats> {
+        execution_policy.check_cancelled("partition_border_global_topology_candidate")?;
+        execution_policy.check(
+            "partition_border_global_topology_candidate_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_topology_candidate_nodes",
+            execution_policy.max_graph_nodes,
+            self.global_face_nodes.len(),
+        )?;
+        if self.global_face_next_application_plans.len() != self.global_components.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global topology candidate application plan count mismatch: plans={}, components={}",
+                    self.global_face_next_application_plans.len(),
+                    self.global_components.len()
+                ),
+            });
+        }
+
+        let edge_count = self.global_face_edge_map.len();
+        let mut next_global_dir_edge_ids = Vec::with_capacity(edge_count);
+        let mut local_successor_count = 0usize;
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_candidate_edges",
+                edge_index,
+            )?;
+            if edge.global_dir_edge_id != edge_index {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global topology candidate edge slot {} has declared ID {}",
+                        edge_index, edge.global_dir_edge_id
+                    ),
+                });
+            }
+            if let Some(successor) = edge.local_face_successor_global_dir_edge_id {
+                if successor >= edge_count {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global topology candidate edge {} has invalid local successor {}",
+                            edge_index, successor
+                        ),
+                    });
+                }
+                local_successor_count += 1;
+            }
+            next_global_dir_edge_ids.push(edge.local_face_successor_global_dir_edge_id);
+        }
+
+        let mut global_override_edges = BTreeSet::new();
+        let mut global_override_by_edge = BTreeMap::<usize, usize>::new();
+        let mut incomplete_application_plan_count = 0usize;
+        for (plan_index, plan) in self.global_face_next_application_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_candidate_plans",
+                plan_index,
+            )?;
+            if !plan.closed || !plan.node_continuous {
+                incomplete_application_plan_count += 1;
+                continue;
+            }
+            if plan.global_dir_edge_ids.len() != plan.successor_global_dir_edge_ids.len() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global topology candidate plan {} has mismatched successor lengths",
+                        plan_index
+                    ),
+                });
+            }
+            let mut plan_links = Vec::with_capacity(plan.global_dir_edge_ids.len());
+            let mut valid_plan = true;
+            for (link_index, (&edge_index, &successor_index)) in plan
+                .global_dir_edge_ids
+                .iter()
+                .zip(&plan.successor_global_dir_edge_ids)
+                .enumerate()
+            {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_topology_candidate_links",
+                    link_index,
+                )?;
+                if edge_index >= edge_count || successor_index >= edge_count {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global topology candidate plan {} references edge {} -> {} outside {} slots",
+                            plan_index, edge_index, successor_index, edge_count
+                        ),
+                    });
+                }
+                let edge = &self.global_face_edge_map[edge_index];
+                let successor = &self.global_face_edge_map[successor_index];
+                if edge.to_global_node_id != successor.from_global_node_id {
+                    valid_plan = false;
+                    continue;
+                }
+                plan_links.push((edge_index, successor_index));
+            }
+            if !valid_plan {
+                incomplete_application_plan_count += 1;
+                continue;
+            }
+            for (edge_index, successor_index) in plan_links {
+                if let Some(existing) = global_override_by_edge.get(&edge_index).copied() {
+                    if existing != successor_index {
+                        return Err(crate::PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "global topology candidate plan {} conflicts at edge {}: {} vs {}",
+                                plan_index, edge_index, existing, successor_index
+                            ),
+                        });
+                    }
+                }
+                global_override_by_edge.insert(edge_index, successor_index);
+                next_global_dir_edge_ids[edge_index] = Some(successor_index);
+                global_override_edges.insert(edge_index);
+            }
+        }
+
+        let mut predecessor_by_edge = BTreeMap::<usize, usize>::new();
+        let mut assigned_next_count = 0usize;
+        let mut unassigned_next_count = 0usize;
+        let mut predecessor_conflict_count = 0usize;
+        let mut node_discontinuity_count = 0usize;
+        for (edge_index, successor_index) in next_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_candidate_validation",
+                edge_index,
+            )?;
+            let Some(successor_index) = successor_index else {
+                unassigned_next_count += 1;
+                continue;
+            };
+            assigned_next_count += 1;
+            let edge = &self.global_face_edge_map[edge_index];
+            let successor = &self.global_face_edge_map[*successor_index];
+            if edge.to_global_node_id != successor.from_global_node_id {
+                node_discontinuity_count += 1;
+            }
+            if predecessor_by_edge
+                .insert(*successor_index, edge_index)
+                .is_some()
+            {
+                predecessor_conflict_count += 1;
+            }
+        }
+
+        let mut state = vec![0u8; edge_count];
+        let mut cycle_start_global_dir_edge_ids = Vec::new();
+        let mut cycle_count = 0usize;
+        let mut closed_cycle_edge_count = 0usize;
+        for start in 0..edge_count {
+            if state[start] != 0 {
+                continue;
+            }
+            let mut path = Vec::new();
+            let mut path_positions = BTreeMap::<usize, usize>::new();
+            let mut current = start;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_topology_candidate_cycles",
+                    path.len(),
+                )?;
+                if let Some(&cycle_position) = path_positions.get(&current) {
+                    cycle_count += 1;
+                    cycle_start_global_dir_edge_ids.push(current);
+                    closed_cycle_edge_count += path.len() - cycle_position;
+                    break;
+                }
+                if state[current] != 0 {
+                    break;
+                }
+                path_positions.insert(current, path.len());
+                path.push(current);
+                state[current] = 1;
+                let Some(successor) = next_global_dir_edge_ids[current] else {
+                    break;
+                };
+                current = successor;
+            }
+            for edge_index in path {
+                state[edge_index] = 2;
+            }
+        }
+
+        let candidate_ready = incomplete_application_plan_count == 0
+            && unassigned_next_count == 0
+            && predecessor_conflict_count == 0
+            && node_discontinuity_count == 0
+            && closed_cycle_edge_count == edge_count;
+        let stats = PartitionBorderGlobalTopologyCandidateStats {
+            edge_count,
+            local_successor_count,
+            global_override_count: global_override_edges.len(),
+            assigned_next_count,
+            unassigned_next_count,
+            cycle_count,
+            closed_cycle_edge_count,
+            predecessor_conflict_count,
+            node_discontinuity_count,
+            incomplete_application_plan_count,
+            candidate_ready,
+        };
+        self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids,
+            cycle_start_global_dir_edge_ids,
+        });
+        Ok(stats)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_topology_candidate(
+        &self,
+    ) -> Option<&PartitionBorderGlobalTopologyCandidate> {
+        self.global_topology_candidate.as_ref()
     }
 
     /// Validates the retained face-walk, twin, payload, and face-adjacency
@@ -5830,6 +6098,18 @@ mod tests {
         graph
     }
 
+    fn exact_global_topology_candidate_graph() -> PartitionBorderGraph {
+        let mut graph = exact_face_next_application_graph(false);
+        graph.global_face_edge_map[0].local_face_successor_global_dir_edge_id = Some(1);
+        graph.global_face_edge_map[1].local_face_successor_global_dir_edge_id = Some(3);
+        graph.global_face_edge_map[2].local_face_successor_global_dir_edge_id = Some(0);
+        graph.global_face_edge_map[3].local_face_successor_global_dir_edge_id = Some(1);
+        graph
+            .reconcile_global_face_next_application_plans(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+    }
+
     fn prepared_global_face_walk_graph(closed: bool, unbounded: [bool; 2]) -> PartitionBorderGraph {
         let mut graph = exact_face_twin_graph_with_successors();
         for (observation_index, observation) in graph.observations.values_mut().enumerate() {
@@ -6374,6 +6654,96 @@ mod tests {
                 if stage == "partition_border_global_face_next_application"
         ));
         assert!(cancelled.global_face_next_application_plans.is_empty());
+    }
+
+    #[test]
+    fn global_topology_candidate_materializes_closed_cycles_without_mutation() {
+        let mut graph = exact_global_topology_candidate_graph();
+        let before_edges = graph.global_face_edge_map.clone();
+        let stats = graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalTopologyCandidateStats {
+                edge_count: 4,
+                local_successor_count: 4,
+                global_override_count: 2,
+                assigned_next_count: 4,
+                unassigned_next_count: 0,
+                cycle_count: 2,
+                closed_cycle_edge_count: 4,
+                predecessor_conflict_count: 0,
+                node_discontinuity_count: 0,
+                incomplete_application_plan_count: 0,
+                candidate_ready: true,
+            }
+        );
+        assert_eq!(
+            graph.global_topology_candidate(),
+            Some(&PartitionBorderGlobalTopologyCandidate {
+                next_global_dir_edge_ids: vec![Some(2), Some(3), Some(0), Some(1)],
+                cycle_start_global_dir_edge_ids: vec![0, 1],
+            })
+        );
+        assert_eq!(graph.global_face_edge_map, before_edges);
+    }
+
+    #[test]
+    fn global_topology_candidate_is_atomic_bounded_and_fail_closed() {
+        let mut malformed = exact_global_topology_candidate_graph();
+        malformed
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let before = malformed.global_topology_candidate.clone();
+        malformed.global_face_edge_map[0].local_face_successor_global_dir_edge_id = Some(99);
+        assert!(matches!(
+            malformed.reconcile_global_topology_candidate(&ExecutionPolicy::default()),
+            Err(crate::PolygonizeError::InternalInvariantViolation { .. })
+        ));
+        assert_eq!(malformed.global_topology_candidate, before);
+
+        let mut limited = exact_global_topology_candidate_graph();
+        let error = limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy {
+                max_graph_edges: Some(3),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 3,
+                observed: 4,
+            } if stage == "partition_border_global_topology_candidate_edges"
+        ));
+        assert!(limited.global_topology_candidate.is_none());
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        let error = cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_topology_candidate"
+        ));
+        assert!(cancelled.global_topology_candidate.is_none());
+
+        let mut incomplete = exact_global_topology_candidate_graph();
+        incomplete.global_face_next_application_plans[0].closed = false;
+        let stats = incomplete
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.incomplete_application_plan_count, 1);
+        assert!(!stats.candidate_ready);
+        assert!(incomplete.global_topology_candidate().is_some());
     }
 
     #[test]

@@ -10,9 +10,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalTopologyCandidateStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -704,6 +704,29 @@ impl TraceRecorderV1 {
                 "incomplete_plan_count": stats.incomplete_plan_count,
                 "node_discontinuity_count": stats.node_discontinuity_count,
                 "application_ready": stats.application_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_topology_candidate(
+        &mut self,
+        stats: PartitionBorderGlobalTopologyCandidateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_topology_candidate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "local_successor_count": stats.local_successor_count,
+                "global_override_count": stats.global_override_count,
+                "assigned_next_count": stats.assigned_next_count,
+                "unassigned_next_count": stats.unassigned_next_count,
+                "cycle_count": stats.cycle_count,
+                "closed_cycle_edge_count": stats.closed_cycle_edge_count,
+                "predecessor_conflict_count": stats.predecessor_conflict_count,
+                "node_discontinuity_count": stats.node_discontinuity_count,
+                "incomplete_application_plan_count": stats.incomplete_application_plan_count,
+                "candidate_ready": stats.candidate_ready,
             }),
         )
     }

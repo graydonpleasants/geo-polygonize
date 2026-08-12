@@ -514,6 +514,9 @@ Blocked by #1288.
   successor candidates with cross-border twin reversal and endpoint-node
   continuity checks; retain incomplete or discontinuous plans without writing
   `next` links.
+- [x] Materialize a detached full global directed-edge successor candidate from
+  local successors plus validated boundary overrides, and require complete
+  one-in/one-out endpoint-continuous closed cycles before any future mutation.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

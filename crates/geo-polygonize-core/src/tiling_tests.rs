@@ -269,6 +269,85 @@ mod tests {
             plan.global_dir_edge_ids.len() == plan.successor_global_dir_edge_ids.len()
                 || !plan.closed
         }));
+        let global_topology_candidate_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let global_topology_candidate = result
+            .partition_border_graph
+            .global_topology_candidate()
+            .expect("detached global topology candidate");
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_edge_count,
+            global_topology_candidate_stats.edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_local_successor_count,
+            global_topology_candidate_stats.local_successor_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_global_override_count,
+            global_topology_candidate_stats.global_override_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_assigned_next_count,
+            global_topology_candidate_stats.assigned_next_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_unassigned_next_count,
+            global_topology_candidate_stats.unassigned_next_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_cycle_count,
+            global_topology_candidate_stats.cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_closed_cycle_edge_count,
+            global_topology_candidate_stats.closed_cycle_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_predecessor_conflict_count,
+            global_topology_candidate_stats.predecessor_conflict_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_node_discontinuity_count,
+            global_topology_candidate_stats.node_discontinuity_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_incomplete_application_plan_count,
+            global_topology_candidate_stats.incomplete_application_plan_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_topology_candidate_ready,
+            global_topology_candidate_stats.candidate_ready
+        );
+        assert_eq!(
+            global_topology_candidate.next_global_dir_edge_ids.len(),
+            global_topology_candidate_stats.edge_count
+        );
         assert_eq!(
             result
                 .stitching_report
@@ -1232,6 +1311,119 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_next_application_ready
+            )
+        );
+        let topology_candidate = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_topology_candidate")
+            .expect("global topology candidate evidence");
+        assert_eq!(
+            topology_candidate.payload["edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_edge_count as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["local_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_local_successor_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["global_override_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_global_override_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["assigned_next_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_assigned_next_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["unassigned_next_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_unassigned_next_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_cycle_count as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["closed_cycle_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_closed_cycle_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["predecessor_conflict_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_predecessor_conflict_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["node_discontinuity_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_node_discontinuity_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["incomplete_application_plan_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_incomplete_application_plan_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_candidate.payload["candidate_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_candidate_ready
             )
         );
         let node_reconciliation = traced
