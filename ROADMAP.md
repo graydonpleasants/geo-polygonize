@@ -476,6 +476,10 @@ Blocked by #1288.
 - [x] Position declared face-qualified twins inside those ordered cycles with
   explicit mapped/unmapped and mutation-ready counts, without assigning global
   `next` links or face IDs.
+- [x] Validate retained local face-walk cycles, cross-partition twin positions,
+  payload/source/Z lineage, and face-adjacency connectivity as evidence;
+  preserve incomplete cycles and local-unbounded multiplicity without claiming
+  global face IDs or a planar Euler proof.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

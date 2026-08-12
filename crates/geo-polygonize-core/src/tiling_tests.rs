@@ -286,6 +286,40 @@ mod tests {
                 .partition_border_global_face_twin_transition_unmapped_count,
             result.stitching_report.partition_border_face_twin_count - twin_transition_plan.len()
         );
+        let face_walk = result
+            .partition_border_graph
+            .validate_global_face_walk_invariants(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_walk_validated_count,
+            face_walk.face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_walk_closed_count,
+            face_walk.closed_face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_walk_source_complete_twin_count,
+            face_walk.source_complete_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_walk_unbounded_component_count,
+            face_walk.unbounded_component_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_walk_face_adjacency_cycle_rank,
+            face_walk.face_adjacency_cycle_rank
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -778,6 +812,60 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_twin_transition_ready_count
+                    as u64
+            )
+        );
+        let global_face_walk = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_walk_invariants")
+            .expect("global face walk invariant evidence");
+        assert_eq!(
+            global_face_walk.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_walk_validated_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_walk.payload["closed_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_walk_closed_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_walk.payload["source_complete_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_walk_source_complete_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_walk.payload["unbounded_component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_walk_unbounded_component_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_walk.payload["face_adjacency_cycle_rank"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_walk_face_adjacency_cycle_rank
                     as u64
             )
         );
