@@ -255,6 +255,11 @@ pub struct StitchingReport {
     pub partition_border_twin_count: usize,
     /// Normalized border buckets conservatively left unmatched.
     pub partition_border_unmatched_edge_count: usize,
+    /// Canonical border nodes reconciled across all exported observations.
+    pub partition_border_reconciled_node_count: usize,
+    /// Reconciled border nodes whose Z candidates exceed the configured
+    /// conflict tolerance.
+    pub partition_border_node_z_conflict_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2265,9 +2270,20 @@ impl<'a> TiledPolygonizer<'a> {
             applied_face_twin_count,
             partition_border_twin_application.applied_twin_count
         );
+        let partition_border_node_reconciliation = partition_border_graph
+            .reconcile_border_nodes(self.options.z, &self.execution_policy)?;
+        let reconciled_border_node_count = partition_border_graph.reconciled_border_nodes().len();
+        debug_assert_eq!(
+            reconciled_border_node_count,
+            partition_border_node_reconciliation.node_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
+            trace.record_partition_border_node_reconciliation(
+                partition_border_node_reconciliation,
+                self.options.z,
+            );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
@@ -2496,6 +2512,9 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_twin_count: partition_border_reconciliation.matched_twin_count,
                 partition_border_unmatched_edge_count: partition_border_reconciliation
                     .unmatched_edge_count,
+                partition_border_reconciled_node_count: reconciled_border_node_count,
+                partition_border_node_z_conflict_count: partition_border_node_reconciliation
+                    .z_conflict_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,

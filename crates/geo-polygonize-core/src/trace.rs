@@ -2,8 +2,8 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderHalfEdge, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -634,6 +634,23 @@ impl TraceRecorderV1 {
                 "applied_twin_count": stats.applied_twin_count,
                 "missing_face_ref_count": stats.missing_face_ref_count,
                 "invalid_face_ref_count": stats.invalid_face_ref_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_node_reconciliation(
+        &mut self,
+        stats: PartitionBorderNodeReconciliationStats,
+        z_options: crate::options::ZOptions,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_node_reconciliation",
+            serde_json::json!({
+                "node_count": stats.node_count,
+                "z_conflict_count": stats.z_conflict_count,
+                "z_policy": format!("{:?}", z_options.policy),
+                "conflict_tolerance": format!("0x{:016x}", z_options.conflict_tolerance.to_bits()),
             }),
         )
     }

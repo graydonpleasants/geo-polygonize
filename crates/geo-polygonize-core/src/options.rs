@@ -507,7 +507,7 @@ pub struct ProvenanceOptions {
     pub include_boundary_line_ids: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub enum ZPolicy {
     /// Ignore input Z and emit `0.0`.

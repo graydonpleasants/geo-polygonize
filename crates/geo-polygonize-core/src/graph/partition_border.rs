@@ -1,6 +1,6 @@
+use crate::options::{ExecutionPolicy, ZOptions, ZPolicy};
 use crate::types::{Coord3D, PartitionFaceRef};
 use crate::utils::canonical_coordinate_bits;
-use crate::ExecutionPolicy;
 use geo_types::Rect;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -534,6 +534,31 @@ pub(crate) struct PartitionBorderTwinApplicationStats {
     pub(crate) invalid_face_ref_count: usize,
 }
 
+/// Canonical evidence for one border node after all physical observations
+/// have been grouped by exact XY identity. The selected Z value is retained
+/// as a policy decision, while every candidate and contributing identity
+/// remains available for validation and future global graph construction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderNodePayload {
+    pub(crate) key: PartitionBorderNodeKey,
+    pub(crate) observation_ids: Vec<PartitionBorderObservationId>,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_ids: Vec<u32>,
+    pub(crate) face_refs: Vec<PartitionFaceRef>,
+    pub(crate) z_bits: Vec<u64>,
+    pub(crate) selected_z_bits: u64,
+    pub(crate) selected_z_policy: ZPolicy,
+    pub(crate) conflict_tolerance_bits: u64,
+    pub(crate) z_conflict: bool,
+}
+
+/// Counts from canonical border-node reconciliation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderNodeReconciliationStats {
+    pub(crate) node_count: usize,
+    pub(crate) z_conflict_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -559,6 +584,7 @@ pub struct PartitionBorderGraph {
     adjacencies: BTreeSet<PartitionBorderAdjacency>,
     edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
     applied_face_twins: Vec<PartitionBorderFaceTwin>,
+    reconciled_nodes: Vec<PartitionBorderNodePayload>,
 }
 
 impl PartitionBorderGraph {
@@ -593,12 +619,14 @@ impl PartitionBorderGraph {
             .insert(half_edge.clone());
         self.observations.insert(observation_id, half_edge);
         self.applied_face_twins.clear();
+        self.reconciled_nodes.clear();
         Ok(())
     }
 
     pub fn declare_adjacency(&mut self, adjacency: PartitionBorderAdjacency) {
         self.adjacencies.insert(adjacency);
         self.applied_face_twins.clear();
+        self.reconciled_nodes.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -852,6 +880,145 @@ impl PartitionBorderGraph {
 
     pub(crate) fn applied_face_twins(&self) -> &[PartitionBorderFaceTwin] {
         &self.applied_face_twins
+    }
+
+    /// Reconciles every exact border node without mutating observations or
+    /// local topology. All source, representative, face, and Z evidence is
+    /// retained. Non-ignored policies choose the first canonical Z candidate,
+    /// matching the existing deterministic graph-construction rule; conflict
+    /// detection remains explicit and `ErrorOnConflict` fails before the plan
+    /// is committed. Non-ignored selection follows the existing source-ID
+    /// ordering used by untiled graph construction.
+    pub(crate) fn reconcile_border_nodes(
+        &mut self,
+        z_options: ZOptions,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderNodeReconciliationStats> {
+        execution_policy.check_cancelled("partition_border_node_reconciliation")?;
+        execution_policy.check(
+            "partition_border_nodes",
+            execution_policy.max_graph_nodes,
+            self.nodes.len(),
+        )?;
+
+        let mut evidence = BTreeMap::<
+            PartitionBorderNodeKey,
+            (
+                BTreeSet<PartitionBorderObservationId>,
+                BTreeSet<u32>,
+                BTreeSet<u32>,
+                BTreeSet<PartitionFaceRef>,
+                BTreeSet<u64>,
+                Vec<(u32, PartitionBorderObservationId, u64)>,
+            ),
+        >::new();
+        for (observation_index, observation) in self.observations.values().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_node_reconciliation", observation_index)?;
+            let observation_id = observation.observation_id();
+            for (key, z_bits) in [
+                (observation.from, observation.from_z_bits),
+                (observation.to, observation.to_z_bits),
+            ] {
+                let entry = evidence.entry(key).or_default();
+                entry.0.insert(observation_id);
+                entry.1.extend(observation.source_line_ids.iter().copied());
+                if let Some(representative_line_id) = observation.representative_line_id {
+                    entry.2.insert(representative_line_id);
+                }
+                if let Some(face_ref) = observation.face_ref {
+                    entry.3.insert(face_ref);
+                }
+                entry.4.insert(z_bits);
+                entry.5.push((
+                    observation.representative_line_id.unwrap_or(u32::MAX),
+                    observation_id,
+                    z_bits,
+                ));
+            }
+        }
+
+        let mut reconciled_nodes = Vec::with_capacity(evidence.len());
+        let mut stats = PartitionBorderNodeReconciliationStats {
+            node_count: evidence.len(),
+            ..Default::default()
+        };
+        for (
+            node_index,
+            (
+                key,
+                (
+                    observation_ids,
+                    source_line_ids,
+                    representative_line_ids,
+                    face_refs,
+                    z_bits,
+                    mut z_candidates,
+                ),
+            ),
+        ) in evidence.into_iter().enumerate()
+        {
+            execution_policy
+                .check_cancelled_every("partition_border_node_reconciliation", node_index)?;
+            let mut z_bits = z_bits.into_iter().collect::<Vec<_>>();
+            z_bits.sort_unstable_by(|left, right| {
+                f64::from_bits(*left)
+                    .total_cmp(&f64::from_bits(*right))
+                    .then(left.cmp(right))
+            });
+            let min_z = z_bits
+                .first()
+                .map(|bits| f64::from_bits(*bits))
+                .unwrap_or(0.0);
+            let max_z = z_bits
+                .last()
+                .map(|bits| f64::from_bits(*bits))
+                .unwrap_or(0.0);
+            let z_conflict = max_z - min_z > z_options.conflict_tolerance;
+            if z_conflict {
+                stats.z_conflict_count += 1;
+            }
+            if z_conflict && matches!(z_options.policy, ZPolicy::ErrorOnConflict) {
+                return Err(crate::PolygonizeError::ZConflict {
+                    x: f64::from_bits(key.xy_bits()[0]),
+                    y: f64::from_bits(key.xy_bits()[1]),
+                    line_ids: source_line_ids.into_iter().collect(),
+                });
+            }
+            let selected_z_bits = if matches!(z_options.policy, ZPolicy::Ignore) {
+                canonical_coordinate_bits(0.0)
+            } else {
+                z_candidates.sort_unstable_by(|left, right| {
+                    left.0
+                        .cmp(&right.0)
+                        .then(left.1.cmp(&right.1))
+                        .then(f64::from_bits(left.2).total_cmp(&f64::from_bits(right.2)))
+                        .then(left.2.cmp(&right.2))
+                });
+                z_candidates
+                    .first()
+                    .map(|candidate| candidate.2)
+                    .unwrap_or_else(|| canonical_coordinate_bits(0.0))
+            };
+            reconciled_nodes.push(PartitionBorderNodePayload {
+                key,
+                observation_ids: observation_ids.into_iter().collect(),
+                source_line_ids: source_line_ids.into_iter().collect(),
+                representative_line_ids: representative_line_ids.into_iter().collect(),
+                face_refs: face_refs.into_iter().collect(),
+                z_bits,
+                selected_z_bits,
+                selected_z_policy: z_options.policy,
+                conflict_tolerance_bits: canonical_coordinate_bits(z_options.conflict_tolerance),
+                z_conflict,
+            });
+        }
+        self.reconciled_nodes = reconciled_nodes;
+        Ok(stats)
+    }
+
+    pub(crate) fn reconciled_border_nodes(&self) -> &[PartitionBorderNodePayload] {
+        &self.reconciled_nodes
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -1688,6 +1855,126 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_twin_application"
+        ));
+        assert_eq!(cancelled, before);
+    }
+
+    #[test]
+    fn border_node_reconciliation_unions_identity_and_retains_z_candidates() {
+        let mut graph = exact_face_twin_graph();
+        let stats = graph
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+
+        assert_eq!(
+            stats,
+            PartitionBorderNodeReconciliationStats {
+                node_count: 2,
+                z_conflict_count: 2,
+            }
+        );
+        assert_eq!(graph.reconciled_border_nodes().len(), 2);
+        let start_key = PartitionBorderNodeKey::from_coord(coord(0.0, 0.0, 0.0));
+        let start = graph
+            .reconciled_border_nodes()
+            .iter()
+            .find(|node| node.key == start_key)
+            .unwrap();
+        assert_eq!(start.source_line_ids, vec![7, 8]);
+        assert_eq!(start.representative_line_ids, vec![7, 8]);
+        assert_eq!(start.face_refs, vec![face(1, 4, 9), face(2, 6, 11)]);
+        assert_eq!(start.observation_ids.len(), 2);
+        assert_eq!(start.z_bits, vec![1.0f64.to_bits(), 10.0f64.to_bits()]);
+        assert_eq!(start.selected_z_bits, 10.0f64.to_bits());
+        assert_eq!(start.selected_z_policy, ZPolicy::InterpolateAlongEdge);
+        assert_eq!(start.conflict_tolerance_bits, 0);
+        assert!(start.z_conflict);
+    }
+
+    #[test]
+    fn border_node_reconciliation_applies_ignore_and_fails_error_on_conflict_closed() {
+        let mut ignored = exact_face_twin_graph();
+        ignored
+            .reconcile_border_nodes(
+                ZOptions {
+                    policy: ZPolicy::Ignore,
+                    ..Default::default()
+                },
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+        assert!(ignored
+            .reconciled_border_nodes()
+            .iter()
+            .all(|node| node.selected_z_bits == 0));
+        assert!(ignored
+            .reconciled_border_nodes()
+            .iter()
+            .all(|node| node.z_conflict));
+
+        let mut error_on_conflict = exact_face_twin_graph();
+        let before = error_on_conflict.clone();
+        let error = error_on_conflict
+            .reconcile_border_nodes(
+                ZOptions {
+                    policy: ZPolicy::ErrorOnConflict,
+                    ..Default::default()
+                },
+                &ExecutionPolicy::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ZConflict {
+                x,
+                y,
+                line_ids,
+            } if x == 0.0 && y == 0.0 && line_ids == vec![7, 8]
+        ));
+        assert_eq!(error_on_conflict, before);
+        assert!(error_on_conflict.reconciled_border_nodes().is_empty());
+    }
+
+    #[test]
+    fn border_node_reconciliation_is_bounded_and_cancellable_before_mutation() {
+        let mut limited = exact_face_twin_graph();
+        let before = limited.clone();
+        let error = limited
+            .reconcile_border_nodes(
+                ZOptions::default(),
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_nodes"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_twin_graph();
+        let before = cancelled.clone();
+        let error = cancelled
+            .reconcile_border_nodes(
+                ZOptions::default(),
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_node_reconciliation"
         ));
         assert_eq!(cancelled, before);
     }
