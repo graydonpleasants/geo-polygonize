@@ -206,13 +206,18 @@ Tracked by
   a new source was not authorized.
 - [x] Use only authorized, sanitized, or procedurally abstracted CFB data.
 - [x] Correctness-gate every materialized workload before timing.
+- [x] Define a fail-closed production baseline suite covering the current
+  already-noded, floating, certified-fixed, component-local, and 1k/10k/100k
+  production-network paths.
 - [ ] Publish dedicated-runner baselines for current production algorithms.
 
 The publication workflow now accepts an operator-staged out-of-tree
 `runner-manifest-v1.json` and verifies each selected clip SHA-256 in the GEOS,
 Rust, and JTS reference paths. This evidence plumbing is complete, but the
-checkbox remains open until decision-quality dedicated-runner publications
-exist for the current production algorithms.
+suite contract now fails closed on missing, duplicate, mixed-environment, or
+under-sized publications, and requires component-memory evidence. The checkbox
+remains open until decision-quality dedicated-runner publications exist for
+every required suite entry.
 
 No adaptive backend or graph-layout promotion decision may rely only on the
 tiny correctness corpus.
