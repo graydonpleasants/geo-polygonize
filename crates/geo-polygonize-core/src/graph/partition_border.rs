@@ -711,6 +711,24 @@ pub(crate) struct PartitionBorderGlobalTopologyCandidateStats {
     pub(crate) candidate_ready: bool,
 }
 
+/// Counts from the final evidence gate before a future global topology
+/// mutation. This gate proves that detached successor links and every
+/// cross-border twin are still backed by declared adjacency; it writes no
+/// production topology.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalTopologyApplicationGateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) candidate_successor_count: usize,
+    pub(crate) declared_adjacency_count: usize,
+    pub(crate) applied_twin_count: usize,
+    pub(crate) mapped_twin_count: usize,
+    pub(crate) unmapped_twin_count: usize,
+    pub(crate) invalid_twin_count: usize,
+    pub(crate) predecessor_conflict_count: usize,
+    pub(crate) node_discontinuity_count: usize,
+    pub(crate) application_ready: bool,
+}
+
 /// Canonical evidence for one border node after all physical observations
 /// have been grouped by exact XY identity. The selected Z value is retained
 /// as a policy decision, while every candidate and contributing identity
@@ -4865,6 +4883,205 @@ impl PartitionBorderGraph {
         self.global_topology_candidate.as_ref()
     }
 
+    /// Validates the detached candidate against declared-adjacency twin
+    /// evidence immediately before any future global topology mutation. The
+    /// gate is deliberately observational: it never rewrites edge, twin, or
+    /// local arrangement links.
+    pub(crate) fn validate_global_topology_application_gate(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalTopologyApplicationGateStats> {
+        execution_policy.check_cancelled("partition_border_global_topology_application_gate")?;
+        execution_policy.check(
+            "partition_border_global_topology_application_gate_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_topology_application_gate_twins",
+            execution_policy.max_graph_edges,
+            self.applied_face_twins.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global topology application gate has no detached candidate".to_string(),
+            });
+        };
+        let edge_count = self.global_face_edge_map.len();
+        if candidate.next_global_dir_edge_ids.len() != edge_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global topology application gate candidate length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    edge_count
+                ),
+            });
+        }
+
+        let mut edge_slot_by_local = BTreeMap::<(usize, usize, DirEdgeId), usize>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_application_gate_edges",
+                edge_index,
+            )?;
+            if edge.global_dir_edge_id != edge_index
+                || edge_slot_by_local
+                    .insert(
+                        (edge.partition_id, edge.component_id, edge.local_dir_edge_id),
+                        edge_index,
+                    )
+                    .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global topology application gate has invalid edge slot {}",
+                        edge_index
+                    ),
+                });
+            }
+        }
+
+        let mut edge_slot_by_observation = BTreeMap::<PartitionBorderObservationId, usize>::new();
+        for (observation_index, observation) in self.observations.values().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_application_gate_observations",
+                observation_index,
+            )?;
+            let component_id = observation
+                .face_ref
+                .map_or(observation.component_id, |face_ref| face_ref.component_id);
+            if let Some(&edge_index) = edge_slot_by_local.get(&(
+                observation.partition_id,
+                component_id,
+                observation.local_dir_edge_id,
+            )) {
+                edge_slot_by_observation.insert(observation.observation_id(), edge_index);
+            }
+        }
+
+        let mut candidate_successor_count = 0usize;
+        let mut predecessor_by_edge = BTreeMap::<usize, usize>::new();
+        let mut predecessor_conflict_count = 0usize;
+        let mut node_discontinuity_count = 0usize;
+        for (edge_index, successor) in candidate.next_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_application_gate_successors",
+                edge_index,
+            )?;
+            let Some(successor_index) = successor else {
+                continue;
+            };
+            if *successor_index >= edge_count {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global topology application gate edge {} has invalid successor {}",
+                        edge_index, successor_index
+                    ),
+                });
+            }
+            candidate_successor_count += 1;
+            let edge = &self.global_face_edge_map[edge_index];
+            let successor_edge = &self.global_face_edge_map[*successor_index];
+            if edge.to_global_node_id != successor_edge.from_global_node_id {
+                node_discontinuity_count += 1;
+            }
+            if predecessor_by_edge
+                .insert(*successor_index, edge_index)
+                .is_some()
+            {
+                predecessor_conflict_count += 1;
+            }
+        }
+
+        let mut mapped_twin_pairs = BTreeSet::<(usize, usize)>::new();
+        let mut invalid_twin_count = 0usize;
+        for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_topology_application_gate_twins",
+                twin_index,
+            )?;
+            let Some(forward) = self.observations.get(&applied_twin.twin.forward) else {
+                invalid_twin_count += 1;
+                continue;
+            };
+            let Some(reverse) = self.observations.get(&applied_twin.twin.reverse) else {
+                invalid_twin_count += 1;
+                continue;
+            };
+            if !self
+                .adjacencies
+                .iter()
+                .any(|adjacency| adjacency.matches(forward, reverse))
+            {
+                invalid_twin_count += 1;
+                continue;
+            }
+            let Some(&forward_index) = edge_slot_by_observation.get(&applied_twin.twin.forward)
+            else {
+                continue;
+            };
+            let Some(&reverse_index) = edge_slot_by_observation.get(&applied_twin.twin.reverse)
+            else {
+                continue;
+            };
+            let forward_edge = &self.global_face_edge_map[forward_index];
+            let reverse_edge = &self.global_face_edge_map[reverse_index];
+            if forward_edge.cross_border_twin_global_dir_edge_id != Some(reverse_index)
+                || reverse_edge.cross_border_twin_global_dir_edge_id != Some(forward_index)
+                || forward_edge.partition_id == reverse_edge.partition_id
+            {
+                invalid_twin_count += 1;
+                continue;
+            }
+            mapped_twin_pairs.insert(if forward_index < reverse_index {
+                (forward_index, reverse_index)
+            } else {
+                (reverse_index, forward_index)
+            });
+        }
+
+        let mut edge_map_twin_pairs = BTreeSet::<(usize, usize)>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            let Some(twin_index) = edge.cross_border_twin_global_dir_edge_id else {
+                continue;
+            };
+            if twin_index >= edge_count {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global topology application gate edge {} has invalid twin {}",
+                        edge_index, twin_index
+                    ),
+                });
+            }
+            edge_map_twin_pairs.insert(if edge_index < twin_index {
+                (edge_index, twin_index)
+            } else {
+                (twin_index, edge_index)
+            });
+        }
+        let unmapped_twin_count = edge_map_twin_pairs.difference(&mapped_twin_pairs).count();
+        let application_ready = candidate_successor_count == edge_count
+            && predecessor_by_edge.len() == edge_count
+            && predecessor_conflict_count == 0
+            && node_discontinuity_count == 0
+            && invalid_twin_count == 0
+            && unmapped_twin_count == 0
+            && mapped_twin_pairs.len() == edge_map_twin_pairs.len();
+
+        Ok(PartitionBorderGlobalTopologyApplicationGateStats {
+            edge_count,
+            candidate_successor_count,
+            declared_adjacency_count: self.adjacencies.len(),
+            applied_twin_count: self.applied_face_twins.len(),
+            mapped_twin_count: mapped_twin_pairs.len(),
+            unmapped_twin_count,
+            invalid_twin_count,
+            predecessor_conflict_count,
+            node_discontinuity_count,
+            application_ready,
+        })
+    }
+
     /// Validates the retained face-walk, twin, payload, and face-adjacency
     /// evidence before any global topology mutation. Closed local cycles must
     /// preserve their declared successor identities, every mapped twin must
@@ -6744,6 +6961,95 @@ mod tests {
         assert_eq!(stats.incomplete_application_plan_count, 1);
         assert!(!stats.candidate_ready);
         assert!(incomplete.global_topology_candidate().is_some());
+    }
+
+    #[test]
+    fn global_topology_application_gate_requires_declared_twins_and_complete_candidate() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = graph
+            .validate_global_topology_application_gate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalTopologyApplicationGateStats {
+                edge_count: 4,
+                candidate_successor_count: 4,
+                declared_adjacency_count: 1,
+                applied_twin_count: 1,
+                mapped_twin_count: 1,
+                unmapped_twin_count: 0,
+                invalid_twin_count: 0,
+                predecessor_conflict_count: 0,
+                node_discontinuity_count: 0,
+                application_ready: true,
+            }
+        );
+
+        graph.adjacencies.clear();
+        let stats = graph
+            .validate_global_topology_application_gate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.invalid_twin_count, 1);
+        assert_eq!(stats.unmapped_twin_count, 1);
+        assert!(!stats.application_ready);
+
+        let mut incomplete = exact_global_topology_candidate_graph();
+        incomplete
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        incomplete
+            .global_topology_candidate
+            .as_mut()
+            .unwrap()
+            .next_global_dir_edge_ids[0] = None;
+        let stats = incomplete
+            .validate_global_topology_application_gate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.candidate_successor_count, 3);
+        assert!(!stats.application_ready);
+    }
+
+    #[test]
+    fn global_topology_application_gate_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .validate_global_topology_application_gate(&ExecutionPolicy {
+                max_graph_edges: Some(3),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 3,
+                observed: 4,
+            } if stage == "partition_border_global_topology_application_gate_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_global_topology_application_gate(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_topology_application_gate"
+        ));
     }
 
     #[test]
