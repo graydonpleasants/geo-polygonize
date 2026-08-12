@@ -762,6 +762,25 @@ pub(crate) struct PartitionBorderGlobalUnboundedFaceProofStats {
     pub(crate) proof_ready: bool,
 }
 
+/// Counts from an Euler witness over retained partition-border evidence.
+///
+/// The witness deliberately names its measurements as boundary-only values:
+/// the exported graph does not yet contain the complete interior arrangement,
+/// so `boundary_euler_consistent` is diagnostic evidence and is not a planar
+/// Euler proof or permission to assign global face IDs.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceEulerWitnessStats {
+    pub(crate) component_count: usize,
+    pub(crate) transition_face_count: usize,
+    pub(crate) closed_boundary_cycle_count: usize,
+    pub(crate) boundary_vertex_count: usize,
+    pub(crate) boundary_edge_count: usize,
+    pub(crate) cross_component_edge_count: usize,
+    pub(crate) boundary_euler_lhs: i64,
+    pub(crate) boundary_euler_rhs: i64,
+    pub(crate) boundary_euler_consistent: bool,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -2965,6 +2984,231 @@ impl PartitionBorderGraph {
         })
     }
 
+    /// Builds a deterministic Euler witness from the retained border cycles.
+    ///
+    /// This intentionally does not claim planar completeness: each measured
+    /// vertex and edge is still limited to exported partition-border evidence.
+    /// A mismatch remains a diagnostic boundary, while a match does not permit
+    /// global topology mutation or face identity assignment.
+    #[cfg(test)]
+    pub(crate) fn validate_global_face_euler_witness(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFaceEulerWitnessStats> {
+        execution_policy.check_cancelled("partition_border_global_face_euler_witness")?;
+        let walk = self.validate_global_face_walk_invariants(execution_policy)?;
+        self.validate_global_face_euler_witness_with_walk(execution_policy, walk)
+    }
+
+    pub(crate) fn validate_global_face_euler_witness_with_walk(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        walk: PartitionBorderGlobalFaceWalkInvariantStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceEulerWitnessStats> {
+        execution_policy.check_cancelled("partition_border_global_face_euler_witness")?;
+        execution_policy.check(
+            "partition_border_global_face_euler_witness_faces",
+            execution_policy.max_graph_nodes,
+            self.global_face_transitions.len(),
+        )?;
+        let transition_edge_count = self
+            .global_face_transitions
+            .iter()
+            .try_fold(0usize, |count, transition| {
+                count.checked_add(transition.boundary_observation_ids.len())
+            })
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face Euler witness transition count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            "partition_border_global_face_euler_witness_edges",
+            execution_policy.max_graph_edges,
+            transition_edge_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_euler_witness_nodes",
+            execution_policy.max_graph_nodes,
+            self.reconciled_nodes.len(),
+        )?;
+        if walk.face_count != self.global_face_transitions.len()
+            || walk.transition_count != transition_edge_count
+        {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face Euler witness walk mismatch: faces={}, transitions={}, walk_faces={}, walk_transitions={}",
+                    self.global_face_transitions.len(),
+                    transition_edge_count,
+                    walk.face_count,
+                    walk.transition_count
+                ),
+            });
+        }
+
+        let mut component_by_face = BTreeMap::<PartitionFaceRef, usize>::new();
+        for (component_position, component) in self.global_components.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_euler_witness_components",
+                component_position,
+            )?;
+            for face_ref in &component.face_refs {
+                if component_by_face
+                    .insert(*face_ref, component_position)
+                    .is_some()
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face Euler witness face {:?} belongs to multiple components",
+                            face_ref
+                        ),
+                    });
+                }
+            }
+        }
+
+        let mut node_keys = BTreeSet::new();
+        for (node_index, node) in self.reconciled_nodes.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_euler_witness_nodes",
+                node_index,
+            )?;
+            if !node_keys.insert(node.key) {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face Euler witness reconciled node {:?} is duplicated",
+                        node.key
+                    ),
+                });
+            }
+        }
+
+        let mut boundary_vertices = BTreeSet::new();
+        let mut boundary_edges = BTreeSet::new();
+        let mut edge_component = BTreeMap::<PartitionBorderEdgeKey, usize>::new();
+        let mut cross_component_edges = BTreeSet::new();
+        let mut closed_boundary_cycle_count = 0usize;
+        for (transition_index, transition) in self.global_face_transitions.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_euler_witness",
+                transition_index,
+            )?;
+            let Some(&component_index) = component_by_face.get(&transition.face_ref) else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face Euler witness transition {:?} has no component",
+                        transition.face_ref
+                    ),
+                });
+            };
+            if transition.closed {
+                closed_boundary_cycle_count = closed_boundary_cycle_count
+                    .checked_add(1)
+                    .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "global face Euler witness cycle count overflow".to_string(),
+                    })?;
+            }
+            let component = &self.global_components[component_index];
+            for (observation_index, observation_id) in transition
+                .boundary_observation_ids
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_euler_witness_edges",
+                    observation_index,
+                )?;
+                let Some(observation) = self.observations.get(&observation_id) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face Euler witness observation {:?} is missing",
+                            observation_id
+                        ),
+                    });
+                };
+                if observation.face_ref != Some(transition.face_ref) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face Euler witness observation {:?} crosses face {:?}",
+                            observation_id, transition.face_ref
+                        ),
+                    });
+                }
+                if !node_keys.contains(&observation.from) || !node_keys.contains(&observation.to) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face Euler witness observation {:?} has unreconciled endpoints",
+                            observation_id
+                        ),
+                    });
+                }
+                if !component.border_node_keys.contains(&observation.from)
+                    || !component.border_node_keys.contains(&observation.to)
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face Euler witness observation {:?} leaves component {}",
+                            observation_id, component_index
+                        ),
+                    });
+                }
+                if let Some(previous_component) =
+                    edge_component.insert(observation.edge_key, component_index)
+                {
+                    if previous_component != component_index {
+                        cross_component_edges.insert(observation.edge_key);
+                    }
+                }
+                boundary_edges.insert(observation.edge_key);
+                boundary_vertices.insert(observation.from);
+                boundary_vertices.insert(observation.to);
+            }
+        }
+        if closed_boundary_cycle_count != walk.closed_face_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face Euler witness closed-cycle mismatch: cycles={}, walk={}",
+                    closed_boundary_cycle_count, walk.closed_face_count
+                ),
+            });
+        }
+
+        let boundary_vertex_count = boundary_vertices.len();
+        let boundary_edge_count = boundary_edges.len();
+        let cross_component_edge_count = cross_component_edges.len();
+        let to_i64 = |label: &str, value: usize| {
+            i64::try_from(value).map_err(|_| crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!("global face Euler witness {label} count overflows i64"),
+            })
+        };
+        let boundary_vertex_count_i64 = to_i64("vertex", boundary_vertex_count)?;
+        let boundary_edge_count_i64 = to_i64("edge", boundary_edge_count)?;
+        let closed_boundary_cycle_count_i64 = to_i64("cycle", closed_boundary_cycle_count)?;
+        let boundary_euler_lhs = boundary_vertex_count_i64
+            .checked_sub(boundary_edge_count_i64)
+            .and_then(|value| value.checked_add(closed_boundary_cycle_count_i64))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face Euler witness lhs overflow".to_string(),
+            })?;
+        let boundary_euler_rhs = to_i64("component", self.global_components.len())?
+            .checked_add(1)
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face Euler witness rhs overflow".to_string(),
+            })?;
+
+        Ok(PartitionBorderGlobalFaceEulerWitnessStats {
+            component_count: self.global_components.len(),
+            transition_face_count: self.global_face_transitions.len(),
+            closed_boundary_cycle_count,
+            boundary_vertex_count,
+            boundary_edge_count,
+            cross_component_edge_count,
+            boundary_euler_lhs,
+            boundary_euler_rhs,
+            boundary_euler_consistent: cross_component_edge_count == 0
+                && boundary_euler_lhs == boundary_euler_rhs,
+        })
+    }
+
     /// Applies a conservative proof boundary to local-unbounded evidence.
     /// Exactly one local unbounded marker is a candidate only when every face
     /// cycle is closed, every border twin is mapped, and every unbounded-face
@@ -4805,6 +5049,90 @@ mod tests {
             cancelled,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_walk_invariants"
+        ));
+    }
+
+    #[test]
+    fn global_face_euler_witness_is_explicitly_border_only_and_fail_closed() {
+        let graph = prepared_global_face_walk_graph(true, [false, false]);
+        let stats = graph
+            .validate_global_face_euler_witness(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceEulerWitnessStats {
+                component_count: 1,
+                transition_face_count: 2,
+                closed_boundary_cycle_count: 2,
+                boundary_vertex_count: 2,
+                boundary_edge_count: 1,
+                cross_component_edge_count: 0,
+                boundary_euler_lhs: 3,
+                boundary_euler_rhs: 2,
+                boundary_euler_consistent: false,
+            }
+        );
+
+        let incomplete = prepared_global_face_walk_graph(false, [false, false]);
+        let stats = incomplete
+            .validate_global_face_euler_witness(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.closed_boundary_cycle_count, 0);
+        assert_eq!(stats.boundary_euler_lhs, 1);
+        assert!(!stats.boundary_euler_consistent);
+
+        let walk = graph
+            .validate_global_face_walk_invariants(&ExecutionPolicy::default())
+            .unwrap();
+        let error = graph
+            .validate_global_face_euler_witness_with_walk(
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(1),
+                    ..Default::default()
+                },
+                walk,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_face_euler_witness_faces"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_euler_witness_with_walk(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                walk,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_euler_witness"
+        ));
+
+        let mut malformed = graph.clone();
+        malformed.global_face_transitions[0].boundary_observation_ids[0] =
+            PartitionBorderObservationId {
+                partition_id: 99,
+                local_dir_edge_id: 99,
+                edge_key: malformed.global_face_transitions[0].boundary_observation_ids[0].edge_key,
+            };
+        let error = malformed
+            .validate_global_face_euler_witness(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("absent candidate")
         ));
     }
 

@@ -329,6 +329,22 @@ pub struct StitchingReport {
     pub partition_border_global_face_walk_unbounded_component_count: usize,
     /// Cycle rank of the retained face/twin connectivity graph, not planar Euler.
     pub partition_border_global_face_walk_face_adjacency_cycle_rank: usize,
+    /// Face cycles counted by the retained border-only Euler witness.
+    pub partition_border_global_face_euler_transition_face_count: usize,
+    /// Closed cycles counted by the retained border-only Euler witness.
+    pub partition_border_global_face_euler_closed_boundary_cycle_count: usize,
+    /// Unique XY vertices in retained border-only Euler evidence.
+    pub partition_border_global_face_euler_boundary_vertex_count: usize,
+    /// Unique undirected edges in retained border-only Euler evidence.
+    pub partition_border_global_face_euler_boundary_edge_count: usize,
+    /// Border spans observed in more than one retained face component.
+    pub partition_border_global_face_euler_cross_component_edge_count: usize,
+    /// V - E + closed cycles for retained border-only evidence.
+    pub partition_border_global_face_euler_boundary_lhs: i64,
+    /// C + 1 for retained border-only evidence.
+    pub partition_border_global_face_euler_boundary_rhs: i64,
+    /// Whether the retained border-only arithmetic happens to balance.
+    pub partition_border_global_face_euler_boundary_consistent: bool,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2414,6 +2430,11 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_global_face_walk_invariants.mapped_twin_count,
             global_face_twin_transition_count
         );
+        let partition_border_global_face_euler_witness = partition_border_graph
+            .validate_global_face_euler_witness_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2447,6 +2468,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_walk_invariants(
                 partition_border_global_face_walk_invariants,
+            );
+            trace.record_partition_border_global_face_euler_witness(
+                partition_border_global_face_euler_witness,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -2748,6 +2772,22 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_walk_invariants.unbounded_component_count,
                 partition_border_global_face_walk_face_adjacency_cycle_rank:
                     partition_border_global_face_walk_invariants.face_adjacency_cycle_rank,
+                partition_border_global_face_euler_transition_face_count:
+                    partition_border_global_face_euler_witness.transition_face_count,
+                partition_border_global_face_euler_closed_boundary_cycle_count:
+                    partition_border_global_face_euler_witness.closed_boundary_cycle_count,
+                partition_border_global_face_euler_boundary_vertex_count:
+                    partition_border_global_face_euler_witness.boundary_vertex_count,
+                partition_border_global_face_euler_boundary_edge_count:
+                    partition_border_global_face_euler_witness.boundary_edge_count,
+                partition_border_global_face_euler_cross_component_edge_count:
+                    partition_border_global_face_euler_witness.cross_component_edge_count,
+                partition_border_global_face_euler_boundary_lhs:
+                    partition_border_global_face_euler_witness.boundary_euler_lhs,
+                partition_border_global_face_euler_boundary_rhs:
+                    partition_border_global_face_euler_witness.boundary_euler_rhs,
+                partition_border_global_face_euler_boundary_consistent:
+                    partition_border_global_face_euler_witness.boundary_euler_consistent,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:

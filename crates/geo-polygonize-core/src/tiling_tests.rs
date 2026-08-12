@@ -381,6 +381,60 @@ mod tests {
                 .partition_border_global_face_walk_face_adjacency_cycle_rank,
             face_walk.face_adjacency_cycle_rank
         );
+        let face_euler = result
+            .partition_border_graph
+            .validate_global_face_euler_witness(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_transition_face_count,
+            face_euler.transition_face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_closed_boundary_cycle_count,
+            face_euler.closed_boundary_cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_boundary_vertex_count,
+            face_euler.boundary_vertex_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_boundary_edge_count,
+            face_euler.boundary_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_cross_component_edge_count,
+            face_euler.cross_component_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_boundary_lhs,
+            face_euler.boundary_euler_lhs
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_boundary_rhs,
+            face_euler.boundary_euler_rhs
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_euler_boundary_consistent,
+            face_euler.boundary_euler_consistent
+        );
+        assert!(face_euler.cross_component_edge_count > 0);
+        assert!(!face_euler.boundary_euler_consistent);
         let unbounded_proof = result
             .partition_border_graph
             .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
@@ -1039,6 +1093,78 @@ mod tests {
                     as u64
             )
         );
+        let global_face_euler = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_euler_witness")
+            .expect("global face Euler witness evidence");
+        assert_eq!(
+            global_face_euler.payload["transition_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_transition_face_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["closed_boundary_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_closed_boundary_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["boundary_vertex_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_boundary_vertex_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["boundary_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_boundary_edge_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["boundary_euler_lhs"].as_i64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_boundary_lhs
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["boundary_euler_rhs"].as_i64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_boundary_rhs
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["boundary_euler_consistent"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_boundary_consistent
+            )
+        );
         let unbounded_proof = traced
             .trace
             .events
@@ -1052,6 +1178,16 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_unbounded_face_proof_candidate_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_euler.payload["cross_component_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_euler_cross_component_edge_count
                     as u64
             )
         );
