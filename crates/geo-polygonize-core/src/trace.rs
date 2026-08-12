@@ -6,7 +6,8 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
     PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityMaterializationStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityInvariantStats,
+    PartitionBorderGlobalFaceIdentityMaterializationStats,
     PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
     PartitionBorderGlobalFaceNextMutationPlanStats,
@@ -1208,6 +1209,31 @@ impl TraceRecorderV1 {
                 "invalid_cycle_count": stats.invalid_cycle_count,
                 "unbounded_edge_count": stats.unbounded_edge_count,
                 "materialization_ready": stats.materialization_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_identity_invariants(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdentityInvariantStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_identity_invariants",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "mapped_face_id_edge_count": stats.mapped_face_id_edge_count,
+                "face_id_set_count": stats.face_id_set_count,
+                "missing_face_id_count": stats.missing_face_id_count,
+                "cycle_face_mismatch_count": stats.cycle_face_mismatch_count,
+                "successor_discontinuity_count": stats.successor_discontinuity_count,
+                "source_incomplete_edge_count": stats.source_incomplete_edge_count,
+                "twin_count": stats.twin_count,
+                "twin_mapping_mismatch_count": stats.twin_mapping_mismatch_count,
+                "face_walk_ready": stats.face_walk_ready,
+                "euler_evidence_ready": stats.euler_evidence_ready,
+                "invariants_ready": stats.invariants_ready,
             }),
         )
     }

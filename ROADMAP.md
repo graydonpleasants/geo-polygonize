@@ -548,6 +548,9 @@ Blocked by #1288.
 - [x] Materialize a detached per-edge global face-ID map from committed closed
   cycles, requiring complete edge coverage and the committed unbounded identity
   while leaving local topology and tiled output untouched.
+- [x] Cross-check detached per-edge face identity against successor cycles,
+  reciprocal twins, source lineage, and retained face-walk/Euler evidence;
+  preserve incomplete proofs without mutating topology or output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
