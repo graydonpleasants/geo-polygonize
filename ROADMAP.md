@@ -486,6 +486,10 @@ Blocked by #1288.
 - [x] Retain deterministic component-level border payload merges for source IDs,
   representative IDs, endpoint Z candidates, selected Z policy, and conflict
   counts without writing global nodes or face payloads.
+- [x] Retain a deterministic border-only Euler witness over unique boundary
+  vertices, edges, closed cycles, and component arithmetic; keep it diagnostic
+  and explicitly do not treat it as a planar Euler proof for the incomplete
+  global arrangement.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

@@ -3,12 +3,12 @@
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFacePlanStats,
-    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
-    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -807,6 +807,27 @@ impl TraceRecorderV1 {
                 "unbounded_face_not_ready_twin_count": stats.unbounded_face_not_ready_twin_count,
                 "candidate_count": stats.candidate_count,
                 "proof_ready": stats.proof_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_euler_witness(
+        &mut self,
+        stats: PartitionBorderGlobalFaceEulerWitnessStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_euler_witness",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "transition_face_count": stats.transition_face_count,
+                "closed_boundary_cycle_count": stats.closed_boundary_cycle_count,
+                "boundary_vertex_count": stats.boundary_vertex_count,
+                "boundary_edge_count": stats.boundary_edge_count,
+                "cross_component_edge_count": stats.cross_component_edge_count,
+                "boundary_euler_lhs": stats.boundary_euler_lhs,
+                "boundary_euler_rhs": stats.boundary_euler_rhs,
+                "boundary_euler_consistent": stats.boundary_euler_consistent,
             }),
         )
     }
