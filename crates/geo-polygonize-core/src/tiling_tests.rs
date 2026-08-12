@@ -113,6 +113,33 @@ mod tests {
                 .filter(|node| node.z_conflict)
                 .count()
         );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_count,
+            result.partition_border_graph.global_components().len()
+        );
+        assert_eq!(
+            result.stitching_report.partition_border_global_face_count,
+            result
+                .partition_border_graph
+                .global_components()
+                .iter()
+                .map(|component| component.face_refs.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_linked_face_count,
+            result
+                .partition_border_graph
+                .global_components()
+                .iter()
+                .filter(|component| !component.twin_edge_keys.is_empty())
+                .map(|component| component.face_refs.len())
+                .sum::<usize>()
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -301,6 +328,39 @@ mod tests {
         assert_eq!(
             node_reconciliation.payload["conflict_tolerance"],
             "0x0000000000000000"
+        );
+        let global_components = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_component_reconciliation")
+            .expect("global component reconciliation evidence");
+        assert_eq!(
+            global_components.payload["component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_count as u64
+            )
+        );
+        assert_eq!(
+            global_components.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_count as u64
+            )
+        );
+        assert_eq!(
+            global_components.payload["linked_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_linked_face_count as u64
+            )
         );
     }
 

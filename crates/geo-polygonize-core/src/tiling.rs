@@ -260,6 +260,12 @@ pub struct StitchingReport {
     /// Reconciled border nodes whose Z candidates exceed the configured
     /// conflict tolerance.
     pub partition_border_node_z_conflict_count: usize,
+    /// Deterministic connected components of qualified border-face evidence.
+    pub partition_border_global_component_count: usize,
+    /// Qualified face references included in the retained global plan.
+    pub partition_border_global_face_count: usize,
+    /// Face references participating in at least one retained twin link.
+    pub partition_border_global_linked_face_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2277,12 +2283,22 @@ impl<'a> TiledPolygonizer<'a> {
             reconciled_border_node_count,
             partition_border_node_reconciliation.node_count
         );
+        let partition_border_global_component_reconciliation =
+            partition_border_graph.reconcile_global_components(&self.execution_policy)?;
+        let global_component_count = partition_border_graph.global_components().len();
+        debug_assert_eq!(
+            global_component_count,
+            partition_border_global_component_reconciliation.component_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
             trace.record_partition_border_node_reconciliation(
                 partition_border_node_reconciliation,
                 self.options.z,
+            );
+            trace.record_partition_border_global_component_reconciliation(
+                partition_border_global_component_reconciliation,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -2515,6 +2531,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_reconciled_node_count: reconciled_border_node_count,
                 partition_border_node_z_conflict_count: partition_border_node_reconciliation
                     .z_conflict_count,
+                partition_border_global_component_count: global_component_count,
+                partition_border_global_face_count:
+                    partition_border_global_component_reconciliation.face_count,
+                partition_border_global_linked_face_count:
+                    partition_border_global_component_reconciliation.linked_face_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,
