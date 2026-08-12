@@ -693,6 +693,17 @@ pub(crate) struct PartitionBorderGlobalTopologyCandidate {
     pub(crate) cycle_start_global_dir_edge_ids: Vec<usize>,
 }
 
+/// Counts the one atomic commit of detached global successor links. Face IDs
+/// remain a separate roadmap slice; no local face identity or output is
+/// changed by this mutation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalTopologyMutationStats {
+    pub(crate) edge_count: usize,
+    pub(crate) applied_next_count: usize,
+    pub(crate) mutation_ready: bool,
+    pub(crate) applied: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -1179,6 +1190,7 @@ pub struct PartitionBorderGraph {
     global_face_id_plans: Vec<PartitionBorderGlobalFaceIdPlan>,
     global_face_next_application_plans: Vec<PartitionBorderGlobalFaceNextApplicationPlan>,
     global_topology_candidate: Option<PartitionBorderGlobalTopologyCandidate>,
+    global_next_global_dir_edge_ids: Vec<Option<usize>>,
 }
 
 impl PartitionBorderGraph {
@@ -1226,6 +1238,7 @@ impl PartitionBorderGraph {
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
+        self.global_next_global_dir_edge_ids.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -5243,11 +5256,61 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Commits a validated candidate into a detached global successor buffer.
+    /// This is the first atomic mutation step, but it intentionally does not
+    /// rewrite local half-edge links, local face IDs, or tiled output.
+    pub(crate) fn apply_global_topology_candidate_with_gate(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        mutation_gate: PartitionBorderGlobalTopologyMutationGateStats,
+        candidate: PartitionBorderGlobalTopologyCandidateStats,
+    ) -> crate::Result<PartitionBorderGlobalTopologyMutationStats> {
+        execution_policy.check_cancelled("partition_border_global_topology_mutation")?;
+        execution_policy.check(
+            "partition_border_global_topology_mutation_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        let Some(detached_candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global topology mutation has no detached candidate".to_string(),
+            });
+        };
+        if detached_candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global topology mutation candidate length mismatch".to_string(),
+            });
+        }
+        let mutation_ready = mutation_gate.gate_ready && candidate.candidate_ready;
+        if !mutation_ready {
+            return Ok(PartitionBorderGlobalTopologyMutationStats {
+                edge_count: self.global_face_edge_map.len(),
+                applied_next_count: 0,
+                mutation_ready,
+                applied: false,
+            });
+        }
+        let next_global_dir_edge_ids = detached_candidate.next_global_dir_edge_ids.clone();
+        let applied_next_count = next_global_dir_edge_ids.iter().flatten().count();
+        self.global_next_global_dir_edge_ids = next_global_dir_edge_ids;
+        Ok(PartitionBorderGlobalTopologyMutationStats {
+            edge_count: self.global_face_edge_map.len(),
+            applied_next_count,
+            mutation_ready: true,
+            applied: true,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn global_topology_candidate(
         &self,
     ) -> Option<&PartitionBorderGlobalTopologyCandidate> {
         self.global_topology_candidate.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_next_global_dir_edge_ids(&self) -> &[Option<usize>] {
+        &self.global_next_global_dir_edge_ids
     }
 
     /// Validates the detached candidate against declared-adjacency twin
@@ -10160,6 +10223,44 @@ mod tests {
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_topology_mutation_gate"
         ));
+    }
+
+    #[test]
+    fn global_topology_mutation_commits_only_after_the_gate() {
+        let mut graph = exact_global_topology_candidate_graph();
+        let candidate = graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let not_ready = graph
+            .apply_global_topology_candidate_with_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalTopologyMutationGateStats::default(),
+                candidate,
+            )
+            .unwrap();
+        assert!(!not_ready.applied);
+        assert!(graph.global_next_global_dir_edge_ids().is_empty());
+
+        let candidate = graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let applied = graph
+            .apply_global_topology_candidate_with_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalTopologyMutationGateStats {
+                    gate_ready: true,
+                    ..Default::default()
+                },
+                candidate,
+            )
+            .unwrap();
+        assert!(applied.applied);
+        assert_eq!(applied.applied_next_count, 4);
+        assert_eq!(graph.global_next_global_dir_edge_ids().len(), 4);
+        assert!(graph
+            .global_next_global_dir_edge_ids()
+            .iter()
+            .all(Option::is_some));
     }
 
     #[test]
