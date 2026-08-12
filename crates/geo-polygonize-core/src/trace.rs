@@ -4,8 +4,9 @@ use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -704,6 +705,24 @@ impl TraceRecorderV1 {
                 "boundary_transition_count": stats.boundary_transition_count,
                 "missing_boundary_successor_count": stats.missing_boundary_successor_count,
                 "mutation_ready_face_count": stats.mutation_ready_face_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_transition_plan(
+        &mut self,
+        stats: PartitionBorderGlobalFaceTransitionPlanStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_transition_plan",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "candidate_count": stats.candidate_count,
+                "boundary_transition_count": stats.boundary_transition_count,
+                "missing_boundary_successor_count": stats.missing_boundary_successor_count,
+                "closed_face_count": stats.closed_face_count,
+                "incomplete_face_count": stats.incomplete_face_count,
             }),
         )
     }
