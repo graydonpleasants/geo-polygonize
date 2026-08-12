@@ -6,9 +6,10 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
     PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
-    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityMaterializationStats,
+    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -1187,6 +1188,26 @@ impl TraceRecorderV1 {
                 "duplicate_face_id_count": stats.duplicate_face_id_count,
                 "non_contiguous_face_id_count": stats.non_contiguous_face_id_count,
                 "application_ready": stats.application_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_identity_materialization(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdentityMaterializationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_identity_materialization",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "assigned_edge_count": stats.assigned_edge_count,
+                "missing_face_id_count": stats.missing_face_id_count,
+                "duplicate_edge_count": stats.duplicate_edge_count,
+                "invalid_cycle_count": stats.invalid_cycle_count,
+                "unbounded_edge_count": stats.unbounded_edge_count,
+                "materialization_ready": stats.materialization_ready,
             }),
         )
     }

@@ -468,6 +468,14 @@ pub struct StitchingReport {
         Option<usize>,
     pub partition_border_global_unbounded_face_mutation_ready: bool,
     pub partition_border_global_unbounded_face_mutation_applied: bool,
+    /// Detached per-edge face identities materialized from committed cycles.
+    pub partition_border_global_face_identity_edge_count: usize,
+    pub partition_border_global_face_identity_cycle_count: usize,
+    pub partition_border_global_face_identity_assigned_edge_count: usize,
+    pub partition_border_global_face_identity_missing_face_id_count: usize,
+    pub partition_border_global_face_identity_invalid_cycle_count: usize,
+    pub partition_border_global_face_identity_unbounded_edge_count: usize,
+    pub partition_border_global_face_identity_materialization_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2747,6 +2755,8 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_id_mutation,
                 partition_border_global_unbounded_face_application,
             )?;
+        let partition_border_global_face_identity_materialization =
+            partition_border_graph.materialize_global_face_identity(&self.execution_policy)?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2830,6 +2840,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_unbounded_face_mutation(
                 partition_border_global_unbounded_face_mutation,
+            );
+            trace.record_partition_border_global_face_identity_materialization(
+                partition_border_global_face_identity_materialization,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3296,6 +3309,20 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_unbounded_face_mutation.mutation_ready,
                 partition_border_global_unbounded_face_mutation_applied:
                     partition_border_global_unbounded_face_mutation.applied,
+                partition_border_global_face_identity_edge_count:
+                    partition_border_global_face_identity_materialization.edge_count,
+                partition_border_global_face_identity_cycle_count:
+                    partition_border_global_face_identity_materialization.cycle_count,
+                partition_border_global_face_identity_assigned_edge_count:
+                    partition_border_global_face_identity_materialization.assigned_edge_count,
+                partition_border_global_face_identity_missing_face_id_count:
+                    partition_border_global_face_identity_materialization.missing_face_id_count,
+                partition_border_global_face_identity_invalid_cycle_count:
+                    partition_border_global_face_identity_materialization.invalid_cycle_count,
+                partition_border_global_face_identity_unbounded_edge_count:
+                    partition_border_global_face_identity_materialization.unbounded_edge_count,
+                partition_border_global_face_identity_materialization_ready:
+                    partition_border_global_face_identity_materialization.materialization_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

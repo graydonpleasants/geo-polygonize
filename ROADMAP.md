@@ -545,6 +545,9 @@ Blocked by #1288.
 - [x] Atomically promote the uniquely proven unbounded candidate onto detached
   global identity state only after successor and face-ID commits; retain the
   cycle start and candidate ID without changing local IDs or output payloads.
+- [x] Materialize a detached per-edge global face-ID map from committed closed
+  cycles, requiring complete edge coverage and the committed unbounded identity
+  while leaving local topology and tiled output untouched.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
