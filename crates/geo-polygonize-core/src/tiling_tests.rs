@@ -94,6 +94,60 @@ mod tests {
                     .partition_border_face_twin_invalid_face_count,
             reconciliation.matched_twin_count
         );
+        let global_face_edge_map = result.partition_border_graph.global_face_edge_map();
+        let global_face_edge_map_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_face_edge_map(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_local_graph_count,
+            result.partition_border_graph.local_face_graphs().len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_directed_edge_count,
+            global_face_edge_map.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_local_successor_count,
+            global_face_edge_map_stats.local_successor_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_observation_count,
+            global_face_edge_map_stats.mapped_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_twin_count,
+            global_face_edge_map_stats.mapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_unmapped_twin_count,
+            global_face_edge_map_stats.unmapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_edge_map_ready,
+            global_face_edge_map_stats.edge_map_ready
+        );
+        assert!(global_face_edge_map.iter().all(|edge| {
+            edge.symmetric_global_dir_edge_id < global_face_edge_map.len()
+                && edge
+                    .local_face_successor_global_dir_edge_id
+                    .is_none_or(|successor| successor < global_face_edge_map.len())
+        }));
         assert_eq!(
             result
                 .stitching_report
@@ -709,7 +763,7 @@ mod tests {
                 44,
             ),
         ]);
-        let (_, observations, stats) = polygonizer
+        let (_, observations, local_face_graphs, stats) = polygonizer
             .polygonize_with_partition_border_export_and_stats(
                 7,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
@@ -719,6 +773,11 @@ mod tests {
         assert_eq!(stats.added_node_count, 2);
         assert_eq!(stats.added_edge_count, 2);
         assert_eq!(stats.split_event_count, 2);
+        assert_eq!(local_face_graphs.len(), 1);
+        assert!(local_face_graphs[0]
+            .directed_edges
+            .iter()
+            .all(|edge| edge.face_ref.is_some()));
 
         let border = observations
             .iter()
@@ -845,6 +904,68 @@ mod tests {
             application.payload["candidate_twin_count"]
                 .as_u64()
                 .unwrap()
+        );
+        let edge_map = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_edge_map")
+            .expect("global face edge map evidence");
+        assert_eq!(
+            edge_map.payload["local_graph_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_local_graph_count as u64
+            )
+        );
+        assert_eq!(
+            edge_map.payload["directed_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_directed_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            edge_map.payload["mapped_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_observation_count as u64
+            )
+        );
+        assert_eq!(
+            edge_map.payload["mapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_twin_count as u64
+            )
+        );
+        assert_eq!(
+            edge_map.payload["unmapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_unmapped_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            edge_map.payload["edge_map_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_edge_map_ready
+            )
         );
         let node_reconciliation = traced
             .trace

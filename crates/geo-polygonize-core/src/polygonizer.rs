@@ -3,7 +3,7 @@ use crate::diagnostics::{
     ContainmentStats, NodingIterationStats, PolygonizerDiagnostics, ZConflictStats,
 };
 use crate::error::{PolygonizeError, Result};
-use crate::graph::partition_border::PartitionBorderHalfEdge;
+use crate::graph::partition_border::{PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph};
 use crate::graph::planar_graph::{PartitionBorderExport, PartitionBoundaryNodingStats};
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -53,6 +53,7 @@ pub struct Polygonizer {
     trace: Option<TraceRecorderV1>,
     partition_border_export: Option<PartitionBorderExport>,
     partition_border_observations: Vec<PartitionBorderHalfEdge>,
+    partition_border_local_face_graphs: Vec<PartitionBorderLocalFaceGraph>,
     boundary_noding_stats: PartitionBoundaryNodingStats,
 }
 
@@ -355,6 +356,7 @@ pub fn polygonize_with_workspace_and_execution_policy(
         trace: None,
         partition_border_export: None,
         partition_border_observations: Vec::new(),
+        partition_border_local_face_graphs: Vec::new(),
         boundary_noding_stats: PartitionBoundaryNodingStats::default(),
     };
     runner.input_line_strings = source_line_strings_for_segments(lines);
@@ -376,6 +378,7 @@ impl Polygonizer {
             trace: None,
             partition_border_export: None,
             partition_border_observations: Vec::new(),
+            partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
         }
     }
@@ -390,6 +393,7 @@ impl Polygonizer {
             trace: None,
             partition_border_export: None,
             partition_border_observations: Vec::new(),
+            partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
         }
     }
@@ -769,15 +773,25 @@ impl Polygonizer {
     ) -> Result<(
         PolygonizerResult,
         Vec<PartitionBorderHalfEdge>,
+        Vec<PartitionBorderLocalFaceGraph>,
         PartitionBoundaryNodingStats,
     )> {
         self.partition_border_export = Some(PartitionBorderExport { partition_id, bbox });
         self.partition_border_observations.clear();
+        self.partition_border_local_face_graphs.clear();
         self.boundary_noding_stats = PartitionBoundaryNodingStats::default();
         let result = self.polygonize();
         self.partition_border_export = None;
         let observations = std::mem::take(&mut self.partition_border_observations);
-        result.map(|result| (result, observations, self.boundary_noding_stats))
+        let local_face_graphs = std::mem::take(&mut self.partition_border_local_face_graphs);
+        result.map(|result| {
+            (
+                result,
+                observations,
+                local_face_graphs,
+                self.boundary_noding_stats,
+            )
+        })
     }
 
     /// Computes polygons while recording a bounded topology trace.
@@ -880,6 +894,7 @@ impl Polygonizer {
         let (
             (mut dangles, mut cut_edges, maximal, rings_with_ids),
             _,
+            _,
             capture_truncated,
             component_memory_stats,
         ) = self.graph.process_components_with_execution_policy(
@@ -893,19 +908,22 @@ impl Polygonizer {
         let border_observations = if let (Some(graph), Some(export)) =
             (boundary_graph.as_mut(), self.partition_border_export)
         {
-            let (_, observations, _, _) = graph.process_components_with_execution_policy(
-                self.options.node_input,
-                include_source_ids,
-                &self.execution_policy,
-                noding_postcondition_validated,
-                None,
-                Some(export),
-            )?;
-            observations
+            let (_, observations, local_face_graphs, _, _) = graph
+                .process_components_with_execution_policy(
+                    self.options.node_input,
+                    include_source_ids,
+                    &self.execution_policy,
+                    noding_postcondition_validated,
+                    None,
+                    Some(export),
+                )?;
+            (observations, local_face_graphs)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
+        let (border_observations, local_face_graphs) = border_observations;
         self.partition_border_observations = border_observations;
+        self.partition_border_local_face_graphs = local_face_graphs;
         if let Some(trace) = self.trace.as_mut() {
             for observation in &self.partition_border_observations {
                 if !trace.record_partition_border_observation(observation) {

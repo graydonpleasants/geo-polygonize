@@ -695,7 +695,7 @@ mod tests {
         }
 
         let component_ids = graph.active_component_ids();
-        let ((dangles, cut_edges, maximal, rings), _, capture_truncated, memory_stats) = graph
+        let ((dangles, cut_edges, maximal, rings), _, _, capture_truncated, memory_stats) = graph
             .process_components_with_execution_policy(
                 true,
                 true,
