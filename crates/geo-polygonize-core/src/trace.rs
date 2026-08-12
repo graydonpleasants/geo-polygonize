@@ -2,11 +2,12 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
-    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalComponentCoverageStats, PartitionBorderGlobalComponentPayloadStats,
+    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceEdgeMapStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdPlanStats,
+    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -750,6 +751,27 @@ impl TraceRecorderV1 {
                 "predecessor_conflict_count": stats.predecessor_conflict_count,
                 "node_discontinuity_count": stats.node_discontinuity_count,
                 "application_ready": stats.application_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_component_coverage(
+        &mut self,
+        stats: PartitionBorderGlobalComponentCoverageStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_component_coverage",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "face_count": stats.face_count,
+                "edge_count": stats.edge_count,
+                "face_edge_count": stats.face_edge_count,
+                "covered_face_edge_count": stats.covered_face_edge_count,
+                "uncovered_face_edge_count": stats.uncovered_face_edge_count,
+                "duplicate_face_count": stats.duplicate_face_count,
+                "duplicate_twin_edge_count": stats.duplicate_twin_edge_count,
+                "coverage_ready": stats.coverage_ready,
             }),
         )
     }

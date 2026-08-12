@@ -522,7 +522,9 @@ Blocked by #1288.
   malformed or incomplete evidence as not ready without mutating topology.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
-- [ ] Reconcile deterministic global connected components.
+- [x] Reconcile deterministic global connected components and verify that
+  every face-qualified detached edge is covered exactly once without duplicate
+  faces or twin ownership.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

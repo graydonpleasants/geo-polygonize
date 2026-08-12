@@ -499,6 +499,24 @@ pub struct StitchingReport {
     pub partition_border_global_topology_application_gate_node_discontinuity_count: usize,
     /// Whether the detached candidate is safe for a future mutation phase.
     pub partition_border_global_topology_application_gate_ready: bool,
+    /// Deterministic global components checked against candidate face edges.
+    pub partition_border_global_component_coverage_component_count: usize,
+    /// Qualified faces retained by global component evidence.
+    pub partition_border_global_component_coverage_face_count: usize,
+    /// Candidate edge slots checked for component coverage.
+    pub partition_border_global_component_coverage_edge_count: usize,
+    /// Candidate edges carrying qualified face lineage.
+    pub partition_border_global_component_coverage_face_edge_count: usize,
+    /// Face-qualified candidate edges covered by one global component.
+    pub partition_border_global_component_coverage_covered_face_edge_count: usize,
+    /// Face-qualified candidate edges without component coverage.
+    pub partition_border_global_component_coverage_uncovered_face_edge_count: usize,
+    /// Faces assigned to multiple global components.
+    pub partition_border_global_component_coverage_duplicate_face_count: usize,
+    /// Twin edge keys assigned to multiple global components.
+    pub partition_border_global_component_coverage_duplicate_twin_edge_count: usize,
+    /// Whether component coverage is complete and deterministic.
+    pub partition_border_global_component_coverage_ready: bool,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -2610,6 +2628,8 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_graph.reconcile_global_topology_candidate(&self.execution_policy)?;
         let partition_border_global_topology_application_gate = partition_border_graph
             .validate_global_topology_application_gate(&self.execution_policy)?;
+        let partition_border_global_component_coverage =
+            partition_border_graph.validate_global_component_coverage(&self.execution_policy)?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2671,6 +2691,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_topology_application_gate(
                 partition_border_global_topology_application_gate,
+            );
+            trace.record_partition_border_global_component_coverage(
+                partition_border_global_component_coverage,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -3135,6 +3158,24 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_topology_application_gate.node_discontinuity_count,
                 partition_border_global_topology_application_gate_ready:
                     partition_border_global_topology_application_gate.application_ready,
+                partition_border_global_component_coverage_component_count:
+                    partition_border_global_component_coverage.component_count,
+                partition_border_global_component_coverage_face_count:
+                    partition_border_global_component_coverage.face_count,
+                partition_border_global_component_coverage_edge_count:
+                    partition_border_global_component_coverage.edge_count,
+                partition_border_global_component_coverage_face_edge_count:
+                    partition_border_global_component_coverage.face_edge_count,
+                partition_border_global_component_coverage_covered_face_edge_count:
+                    partition_border_global_component_coverage.covered_face_edge_count,
+                partition_border_global_component_coverage_uncovered_face_edge_count:
+                    partition_border_global_component_coverage.uncovered_face_edge_count,
+                partition_border_global_component_coverage_duplicate_face_count:
+                    partition_border_global_component_coverage.duplicate_face_count,
+                partition_border_global_component_coverage_duplicate_twin_edge_count:
+                    partition_border_global_component_coverage.duplicate_twin_edge_count,
+                partition_border_global_component_coverage_ready:
+                    partition_border_global_component_coverage.coverage_ready,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,
