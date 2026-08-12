@@ -334,6 +334,7 @@ type TileProcessResult = (
     Vec<TileOwnershipDecision>,
     Vec<PartitionBorderHalfEdge>,
     bool,
+    crate::graph::planar_graph::PartitionBoundaryNodingStats,
 );
 
 #[derive(Debug)]
@@ -920,12 +921,19 @@ impl<'a> TiledPolygonizer<'a> {
             retry_exhausted: false,
         };
         if relevant_lines == 0 {
-            return Ok((Vec::new(), report, Vec::new(), Vec::new(), false));
+            return Ok((
+                Vec::new(),
+                report,
+                Vec::new(),
+                Vec::new(),
+                false,
+                crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
+            ));
         }
 
         // Run polygonization
-        let (result, border_observations) =
-            local_poly.polygonize_with_partition_border_export(partition_id, tile_bbox)?;
+        let (result, border_observations, boundary_noding_stats) = local_poly
+            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         report.polygon_count = result.polygons.len();
         report.dangle_count = result.dangles.len();
         report.cut_edge_count = result.cut_edges.len();
@@ -1003,6 +1011,7 @@ impl<'a> TiledPolygonizer<'a> {
             ownership_decisions,
             border_observations,
             capture_budget.is_some_and(|budget| budget.truncated()),
+            boundary_noding_stats,
         ))
     }
 
@@ -2089,14 +2098,20 @@ impl<'a> TiledPolygonizer<'a> {
                         .records_stage(TraceStageV1::Output)
                         .then(|| trace.capture_byte_limit(TraceStageV1::Output))
                 });
-                let (polygons, report, ownership_decisions, border_observations, capture_truncated) =
-                    self.process_tile_with_retries(
-                        tile_index,
-                        tile,
-                        input_components,
-                        capture_byte_limit,
-                        &retry_attempt_counter,
-                    )?;
+                let (
+                    polygons,
+                    report,
+                    ownership_decisions,
+                    border_observations,
+                    capture_truncated,
+                    boundary_noding_stats,
+                ) = self.process_tile_with_retries(
+                    tile_index,
+                    tile,
+                    input_components,
+                    capture_byte_limit,
+                    &retry_attempt_counter,
+                )?;
                 let trace = trace.as_deref_mut().expect("tile trace exists");
                 for attempt in &report.retry_attempts {
                     if !trace.record_tile_halo_retry(tile_index, attempt) {
@@ -2148,8 +2163,13 @@ impl<'a> TiledPolygonizer<'a> {
                 if capture_truncated {
                     trace.mark_capture_truncated(TraceStageV1::Output);
                 }
+                trace.record_partition_boundary_noding(tile_index, boundary_noding_stats);
                 for observation in border_observations {
-                    partition_border_graph.insert(observation)?;
+                    trace.record_partition_border_observation(&observation);
+                    if let Err(error) = partition_border_graph.insert(observation.clone()) {
+                        trace.record_partition_border_rejection(&observation, &error.to_string());
+                        return Err(error);
+                    }
                 }
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
@@ -2210,7 +2230,7 @@ impl<'a> TiledPolygonizer<'a> {
                 .collect();
 
             for result in tile_results? {
-                let (polygons, report, _, border_observations, _) = result;
+                let (polygons, report, _, border_observations, _, _) = result;
                 for observation in border_observations {
                     partition_border_graph.insert(observation)?;
                 }

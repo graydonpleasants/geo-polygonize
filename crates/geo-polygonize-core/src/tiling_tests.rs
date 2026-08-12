@@ -91,12 +91,16 @@ mod tests {
                 44,
             ),
         ]);
-        let (_, observations) = polygonizer
-            .polygonize_with_partition_border_export(
+        let (_, observations, stats) = polygonizer
+            .polygonize_with_partition_border_export_and_stats(
                 7,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
             )
             .unwrap();
+
+        assert_eq!(stats.added_node_count, 2);
+        assert_eq!(stats.added_edge_count, 2);
+        assert_eq!(stats.split_event_count, 2);
 
         let border = observations
             .iter()
@@ -113,6 +117,65 @@ mod tests {
         assert!(border
             .iter()
             .all(|observation| observation.source_line_ids == vec![41]));
+    }
+
+    #[test]
+    fn trace_records_partition_boundary_noding_and_atomic_observations() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 2.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 0.0 },
+                Coord { x: 2.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 1.0 },
+                Coord { x: 0.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 1.0 },
+                Coord { x: 0.0, y: 0.0 },
+            ])),
+        ];
+        let mut tiled = TiledPolygonizer::new(bbox, 1.0).with_buffer(0.0);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let noding_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "partition_boundary_noding")
+            .collect::<Vec<_>>();
+        assert_eq!(noding_events.len(), 2);
+        assert!(noding_events.iter().all(|event| {
+            event.payload["added_node_count"].as_u64().unwrap() >= 1
+                && event.payload["added_edge_count"].as_u64().unwrap() >= 1
+                && event.payload["split_event_count"].as_u64().unwrap() >= 1
+        }));
+
+        let observations = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "partition_border_atomic_observation")
+            .collect::<Vec<_>>();
+        assert!(!observations.is_empty());
+        assert!(observations.iter().all(|event| {
+            event.payload["edge_key"]
+                .as_array()
+                .is_some_and(|endpoints| endpoints.len() == 2)
+                && event.payload["from_z_bits"].as_str().is_some()
+                && event.payload["to_z_bits"].as_str().is_some()
+                && event.payload["source_count"].as_u64().is_some()
+        }));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::diagnostics::{ComponentMemoryStats, ComponentScratchEvidence};
 use crate::options::ExecutionPolicy;
-use crate::trace::TraceCaptureBudget;
+use crate::trace::{TraceCaptureBudget, TraceRecorderV1};
 use crate::types::{Coord3D, EdgeSources, Line3D, LocalFaceRef};
 use crate::utils::parallel::{par_flat_map, par_sort_unstable, par_zip_for_each};
 use crate::utils::{
@@ -143,6 +143,13 @@ struct ComponentPartition {
 pub(crate) struct PartitionBorderExport {
     pub partition_id: usize,
     pub bbox: Rect<f64>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBoundaryNodingStats {
+    pub added_node_count: usize,
+    pub added_edge_count: usize,
+    pub split_event_count: usize,
 }
 
 #[derive(Default)]
@@ -813,12 +820,14 @@ impl PlanarGraph {
     /// angular order through the normal execution-policy sort path.
     pub(crate) fn node_partition_boundaries_with_execution_policy(
         &mut self,
+        partition_id: usize,
         bbox: Rect<f64>,
         execution_policy: &ExecutionPolicy,
-    ) -> crate::Result<()> {
+        mut trace: Option<&mut TraceRecorderV1>,
+    ) -> crate::Result<PartitionBoundaryNodingStats> {
         execution_policy.check_cancelled("boundary_noding")?;
         if self.edges.is_empty() {
-            return Ok(());
+            return Ok(PartitionBoundaryNodingStats::default());
         }
 
         // Bulk loading intentionally leaves this incremental map empty. Build
@@ -1004,8 +1013,14 @@ impl PlanarGraph {
             planned_edges,
         )?;
         if plans.is_empty() {
-            return Ok(());
+            return Ok(PartitionBoundaryNodingStats::default());
         }
+
+        let stats = PartitionBoundaryNodingStats {
+            added_node_count: planned_node_keys.len(),
+            added_edge_count: added_edges,
+            split_event_count: split_events,
+        };
 
         execution_policy.check_cancelled("boundary_noding_split")?;
         self.nodes_x.reserve(planned_node_keys.len());
@@ -1022,6 +1037,30 @@ impl PlanarGraph {
                 }
             })?);
         self.clear_next_links();
+
+        let mut recorded_nodes = std::collections::HashSet::new();
+        for (_, points) in &plans {
+            for point in &points[1..points.len() - 1] {
+                let node_id = self.add_node(*point);
+                if !recorded_nodes.insert(node_id) {
+                    continue;
+                }
+                if let Some(trace) = trace.as_deref_mut() {
+                    let payload = serde_json::json!({
+                        "partition_id": partition_id,
+                        "node_id": node_id,
+                        "x_bits": format!("0x{:016x}", canonical_coordinate_bits(point.x)),
+                        "y_bits": format!("0x{:016x}", canonical_coordinate_bits(point.y)),
+                        "z_bits": format!("0x{:016x}", canonical_coordinate_bits(point.z)),
+                    });
+                    trace.record(
+                        crate::trace::TraceStageV1::Graph,
+                        "partition_boundary_node",
+                        payload,
+                    );
+                }
+            }
+        }
 
         for (plan_index, (edge_idx, points)) in plans.into_iter().enumerate() {
             execution_policy.check_cancelled_every("boundary_noding_split", plan_index)?;
@@ -1060,20 +1099,49 @@ impl PlanarGraph {
             self.nodes_outgoing[first_dst].push(reverse_idx);
             self.nodes_degree[first_src] = self.nodes_outgoing[first_src].len();
             self.nodes_degree[first_dst] = self.nodes_outgoing[first_dst].len();
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.record(
+                    crate::trace::TraceStageV1::Graph,
+                    "partition_boundary_split_edge",
+                    serde_json::json!({
+                        "partition_id": partition_id,
+                        "edge_id": edge_idx,
+                        "from_node_id": first_src,
+                        "to_node_id": first_dst,
+                        "representative_line_id": representative_id,
+                        "source_count": sources.line_ids.len(),
+                    }),
+                );
+            }
 
             for (piece_index, pair) in points.windows(2).enumerate().skip(1) {
                 execution_policy.check_cancelled_every("boundary_noding_split", piece_index)?;
                 if NodeKey::from(pair[0].to_coord_2d()) == NodeKey::from(pair[1].to_coord_2d()) {
                     continue;
                 }
-                self.append_edge_with_sources(
+                let edge_id = self.append_edge_with_sources(
                     Line3D::new(pair[0], pair[1], representative_id),
                     sources.clone(),
                 );
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.record(
+                        crate::trace::TraceStageV1::Graph,
+                        "partition_boundary_split_edge",
+                        serde_json::json!({
+                            "partition_id": partition_id,
+                            "edge_id": edge_id,
+                            "from_node_id": self.directed_edges[self.edges[edge_id].dir_edges[0]].src,
+                            "to_node_id": self.directed_edges[self.edges[edge_id].dir_edges[0]].dst,
+                            "representative_line_id": representative_id,
+                            "source_count": sources.line_ids.len(),
+                        }),
+                    );
+                }
             }
         }
 
-        self.sort_edges_with_execution_policy(execution_policy)
+        self.sort_edges_with_execution_policy(execution_policy)?;
+        Ok(stats)
     }
 
     /// Removes an edge by marking it as deleted by matching line ID.
@@ -3741,8 +3809,10 @@ mod arrangement_ring_invariant_tests {
 
         graph
             .node_partition_boundaries_with_execution_policy(
+                0,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
                 &ExecutionPolicy::default(),
+                None,
             )
             .unwrap();
 
@@ -3774,8 +3844,10 @@ mod arrangement_ring_invariant_tests {
         ));
         graph
             .node_partition_boundaries_with_execution_policy(
+                0,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
                 &ExecutionPolicy::default(),
+                None,
             )
             .unwrap();
 
@@ -3833,8 +3905,10 @@ mod arrangement_ring_invariant_tests {
         ));
         graph
             .node_partition_boundaries_with_execution_policy(
+                0,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
                 &ExecutionPolicy::default(),
+                None,
             )
             .unwrap();
 
@@ -3872,8 +3946,10 @@ mod arrangement_ring_invariant_tests {
         };
         let error = graph
             .node_partition_boundaries_with_execution_policy(
+                0,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
                 &policy,
+                None,
             )
             .unwrap_err();
         assert!(error.to_string().contains("graph_edges"));
