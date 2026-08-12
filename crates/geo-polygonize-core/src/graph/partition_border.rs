@@ -1,5 +1,6 @@
 use crate::types::{Coord3D, PartitionFaceRef};
 use crate::utils::canonical_coordinate_bits;
+#[cfg(test)]
 use geo_types::Rect;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,6 +41,7 @@ impl PartitionBorderSide {
 /// The parameter is measured from the edge's original start coordinate. A
 /// corner can therefore produce two records with the same point and parameter
 /// while retaining both boundary sides for deterministic classification.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PartitionBoundaryIntersection {
     pub(crate) side: PartitionBorderSide,
@@ -47,6 +49,7 @@ pub(crate) struct PartitionBoundaryIntersection {
     pub(crate) point: Coord3D,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 struct PartitionBoundarySideLine {
     side: PartitionBorderSide,
@@ -59,6 +62,7 @@ struct PartitionBoundarySideLine {
     tangent_end: f64,
 }
 
+#[cfg(test)]
 fn push_boundary_intersection(
     intersections: &mut Vec<PartitionBoundaryIntersection>,
     boundary: PartitionBoundarySideLine,
@@ -112,6 +116,7 @@ fn push_boundary_intersection(
     });
 }
 
+#[cfg(test)]
 fn append_boundary_side_intersections(
     intersections: &mut Vec<PartitionBoundaryIntersection>,
     boundary: PartitionBoundarySideLine,
@@ -153,6 +158,7 @@ fn append_boundary_side_intersections(
 /// this helper does not snap or infer from polygon envelopes. It only uses the
 /// exact rectangle coordinates supplied by the tile partition. Events are
 /// sorted along the directed edge, with a stable side order at corners.
+#[cfg(test)]
 pub(crate) fn partition_boundary_intersections(
     start: Coord3D,
     end: Coord3D,
