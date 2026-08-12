@@ -814,6 +814,30 @@ pub(crate) struct PartitionBorderGlobalCycleFaceLineageStats {
     pub(crate) lineage_ready: bool,
 }
 
+/// Counts the detached evidence required before a future global face
+/// promotion. This is a cross-check after cycle-to-face lineage: it does not
+/// replace the pre-mutation gate and never promotes topology or output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalCycleFacePromotionGateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) plan_count: usize,
+    pub(crate) component_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) covered_face_edge_count: usize,
+    pub(crate) candidate_unbounded_face_id_count: usize,
+    pub(crate) mapped_unbounded_cycle_count: usize,
+    pub(crate) lineage_ready: bool,
+    pub(crate) component_coverage_ready: bool,
+    pub(crate) unbounded_face_application_ready: bool,
+    pub(crate) edge_count_mismatch_count: usize,
+    pub(crate) cycle_count_mismatch_count: usize,
+    pub(crate) plan_count_mismatch_count: usize,
+    pub(crate) face_count_mismatch_count: usize,
+    pub(crate) unbounded_marker_mismatch_count: usize,
+    pub(crate) gate_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -2194,6 +2218,77 @@ impl PartitionBorderGraph {
             && stats.observation_lineage_mismatch_count == 0
             && stats.unbounded_lineage_mismatch_count == 0;
         Ok(stats)
+    }
+
+    /// Cross-checks cycle-to-face lineage against complete component coverage
+    /// and the conservative exactly-one-unbounded application proof. This is
+    /// a detached promotion boundary only; it does not mutate any topology or
+    /// output state.
+    pub(crate) fn validate_global_cycle_face_promotion_gate(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        cycle_face_lineage: PartitionBorderGlobalCycleFaceLineageStats,
+        component_coverage: PartitionBorderGlobalComponentCoverageStats,
+        unbounded_face_application: PartitionBorderGlobalUnboundedFaceApplicationStats,
+    ) -> crate::Result<PartitionBorderGlobalCycleFacePromotionGateStats> {
+        execution_policy.check_cancelled("partition_border_global_cycle_face_promotion_gate")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_cycle_face_promotion_gate_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_cycle_face_promotion_gate_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+
+        let edge_count_mismatch_count = usize::from(cycle_face_lineage.edge_count != edge_count)
+            + usize::from(component_coverage.edge_count != edge_count);
+        let cycle_count_mismatch_count = usize::from(
+            cycle_face_lineage.cycle_count != unbounded_face_application.candidate_cycle_count,
+        );
+        let plan_count_mismatch_count =
+            usize::from(cycle_face_lineage.plan_count != cycle_face_lineage.cycle_count)
+                + usize::from(
+                    cycle_face_lineage.plan_count
+                        != unbounded_face_application.candidate_cycle_count,
+                );
+        let face_count_mismatch_count =
+            usize::from(component_coverage.face_count != unbounded_face_application.face_count);
+        let unbounded_marker_mismatch_count =
+            usize::from(unbounded_face_application.candidate_unbounded_face_id_count != 1)
+                + usize::from(unbounded_face_application.mapped_unbounded_cycle_count != 1);
+        let gate_ready = cycle_face_lineage.lineage_ready
+            && component_coverage.coverage_ready
+            && unbounded_face_application.application_ready
+            && edge_count_mismatch_count == 0
+            && cycle_count_mismatch_count == 0
+            && plan_count_mismatch_count == 0
+            && face_count_mismatch_count == 0
+            && unbounded_marker_mismatch_count == 0;
+
+        Ok(PartitionBorderGlobalCycleFacePromotionGateStats {
+            edge_count,
+            cycle_count: cycle_face_lineage.cycle_count,
+            plan_count: cycle_face_lineage.plan_count,
+            component_count: component_coverage.component_count,
+            face_count: component_coverage.face_count,
+            covered_face_edge_count: component_coverage.covered_face_edge_count,
+            candidate_unbounded_face_id_count: unbounded_face_application
+                .candidate_unbounded_face_id_count,
+            mapped_unbounded_cycle_count: unbounded_face_application.mapped_unbounded_cycle_count,
+            lineage_ready: cycle_face_lineage.lineage_ready,
+            component_coverage_ready: component_coverage.coverage_ready,
+            unbounded_face_application_ready: unbounded_face_application.application_ready,
+            edge_count_mismatch_count,
+            cycle_count_mismatch_count,
+            plan_count_mismatch_count,
+            face_count_mismatch_count,
+            unbounded_marker_mismatch_count,
+            gate_ready,
+        })
     }
 
     #[cfg(test)]
@@ -12511,6 +12606,170 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_cycle_face_lineage"
+        ));
+    }
+
+    #[test]
+    fn global_cycle_face_promotion_gate_requires_matching_detached_evidence() {
+        let graph = exact_global_topology_candidate_graph();
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_cycle_face_promotion_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalCycleFaceLineageStats {
+                    edge_count: 4,
+                    cycle_count: 1,
+                    plan_count: 1,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalComponentCoverageStats {
+                    component_count: 1,
+                    face_count: 2,
+                    edge_count: 4,
+                    face_edge_count: 4,
+                    covered_face_edge_count: 4,
+                    coverage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalUnboundedFaceApplicationStats {
+                    face_count: 2,
+                    candidate_cycle_count: 1,
+                    local_unbounded_face_count: 1,
+                    candidate_unbounded_face_id_count: 1,
+                    mapped_unbounded_cycle_count: 1,
+                    proof_ready: true,
+                    application_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalCycleFacePromotionGateStats {
+                edge_count: 4,
+                cycle_count: 1,
+                plan_count: 1,
+                component_count: 1,
+                face_count: 2,
+                covered_face_edge_count: 4,
+                candidate_unbounded_face_id_count: 1,
+                mapped_unbounded_cycle_count: 1,
+                lineage_ready: true,
+                component_coverage_ready: true,
+                unbounded_face_application_ready: true,
+                gate_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_cycle_face_promotion_gate_rejects_count_and_marker_drift() {
+        let graph = exact_global_topology_candidate_graph();
+        let stats = graph
+            .validate_global_cycle_face_promotion_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalCycleFaceLineageStats {
+                    edge_count: 3,
+                    cycle_count: 2,
+                    plan_count: 1,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalComponentCoverageStats {
+                    component_count: 1,
+                    face_count: 3,
+                    edge_count: 3,
+                    coverage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalUnboundedFaceApplicationStats {
+                    face_count: 2,
+                    candidate_cycle_count: 1,
+                    candidate_unbounded_face_id_count: 2,
+                    mapped_unbounded_cycle_count: 0,
+                    application_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!stats.gate_ready);
+        assert_eq!(stats.edge_count_mismatch_count, 2);
+        assert_eq!(stats.cycle_count_mismatch_count, 1);
+        assert_eq!(stats.plan_count_mismatch_count, 1);
+        assert_eq!(stats.face_count_mismatch_count, 1);
+        assert_eq!(stats.unbounded_marker_mismatch_count, 2);
+    }
+
+    #[test]
+    fn global_cycle_face_promotion_gate_is_bounded_and_cancellable() {
+        let graph = exact_global_topology_candidate_graph();
+        let inputs = (
+            PartitionBorderGlobalCycleFaceLineageStats {
+                edge_count: 4,
+                cycle_count: 1,
+                plan_count: 1,
+                lineage_ready: true,
+                ..Default::default()
+            },
+            PartitionBorderGlobalComponentCoverageStats {
+                component_count: 1,
+                face_count: 2,
+                edge_count: 4,
+                covered_face_edge_count: 4,
+                coverage_ready: true,
+                ..Default::default()
+            },
+            PartitionBorderGlobalUnboundedFaceApplicationStats {
+                face_count: 2,
+                candidate_cycle_count: 1,
+                local_unbounded_face_count: 1,
+                candidate_unbounded_face_id_count: 1,
+                mapped_unbounded_cycle_count: 1,
+                proof_ready: true,
+                application_ready: true,
+                ..Default::default()
+            },
+        );
+        let error = graph
+            .validate_global_cycle_face_promotion_gate(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                inputs.0,
+                inputs.1,
+                inputs.2,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_cycle_face_promotion_gate_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_cycle_face_promotion_gate(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                inputs.0,
+                inputs.1,
+                inputs.2,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_cycle_face_promotion_gate"
         ));
     }
 
