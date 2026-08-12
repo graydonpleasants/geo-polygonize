@@ -729,6 +729,22 @@ pub(crate) struct PartitionBorderGlobalTopologyApplicationGateStats {
     pub(crate) application_ready: bool,
 }
 
+/// Counts from validating deterministic global-component coverage over the
+/// detached edge-slot candidate. This is component evidence only; it does not
+/// assign global face IDs or mutate topology.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalComponentCoverageStats {
+    pub(crate) component_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) edge_count: usize,
+    pub(crate) face_edge_count: usize,
+    pub(crate) covered_face_edge_count: usize,
+    pub(crate) uncovered_face_edge_count: usize,
+    pub(crate) duplicate_face_count: usize,
+    pub(crate) duplicate_twin_edge_count: usize,
+    pub(crate) coverage_ready: bool,
+}
+
 /// Canonical evidence for one border node after all physical observations
 /// have been grouped by exact XY identity. The selected Z value is retained
 /// as a policy decision, while every candidate and contributing identity
@@ -2352,6 +2368,110 @@ impl PartitionBorderGraph {
 
     pub(crate) fn global_components(&self) -> &[PartitionBorderGlobalComponent] {
         &self.global_components
+    }
+
+    /// Validates that the deterministic global components cover every
+    /// face-qualified edge in the detached candidate exactly once. Missing
+    /// face lineage remains explicit evidence and prevents readiness; no
+    /// component, face, or topology identity is rewritten.
+    pub(crate) fn validate_global_component_coverage(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalComponentCoverageStats> {
+        execution_policy.check_cancelled("partition_border_global_component_coverage")?;
+        execution_policy.check(
+            "partition_border_global_component_coverage_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_component_coverage_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global component coverage has no detached topology candidate".to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global component coverage candidate length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    self.global_face_edge_map.len()
+                ),
+            });
+        }
+
+        let mut component_by_face = BTreeMap::<PartitionFaceRef, usize>::new();
+        let mut duplicate_face_count = 0usize;
+        let mut face_count = 0usize;
+        for (component_index, component) in self.global_components.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_component_coverage_components",
+                component_index,
+            )?;
+            if component.component_index != component_index {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global component coverage index mismatch: expected {}, got {}",
+                        component_index, component.component_index
+                    ),
+                });
+            }
+            for face_ref in &component.face_refs {
+                face_count += 1;
+                if component_by_face
+                    .insert(*face_ref, component_index)
+                    .is_some()
+                {
+                    duplicate_face_count += 1;
+                }
+            }
+        }
+
+        let mut twin_edge_owner = BTreeMap::<PartitionBorderEdgeKey, usize>::new();
+        let mut duplicate_twin_edge_count = 0usize;
+        for (component_index, component) in self.global_components.iter().enumerate() {
+            for edge_key in &component.twin_edge_keys {
+                if twin_edge_owner.insert(*edge_key, component_index).is_some() {
+                    duplicate_twin_edge_count += 1;
+                }
+            }
+        }
+
+        let mut face_edge_count = 0usize;
+        let mut covered_face_edge_count = 0usize;
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_component_coverage_edges",
+                edge_index,
+            )?;
+            let Some(face_ref) = edge.face_ref else {
+                continue;
+            };
+            face_edge_count += 1;
+            if component_by_face.contains_key(&face_ref) {
+                covered_face_edge_count += 1;
+            }
+        }
+        let uncovered_face_edge_count = face_edge_count - covered_face_edge_count;
+        let coverage_ready = duplicate_face_count == 0
+            && duplicate_twin_edge_count == 0
+            && uncovered_face_edge_count == 0
+            && face_count > 0;
+        Ok(PartitionBorderGlobalComponentCoverageStats {
+            component_count: self.global_components.len(),
+            face_count,
+            edge_count: self.global_face_edge_map.len(),
+            face_edge_count,
+            covered_face_edge_count,
+            uncovered_face_edge_count,
+            duplicate_face_count,
+            duplicate_twin_edge_count,
+            coverage_ready,
+        })
     }
 
     /// Retains deterministic component-level border payload merges after
@@ -6299,7 +6419,12 @@ mod tests {
             .observation_id();
         graph.global_components = vec![PartitionBorderGlobalComponent {
             component_index: 0,
-            face_refs: vec![face(1, 4, 9), face(2, 6, 11)],
+            face_refs: vec![
+                face(1, 4, 9),
+                face(1, 4, 10),
+                face(2, 6, 11),
+                face(2, 6, 12),
+            ],
             border_node_keys: vec![
                 PartitionBorderNodeKey::from_coord(coord(0.0, 0.0, 0.0)),
                 PartitionBorderNodeKey::from_coord(coord(2.0, 0.0, 0.0)),
@@ -7049,6 +7174,78 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_topology_application_gate"
+        ));
+    }
+
+    #[test]
+    fn global_component_coverage_is_complete_and_deterministic() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = graph
+            .validate_global_component_coverage(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalComponentCoverageStats {
+                component_count: 1,
+                face_count: 4,
+                edge_count: 4,
+                face_edge_count: 4,
+                covered_face_edge_count: 4,
+                uncovered_face_edge_count: 0,
+                duplicate_face_count: 0,
+                duplicate_twin_edge_count: 0,
+                coverage_ready: true,
+            }
+        );
+
+        graph.global_components[0].face_refs.push(face(1, 4, 9));
+        let stats = graph
+            .validate_global_component_coverage(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.duplicate_face_count, 1);
+        assert!(!stats.coverage_ready);
+    }
+
+    #[test]
+    fn global_component_coverage_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .validate_global_component_coverage(&ExecutionPolicy {
+                max_graph_edges: Some(3),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 3,
+                observed: 4,
+            } if stage == "partition_border_global_component_coverage_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_global_component_coverage(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_component_coverage"
         ));
     }
 

@@ -412,6 +412,64 @@ mod tests {
                 .partition_border_global_topology_application_gate_ready,
             global_topology_application_gate_stats.application_ready
         );
+        let global_component_coverage_stats = result
+            .partition_border_graph
+            .validate_global_component_coverage(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_component_count,
+            global_component_coverage_stats.component_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_face_count,
+            global_component_coverage_stats.face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_edge_count,
+            global_component_coverage_stats.edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_face_edge_count,
+            global_component_coverage_stats.face_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_covered_face_edge_count,
+            global_component_coverage_stats.covered_face_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_uncovered_face_edge_count,
+            global_component_coverage_stats.uncovered_face_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_duplicate_face_count,
+            global_component_coverage_stats.duplicate_face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_duplicate_twin_edge_count,
+            global_component_coverage_stats.duplicate_twin_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_component_coverage_ready,
+            global_component_coverage_stats.coverage_ready
+        );
         assert_eq!(
             result
                 .stitching_report
@@ -1593,6 +1651,99 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_topology_application_gate_ready
+            )
+        );
+        let component_coverage = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_component_coverage")
+            .expect("global component coverage evidence");
+        assert_eq!(
+            component_coverage.payload["component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_component_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_face_count as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_edge_count as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["face_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_face_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["covered_face_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_covered_face_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["uncovered_face_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_uncovered_face_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["duplicate_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_duplicate_face_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["duplicate_twin_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_duplicate_twin_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            component_coverage.payload["coverage_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_component_coverage_ready
             )
         );
         let node_reconciliation = traced
