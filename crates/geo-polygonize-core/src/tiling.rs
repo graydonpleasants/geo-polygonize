@@ -424,6 +424,22 @@ pub struct StitchingReport {
     pub partition_border_global_unbounded_face_application_duplicate_unbounded_face_id_count: usize,
     /// Whether the unique unbounded-face evidence is ready for future mutation.
     pub partition_border_global_unbounded_face_application_ready: bool,
+    /// Detached global topology evidence combined before any future mutation.
+    pub partition_border_global_topology_mutation_gate_edge_count: usize,
+    pub partition_border_global_topology_mutation_gate_component_count: usize,
+    pub partition_border_global_topology_mutation_gate_face_count: usize,
+    pub partition_border_global_topology_mutation_gate_candidate_cycle_count: usize,
+    pub partition_border_global_topology_mutation_gate_applied_twin_count: usize,
+    pub partition_border_global_topology_mutation_gate_mapped_twin_count: usize,
+    pub partition_border_global_topology_mutation_gate_source_complete_twin_count: usize,
+    pub partition_border_global_topology_mutation_gate_closed_face_count: usize,
+    pub partition_border_global_topology_mutation_gate_topology_application_ready: bool,
+    pub partition_border_global_topology_mutation_gate_component_coverage_ready: bool,
+    pub partition_border_global_topology_mutation_gate_face_id_application_ready: bool,
+    pub partition_border_global_topology_mutation_gate_unbounded_face_application_ready: bool,
+    pub partition_border_global_topology_mutation_gate_face_walk_ready: bool,
+    pub partition_border_global_topology_mutation_gate_euler_evidence_ready: bool,
+    pub partition_border_global_topology_mutation_gate_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2671,6 +2687,16 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_unbounded_face_proof,
                 partition_border_global_face_id_application,
             )?;
+        let partition_border_global_topology_mutation_gate = partition_border_graph
+            .validate_global_topology_mutation_gate_with_evidence(
+                &self.execution_policy,
+                partition_border_global_topology_application_gate,
+                partition_border_global_component_coverage,
+                partition_border_global_face_id_application,
+                partition_border_global_unbounded_face_application,
+                partition_border_global_face_walk_invariants,
+                partition_border_global_face_euler_witness,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2739,6 +2765,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_unbounded_face_application(
                 partition_border_global_unbounded_face_application,
+            );
+            trace.record_partition_border_global_topology_mutation_gate(
+                partition_border_global_topology_mutation_gate,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3133,6 +3162,37 @@ impl<'a> TiledPolygonizer<'a> {
                         .duplicate_unbounded_face_id_count,
                 partition_border_global_unbounded_face_application_ready:
                     partition_border_global_unbounded_face_application.application_ready,
+                partition_border_global_topology_mutation_gate_edge_count:
+                    partition_border_global_topology_mutation_gate.edge_count,
+                partition_border_global_topology_mutation_gate_component_count:
+                    partition_border_global_topology_mutation_gate.component_count,
+                partition_border_global_topology_mutation_gate_face_count:
+                    partition_border_global_topology_mutation_gate.face_count,
+                partition_border_global_topology_mutation_gate_candidate_cycle_count:
+                    partition_border_global_topology_mutation_gate.candidate_cycle_count,
+                partition_border_global_topology_mutation_gate_applied_twin_count:
+                    partition_border_global_topology_mutation_gate.applied_twin_count,
+                partition_border_global_topology_mutation_gate_mapped_twin_count:
+                    partition_border_global_topology_mutation_gate.mapped_twin_count,
+                partition_border_global_topology_mutation_gate_source_complete_twin_count:
+                    partition_border_global_topology_mutation_gate.source_complete_twin_count,
+                partition_border_global_topology_mutation_gate_closed_face_count:
+                    partition_border_global_topology_mutation_gate.closed_face_count,
+                partition_border_global_topology_mutation_gate_topology_application_ready:
+                    partition_border_global_topology_mutation_gate.topology_application_ready,
+                partition_border_global_topology_mutation_gate_component_coverage_ready:
+                    partition_border_global_topology_mutation_gate.component_coverage_ready,
+                partition_border_global_topology_mutation_gate_face_id_application_ready:
+                    partition_border_global_topology_mutation_gate.face_id_application_ready,
+                partition_border_global_topology_mutation_gate_unbounded_face_application_ready:
+                    partition_border_global_topology_mutation_gate
+                        .unbounded_face_application_ready,
+                partition_border_global_topology_mutation_gate_face_walk_ready:
+                    partition_border_global_topology_mutation_gate.face_walk_ready,
+                partition_border_global_topology_mutation_gate_euler_evidence_ready:
+                    partition_border_global_topology_mutation_gate.euler_evidence_ready,
+                partition_border_global_topology_mutation_gate_ready:
+                    partition_border_global_topology_mutation_gate.gate_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

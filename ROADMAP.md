@@ -531,6 +531,9 @@ Blocked by #1288.
 - [x] Gate exactly-one local-unbounded-face evidence on one mapped detached
   candidate face ID and cycle, retaining missing or duplicate markers without
   mutating topology.
+- [x] Combine detached topology, component, face-ID, unbounded, twin, cycle,
+  source, Euler, and face-walk evidence into one bounded pre-mutation gate;
+  retain incomplete proof without mutating topology.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
