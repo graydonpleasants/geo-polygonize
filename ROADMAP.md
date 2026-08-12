@@ -480,6 +480,9 @@ Blocked by #1288.
   payload/source/Z lineage, and face-adjacency connectivity as evidence;
   preserve incomplete cycles and local-unbounded multiplicity without claiming
   global face IDs or a planar Euler proof.
+- [x] Add a conservative exactly-one-local-marker unbounded-face proof gate;
+  report closed-cycle and twin-readiness requirements, and reject multiple local
+  unbounded markers rather than guessing their global identity.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
