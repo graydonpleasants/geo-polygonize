@@ -420,6 +420,8 @@ Tracked by
 [#1288](https://github.com/graydonpleasants/geo-polygonize/issues/1288).
 
 - [ ] Split local arrangement edges at exact partition-boundary intersections.
+- [x] Define exact rectangle-side intersection events, including endpoint,
+  corner, finite-side collinear, signed-zero, and reversed-edge fixtures.
 - [ ] Handle endpoints, crossings, corners, and collinear-on-border edges.
 - [ ] Rebuild adjacency, angular order, `next` links, face IDs, and unbounded
   markers after splitting.
