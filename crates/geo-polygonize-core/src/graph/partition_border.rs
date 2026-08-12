@@ -47,66 +47,8 @@ pub(crate) struct PartitionBoundaryIntersection {
     pub(crate) point: Coord3D,
 }
 
-fn push_boundary_intersection(
-    intersections: &mut Vec<PartitionBoundaryIntersection>,
-    side: PartitionBorderSide,
-    mut t: f64,
-    start: Coord3D,
-    end: Coord3D,
-    boundary_coordinate: f64,
-    tangent_min: f64,
-    tangent_max: f64,
-) {
-    if !t.is_finite() || t < 0.0 || t > 1.0 {
-        return;
-    }
-    t = if t <= 0.0 {
-        0.0
-    } else if t >= 1.0 {
-        1.0
-    } else {
-        t
-    };
-
-    let mut point = Coord3D::new(
-        start.x + (end.x - start.x) * t,
-        start.y + (end.y - start.y) * t,
-        start.z + (end.z - start.z) * t,
-    );
-    match side {
-        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => {
-            point.x = boundary_coordinate;
-        }
-        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => {
-            point.y = boundary_coordinate;
-        }
-    }
-    let tangent = match side {
-        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => point.y,
-        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => point.x,
-    };
-    if tangent < tangent_min || tangent > tangent_max {
-        return;
-    }
-
-    let point_key = [
-        canonical_coordinate_bits(point.x),
-        canonical_coordinate_bits(point.y),
-    ];
-    if intersections.iter().any(|intersection| {
-        intersection.side == side
-            && [
-                canonical_coordinate_bits(intersection.point.x),
-                canonical_coordinate_bits(intersection.point.y),
-            ] == point_key
-    }) {
-        return;
-    }
-    intersections.push(PartitionBoundaryIntersection { side, t, point });
-}
-
-fn append_boundary_side_intersections(
-    intersections: &mut Vec<PartitionBoundaryIntersection>,
+#[derive(Clone, Copy)]
+struct PartitionBoundarySideLine {
     side: PartitionBorderSide,
     boundary_coordinate: f64,
     tangent_min: f64,
@@ -115,70 +57,94 @@ fn append_boundary_side_intersections(
     axis_end: f64,
     tangent_start: f64,
     tangent_end: f64,
+}
+
+fn push_boundary_intersection(
+    intersections: &mut Vec<PartitionBoundaryIntersection>,
+    boundary: PartitionBoundarySideLine,
+    mut t: f64,
     start: Coord3D,
     end: Coord3D,
 ) {
-    let axis_start_on_boundary =
-        canonical_coordinate_bits(axis_start) == canonical_coordinate_bits(boundary_coordinate);
-    let axis_end_on_boundary =
-        canonical_coordinate_bits(axis_end) == canonical_coordinate_bits(boundary_coordinate);
+    if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+        return;
+    }
+    t = t.clamp(0.0, 1.0);
+
+    let mut point = Coord3D::new(
+        start.x + (end.x - start.x) * t,
+        start.y + (end.y - start.y) * t,
+        start.z + (end.z - start.z) * t,
+    );
+    match boundary.side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => {
+            point.x = boundary.boundary_coordinate;
+        }
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => {
+            point.y = boundary.boundary_coordinate;
+        }
+    }
+    let tangent = match boundary.side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => point.y,
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => point.x,
+    };
+    if tangent < boundary.tangent_min || tangent > boundary.tangent_max {
+        return;
+    }
+
+    let point_key = [
+        canonical_coordinate_bits(point.x),
+        canonical_coordinate_bits(point.y),
+    ];
+    if intersections.iter().any(|intersection| {
+        intersection.side == boundary.side
+            && [
+                canonical_coordinate_bits(intersection.point.x),
+                canonical_coordinate_bits(intersection.point.y),
+            ] == point_key
+    }) {
+        return;
+    }
+    intersections.push(PartitionBoundaryIntersection {
+        side: boundary.side,
+        t,
+        point,
+    });
+}
+
+fn append_boundary_side_intersections(
+    intersections: &mut Vec<PartitionBoundaryIntersection>,
+    boundary: PartitionBoundarySideLine,
+    start: Coord3D,
+    end: Coord3D,
+) {
+    let axis_start_on_boundary = canonical_coordinate_bits(boundary.axis_start)
+        == canonical_coordinate_bits(boundary.boundary_coordinate);
+    let axis_end_on_boundary = canonical_coordinate_bits(boundary.axis_end)
+        == canonical_coordinate_bits(boundary.boundary_coordinate);
 
     if axis_start_on_boundary && axis_end_on_boundary {
         // A collinear edge can extend beyond the finite partition side. Add
         // the side endpoints as breakpoints so the in-border span becomes a
         // physical graph edge after splitting.
-        push_boundary_intersection(
-            intersections,
-            side,
-            0.0,
-            start,
-            end,
-            boundary_coordinate,
-            tangent_min,
-            tangent_max,
-        );
-        push_boundary_intersection(
-            intersections,
-            side,
-            1.0,
-            start,
-            end,
-            boundary_coordinate,
-            tangent_min,
-            tangent_max,
-        );
-        if tangent_start != tangent_end {
-            for tangent in [tangent_min, tangent_max] {
-                let t = (tangent - tangent_start) / (tangent_end - tangent_start);
-                push_boundary_intersection(
-                    intersections,
-                    side,
-                    t,
-                    start,
-                    end,
-                    boundary_coordinate,
-                    tangent_min,
-                    tangent_max,
-                );
+        push_boundary_intersection(intersections, boundary, 0.0, start, end);
+        push_boundary_intersection(intersections, boundary, 1.0, start, end);
+        if boundary.tangent_start != boundary.tangent_end {
+            for tangent in [boundary.tangent_min, boundary.tangent_max] {
+                let t = (tangent - boundary.tangent_start)
+                    / (boundary.tangent_end - boundary.tangent_start);
+                push_boundary_intersection(intersections, boundary, t, start, end);
             }
         }
         return;
     }
 
-    if axis_start == axis_end {
+    if boundary.axis_start == boundary.axis_end {
         return;
     }
-    let t = (boundary_coordinate - axis_start) / (axis_end - axis_start);
-    push_boundary_intersection(
-        intersections,
-        side,
-        t,
-        start,
-        end,
-        boundary_coordinate,
-        tangent_min,
-        tangent_max,
-    );
+    let t = (boundary.boundary_coordinate - boundary.axis_start)
+        / (boundary.axis_end - boundary.axis_start);
+    push_boundary_intersection(intersections, boundary, t, start, end);
 }
 
 /// Returns the exact partition-boundary events for one live graph edge.
@@ -198,53 +164,61 @@ pub(crate) fn partition_boundary_intersections(
 
     append_boundary_side_intersections(
         &mut intersections,
-        PartitionBorderSide::MinX,
-        min.x,
-        min.y,
-        max.y,
-        start.x,
-        end.x,
-        start.y,
-        end.y,
+        PartitionBoundarySideLine {
+            side: PartitionBorderSide::MinX,
+            boundary_coordinate: min.x,
+            tangent_min: min.y,
+            tangent_max: max.y,
+            axis_start: start.x,
+            axis_end: end.x,
+            tangent_start: start.y,
+            tangent_end: end.y,
+        },
         start,
         end,
     );
     append_boundary_side_intersections(
         &mut intersections,
-        PartitionBorderSide::MaxX,
-        max.x,
-        min.y,
-        max.y,
-        start.x,
-        end.x,
-        start.y,
-        end.y,
+        PartitionBoundarySideLine {
+            side: PartitionBorderSide::MaxX,
+            boundary_coordinate: max.x,
+            tangent_min: min.y,
+            tangent_max: max.y,
+            axis_start: start.x,
+            axis_end: end.x,
+            tangent_start: start.y,
+            tangent_end: end.y,
+        },
         start,
         end,
     );
     append_boundary_side_intersections(
         &mut intersections,
-        PartitionBorderSide::MinY,
-        min.y,
-        min.x,
-        max.x,
-        start.y,
-        end.y,
-        start.x,
-        end.x,
+        PartitionBoundarySideLine {
+            side: PartitionBorderSide::MinY,
+            boundary_coordinate: min.y,
+            tangent_min: min.x,
+            tangent_max: max.x,
+            axis_start: start.y,
+            axis_end: end.y,
+            tangent_start: start.x,
+            tangent_end: end.x,
+        },
         start,
         end,
     );
     append_boundary_side_intersections(
         &mut intersections,
-        PartitionBorderSide::MaxY,
-        max.y,
-        min.x,
-        max.x,
-        start.y,
-        end.y,
-        start.x,
-        end.x,
+        PartitionBoundarySideLine {
+            side: PartitionBorderSide::MaxY,
+            boundary_coordinate: max.y,
+            tangent_min: min.x,
+            tangent_max: max.x,
+            axis_start: start.y,
+            axis_end: end.y,
+            tangent_start: start.x,
+            tangent_end: end.x,
+        },
         start,
         end,
     );
