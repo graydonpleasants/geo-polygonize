@@ -209,6 +209,66 @@ mod tests {
                     .to_global_node_id
                     .is_some_and(|node| node < global_face_nodes.len())
         }));
+        let global_face_next_application_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_face_next_application_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let global_face_next_application_plans = result
+            .partition_border_graph
+            .global_face_next_application_plans();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_plan_count,
+            global_face_next_application_stats.plan_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_link_count,
+            global_face_next_application_stats.candidate_link_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_edge_count,
+            global_face_next_application_stats.mapped_edge_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_twin_count,
+            global_face_next_application_stats.mapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_unmapped_observation_count,
+            global_face_next_application_stats.unmapped_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_incomplete_plan_count,
+            global_face_next_application_stats.incomplete_plan_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_node_discontinuity_count,
+            global_face_next_application_stats.node_discontinuity_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_application_ready,
+            global_face_next_application_stats.application_ready
+        );
+        assert!(global_face_next_application_plans.iter().all(|plan| {
+            plan.global_dir_edge_ids.len() == plan.successor_global_dir_edge_ids.len()
+                || !plan.closed
+        }));
         assert_eq!(
             result
                 .stitching_report
@@ -1087,6 +1147,91 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_node_ready
+            )
+        );
+        let next_application = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_next_application")
+            .expect("global face next application evidence");
+        assert_eq!(
+            next_application.payload["plan_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_plan_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["candidate_link_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_link_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["mapped_edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["mapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["unmapped_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_unmapped_observation_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["incomplete_plan_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_incomplete_plan_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["node_discontinuity_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_node_discontinuity_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            next_application.payload["application_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_application_ready
             )
         );
         let node_reconciliation = traced

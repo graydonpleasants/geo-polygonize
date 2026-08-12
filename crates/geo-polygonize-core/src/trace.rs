@@ -5,8 +5,8 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
     PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -683,6 +683,27 @@ impl TraceRecorderV1 {
                 "z_candidate_count": stats.z_candidate_count,
                 "z_conflict_count": stats.z_conflict_count,
                 "node_map_ready": stats.node_map_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_next_application(
+        &mut self,
+        stats: PartitionBorderGlobalFaceNextApplicationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_next_application",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "plan_count": stats.plan_count,
+                "candidate_link_count": stats.candidate_link_count,
+                "mapped_edge_count": stats.mapped_edge_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "unmapped_observation_count": stats.unmapped_observation_count,
+                "incomplete_plan_count": stats.incomplete_plan_count,
+                "node_discontinuity_count": stats.node_discontinuity_count,
+                "application_ready": stats.application_ready,
             }),
         )
     }

@@ -441,6 +441,22 @@ pub struct StitchingReport {
     pub partition_border_global_face_node_z_conflict_count: usize,
     /// Whether every retained observation received global endpoint slots.
     pub partition_border_global_face_node_ready: bool,
+    /// Global-face mutation cycles retained in global edge-slot space.
+    pub partition_border_global_face_next_application_plan_count: usize,
+    /// Candidate global edge-slot successor links retained by those plans.
+    pub partition_border_global_face_next_application_link_count: usize,
+    /// Active global edge slots covered by the application plan.
+    pub partition_border_global_face_next_application_edge_count: usize,
+    /// Applied cross-border twins validated in global node-slot space.
+    pub partition_border_global_face_next_application_twin_count: usize,
+    /// Observations without global edge-slot lineage for application.
+    pub partition_border_global_face_next_application_unmapped_observation_count: usize,
+    /// Mutation cycles retained incomplete or not node-continuous.
+    pub partition_border_global_face_next_application_incomplete_plan_count: usize,
+    /// Candidate links whose endpoint node slots were discontinuous.
+    pub partition_border_global_face_next_application_node_discontinuity_count: usize,
+    /// Whether the retained boundary application plan is exact and continuous.
+    pub partition_border_global_face_next_application_ready: bool,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -2546,6 +2562,8 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_face_next_application = partition_border_graph
+            .reconcile_global_face_next_application_plans(&self.execution_policy)?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2598,6 +2616,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_id_plans(
                 partition_border_global_face_id_plans,
+            );
+            trace.record_partition_border_global_face_next_application(
+                partition_border_global_face_next_application,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -3004,6 +3025,22 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_nodes.z_conflict_count,
                 partition_border_global_face_node_ready: partition_border_global_face_nodes
                     .node_map_ready,
+                partition_border_global_face_next_application_plan_count:
+                    partition_border_global_face_next_application.plan_count,
+                partition_border_global_face_next_application_link_count:
+                    partition_border_global_face_next_application.candidate_link_count,
+                partition_border_global_face_next_application_edge_count:
+                    partition_border_global_face_next_application.mapped_edge_count,
+                partition_border_global_face_next_application_twin_count:
+                    partition_border_global_face_next_application.mapped_twin_count,
+                partition_border_global_face_next_application_unmapped_observation_count:
+                    partition_border_global_face_next_application.unmapped_observation_count,
+                partition_border_global_face_next_application_incomplete_plan_count:
+                    partition_border_global_face_next_application.incomplete_plan_count,
+                partition_border_global_face_next_application_node_discontinuity_count:
+                    partition_border_global_face_next_application.node_discontinuity_count,
+                partition_border_global_face_next_application_ready:
+                    partition_border_global_face_next_application.application_ready,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,
