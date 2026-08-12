@@ -1083,6 +1083,22 @@ pub(crate) struct PartitionBorderGlobalFaceIdPlanStats {
     pub(crate) assignment_ready: bool,
 }
 
+/// Counts from validating that deterministic candidate face IDs map one-to-one
+/// onto the detached candidate's closed cycles. This is evidence only; it does
+/// not write IDs or global `next` links.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceIdApplicationStats {
+    pub(crate) component_count: usize,
+    pub(crate) candidate_cycle_count: usize,
+    pub(crate) assigned_face_count: usize,
+    pub(crate) candidate_cycle_start_count: usize,
+    pub(crate) mapped_cycle_count: usize,
+    pub(crate) unmapped_plan_count: usize,
+    pub(crate) duplicate_face_id_count: usize,
+    pub(crate) non_contiguous_face_id_count: usize,
+    pub(crate) application_ready: bool,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -4458,6 +4474,197 @@ impl PartitionBorderGraph {
         &self.global_face_id_plans
     }
 
+    /// Validates that candidate global face IDs are a contiguous permutation of
+    /// the detached candidate's closed cycles. Each retained boundary plan must
+    /// map to exactly one candidate cycle by its observation identities; no
+    /// topology or output state is changed.
+    pub(crate) fn validate_global_face_id_application(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFaceIdApplicationStats> {
+        execution_policy.check_cancelled("partition_border_global_face_id_application")?;
+        execution_policy.check(
+            "partition_border_global_face_id_application_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_id_application_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face ID application has no detached topology candidate".to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face ID application candidate length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    self.global_face_edge_map.len()
+                ),
+            });
+        }
+
+        let mut edge_slot_by_observation = BTreeMap::<PartitionBorderObservationId, usize>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_id_application_edges",
+                edge_index,
+            )?;
+            for observation in self.observations.values().filter(|observation| {
+                observation.partition_id == edge.partition_id
+                    && observation.local_dir_edge_id == edge.local_dir_edge_id
+                    && observation.edge_key == edge.edge_key
+                    && observation.from == edge.from
+                    && observation.to == edge.to
+                    && observation.from_z_bits == edge.from_z_bits
+                    && observation.to_z_bits == edge.to_z_bits
+                    && observation.source_line_ids == edge.source_line_ids
+                    && observation.face_ref == edge.face_ref
+                    && observation.local_face_is_unbounded == edge.local_face_is_unbounded
+            }) {
+                if edge_slot_by_observation
+                    .insert(observation.observation_id(), edge_index)
+                    .is_some()
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face ID application observation {:?} is mapped more than once",
+                            observation.observation_id()
+                        ),
+                    });
+                }
+            }
+        }
+
+        let mut candidate_cycles = Vec::<BTreeSet<usize>>::new();
+        let mut cycle_starts = BTreeSet::new();
+        for (start_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_id_application_cycles",
+                start_index,
+            )?;
+            if start >= candidate.next_global_dir_edge_ids.len() || !cycle_starts.insert(start) {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face ID application candidate has invalid or duplicate cycle start {}",
+                        start
+                    ),
+                });
+            }
+            let mut cycle = BTreeSet::new();
+            let mut current = start;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_id_application_cycle_edges",
+                    cycle.len(),
+                )?;
+                if !cycle.insert(current) {
+                    if current != start {
+                        return Err(crate::PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "global face ID application candidate cycle from {} repeats at {}",
+                                start, current
+                            ),
+                        });
+                    }
+                    break;
+                }
+                let Some(successor) = candidate.next_global_dir_edge_ids[current] else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face ID application candidate cycle from {} is incomplete",
+                            start
+                        ),
+                    });
+                };
+                if successor >= candidate.next_global_dir_edge_ids.len() {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face ID application candidate cycle from {} references {} outside {} slots",
+                            start,
+                            successor,
+                            candidate.next_global_dir_edge_ids.len()
+                        ),
+                    });
+                }
+                current = successor;
+            }
+            candidate_cycles.push(cycle);
+        }
+
+        let mut assigned_ids = BTreeSet::new();
+        let mut assigned_face_count = 0usize;
+        let mut duplicate_face_id_count = 0usize;
+        let mut mapped_cycle_count = 0usize;
+        let mut unmapped_plan_count = 0usize;
+        let mut used_cycles = BTreeSet::new();
+        for (plan_index, plan) in self.global_face_id_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_id_application_plans",
+                plan_index,
+            )?;
+            let Some(face_id) = plan.candidate_global_face_id else {
+                unmapped_plan_count += 1;
+                continue;
+            };
+            assigned_face_count += 1;
+            if !assigned_ids.insert(face_id) {
+                duplicate_face_id_count += 1;
+            }
+            let mut plan_edges = BTreeSet::new();
+            for observation_id in &plan.boundary_observation_ids {
+                let Some(&edge_index) = edge_slot_by_observation.get(observation_id) else {
+                    unmapped_plan_count += 1;
+                    plan_edges.clear();
+                    break;
+                };
+                plan_edges.insert(edge_index);
+            }
+            if plan_edges.is_empty() {
+                continue;
+            }
+            let Some((cycle_index, cycle)) =
+                candidate_cycles
+                    .iter()
+                    .enumerate()
+                    .find(|(cycle_index, cycle)| {
+                        **cycle == plan_edges && !used_cycles.contains(cycle_index)
+                    })
+            else {
+                unmapped_plan_count += 1;
+                continue;
+            };
+            used_cycles.insert(cycle_index);
+            if cycle == &plan_edges {
+                mapped_cycle_count += 1;
+            }
+        }
+        let expected_ids = (0..assigned_face_count).collect::<BTreeSet<_>>();
+        let non_contiguous_face_id_count = expected_ids.difference(&assigned_ids).count();
+        let application_ready = !self.global_components.is_empty()
+            && self.global_face_id_plans.len() == candidate_cycles.len()
+            && assigned_face_count == candidate_cycles.len()
+            && mapped_cycle_count == candidate_cycles.len()
+            && unmapped_plan_count == 0
+            && duplicate_face_id_count == 0
+            && non_contiguous_face_id_count == 0;
+        Ok(PartitionBorderGlobalFaceIdApplicationStats {
+            component_count: self.global_components.len(),
+            candidate_cycle_count: self.global_face_id_plans.len(),
+            assigned_face_count,
+            candidate_cycle_start_count: candidate_cycles.len(),
+            mapped_cycle_count,
+            unmapped_plan_count,
+            duplicate_face_id_count,
+            non_contiguous_face_id_count,
+            application_ready,
+        })
+    }
+
     /// Maps validated global-face mutation cycles into the captured global
     /// edge and node slots. This is the last evidence step before a future
     /// topology mutation: every candidate link is checked for unique
@@ -7246,6 +7453,147 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_component_coverage"
+        ));
+    }
+
+    #[test]
+    fn global_face_id_application_maps_candidate_cycles_deterministically() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        for edge_index in [1usize, 3usize] {
+            let edge = graph.global_face_edge_map[edge_index].clone();
+            let start = Coord3D::new(
+                f64::from_bits(edge.from.xy_bits()[0]),
+                f64::from_bits(edge.from.xy_bits()[1]),
+                f64::from_bits(edge.from_z_bits),
+            );
+            let end = Coord3D::new(
+                f64::from_bits(edge.to.xy_bits()[0]),
+                f64::from_bits(edge.to.xy_bits()[1]),
+                f64::from_bits(edge.to_z_bits),
+            );
+            let observation = PartitionBorderHalfEdge::new_with_face_ref(
+                edge.partition_id,
+                edge.local_dir_edge_id,
+                edge.face_ref,
+                PartitionBorderSide::MinY,
+                start,
+                end,
+                edge.source_line_ids,
+            )
+            .unwrap();
+            graph
+                .observations
+                .insert(observation.observation_id(), observation);
+        }
+        let observations = graph
+            .global_face_edge_map
+            .iter()
+            .map(|edge| {
+                graph
+                    .observations
+                    .values()
+                    .find(|observation| {
+                        observation.partition_id == edge.partition_id
+                            && observation.local_dir_edge_id == edge.local_dir_edge_id
+                            && observation.edge_key == edge.edge_key
+                            && observation.from == edge.from
+                            && observation.to == edge.to
+                            && observation.from_z_bits == edge.from_z_bits
+                            && observation.to_z_bits == edge.to_z_bits
+                            && observation.source_line_ids == edge.source_line_ids
+                            && observation.face_ref == edge.face_ref
+                            && observation.local_face_is_unbounded == edge.local_face_is_unbounded
+                    })
+                    .unwrap()
+                    .observation_id()
+            })
+            .collect::<Vec<_>>();
+        for (candidate_global_face_id, cycle) in
+            [[0usize, 2usize], [1usize, 3usize]].into_iter().enumerate()
+        {
+            graph
+                .global_face_id_plans
+                .push(PartitionBorderGlobalFaceIdPlan {
+                    candidate_global_face_id: Some(candidate_global_face_id),
+                    component_index: 0,
+                    boundary_observation_ids: cycle
+                        .iter()
+                        .map(|edge_index| observations[*edge_index])
+                        .collect(),
+                    face_refs: cycle
+                        .iter()
+                        .filter_map(|edge_index| graph.global_face_edge_map[*edge_index].face_ref)
+                        .collect(),
+                    local_unbounded_face_count: 0,
+                    closed: true,
+                });
+        }
+
+        assert_eq!(
+            graph
+                .validate_global_face_id_application(&ExecutionPolicy::default())
+                .unwrap(),
+            PartitionBorderGlobalFaceIdApplicationStats {
+                component_count: 1,
+                candidate_cycle_count: 2,
+                assigned_face_count: 2,
+                candidate_cycle_start_count: 2,
+                mapped_cycle_count: 2,
+                unmapped_plan_count: 0,
+                duplicate_face_id_count: 0,
+                non_contiguous_face_id_count: 0,
+                application_ready: true,
+            }
+        );
+
+        graph.global_face_id_plans[1].candidate_global_face_id = Some(0);
+        let stats = graph
+            .validate_global_face_id_application(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.duplicate_face_id_count, 1);
+        assert!(!stats.application_ready);
+    }
+
+    #[test]
+    fn global_face_id_application_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .validate_global_face_id_application(&ExecutionPolicy {
+                max_graph_edges: Some(3),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 3,
+                observed: 4,
+            } if stage == "partition_border_global_face_id_application_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_global_face_id_application(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_id_application"
         ));
     }
 

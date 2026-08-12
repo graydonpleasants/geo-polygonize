@@ -470,6 +470,58 @@ mod tests {
                 .partition_border_global_component_coverage_ready,
             global_component_coverage_stats.coverage_ready
         );
+        let global_face_id_application_stats = result
+            .partition_border_graph
+            .validate_global_face_id_application(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_candidate_cycle_count,
+            global_face_id_application_stats.candidate_cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_assigned_face_count,
+            global_face_id_application_stats.assigned_face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_cycle_start_count,
+            global_face_id_application_stats.candidate_cycle_start_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_mapped_cycle_count,
+            global_face_id_application_stats.mapped_cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_unmapped_plan_count,
+            global_face_id_application_stats.unmapped_plan_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_duplicate_face_id_count,
+            global_face_id_application_stats.duplicate_face_id_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_non_contiguous_face_id_count,
+            global_face_id_application_stats.non_contiguous_face_id_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_application_ready,
+            global_face_id_application_stats.application_ready
+        );
         assert_eq!(
             result
                 .stitching_report
@@ -1744,6 +1796,91 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_component_coverage_ready
+            )
+        );
+        let face_id_application = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_id_application")
+            .expect("global face ID application evidence");
+        assert_eq!(
+            face_id_application.payload["candidate_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_candidate_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["assigned_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_assigned_face_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["candidate_cycle_start_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_cycle_start_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["mapped_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_mapped_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["unmapped_plan_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_unmapped_plan_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["duplicate_face_id_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_duplicate_face_id_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["non_contiguous_face_id_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_non_contiguous_face_id_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_application.payload["application_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_application_ready
             )
         );
         let node_reconciliation = traced
