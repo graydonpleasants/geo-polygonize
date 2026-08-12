@@ -419,18 +419,19 @@ These prerequisites do not yet stitch topology.
 Tracked by
 [#1288](https://github.com/graydonpleasants/geo-polygonize/issues/1288).
 
-- [ ] Split local arrangement edges at exact partition-boundary intersections.
+- [x] Split local arrangement edges at exact partition-boundary intersections,
+  including breakpoints contributed by separate crossing edges.
 - [x] Define exact rectangle-side intersection events, including endpoint,
   corner, finite-side collinear, signed-zero, and reversed-edge fixtures.
-- [ ] Handle endpoints, crossings, corners, and collinear-on-border edges.
-- [ ] Rebuild adjacency, angular order, `next` links, face IDs, and unbounded
-  markers after splitting.
+- [x] Handle endpoints, crossings, corners, and collinear-on-border edges.
+- [x] Rebuild adjacency and angular order before component-local `next` links,
+  face IDs, and unbounded markers are assigned.
 - [ ] Preserve provenance, representative IDs, Z interpolation/conflicts,
   component identity, cancellation, and limits.
-- [ ] Export only halfedges physically present on the boundary-noded arrangement.
-- [ ] Introduce collision-free atomic observation identity.
-- [ ] Run arrangement and face-walk validators after boundary noding.
-- [ ] Leave replicate-and-own output unchanged.
+- [x] Export only halfedges physically present on the boundary-noded arrangement.
+- [x] Introduce collision-free atomic observation identity.
+- [x] Run arrangement and face-walk validators after boundary noding.
+- [x] Leave replicate-and-own output unchanged.
 
 ## P5.3 Stitched arrangement and equivalence
 

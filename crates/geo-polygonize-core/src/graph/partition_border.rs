@@ -461,6 +461,7 @@ impl PartitionBorderAdjacency {
 pub struct PartitionBorderObservationId {
     pub partition_id: usize,
     pub local_dir_edge_id: DirEdgeId,
+    pub edge_key: PartitionBorderEdgeKey,
 }
 
 impl PartitionBorderHalfEdge {
@@ -468,6 +469,7 @@ impl PartitionBorderHalfEdge {
         PartitionBorderObservationId {
             partition_id: self.partition_id,
             local_dir_edge_id: self.local_dir_edge_id,
+            edge_key: self.edge_key,
         }
     }
 }
@@ -517,8 +519,10 @@ impl PartitionBorderGraph {
             }
             return Err(crate::PolygonizeError::InternalInvariantViolation {
                 reason: format!(
-                    "partition border observation ({}, {}) conflicts with prior payload",
-                    observation_id.partition_id, observation_id.local_dir_edge_id
+                    "partition border observation ({}, {}, {:?}) conflicts with prior payload",
+                    observation_id.partition_id,
+                    observation_id.local_dir_edge_id,
+                    observation_id.edge_key
                 ),
             });
         }
@@ -999,11 +1003,42 @@ mod tests {
 
         let mut graph = PartitionBorderGraph::default();
         graph.insert(observation).unwrap();
-        assert_eq!(
-            graph.insert(conflict).unwrap_err().to_string(),
-            "Internal invariant violation: partition border observation (4, 7) conflicts with prior payload"
-        );
+        assert!(graph
+            .insert(conflict)
+            .unwrap_err()
+            .to_string()
+            .contains("partition border observation (4, 7, "));
         assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn atomic_observation_identity_allows_distinct_spans_from_one_local_edge_id() {
+        let first = PartitionBorderHalfEdge::new(
+            4,
+            7,
+            Some(3),
+            PartitionBorderSide::MinY,
+            coord(0.0, 0.0, 1.0),
+            coord(1.0, 0.0, 2.0),
+            [11],
+        )
+        .unwrap();
+        let second = PartitionBorderHalfEdge::new(
+            4,
+            7,
+            Some(3),
+            PartitionBorderSide::MinY,
+            coord(1.0, 0.0, 2.0),
+            coord(2.0, 0.0, 3.0),
+            [11],
+        )
+        .unwrap();
+        assert_ne!(first.observation_id(), second.observation_id());
+
+        let mut graph = PartitionBorderGraph::default();
+        graph.insert(first).unwrap();
+        graph.insert(second).unwrap();
+        assert_eq!(graph.edge_count(), 2);
     }
 
     #[test]
@@ -1039,10 +1074,12 @@ mod tests {
                 forward: PartitionBorderObservationId {
                     partition_id: 1,
                     local_dir_edge_id: 7,
+                    edge_key: key,
                 },
                 reverse: PartitionBorderObservationId {
                     partition_id: 2,
                     local_dir_edge_id: 9,
+                    edge_key: key,
                 },
             }]
         );
@@ -1075,6 +1112,8 @@ mod tests {
             [3],
         )
         .unwrap();
+        let low_key = low.edge_key;
+        let high_key = high.edge_key;
 
         let mut graph = PartitionBorderGraph::default();
         graph.declare_adjacency(
@@ -1103,20 +1142,24 @@ mod tests {
                     PartitionBorderObservationId {
                         partition_id: 1,
                         local_dir_edge_id: 7,
+                        edge_key: low_key,
                     },
                     PartitionBorderObservationId {
                         partition_id: 2,
                         local_dir_edge_id: 10,
+                        edge_key: low_key,
                     },
                 ),
                 (
                     PartitionBorderObservationId {
                         partition_id: 1,
                         local_dir_edge_id: 7,
+                        edge_key: high_key,
                     },
                     PartitionBorderObservationId {
                         partition_id: 2,
                         local_dir_edge_id: 9,
+                        edge_key: high_key,
                     },
                 ),
             ]

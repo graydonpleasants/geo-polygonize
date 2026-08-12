@@ -286,6 +286,105 @@ fn create_edge_components(
     (u, v, de_u_v_idx, de_v_u_idx, de_u_v, de_v_u, edge)
 }
 
+const PARTITION_BOUNDARY_SIDES: [PartitionBorderSide; 4] = [
+    PartitionBorderSide::MinX,
+    PartitionBorderSide::MaxX,
+    PartitionBorderSide::MinY,
+    PartitionBorderSide::MaxY,
+];
+
+fn partition_side_index(side: PartitionBorderSide) -> usize {
+    match side {
+        PartitionBorderSide::MinX => 0,
+        PartitionBorderSide::MaxX => 1,
+        PartitionBorderSide::MinY => 2,
+        PartitionBorderSide::MaxY => 3,
+    }
+}
+
+fn partition_side_tangent(point: Coord3D, side: PartitionBorderSide) -> f64 {
+    match side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => point.y,
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => point.x,
+    }
+}
+
+fn point_lies_on_partition_side(
+    point: Coord3D,
+    bbox: Rect<f64>,
+    side: PartitionBorderSide,
+) -> bool {
+    let min = bbox.min();
+    let max = bbox.max();
+    let on_axis = |actual: f64, expected: f64| {
+        canonical_coordinate_bits(actual) == canonical_coordinate_bits(expected)
+    };
+    match side {
+        PartitionBorderSide::MinX => {
+            on_axis(point.x, min.x) && point.y >= min.y && point.y <= max.y
+        }
+        PartitionBorderSide::MaxX => {
+            on_axis(point.x, max.x) && point.y >= min.y && point.y <= max.y
+        }
+        PartitionBorderSide::MinY => {
+            on_axis(point.y, min.y) && point.x >= min.x && point.x <= max.x
+        }
+        PartitionBorderSide::MaxY => {
+            on_axis(point.y, max.y) && point.x >= min.x && point.x <= max.x
+        }
+    }
+}
+
+fn edge_is_collinear_with_partition_side(
+    start: Coord3D,
+    end: Coord3D,
+    bbox: Rect<f64>,
+    side: PartitionBorderSide,
+) -> bool {
+    let coordinate = match side {
+        PartitionBorderSide::MinX => bbox.min().x,
+        PartitionBorderSide::MaxX => bbox.max().x,
+        PartitionBorderSide::MinY => bbox.min().y,
+        PartitionBorderSide::MaxY => bbox.max().y,
+    };
+    let axis = |point: Coord3D| match side {
+        PartitionBorderSide::MinX | PartitionBorderSide::MaxX => point.x,
+        PartitionBorderSide::MinY | PartitionBorderSide::MaxY => point.y,
+    };
+    canonical_coordinate_bits(axis(start)) == canonical_coordinate_bits(coordinate)
+        && canonical_coordinate_bits(axis(end)) == canonical_coordinate_bits(coordinate)
+}
+
+fn boundary_breakpoint_parameter(
+    start: Coord3D,
+    end: Coord3D,
+    point: Coord3D,
+    side: PartitionBorderSide,
+) -> Option<f64> {
+    let start_tangent = partition_side_tangent(start, side);
+    let end_tangent = partition_side_tangent(end, side);
+    if start_tangent == end_tangent {
+        return None;
+    }
+    let t = (partition_side_tangent(point, side) - start_tangent) / (end_tangent - start_tangent);
+    (t.is_finite() && (0.0..=1.0).contains(&t)).then_some(t.clamp(0.0, 1.0))
+}
+
+fn append_partition_breakpoint(
+    breakpoints: &mut [Vec<Coord3D>; 4],
+    side: PartitionBorderSide,
+    point: Coord3D,
+) {
+    let points = &mut breakpoints[partition_side_index(side)];
+    let key = NodeKey::from(point.to_coord_2d());
+    if !points
+        .iter()
+        .any(|existing| NodeKey::from(existing.to_coord_2d()) == key)
+    {
+        points.push(point);
+    }
+}
+
 impl Default for PlanarGraph {
     fn default() -> Self {
         Self::new()
@@ -737,6 +836,65 @@ impl PlanarGraph {
             );
         }
 
+        let mut boundary_breakpoints: [Vec<Coord3D>; 4] = std::array::from_fn(|_| Vec::new());
+        for node_id in 0..self.nodes_x.len() {
+            execution_policy.check_cancelled_every("boundary_noding_intersections", node_id)?;
+            let point = Coord3D {
+                x: self.nodes_x[node_id],
+                y: self.nodes_y[node_id],
+                z: self.nodes_z[node_id],
+            };
+            for side in PARTITION_BOUNDARY_SIDES {
+                if point_lies_on_partition_side(point, bbox, side) {
+                    append_partition_breakpoint(&mut boundary_breakpoints, side, point);
+                }
+            }
+        }
+
+        // Collect all boundary events first. A crossing edge can create a
+        // breakpoint that must also split a separate collinear border edge.
+        for edge_idx in 0..self.edges.len() {
+            execution_policy.check_cancelled_every("boundary_noding_intersections", edge_idx)?;
+            let edge = &self.edges[edge_idx];
+            if edge.deleted {
+                continue;
+            }
+            let forward_idx = edge.dir_edges[0];
+            let forward = &self.directed_edges[forward_idx];
+            let start = Coord3D {
+                x: self.nodes_x[forward.src],
+                y: self.nodes_y[forward.src],
+                z: self.nodes_z[forward.src],
+            };
+            let end = Coord3D {
+                x: self.nodes_x[forward.dst],
+                y: self.nodes_y[forward.dst],
+                z: self.nodes_z[forward.dst],
+            };
+            for intersection in partition_boundary_intersections(start, end, bbox) {
+                append_partition_breakpoint(
+                    &mut boundary_breakpoints,
+                    intersection.side,
+                    intersection.point,
+                );
+            }
+        }
+        for side in PARTITION_BOUNDARY_SIDES {
+            let points = &mut boundary_breakpoints[partition_side_index(side)];
+            execution_policy
+                .check_uncancellable_sort("boundary_noding_breakpoint_sort", points.len())?;
+            points.sort_unstable_by(|left, right| {
+                partition_side_tangent(*left, side)
+                    .total_cmp(&partition_side_tangent(*right, side))
+                    .then_with(|| {
+                        canonical_coordinate_bits(left.x).cmp(&canonical_coordinate_bits(right.x))
+                    })
+                    .then_with(|| {
+                        canonical_coordinate_bits(left.y).cmp(&canonical_coordinate_bits(right.y))
+                    })
+            });
+        }
+
         let mut plans = Vec::<(EdgeId, Vec<Coord3D>)>::new();
         let mut planned_node_keys = std::collections::HashSet::new();
         let mut split_events = 0usize;
@@ -759,27 +917,47 @@ impl PlanarGraph {
                 y: self.nodes_y[forward.dst],
                 z: self.nodes_z[forward.dst],
             };
-            let start_key = NodeKey::from(start.to_coord_2d());
-            let end_key = NodeKey::from(end.to_coord_2d());
-            let mut points = Vec::with_capacity(4);
-            points.push(start);
-            let mut point_keys = std::collections::HashSet::new();
-            point_keys.insert(start_key);
-            point_keys.insert(end_key);
-            for intersection in partition_boundary_intersections(start, end, bbox) {
-                if !(intersection.t > 0.0 && intersection.t < 1.0) {
+            let mut candidates = Vec::with_capacity(8);
+            candidates.push((0.0, start));
+            candidates.push((1.0, end));
+            candidates.extend(
+                partition_boundary_intersections(start, end, bbox)
+                    .into_iter()
+                    .map(|intersection| (intersection.t, intersection.point)),
+            );
+            for side in PARTITION_BOUNDARY_SIDES {
+                if !edge_is_collinear_with_partition_side(start, end, bbox, side) {
                     continue;
                 }
-                let point_key = NodeKey::from(intersection.point.to_coord_2d());
+                for point in &boundary_breakpoints[partition_side_index(side)] {
+                    let Some(t) = boundary_breakpoint_parameter(start, end, *point, side) else {
+                        continue;
+                    };
+                    let mut point = *point;
+                    point.z = start.z + (end.z - start.z) * t;
+                    candidates.push((t, point));
+                }
+            }
+            candidates.sort_unstable_by(|left, right| {
+                left.0.total_cmp(&right.0).then_with(|| {
+                    let left_key = NodeKey::from(left.1.to_coord_2d());
+                    let right_key = NodeKey::from(right.1.to_coord_2d());
+                    left_key.cmp(&right_key)
+                })
+            });
+
+            let mut points = Vec::with_capacity(candidates.len());
+            let mut point_keys = std::collections::HashSet::new();
+            for (t, point) in candidates {
+                let point_key = NodeKey::from(point.to_coord_2d());
                 if !point_keys.insert(point_key) {
                     continue;
                 }
-                if !self.node_map.contains_key(&point_key) {
+                if !self.node_map.contains_key(&point_key) && t > 0.0 && t < 1.0 {
                     planned_node_keys.insert(point_key);
                 }
-                points.push(intersection.point);
+                points.push(point);
             }
-            points.push(end);
             if points.len() < 3 {
                 continue;
             }
@@ -3633,6 +3811,51 @@ mod arrangement_ring_invariant_tests {
         assert!(graph
             .partition_border_half_edge(0, reverse, PartitionBorderSide::MinY)
             .is_some());
+    }
+
+    #[test]
+    fn partition_boundary_noding_applies_crossing_breakpoints_to_long_border_edges() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line(Line3D::new(
+            Coord3D::new(-2.0, 0.0, 0.0),
+            Coord3D::new(12.0, 0.0, 14.0),
+            51,
+        ));
+        graph.add_line(Line3D::new(
+            Coord3D::new(2.0, -1.0, 0.0),
+            Coord3D::new(2.0, 1.0, 2.0),
+            52,
+        ));
+        graph.add_line(Line3D::new(
+            Coord3D::new(6.0, -1.0, 0.0),
+            Coord3D::new(6.0, 1.0, 2.0),
+            53,
+        ));
+        graph
+            .node_partition_boundaries_with_execution_policy(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+
+        let border_spans = graph
+            .edges
+            .iter()
+            .filter_map(|edge| {
+                let [forward, _] = edge.dir_edges;
+                let start = graph.directed_edges[forward].src;
+                let end = graph.directed_edges[forward].dst;
+                (graph.nodes_y[start] == 0.0
+                    && graph.nodes_y[end] == 0.0
+                    && graph.nodes_x[start] >= 0.0
+                    && graph.nodes_x[end] <= 10.0
+                    && graph.nodes_x[start] < graph.nodes_x[end])
+                    .then_some((graph.nodes_x[start], graph.nodes_x[end]))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(border_spans, vec![(0.0, 2.0), (2.0, 6.0), (6.0, 10.0)]);
+        assert_eq!(graph.edges.len(), 9);
+        assert!(graph.validate_arrangement_edge_invariants().is_ok());
     }
 
     #[test]
