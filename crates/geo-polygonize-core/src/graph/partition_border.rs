@@ -314,6 +314,9 @@ pub struct PartitionBorderHalfEdge {
     pub(crate) local_face_successor: Option<DirEdgeId>,
     /// Whether the local face containing this directed edge is unbounded.
     pub(crate) local_face_is_unbounded: bool,
+    /// The first retained border half-edge reached by following this local
+    /// face cycle, when the boundary continuation can be resolved.
+    pub(crate) local_face_boundary_successor: Option<PartitionBorderObservationId>,
     pub source_line_ids: Vec<u32>,
     /// The deterministic representative source ID carried by the local edge.
     /// This is the first ID in the sorted source set, or `None` for synthetic
@@ -378,6 +381,7 @@ impl PartitionBorderHalfEdge {
             face_ref,
             local_face_successor: None,
             local_face_is_unbounded: false,
+            local_face_boundary_successor: None,
             source_line_ids,
             representative_line_id,
         })
@@ -598,6 +602,7 @@ pub(crate) struct PartitionBorderFaceBoundaryCandidate {
     pub(crate) local_dir_edge_id: DirEdgeId,
     pub(crate) local_face_successor: DirEdgeId,
     pub(crate) local_face_is_unbounded: bool,
+    pub(crate) local_face_boundary_successor: Option<PartitionBorderObservationId>,
 }
 
 /// Deterministic boundary evidence grouped by qualified local face identity.
@@ -619,6 +624,7 @@ pub(crate) struct PartitionBorderGlobalFacePlanStats {
     pub(crate) missing_successor_count: usize,
     pub(crate) unbounded_face_count: usize,
     pub(crate) linked_face_count: usize,
+    pub(crate) missing_boundary_successor_count: usize,
 }
 
 /// Counts from validating the retained global face-boundary plan.
@@ -628,6 +634,16 @@ pub(crate) struct PartitionBorderGlobalFacePlanValidationStats {
     pub(crate) candidate_count: usize,
     pub(crate) twin_link_count: usize,
     pub(crate) unbounded_face_count: usize,
+}
+
+/// Counts from the mutation gate for local face-boundary transitions.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceMutationGateStats {
+    pub(crate) face_count: usize,
+    pub(crate) candidate_count: usize,
+    pub(crate) boundary_transition_count: usize,
+    pub(crate) missing_boundary_successor_count: usize,
+    pub(crate) mutation_ready_face_count: usize,
 }
 
 /// Deterministic evidence for the declared-adjacency twin boundary.
@@ -1256,6 +1272,7 @@ impl PartitionBorderGraph {
 
         let mut candidates = Vec::new();
         let mut missing_successor_count = 0;
+        let mut missing_boundary_successor_count = 0;
         let mut face_unbounded = BTreeMap::<PartitionFaceRef, bool>::new();
         for (observation_index, observation) in self.observations.values().enumerate() {
             execution_policy
@@ -1271,6 +1288,9 @@ impl PartitionBorderGraph {
                 missing_successor_count += 1;
                 continue;
             };
+            if observation.local_face_boundary_successor.is_none() {
+                missing_boundary_successor_count += 1;
+            }
             candidates.push(PartitionBorderFaceBoundaryCandidate {
                 observation_id: observation.observation_id(),
                 edge_key: observation.edge_key,
@@ -1278,6 +1298,7 @@ impl PartitionBorderGraph {
                 local_dir_edge_id: observation.local_dir_edge_id,
                 local_face_successor,
                 local_face_is_unbounded: observation.local_face_is_unbounded,
+                local_face_boundary_successor: observation.local_face_boundary_successor,
             });
         }
         execution_policy.check(
@@ -1352,6 +1373,7 @@ impl PartitionBorderGraph {
             missing_successor_count,
             unbounded_face_count,
             linked_face_count,
+            missing_boundary_successor_count,
         };
         self.global_face_plans = global_face_plans;
         Ok(stats)
@@ -1485,6 +1507,8 @@ impl PartitionBorderGraph {
                     || observation.local_dir_edge_id != candidate.local_dir_edge_id
                     || observation.local_face_successor != Some(candidate.local_face_successor)
                     || observation.local_face_is_unbounded != candidate.local_face_is_unbounded
+                    || observation.local_face_boundary_successor
+                        != candidate.local_face_boundary_successor
                 {
                     return Err(crate::PolygonizeError::InternalInvariantViolation {
                         reason: format!(
@@ -1624,6 +1648,112 @@ impl PartitionBorderGraph {
             candidate_count,
             twin_link_count: twin_faces.len(),
             unbounded_face_count,
+        })
+    }
+
+    /// Checks whether each retained local face can be reduced to one closed
+    /// boundary-transition cycle. This is a mutation gate only: it retains no
+    /// global `next` links and does not alter local topology or tiled output.
+    /// Incomplete local evidence is reported as not ready; contradictory
+    /// identity or face lineage fails closed.
+    pub(crate) fn validate_global_face_mutation_gate(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFaceMutationGateStats> {
+        let validation = self.validate_global_face_plans(execution_policy)?;
+        execution_policy.check_cancelled("partition_border_global_face_mutation_gate")?;
+
+        let mut candidate_faces = BTreeMap::<PartitionBorderObservationId, PartitionFaceRef>::new();
+        for plan in &self.global_face_plans {
+            for candidate in &plan.candidates {
+                candidate_faces.insert(candidate.observation_id, plan.face_ref);
+            }
+        }
+
+        let mut boundary_transition_count = 0;
+        let mut missing_boundary_successor_count = 0;
+        let mut mutation_ready_face_count = 0;
+        for (plan_index, plan) in self.global_face_plans.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_mutation_gate", plan_index)?;
+            let mut transitions =
+                BTreeMap::<PartitionBorderObservationId, PartitionBorderObservationId>::new();
+            let mut complete = !plan.candidates.is_empty();
+            for (candidate_index, candidate) in plan.candidates.iter().enumerate() {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_mutation_gate_candidates",
+                    candidate_index,
+                )?;
+                let Some(boundary_successor) = candidate.local_face_boundary_successor else {
+                    missing_boundary_successor_count += 1;
+                    complete = false;
+                    continue;
+                };
+                let Some(successor_observation) = self.observations.get(&boundary_successor) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face boundary successor {:?} is missing",
+                            boundary_successor
+                        ),
+                    });
+                };
+                if successor_observation.face_ref != Some(plan.face_ref) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face boundary successor {:?} crosses face {:?}",
+                            boundary_successor, plan.face_ref
+                        ),
+                    });
+                }
+                match candidate_faces.get(&boundary_successor) {
+                    Some(&successor_face_ref) if successor_face_ref == plan.face_ref => {
+                        transitions.insert(candidate.observation_id, boundary_successor);
+                        boundary_transition_count += 1;
+                    }
+                    Some(&successor_face_ref) => {
+                        return Err(crate::PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "global face boundary successor {:?} is assigned to face {:?}",
+                                boundary_successor, successor_face_ref
+                            ),
+                        });
+                    }
+                    None => {
+                        missing_boundary_successor_count += 1;
+                        complete = false;
+                    }
+                }
+            }
+            if !complete || transitions.len() != plan.candidates.len() {
+                continue;
+            }
+
+            let start = plan.candidates[0].observation_id;
+            let mut visited = BTreeSet::new();
+            let mut current = start;
+            loop {
+                if !visited.insert(current) {
+                    if current == start && visited.len() == plan.candidates.len() {
+                        mutation_ready_face_count += 1;
+                    }
+                    break;
+                }
+                let Some(&next) = transitions.get(&current) else {
+                    break;
+                };
+                current = next;
+                if visited.len() > plan.candidates.len() {
+                    break;
+                }
+            }
+        }
+
+        Ok(PartitionBorderGlobalFaceMutationGateStats {
+            face_count: validation.face_count,
+            candidate_count: validation.candidate_count,
+            boundary_transition_count,
+            missing_boundary_successor_count,
+            mutation_ready_face_count,
         })
     }
 
@@ -2725,6 +2855,7 @@ mod tests {
                 missing_successor_count: 0,
                 unbounded_face_count: 0,
                 linked_face_count: 2,
+                missing_boundary_successor_count: 2,
             }
         );
         assert_eq!(graph.global_face_plans().len(), 2);
@@ -2764,6 +2895,7 @@ mod tests {
         assert_eq!(stats.candidate_count, 0);
         assert_eq!(stats.missing_successor_count, 2);
         assert_eq!(stats.linked_face_count, 2);
+        assert_eq!(stats.missing_boundary_successor_count, 0);
         assert!(missing
             .global_face_plans()
             .iter()
@@ -2847,6 +2979,77 @@ mod tests {
             stats
         );
         assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_face_mutation_gate_reports_incomplete_and_closed_boundary_cycles() {
+        let mut incomplete = exact_face_twin_graph_with_successors();
+        incomplete
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        incomplete
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = incomplete.clone();
+        assert_eq!(
+            incomplete
+                .validate_global_face_mutation_gate(&ExecutionPolicy::default())
+                .unwrap(),
+            PartitionBorderGlobalFaceMutationGateStats {
+                face_count: 2,
+                candidate_count: 2,
+                boundary_transition_count: 0,
+                missing_boundary_successor_count: 2,
+                mutation_ready_face_count: 0,
+            }
+        );
+        assert_eq!(incomplete, before);
+
+        let mut complete = exact_face_twin_graph_with_successors();
+        let observation_ids = complete.observations.keys().copied().collect::<Vec<_>>();
+        for observation_id in observation_ids {
+            complete
+                .observations
+                .get_mut(&observation_id)
+                .expect("observation identity")
+                .local_face_boundary_successor = Some(observation_id);
+        }
+        complete
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        complete
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            complete
+                .validate_global_face_mutation_gate(&ExecutionPolicy::default())
+                .unwrap(),
+            PartitionBorderGlobalFaceMutationGateStats {
+                face_count: 2,
+                candidate_count: 2,
+                boundary_transition_count: 2,
+                missing_boundary_successor_count: 0,
+                mutation_ready_face_count: 2,
+            }
+        );
+        let first_id = complete.observations.keys().next().copied().unwrap();
+        let second_id = complete.observations.keys().nth(1).copied().unwrap();
+        complete
+            .observations
+            .get_mut(&first_id)
+            .unwrap()
+            .local_face_boundary_successor = Some(second_id);
+        complete
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let error = complete
+            .validate_global_face_mutation_gate(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("crosses face")
+        ));
     }
 
     #[test]

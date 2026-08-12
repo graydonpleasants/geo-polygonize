@@ -179,6 +179,18 @@ mod tests {
                 .filter(|plan| !plan.twin_edge_keys.is_empty())
                 .count()
         );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_missing_boundary_successor_count,
+            result
+                .partition_border_graph
+                .global_face_plans()
+                .iter()
+                .flat_map(|plan| plan.candidates.iter())
+                .filter(|candidate| candidate.local_face_boundary_successor.is_none())
+                .count()
+        );
         let validation = result
             .partition_border_graph
             .validate_global_face_plans(&ExecutionPolicy::default())
@@ -206,6 +218,28 @@ mod tests {
                 .stitching_report
                 .partition_border_global_face_validated_unbounded_count,
             validation.unbounded_face_count
+        );
+        let mutation_gate = result
+            .partition_border_graph
+            .validate_global_face_mutation_gate(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_boundary_transition_count,
+            mutation_gate.boundary_transition_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_mutation_missing_successor_count,
+            mutation_gate.missing_boundary_successor_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_mutation_ready_count,
+            mutation_gate.mutation_ready_face_count
         );
         assert_eq!(result.polygons.len(), 2);
     }
@@ -328,6 +362,10 @@ mod tests {
                 && event.payload["representative_line_id"].as_u64().is_some()
                 && event.payload["component_id"].as_u64().is_some()
         }));
+        assert!(observations
+            .iter()
+            .filter(|event| event.payload["face_id"].is_number())
+            .all(|event| event.payload["local_face_boundary_successor"].is_object()));
         let reconciliation = traced
             .trace
             .events
@@ -480,6 +518,16 @@ mod tests {
                     .partition_border_global_face_linked_count as u64
             )
         );
+        assert_eq!(
+            global_face_plan.payload["missing_boundary_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_missing_boundary_successor_count
+                    as u64
+            )
+        );
         let global_face_validation = traced
             .trace
             .events
@@ -520,6 +568,58 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_validated_unbounded_count as u64
+            )
+        );
+        let global_face_gate = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_mutation_gate")
+            .expect("global face mutation gate evidence");
+        assert_eq!(
+            global_face_gate.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_gate.payload["candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_gate.payload["boundary_transition_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_boundary_transition_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_gate.payload["missing_boundary_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_mutation_missing_successor_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_gate.payload["mutation_ready_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_mutation_ready_count as u64
             )
         );
     }
