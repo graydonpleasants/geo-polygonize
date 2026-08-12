@@ -426,8 +426,10 @@ Tracked by
 - [x] Handle endpoints, crossings, corners, and collinear-on-border edges.
 - [x] Rebuild adjacency and angular order before component-local `next` links,
   face IDs, and unbounded markers are assigned.
-- [ ] Preserve provenance, representative IDs, Z interpolation/conflicts,
-  component identity, cancellation, and limits.
+- [x] Preserve provenance, representative IDs, Z interpolation/conflicts, and
+  qualified component identity through boundary export and observation
+  normalization.
+- [ ] Preserve cancellation and resource limits through boundary noding.
 - [x] Export only halfedges physically present on the boundary-noded arrangement.
 - [x] Introduce collision-free atomic observation identity.
 - [x] Emit bounded trace evidence for boundary-noding counts, atomic border

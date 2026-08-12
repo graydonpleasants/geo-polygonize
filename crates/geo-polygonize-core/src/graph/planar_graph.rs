@@ -451,7 +451,7 @@ impl PlanarGraph {
             y: *self.nodes_y.get(directed.dst)?,
             z: *self.nodes_z.get(directed.dst)?,
         };
-        PartitionBorderHalfEdge::new_with_face_ref(
+        let mut observation = PartitionBorderHalfEdge::new_with_face_ref(
             partition_id,
             dir_edge_id,
             directed.face_id.map(|face_id| {
@@ -465,7 +465,9 @@ impl PlanarGraph {
             start,
             end,
             edge.sources.line_ids.iter().copied(),
-        )
+        )?;
+        observation.component_id = component_id;
+        Some(observation)
     }
 
     pub(crate) fn clear(&mut self) {
@@ -3790,6 +3792,65 @@ mod arrangement_ring_invariant_tests {
         assert!(refs.contains(&LocalFaceRef {
             component_id: 1,
             face_id: 0,
+        }));
+    }
+
+    #[test]
+    fn partition_border_export_qualifies_components_and_representatives() {
+        let mut graph = PlanarGraph::new();
+        add_square(
+            &mut graph,
+            [
+                Coord3D::new(0.0, 0.0, 1.0),
+                Coord3D::new(1.0, 0.0, 2.0),
+                Coord3D::new(1.0, 1.0, 3.0),
+                Coord3D::new(0.0, 1.0, 4.0),
+            ],
+            10,
+        );
+        add_square(
+            &mut graph,
+            [
+                Coord3D::new(2.0, 0.0, 5.0),
+                Coord3D::new(3.0, 0.0, 6.0),
+                Coord3D::new(3.0, 1.0, 7.0),
+                Coord3D::new(2.0, 1.0, 8.0),
+            ],
+            20,
+        );
+
+        let (_, observations, _, _) = graph
+            .process_components_with_execution_policy(
+                true,
+                true,
+                &ExecutionPolicy::default(),
+                true,
+                None,
+                Some(PartitionBorderExport {
+                    partition_id: 9,
+                    bbox: Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 3.0, y: 1.0 }),
+                }),
+            )
+            .unwrap();
+
+        let component_ids = observations
+            .iter()
+            .map(|observation| observation.component_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(component_ids, std::collections::BTreeSet::from([0, 1]));
+
+        let representative_ids = observations
+            .iter()
+            .filter_map(|observation| observation.representative_line_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            representative_ids,
+            std::collections::BTreeSet::from([10, 12, 13, 20, 21, 22])
+        );
+        assert!(observations.iter().all(|observation| {
+            observation
+                .representative_line_id
+                .is_some_and(|representative| observation.source_line_ids.contains(&representative))
         }));
     }
 

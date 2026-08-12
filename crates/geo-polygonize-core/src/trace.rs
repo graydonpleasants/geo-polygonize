@@ -627,9 +627,11 @@ impl TraceRecorderV1 {
                 "to_z_bits": format!("0x{:016x}", observation.to_z_bits),
                 "side": format!("{:?}", observation.side),
                 "face_id": observation.face_id,
+                "component_id": observation.component_id,
                 "source_count": observation.source_line_ids.len(),
                 "first_source_line_id": observation.source_line_ids.first(),
                 "last_source_line_id": observation.source_line_ids.last(),
+                "representative_line_id": observation.representative_line_id,
             }),
         )
     }
@@ -654,6 +656,8 @@ impl TraceRecorderV1 {
                 "local_dir_edge_id": observation.local_dir_edge_id,
                 "edge_key": [endpoint(edge_start), endpoint(edge_end)],
                 "side": format!("{:?}", observation.side),
+                "component_id": observation.component_id,
+                "representative_line_id": observation.representative_line_id,
                 "reason": reason,
             }),
         )
