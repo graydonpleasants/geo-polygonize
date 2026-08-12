@@ -528,6 +528,9 @@ Blocked by #1288.
 - [x] Validate that deterministic candidate global face IDs map one-to-one
   onto detached closed candidate cycles with contiguous IDs; retain incomplete,
   duplicate, or unmapped evidence without mutating topology.
+- [x] Gate exactly-one local-unbounded-face evidence on one mapped detached
+  candidate face ID and cycle, retaining missing or duplicate markers without
+  mutating topology.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
