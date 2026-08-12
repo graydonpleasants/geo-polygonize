@@ -4,11 +4,12 @@ use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -828,6 +829,23 @@ impl TraceRecorderV1 {
                 "boundary_euler_lhs": stats.boundary_euler_lhs,
                 "boundary_euler_rhs": stats.boundary_euler_rhs,
                 "boundary_euler_consistent": stats.boundary_euler_consistent,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_next_candidates(
+        &mut self,
+        stats: PartitionBorderGlobalFaceNextCandidateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_next_candidates",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "twin_candidate_count": stats.twin_candidate_count,
+                "ready_candidate_count": stats.ready_candidate_count,
+                "incomplete_candidate_count": stats.incomplete_candidate_count,
+                "global_successor_count": stats.global_successor_count,
             }),
         )
     }

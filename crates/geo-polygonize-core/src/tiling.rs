@@ -345,6 +345,14 @@ pub struct StitchingReport {
     pub partition_border_global_face_euler_boundary_rhs: i64,
     /// Whether the retained border-only arithmetic happens to balance.
     pub partition_border_global_face_euler_boundary_consistent: bool,
+    /// Qualified cross-tile twins retained as deterministic global-next candidates.
+    pub partition_border_global_face_next_candidate_count: usize,
+    /// Candidate twins whose two local cycles provide a complete splice witness.
+    pub partition_border_global_face_next_ready_candidate_count: usize,
+    /// Candidate twins with incomplete local-cycle evidence.
+    pub partition_border_global_face_next_incomplete_candidate_count: usize,
+    /// Distinct predecessor-to-successor assignments retained without mutation.
+    pub partition_border_global_face_next_global_successor_count: usize,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2435,6 +2443,11 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_face_next_candidates = partition_border_graph
+            .reconcile_global_face_next_candidates_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2471,6 +2484,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_euler_witness(
                 partition_border_global_face_euler_witness,
+            );
+            trace.record_partition_border_global_face_next_candidates(
+                partition_border_global_face_next_candidates,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -2788,6 +2804,14 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_euler_witness.boundary_euler_rhs,
                 partition_border_global_face_euler_boundary_consistent:
                     partition_border_global_face_euler_witness.boundary_euler_consistent,
+                partition_border_global_face_next_candidate_count:
+                    partition_border_global_face_next_candidates.twin_candidate_count,
+                partition_border_global_face_next_ready_candidate_count:
+                    partition_border_global_face_next_candidates.ready_candidate_count,
+                partition_border_global_face_next_incomplete_candidate_count:
+                    partition_border_global_face_next_candidates.incomplete_candidate_count,
+                partition_border_global_face_next_global_successor_count:
+                    partition_border_global_face_next_candidates.global_successor_count,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:

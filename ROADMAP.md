@@ -490,6 +490,9 @@ Blocked by #1288.
   vertices, edges, closed cycles, and component arithmetic; keep it diagnostic
   and explicitly do not treat it as a planar Euler proof for the incomplete
   global arrangement.
+- [x] Retain deterministic cross-tile global-next splice candidates from mapped
+  twins and local cycle predecessors/successors; keep incomplete or conflicting
+  assignments fail-closed without writing local `next` links or global face IDs.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

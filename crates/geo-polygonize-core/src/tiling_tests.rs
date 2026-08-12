@@ -13,6 +13,7 @@ mod tests {
         TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer,
     };
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
+    use std::collections::BTreeSet;
 
     #[test]
     fn exports_physical_tile_border_observations_before_scratch_is_released() {
@@ -435,6 +436,62 @@ mod tests {
         );
         assert!(face_euler.cross_component_edge_count > 0);
         assert!(!face_euler.boundary_euler_consistent);
+        let next_candidates = result.partition_border_graph.global_face_next_candidates();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_candidate_count,
+            next_candidates.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_ready_candidate_count,
+            next_candidates
+                .iter()
+                .filter(|candidate| candidate.ready)
+                .count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_incomplete_candidate_count,
+            next_candidates
+                .iter()
+                .filter(|candidate| !candidate.ready)
+                .count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_candidate_count,
+            twin_transition_plan.len()
+        );
+        assert!(next_candidates
+            .iter()
+            .all(|candidate| candidate.forward_global_successor.is_some() == candidate.ready));
+        let global_successor_count = next_candidates
+            .iter()
+            .flat_map(|candidate| {
+                [
+                    candidate
+                        .forward_predecessor
+                        .zip(candidate.forward_global_successor),
+                    candidate
+                        .reverse_predecessor
+                        .zip(candidate.reverse_global_successor),
+                ]
+            })
+            .flatten()
+            .map(|(predecessor, _successor)| predecessor)
+            .collect::<BTreeSet<_>>()
+            .len();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_next_global_successor_count,
+            global_successor_count
+        );
         let unbounded_proof = result
             .partition_border_graph
             .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
@@ -1163,6 +1220,50 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_euler_boundary_consistent
+            )
+        );
+        let global_face_next_candidates = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_next_candidates")
+            .expect("global face next candidate evidence");
+        assert_eq!(
+            global_face_next_candidates.payload["twin_candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_next_candidates.payload["ready_candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_ready_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_next_candidates.payload["incomplete_candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_incomplete_candidate_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_next_candidates.payload["global_successor_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_next_global_successor_count
+                    as u64
             )
         );
         let unbounded_proof = traced
