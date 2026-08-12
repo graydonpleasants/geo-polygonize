@@ -1,7 +1,10 @@
 //! Internal bounded topology trace schema.
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
-use crate::graph::partition_border::{PartitionBorderHalfEdge, PartitionBorderReconciliationStats};
+use crate::graph::partition_border::{
+    PartitionBorderHalfEdge, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
+};
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
 use crate::noding::grid::{
@@ -615,6 +618,22 @@ impl TraceRecorderV1 {
                 "normalized_edge_count": stats.normalized_edge_count,
                 "matched_twin_count": stats.matched_twin_count,
                 "unmatched_edge_count": stats.unmatched_edge_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_twin_application(
+        &mut self,
+        stats: PartitionBorderTwinApplicationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_twin_application",
+            serde_json::json!({
+                "candidate_twin_count": stats.candidate_twin_count,
+                "applied_twin_count": stats.applied_twin_count,
+                "missing_face_ref_count": stats.missing_face_ref_count,
+                "invalid_face_ref_count": stats.invalid_face_ref_count,
             }),
         )
     }

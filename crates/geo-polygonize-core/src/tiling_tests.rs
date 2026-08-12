@@ -79,6 +79,20 @@ mod tests {
                 .partition_border_unmatched_edge_count,
             reconciliation.unmatched_edge_count
         );
+        assert_eq!(
+            result.stitching_report.partition_border_face_twin_count,
+            result.partition_border_graph.applied_face_twins().len()
+        );
+        assert_eq!(
+            result.stitching_report.partition_border_face_twin_count
+                + result
+                    .stitching_report
+                    .partition_border_face_twin_missing_face_count
+                + result
+                    .stitching_report
+                    .partition_border_face_twin_invalid_face_count,
+            reconciliation.matched_twin_count
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -215,6 +229,28 @@ mod tests {
                     .as_u64()
                     .unwrap(),
             reconciliation.payload["normalized_edge_count"]
+                .as_u64()
+                .unwrap()
+        );
+        let application = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_twin_application")
+            .expect("twin application evidence");
+        assert_eq!(
+            application.payload["candidate_twin_count"],
+            reconciliation.payload["matched_twin_count"]
+        );
+        assert_eq!(
+            application.payload["applied_twin_count"].as_u64().unwrap()
+                + application.payload["missing_face_ref_count"]
+                    .as_u64()
+                    .unwrap()
+                + application.payload["invalid_face_ref_count"]
+                    .as_u64()
+                    .unwrap(),
+            application.payload["candidate_twin_count"]
                 .as_u64()
                 .unwrap()
         );
