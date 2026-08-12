@@ -591,6 +591,34 @@ pub(crate) struct PartitionBorderGlobalComponentReconciliationStats {
     pub(crate) twin_link_count: usize,
 }
 
+/// Deterministic source, representative, and Z payload merged across the
+/// reconciled border nodes of one retained global component. This is boundary
+/// payload evidence only; it does not choose a global face or rewrite a node.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalComponentPayload {
+    pub(crate) component_index: usize,
+    pub(crate) face_refs: Vec<PartitionFaceRef>,
+    pub(crate) border_node_keys: Vec<PartitionBorderNodeKey>,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_ids: Vec<u32>,
+    pub(crate) z_bits: Vec<u64>,
+    pub(crate) selected_z_bits: Vec<(PartitionBorderNodeKey, u64)>,
+    pub(crate) selected_z_policy: ZPolicy,
+    pub(crate) z_conflict_node_count: usize,
+}
+
+/// Counts from retaining deterministic global-component border payloads.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalComponentPayloadStats {
+    pub(crate) component_count: usize,
+    pub(crate) source_line_count: usize,
+    pub(crate) representative_line_count: usize,
+    pub(crate) z_candidate_count: usize,
+    pub(crate) selected_z_node_count: usize,
+    pub(crate) z_conflict_node_count: usize,
+    pub(crate) z_conflict_component_count: usize,
+}
+
 /// One qualified local border half-edge prepared for a future global face
 /// walk. The successor remains in the local directed-edge identity space;
 /// this record does not rewrite it into a global arrangement.
@@ -761,6 +789,7 @@ pub struct PartitionBorderGraph {
     applied_face_twins: Vec<PartitionBorderFaceTwin>,
     reconciled_nodes: Vec<PartitionBorderNodePayload>,
     global_components: Vec<PartitionBorderGlobalComponent>,
+    global_component_payloads: Vec<PartitionBorderGlobalComponentPayload>,
     global_face_plans: Vec<PartitionBorderGlobalFacePlan>,
     global_face_transitions: Vec<PartitionBorderGlobalFaceTransitionPlan>,
     global_face_twin_transitions: Vec<PartitionBorderGlobalFaceTwinTransition>,
@@ -800,6 +829,7 @@ impl PartitionBorderGraph {
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
         self.global_components.clear();
+        self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
@@ -811,6 +841,7 @@ impl PartitionBorderGraph {
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
         self.global_components.clear();
+        self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
@@ -1063,6 +1094,7 @@ impl PartitionBorderGraph {
         stats.applied_twin_count = applied_face_twins.len();
         self.applied_face_twins = applied_face_twins;
         self.global_components.clear();
+        self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
@@ -1205,6 +1237,7 @@ impl PartitionBorderGraph {
         }
         self.reconciled_nodes = reconciled_nodes;
         self.global_components.clear();
+        self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
@@ -1350,6 +1383,7 @@ impl PartitionBorderGraph {
             twin_link_count: self.applied_face_twins.len(),
         };
         self.global_components = global_components;
+        self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
@@ -1358,6 +1392,190 @@ impl PartitionBorderGraph {
 
     pub(crate) fn global_components(&self) -> &[PartitionBorderGlobalComponent] {
         &self.global_components
+    }
+
+    /// Retains deterministic component-level border payload merges after
+    /// canonical node reconciliation. Every source, representative, and Z
+    /// candidate is unioned by component while each node's selected Z decision
+    /// remains addressable. This is evidence only; no global node or face
+    /// payload is written.
+    pub(crate) fn reconcile_global_component_payloads(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalComponentPayloadStats> {
+        execution_policy.check_cancelled("partition_border_global_component_payloads")?;
+        execution_policy.check(
+            "partition_border_global_component_payload_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_component_payload_nodes",
+            execution_policy.max_graph_nodes,
+            self.reconciled_nodes.len(),
+        )?;
+
+        let mut node_by_key =
+            BTreeMap::<PartitionBorderNodeKey, &PartitionBorderNodePayload>::new();
+        for (node_index, node) in self.reconciled_nodes.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_component_payload_nodes",
+                node_index,
+            )?;
+            if node_by_key.insert(node.key, node).is_some() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!("global component payload node {:?} is duplicated", node.key),
+                });
+            }
+        }
+
+        let mut payloads = Vec::with_capacity(self.global_components.len());
+        let mut stats = PartitionBorderGlobalComponentPayloadStats {
+            component_count: self.global_components.len(),
+            ..Default::default()
+        };
+        for (component_position, component) in self.global_components.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_component_payloads",
+                component_position,
+            )?;
+            if component.component_index != component_position {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global component payload index mismatch: expected {}, got {}",
+                        component_position, component.component_index
+                    ),
+                });
+            }
+            if component.border_node_keys.is_empty() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global component payload {} has no border nodes",
+                        component.component_index
+                    ),
+                });
+            }
+
+            let mut source_line_ids = BTreeSet::new();
+            let mut representative_line_ids = BTreeSet::new();
+            let mut z_bits = BTreeSet::new();
+            let mut selected_z_bits = Vec::with_capacity(component.border_node_keys.len());
+            let mut selected_z_policy = None;
+            let mut z_conflict_node_count = 0usize;
+            let mut previous_node_key = None;
+            for (node_position, node_key) in component.border_node_keys.iter().copied().enumerate()
+            {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_component_payload_nodes",
+                    node_position,
+                )?;
+                if previous_node_key.is_some_and(|previous| previous >= node_key) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global component payload {} nodes are not strictly ordered",
+                            component.component_index
+                        ),
+                    });
+                }
+                previous_node_key = Some(node_key);
+                let Some(node) = node_by_key.get(&node_key) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global component payload node {:?} is unreconciled",
+                            node_key
+                        ),
+                    });
+                };
+                source_line_ids.extend(node.source_line_ids.iter().copied());
+                representative_line_ids.extend(node.representative_line_ids.iter().copied());
+                z_bits.extend(node.z_bits.iter().copied());
+                selected_z_bits.push((node.key, node.selected_z_bits));
+                match selected_z_policy {
+                    Some(policy) if policy != node.selected_z_policy => {
+                        return Err(crate::PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "global component payload {} mixes Z policies",
+                                component.component_index
+                            ),
+                        });
+                    }
+                    None => selected_z_policy = Some(node.selected_z_policy),
+                    Some(_) => {}
+                }
+                if node.z_conflict {
+                    z_conflict_node_count += 1;
+                }
+            }
+            let selected_z_policy = selected_z_policy.ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global component payload {} has no selected Z policy",
+                        component.component_index
+                    ),
+                }
+            })?;
+            let source_line_ids = source_line_ids.into_iter().collect::<Vec<_>>();
+            let representative_line_ids = representative_line_ids.into_iter().collect::<Vec<_>>();
+            let z_bits = z_bits.into_iter().collect::<Vec<_>>();
+            stats.source_line_count = stats
+                .source_line_count
+                .checked_add(source_line_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global component payload source count overflow".to_string(),
+                })?;
+            stats.representative_line_count = stats
+                .representative_line_count
+                .checked_add(representative_line_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global component payload representative count overflow".to_string(),
+                })?;
+            stats.z_candidate_count = stats
+                .z_candidate_count
+                .checked_add(z_bits.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global component payload Z candidate count overflow".to_string(),
+                })?;
+            stats.selected_z_node_count = stats
+                .selected_z_node_count
+                .checked_add(selected_z_bits.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global component payload selected Z count overflow".to_string(),
+                })?;
+            stats.z_conflict_node_count = stats
+                .z_conflict_node_count
+                .checked_add(z_conflict_node_count)
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global component payload Z conflict count overflow".to_string(),
+                })?;
+            if z_conflict_node_count > 0 {
+                stats.z_conflict_component_count = stats
+                    .z_conflict_component_count
+                    .checked_add(1)
+                    .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "global component payload Z conflict component count overflow"
+                            .to_string(),
+                    })?;
+            }
+            payloads.push(PartitionBorderGlobalComponentPayload {
+                component_index: component.component_index,
+                face_refs: component.face_refs.clone(),
+                border_node_keys: component.border_node_keys.clone(),
+                source_line_ids,
+                representative_line_ids,
+                z_bits,
+                selected_z_bits,
+                selected_z_policy,
+                z_conflict_node_count,
+            });
+        }
+
+        self.global_component_payloads = payloads;
+        Ok(stats)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_component_payloads(&self) -> &[PartitionBorderGlobalComponentPayload] {
+        &self.global_component_payloads
     }
 
     /// Builds deterministic face-boundary evidence from qualified local
@@ -3939,6 +4157,153 @@ mod tests {
                 if stage == "partition_border_global_components"
         ));
         assert_eq!(cancelled, before);
+    }
+
+    #[test]
+    fn global_component_payloads_union_provenance_and_z_deterministically() {
+        let mut graph = exact_face_twin_graph();
+        graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = graph
+            .reconcile_global_component_payloads(&ExecutionPolicy::default())
+            .unwrap();
+
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalComponentPayloadStats {
+                component_count: 1,
+                source_line_count: 2,
+                representative_line_count: 2,
+                z_candidate_count: 4,
+                selected_z_node_count: 2,
+                z_conflict_node_count: 2,
+                z_conflict_component_count: 1,
+            }
+        );
+        assert_eq!(graph.global_component_payloads().len(), 1);
+        let payload = &graph.global_component_payloads()[0];
+        assert_eq!(payload.component_index, 0);
+        assert_eq!(payload.face_refs, vec![face(1, 4, 9), face(2, 6, 11)]);
+        assert_eq!(
+            payload.border_node_keys,
+            graph.global_components()[0].border_node_keys
+        );
+        assert_eq!(payload.source_line_ids, vec![7, 8]);
+        assert_eq!(payload.representative_line_ids, vec![7, 8]);
+        assert_eq!(
+            payload.z_bits,
+            vec![
+                1.0f64.to_bits(),
+                2.0f64.to_bits(),
+                10.0f64.to_bits(),
+                20.0f64.to_bits(),
+            ]
+        );
+        assert_eq!(payload.selected_z_policy, ZPolicy::InterpolateAlongEdge);
+        assert_eq!(payload.z_conflict_node_count, 2);
+        assert_eq!(
+            payload.selected_z_bits,
+            vec![
+                (
+                    PartitionBorderNodeKey::from_coord(coord(0.0, 0.0, 0.0)),
+                    10.0f64.to_bits(),
+                ),
+                (
+                    PartitionBorderNodeKey::from_coord(coord(2.0, 0.0, 0.0)),
+                    20.0f64.to_bits(),
+                ),
+            ]
+        );
+
+        let mut reordered = PartitionBorderGraph::default();
+        for adjacency in graph.adjacencies.iter().copied() {
+            reordered.declare_adjacency(adjacency);
+        }
+        for observation in graph.observations.values().rev().cloned() {
+            reordered.insert(observation).unwrap();
+        }
+        reordered
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_component_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            reordered.global_component_payloads(),
+            graph.global_component_payloads()
+        );
+    }
+
+    #[test]
+    fn global_component_payloads_are_bounded_cancellable_and_atomic() {
+        let mut limited = exact_face_twin_graph();
+        limited
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        let before = limited.clone();
+        let error = limited
+            .reconcile_global_component_payloads(&ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_component_payload_nodes"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = before.clone();
+        let error = cancelled
+            .reconcile_global_component_payloads(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_component_payloads"
+        ));
+        assert_eq!(cancelled, before);
+
+        let mut malformed = before.clone();
+        malformed.global_components[0].border_node_keys[0] =
+            PartitionBorderNodeKey::from_coord(coord(99.0, 99.0, 0.0));
+        let error = malformed
+            .reconcile_global_component_payloads(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("is unreconciled")
+        ));
+        assert!(malformed.global_component_payloads().is_empty());
     }
 
     #[test]

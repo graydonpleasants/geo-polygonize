@@ -483,6 +483,9 @@ Blocked by #1288.
 - [x] Add a conservative exactly-one-local-marker unbounded-face proof gate;
   report closed-cycle and twin-readiness requirements, and reject multiple local
   unbounded markers rather than guessing their global identity.
+- [x] Retain deterministic component-level border payload merges for source IDs,
+  representative IDs, endpoint Z candidates, selected Z policy, and conflict
+  counts without writing global nodes or face payloads.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
