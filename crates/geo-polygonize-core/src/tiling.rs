@@ -1,6 +1,7 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::graph::partition_border::{
-    PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge, PartitionBorderSide,
+    PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge,
+    PartitionBorderLocalFaceGraph, PartitionBorderSide,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -410,6 +411,20 @@ pub struct StitchingReport {
     /// Exact twin pairs declined because a face reference was malformed or
     /// did not match its observation's partition.
     pub partition_border_face_twin_invalid_face_count: usize,
+    /// Processed local face-component snapshots retained for global mapping.
+    pub partition_border_global_face_edge_map_local_graph_count: usize,
+    /// Active directed edges remapped into deterministic global edge slots.
+    pub partition_border_global_face_edge_map_directed_edge_count: usize,
+    /// Local face successors successfully remapped into global edge slots.
+    pub partition_border_global_face_edge_map_local_successor_count: usize,
+    /// Face-qualified border observations mapped to active local edge slots.
+    pub partition_border_global_face_edge_map_observation_count: usize,
+    /// Applied face twins mapped across two active local edge slots.
+    pub partition_border_global_face_edge_map_twin_count: usize,
+    /// Applied face twins without complete local edge snapshots.
+    pub partition_border_global_face_edge_map_unmapped_twin_count: usize,
+    /// Whether every applied face twin mapped to active local edge slots.
+    pub partition_border_global_face_edge_map_ready: bool,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -497,6 +512,7 @@ type TileProcessResult = (
     TileReport,
     Vec<TileOwnershipDecision>,
     Vec<PartitionBorderHalfEdge>,
+    Vec<PartitionBorderLocalFaceGraph>,
     bool,
     crate::graph::planar_graph::PartitionBoundaryNodingStats,
 );
@@ -1090,13 +1106,14 @@ impl<'a> TiledPolygonizer<'a> {
                 report,
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 false,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
             ));
         }
 
         // Run polygonization
-        let (result, border_observations, boundary_noding_stats) = local_poly
+        let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         report.polygon_count = result.polygons.len();
         report.dangle_count = result.dangles.len();
@@ -1174,6 +1191,7 @@ impl<'a> TiledPolygonizer<'a> {
             report,
             ownership_decisions,
             border_observations,
+            local_face_graphs,
             capture_budget.is_some_and(|budget| budget.truncated()),
             boundary_noding_stats,
         ))
@@ -1617,7 +1635,7 @@ impl<'a> TiledPolygonizer<'a> {
             return Ok(result);
         };
         let mut retry_attempts = Vec::new();
-        let mut capture_truncated = result.4;
+        let mut capture_truncated = result.5;
         for attempt in 1..=policy.max_attempts {
             if !Self::report_has_retry_evidence(&result.1) || buffer >= policy.max_buffer {
                 break;
@@ -1651,7 +1669,7 @@ impl<'a> TiledPolygonizer<'a> {
                 buffer,
                 capture_byte_limit,
             )?;
-            capture_truncated |= result.4;
+            capture_truncated |= result.5;
             let resolved = !Self::report_is_unresolved(&result.1);
             retry_attempts.push(TileRetryAttempt {
                 attempt,
@@ -1665,7 +1683,7 @@ impl<'a> TiledPolygonizer<'a> {
         }
         result.1.retry_exhausted = Self::report_has_retry_evidence(&result.1);
         result.1.retry_attempts = retry_attempts;
-        result.4 = capture_truncated;
+        result.5 = capture_truncated;
         Ok(result)
     }
 
@@ -2255,6 +2273,7 @@ impl<'a> TiledPolygonizer<'a> {
         let mut tile_polygons = Vec::with_capacity(tiles.len());
         let mut tile_reports = Vec::with_capacity(tiles.len());
         let mut partition_border_graph = PartitionBorderGraph::default();
+        let mut partition_border_local_face_graphs = Vec::new();
         if trace_ownership {
             for (tile_index, tile) in tiles.into_iter().enumerate() {
                 let capture_byte_limit = trace.as_ref().and_then(|trace| {
@@ -2267,6 +2286,7 @@ impl<'a> TiledPolygonizer<'a> {
                     report,
                     ownership_decisions,
                     border_observations,
+                    local_face_graphs,
                     capture_truncated,
                     boundary_noding_stats,
                 ) = self.process_tile_with_retries(
@@ -2335,6 +2355,7 @@ impl<'a> TiledPolygonizer<'a> {
                         return Err(error);
                     }
                 }
+                partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
             }
@@ -2394,18 +2415,24 @@ impl<'a> TiledPolygonizer<'a> {
                 .collect();
 
             for result in tile_results? {
-                let (polygons, report, _, border_observations, _, _) = result;
+                let (polygons, report, _, border_observations, local_face_graphs, _, _) = result;
                 for observation in border_observations {
                     partition_border_graph.insert(observation)?;
                 }
+                partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
             }
+        }
+        for local_face_graph in partition_border_local_face_graphs {
+            partition_border_graph.insert_local_face_graph(local_face_graph)?;
         }
         self.declare_partition_adjacencies(&mut partition_border_graph, &tile_reports)?;
         let partition_border_reconciliation = partition_border_graph.reconciliation_stats();
         let partition_border_twin_application =
             partition_border_graph.apply_unambiguous_face_twins(&self.execution_policy)?;
+        let partition_border_global_face_edge_map =
+            partition_border_graph.reconcile_global_face_edge_map(&self.execution_policy)?;
         let applied_face_twin_count = partition_border_graph.applied_face_twins().len();
         debug_assert_eq!(
             applied_face_twin_count,
@@ -2509,6 +2536,9 @@ impl<'a> TiledPolygonizer<'a> {
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
+            trace.record_partition_border_global_face_edge_map(
+                partition_border_global_face_edge_map,
+            );
             trace.record_partition_border_node_reconciliation(
                 partition_border_node_reconciliation,
                 self.options.z,
@@ -2925,6 +2955,20 @@ impl<'a> TiledPolygonizer<'a> {
                     .missing_face_ref_count,
                 partition_border_face_twin_invalid_face_count: partition_border_twin_application
                     .invalid_face_ref_count,
+                partition_border_global_face_edge_map_local_graph_count:
+                    partition_border_global_face_edge_map.local_graph_count,
+                partition_border_global_face_edge_map_directed_edge_count:
+                    partition_border_global_face_edge_map.directed_edge_count,
+                partition_border_global_face_edge_map_local_successor_count:
+                    partition_border_global_face_edge_map.local_successor_count,
+                partition_border_global_face_edge_map_observation_count:
+                    partition_border_global_face_edge_map.mapped_observation_count,
+                partition_border_global_face_edge_map_twin_count:
+                    partition_border_global_face_edge_map.mapped_twin_count,
+                partition_border_global_face_edge_map_unmapped_twin_count:
+                    partition_border_global_face_edge_map.unmapped_twin_count,
+                partition_border_global_face_edge_map_ready: partition_border_global_face_edge_map
+                    .edge_map_ready,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,

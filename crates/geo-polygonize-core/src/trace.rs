@@ -3,14 +3,15 @@
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdPlanStats,
-    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
-    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -641,6 +642,26 @@ impl TraceRecorderV1 {
                 "applied_twin_count": stats.applied_twin_count,
                 "missing_face_ref_count": stats.missing_face_ref_count,
                 "invalid_face_ref_count": stats.invalid_face_ref_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_edge_map(
+        &mut self,
+        stats: PartitionBorderGlobalFaceEdgeMapStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_edge_map",
+            serde_json::json!({
+                "local_graph_count": stats.local_graph_count,
+                "component_count": stats.component_count,
+                "directed_edge_count": stats.directed_edge_count,
+                "local_successor_count": stats.local_successor_count,
+                "mapped_observation_count": stats.mapped_observation_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "unmapped_twin_count": stats.unmapped_twin_count,
+                "edge_map_ready": stats.edge_map_ready,
             }),
         )
     }

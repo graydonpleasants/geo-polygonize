@@ -14,7 +14,8 @@ use std::collections::HashMap;
 
 use super::partition_border::{
     partition_boundary_intersections, PartitionBorderEdgeKey, PartitionBorderHalfEdge,
-    PartitionBorderNodeKey, PartitionBorderSide,
+    PartitionBorderLocalDirectedEdge, PartitionBorderLocalFaceGraph, PartitionBorderNodeKey,
+    PartitionBorderSide,
 };
 
 /// Index of a node in the graph.
@@ -133,6 +134,14 @@ type ComponentOutput = (
     Vec<Vec<Coord3D>>,
     Vec<ExtractedRing>,
     Vec<ExtractedRing>,
+);
+
+type ComponentProcessingResult = (
+    ComponentOutput,
+    Vec<PartitionBorderHalfEdge>,
+    Vec<PartitionBorderLocalFaceGraph>,
+    bool,
+    ComponentMemoryStats,
 );
 
 struct ComponentPartition {
@@ -2581,15 +2590,11 @@ impl PlanarGraph {
         noding_postcondition_validated: bool,
         capture_byte_limit: Option<usize>,
         border_export: Option<PartitionBorderExport>,
-    ) -> crate::Result<(
-        ComponentOutput,
-        Vec<PartitionBorderHalfEdge>,
-        bool,
-        ComponentMemoryStats,
-    )> {
+    ) -> crate::Result<ComponentProcessingResult> {
         let (partitions, mut memory_stats) = self.active_component_partitions(execution_policy)?;
         let mut merged = ComponentOutput::default();
         let mut border_observations = Vec::new();
+        let mut local_face_graphs = Vec::new();
         memory_stats.execution_worker_count = 1;
 
         let capture_truncated = if border_export.is_some() || capture_byte_limit.is_some() {
@@ -2602,7 +2607,7 @@ impl PlanarGraph {
                     partition,
                     execution_policy,
                 )?;
-                let (output, observations, scratch_stats) = scratch.process(
+                let (output, observations, local_face_graph, scratch_stats) = scratch.process(
                     component_id,
                     include_graph_ids,
                     include_source_ids,
@@ -2618,6 +2623,9 @@ impl PlanarGraph {
                     component_output_coordinate_capacity(&merged),
                 );
                 border_observations.extend(observations);
+                if let Some(local_face_graph) = local_face_graph {
+                    local_face_graphs.push(local_face_graph);
+                }
             }
             capture_budget.is_some_and(|budget| budget.truncated())
         } else {
@@ -2674,8 +2682,9 @@ impl PlanarGraph {
             };
 
             for output in outputs {
-                let (output, observations, scratch_stats) = output?;
+                let (output, observations, local_face_graph, scratch_stats) = output?;
                 debug_assert!(observations.is_empty());
+                debug_assert!(local_face_graph.is_none());
                 memory_stats.merge_execution(&scratch_stats);
                 append_component_output(&mut merged, output);
                 memory_stats.observe_merged_output(
@@ -2686,7 +2695,13 @@ impl PlanarGraph {
             false
         };
 
-        Ok((merged, border_observations, capture_truncated, memory_stats))
+        Ok((
+            merged,
+            border_observations,
+            local_face_graphs,
+            capture_truncated,
+            memory_stats,
+        ))
     }
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
@@ -2974,6 +2989,7 @@ impl ComponentScratch {
     ) -> crate::Result<(
         ComponentOutput,
         Vec<PartitionBorderHalfEdge>,
+        Option<PartitionBorderLocalFaceGraph>,
         ComponentMemoryStats,
     )> {
         let is_new_scratch_instance = self.processed_components == 0;
@@ -3012,6 +3028,15 @@ impl ComponentScratch {
         let observations = border_export
             .map(|export| self.partition_border_observations(component_id, export))
             .unwrap_or_default();
+        let local_face_graph = border_export
+            .map(|export| {
+                self.partition_border_local_face_graph(
+                    export.partition_id,
+                    component_id,
+                    execution_policy,
+                )
+            })
+            .transpose()?;
         self.remap_rings(&mut maximal, component_id, include_graph_ids)?;
         self.remap_rings(&mut minimal, component_id, include_graph_ids)?;
         self.processed_components = self.processed_components.saturating_add(1);
@@ -3029,8 +3054,138 @@ impl ComponentScratch {
         Ok((
             (dangles, cut_edges, maximal, minimal),
             observations,
+            local_face_graph,
             scratch_stats,
         ))
+    }
+
+    fn partition_border_local_face_graph(
+        &self,
+        partition_id: usize,
+        component_id: usize,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderLocalFaceGraph> {
+        execution_policy.check_cancelled("partition_border_local_face_graph")?;
+        let mut global_dir_edge_ids = vec![None; self.graph.directed_edges.len()];
+        for (local_edge_id, edge) in self.graph.edges.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_local_face_graph_edges", local_edge_id)?;
+            if edge.deleted
+                || edge
+                    .dir_edges
+                    .iter()
+                    .any(|&dir_edge_id| self.graph.directed_edges[dir_edge_id].is_marked)
+            {
+                continue;
+            }
+            let Some(global_dir_edges) = self.global_dir_edge_ids.get(local_edge_id) else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "partition local face graph edge {} has no global directed identity",
+                        local_edge_id
+                    ),
+                });
+            };
+            for (local_dir_edge_id, &global_dir_edge_id) in
+                edge.dir_edges.iter().zip(global_dir_edges)
+            {
+                global_dir_edge_ids[*local_dir_edge_id] = Some(global_dir_edge_id);
+            }
+        }
+
+        let mut directed_edges = Vec::new();
+        for (local_dir_edge_id, directed) in self.graph.directed_edges.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_local_face_graph", local_dir_edge_id)?;
+            let Some(global_local_dir_edge_id) = global_dir_edge_ids[local_dir_edge_id] else {
+                continue;
+            };
+            let edge = self.graph.edges.get(directed.edge_idx).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "partition local face graph directed edge {} has no parent edge",
+                        local_dir_edge_id
+                    ),
+                }
+            })?;
+            let symmetric_local_dir_edge_id =
+                global_dir_edge_ids[directed.sym_idx].ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                        "partition local face graph directed edge {} has no active symmetric edge",
+                        local_dir_edge_id
+                    ),
+                    }
+                })?;
+            let local_face_successor = directed
+                .face_id
+                .and_then(|_| self.graph.directed_edges.get(directed.sym_idx))
+                .and_then(|symmetric| symmetric.next_idx)
+                .map(|local_successor| {
+                    global_dir_edge_ids
+                        .get(local_successor)
+                        .copied()
+                        .flatten()
+                        .ok_or_else(|| {
+                            crate::PolygonizeError::InternalInvariantViolation {
+                                reason: format!(
+                                    "partition local face graph directed edge {} has no active successor",
+                                    local_dir_edge_id
+                                ),
+                            }
+                        })
+                })
+                .transpose()?;
+            let from = directed.src;
+            let to = directed.dst;
+            let from_key = PartitionBorderNodeKey::from_coord(Coord3D::new(
+                self.graph.nodes_x[from],
+                self.graph.nodes_y[from],
+                0.0,
+            ));
+            let to_key = PartitionBorderNodeKey::from_coord(Coord3D::new(
+                self.graph.nodes_x[to],
+                self.graph.nodes_y[to],
+                0.0,
+            ));
+            let edge_key = PartitionBorderEdgeKey::new(from_key, to_key).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "partition local face graph directed edge {} is degenerate",
+                        local_dir_edge_id
+                    ),
+                }
+            })?;
+            let mut source_line_ids = edge.sources.line_ids.to_vec();
+            source_line_ids.sort_unstable();
+            source_line_ids.dedup();
+            directed_edges.push(PartitionBorderLocalDirectedEdge {
+                local_dir_edge_id: global_local_dir_edge_id,
+                symmetric_local_dir_edge_id,
+                local_face_successor,
+                from: from_key,
+                to: to_key,
+                from_z_bits: canonical_coordinate_bits(self.graph.nodes_z[from]),
+                to_z_bits: canonical_coordinate_bits(self.graph.nodes_z[to]),
+                edge_key,
+                face_ref: directed.face_id.map(|face_id| {
+                    crate::types::LocalFaceRef {
+                        component_id,
+                        face_id,
+                    }
+                    .in_partition(partition_id)
+                }),
+                local_face_is_unbounded: directed
+                    .face_id
+                    .is_some_and(|face_id| self.graph.unbounded_face_ids.contains(&face_id)),
+                source_line_ids,
+            });
+        }
+        Ok(PartitionBorderLocalFaceGraph {
+            partition_id,
+            component_id,
+            directed_edges,
+        })
     }
 
     fn partition_border_observations(
@@ -3952,7 +4107,7 @@ mod arrangement_ring_invariant_tests {
         }
 
         let policy = ExecutionPolicy::default();
-        let ((_, _, _, rings), _, _, _) = graph
+        let ((_, _, _, rings), _, _, _, _) = graph
             .process_components_with_execution_policy(true, true, &policy, true, None, None)
             .unwrap();
         let refs = rings
@@ -3994,7 +4149,7 @@ mod arrangement_ring_invariant_tests {
             20,
         );
 
-        let (_, observations, _, _) = graph
+        let (_, observations, local_face_graphs, _, _) = graph
             .process_components_with_execution_policy(
                 true,
                 true,
@@ -4013,6 +4168,10 @@ mod arrangement_ring_invariant_tests {
             .map(|observation| observation.component_id)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(component_ids, std::collections::BTreeSet::from([0, 1]));
+        assert_eq!(local_face_graphs.len(), 2);
+        assert!(local_face_graphs
+            .iter()
+            .all(|graph| !graph.directed_edges.is_empty()));
 
         let representative_ids = observations
             .iter()

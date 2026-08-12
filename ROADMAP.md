@@ -502,6 +502,10 @@ Blocked by #1288.
 - [x] Retain deterministic candidate global face IDs for closed boundary
   mutation cycles; keep incomplete cycles explicitly unassigned and do not
   write candidate IDs into local observations or tiled output.
+- [x] Capture active local face-edge lineage and deterministically map local
+  symmetric/successor identities plus declared face-qualified twins into
+  global edge slots, validating geometry, provenance, Z, and cancellation
+  boundaries without mutating topology.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
