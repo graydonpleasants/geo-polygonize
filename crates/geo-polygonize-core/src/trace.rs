@@ -3,8 +3,9 @@
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFacePlanStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -685,6 +686,22 @@ impl TraceRecorderV1 {
                 "missing_successor_count": stats.missing_successor_count,
                 "unbounded_face_count": stats.unbounded_face_count,
                 "linked_face_count": stats.linked_face_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_validation(
+        &mut self,
+        stats: PartitionBorderGlobalFacePlanValidationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_validation",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "candidate_count": stats.candidate_count,
+                "twin_link_count": stats.twin_link_count,
+                "unbounded_face_count": stats.unbounded_face_count,
             }),
         )
     }

@@ -276,6 +276,14 @@ pub struct StitchingReport {
     pub partition_border_global_unbounded_face_count: usize,
     /// Planned faces that participate in at least one retained twin edge.
     pub partition_border_global_face_linked_count: usize,
+    /// Face plans that passed immutable identity and twin-link validation.
+    pub partition_border_global_face_validated_count: usize,
+    /// Face-boundary candidates that passed observation-lineage validation.
+    pub partition_border_global_face_validated_candidate_count: usize,
+    /// Retained twin links whose two face-plan endpoints were validated.
+    pub partition_border_global_face_validated_twin_count: usize,
+    /// Validated face plans marked unbounded by their source arrangements.
+    pub partition_border_global_face_validated_unbounded_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2307,6 +2315,12 @@ impl<'a> TiledPolygonizer<'a> {
             global_face_plan_count,
             partition_border_global_face_plan.face_count
         );
+        let partition_border_global_face_validation =
+            partition_border_graph.validate_global_face_plans(&self.execution_policy)?;
+        debug_assert_eq!(
+            partition_border_global_face_validation.face_count,
+            global_face_plan_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2318,6 +2332,9 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_component_reconciliation,
             );
             trace.record_partition_border_global_face_plan(partition_border_global_face_plan);
+            trace.record_partition_border_global_face_validation(
+                partition_border_global_face_validation,
+            );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
@@ -2563,6 +2580,14 @@ impl<'a> TiledPolygonizer<'a> {
                     .unbounded_face_count,
                 partition_border_global_face_linked_count: partition_border_global_face_plan
                     .linked_face_count,
+                partition_border_global_face_validated_count:
+                    partition_border_global_face_validation.face_count,
+                partition_border_global_face_validated_candidate_count:
+                    partition_border_global_face_validation.candidate_count,
+                partition_border_global_face_validated_twin_count:
+                    partition_border_global_face_validation.twin_link_count,
+                partition_border_global_face_validated_unbounded_count:
+                    partition_border_global_face_validation.unbounded_face_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,

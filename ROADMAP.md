@@ -464,6 +464,9 @@ Blocked by #1288.
 - [x] Retain qualified local face-walk successor and unbounded-face evidence
   in a deterministic global face-boundary plan, reporting missing successors
   without mutating local `next`, face IDs, or tiled output.
+- [x] Validate retained face-boundary plan identity, successor lineage, twin
+  coverage, deterministic grouping, limits, and cancellation without mutating
+  local or global topology.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
