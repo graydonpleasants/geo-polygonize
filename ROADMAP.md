@@ -432,6 +432,7 @@ Tracked by
 - [x] Introduce collision-free atomic observation identity.
 - [x] Emit bounded trace evidence for boundary-noding counts, atomic border
   observations, and rejected observations.
+- [x] Exercise fixed-grid and certified-fixed export under input permutation.
 - [x] Run arrangement and face-walk validators after boundary noding.
 - [x] Leave replicate-and-own output unchanged.
 
