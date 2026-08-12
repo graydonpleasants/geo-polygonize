@@ -695,7 +695,7 @@ mod tests {
         }
 
         let component_ids = graph.active_component_ids();
-        let ((dangles, cut_edges, maximal, rings), _, capture_truncated) = graph
+        let ((dangles, cut_edges, maximal, rings), _, capture_truncated, memory_stats) = graph
             .process_components_with_execution_policy(
                 true,
                 true,
@@ -710,6 +710,13 @@ mod tests {
         assert!(maximal.is_empty());
         assert!(!capture_truncated);
         assert_eq!(rings.len(), 4);
+        assert_eq!(memory_stats.component_count, 2);
+        assert_eq!(memory_stats.active_node_count, 6);
+        assert_eq!(memory_stats.active_edge_count, 6);
+        assert_eq!(memory_stats.largest_component_node_count, 3);
+        assert_eq!(memory_stats.largest_component_edge_count, 3);
+        assert!(memory_stats.scratch_instance_count >= 1);
+        assert!(memory_stats.max_scratch_adjacency_capacity >= 6);
 
         let mut represented_components = BTreeSet::new();
         for ring in rings {

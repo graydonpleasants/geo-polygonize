@@ -652,6 +652,44 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_report_component_memory_evidence_without_changing_output() {
+        let mut poly = Polygonizer::new();
+        poly.options_mut().node_input = false;
+        poly.options_mut().diagnostics.enabled = true;
+        for offset in [0.0, 20.0] {
+            poly.add_geometry(
+                LineString::from(vec![
+                    (offset, 0.0),
+                    (offset + 10.0, 0.0),
+                    (offset + 10.0, 10.0),
+                    (offset, 10.0),
+                    (offset, 0.0),
+                ])
+                .into(),
+            );
+        }
+
+        let result = poly.polygonize().unwrap();
+        let diagnostics = result.diagnostics.unwrap();
+        assert_eq!(result.polygons.len(), 2);
+        assert_eq!(diagnostics.component_memory_stats.component_count, 2);
+        assert_eq!(diagnostics.component_memory_stats.active_node_count, 8);
+        assert_eq!(
+            diagnostics
+                .component_memory_stats
+                .largest_component_edge_count,
+            4
+        );
+        assert!(diagnostics.component_memory_stats.scratch_instance_count >= 1);
+        assert!(
+            diagnostics
+                .component_memory_stats
+                .max_merged_output_item_count
+                > 0
+        );
+    }
+
+    #[test]
     fn diagnostics_report_noding_iterations() {
         let mut poly = Polygonizer::new();
         poly.options_mut().node_input = true;

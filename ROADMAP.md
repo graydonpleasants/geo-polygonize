@@ -268,6 +268,9 @@ Tracked by
 - [ ] Evaluate a direct single-component fast path.
 - [ ] Evaluate deterministic sequential versus parallel component thresholds.
 - [ ] Prototype flat/CSR adjacency privately.
+- [x] Emit deterministic component distribution, adjacency-capacity, reusable
+  scratch high-water, scratch-state/worker, and merged-output evidence in
+  diagnostics and benchmark records.
 - [ ] Run arrangement and full topology conformance before timing.
 - [ ] Compare layout and execution decisions on production-scale workloads.
 - [ ] Check in explicit accept/reject decision records.
@@ -275,6 +278,10 @@ Tracked by
 
 **Promotion gate:** exact canonical equivalence plus a predeclared end-to-end or
 peak-memory win on more than one representative workload.
+
+The evidence plumbing is complete, but the measurements, fast-path/threshold
+evaluation, layout comparison, and promotion decision remain open until
+dedicated-runner publications from #1290 exist.
 
 ## P2.3 Remaining arrangement payload work
 
