@@ -5,9 +5,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
     PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -766,6 +766,27 @@ impl TraceRecorderV1 {
                 "unbounded_component_count": stats.unbounded_component_count,
                 "source_complete_twin_count": stats.source_complete_twin_count,
                 "face_adjacency_cycle_rank": stats.face_adjacency_cycle_rank,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_unbounded_face_proof(
+        &mut self,
+        stats: PartitionBorderGlobalUnboundedFaceProofStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_unbounded_face_proof",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "local_unbounded_face_count": stats.local_unbounded_face_count,
+                "unbounded_component_count": stats.unbounded_component_count,
+                "closed_unbounded_face_count": stats.closed_unbounded_face_count,
+                "unbounded_face_twin_count": stats.unbounded_face_twin_count,
+                "unbounded_face_unmapped_twin_count": stats.unbounded_face_unmapped_twin_count,
+                "unbounded_face_not_ready_twin_count": stats.unbounded_face_not_ready_twin_count,
+                "candidate_count": stats.candidate_count,
+                "proof_ready": stats.proof_ready,
             }),
         )
     }

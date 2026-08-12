@@ -315,6 +315,16 @@ pub struct StitchingReport {
     pub partition_border_global_face_walk_unbounded_component_count: usize,
     /// Cycle rank of the retained face/twin connectivity graph, not planar Euler.
     pub partition_border_global_face_walk_face_adjacency_cycle_rank: usize,
+    /// Conservative exactly-one-local-marker unbounded-face candidates.
+    pub partition_border_global_unbounded_face_proof_candidate_count: usize,
+    /// Whether the conservative unbounded-face proof gate is ready.
+    pub partition_border_global_unbounded_face_proof_ready: bool,
+    /// Unbounded-face candidates whose local cycles are closed.
+    pub partition_border_global_unbounded_face_proof_closed_count: usize,
+    /// Unbounded-face twins absent from the retained twin-position map.
+    pub partition_border_global_unbounded_face_proof_unmapped_twin_count: usize,
+    /// Unbounded-face twins whose opposite local cycle is incomplete.
+    pub partition_border_global_unbounded_face_proof_not_ready_twin_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2384,6 +2394,11 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_global_face_walk_invariants.mapped_twin_count,
             global_face_twin_transition_count
         );
+        let partition_border_global_unbounded_face_proof = partition_border_graph
+            .validate_global_unbounded_face_proof_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2409,6 +2424,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_walk_invariants(
                 partition_border_global_face_walk_invariants,
+            );
+            trace.record_partition_border_global_unbounded_face_proof(
+                partition_border_global_unbounded_face_proof,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -2693,6 +2711,16 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_walk_invariants.unbounded_component_count,
                 partition_border_global_face_walk_face_adjacency_cycle_rank:
                     partition_border_global_face_walk_invariants.face_adjacency_cycle_rank,
+                partition_border_global_unbounded_face_proof_candidate_count:
+                    partition_border_global_unbounded_face_proof.candidate_count,
+                partition_border_global_unbounded_face_proof_ready:
+                    partition_border_global_unbounded_face_proof.proof_ready,
+                partition_border_global_unbounded_face_proof_closed_count:
+                    partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
+                partition_border_global_unbounded_face_proof_unmapped_twin_count:
+                    partition_border_global_unbounded_face_proof.unbounded_face_unmapped_twin_count,
+                partition_border_global_unbounded_face_proof_not_ready_twin_count:
+                    partition_border_global_unbounded_face_proof.unbounded_face_not_ready_twin_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,

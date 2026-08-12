@@ -320,6 +320,40 @@ mod tests {
                 .partition_border_global_face_walk_face_adjacency_cycle_rank,
             face_walk.face_adjacency_cycle_rank
         );
+        let unbounded_proof = result
+            .partition_border_graph
+            .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_proof_candidate_count,
+            unbounded_proof.candidate_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_proof_ready,
+            unbounded_proof.proof_ready
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_proof_closed_count,
+            unbounded_proof.closed_unbounded_face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_proof_unmapped_twin_count,
+            unbounded_proof.unbounded_face_unmapped_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_unbounded_face_proof_not_ready_twin_count,
+            unbounded_proof.unbounded_face_not_ready_twin_count
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -866,6 +900,61 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_walk_face_adjacency_cycle_rank
+                    as u64
+            )
+        );
+        let unbounded_proof = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_unbounded_face_proof")
+            .expect("global unbounded face proof evidence");
+        assert_eq!(
+            unbounded_proof.payload["candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_proof_candidate_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            unbounded_proof.payload["proof_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_proof_ready
+            )
+        );
+        assert_eq!(
+            unbounded_proof.payload["closed_unbounded_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_proof_closed_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            unbounded_proof.payload["unbounded_face_unmapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_proof_unmapped_twin_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            unbounded_proof.payload["unbounded_face_not_ready_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_unbounded_face_proof_not_ready_twin_count
                     as u64
             )
         );

@@ -717,6 +717,23 @@ pub(crate) struct PartitionBorderGlobalFaceWalkInvariantStats {
     pub(crate) face_adjacency_cycle_rank: usize,
 }
 
+/// Evidence for the conservative single-marker global-unbounded-face proof
+/// gate. A `proof_ready` result is intentionally narrower than the full
+/// global face-identification problem: multiple local unbounded markers remain
+/// unresolved rather than being merged by assumption.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalUnboundedFaceProofStats {
+    pub(crate) face_count: usize,
+    pub(crate) local_unbounded_face_count: usize,
+    pub(crate) unbounded_component_count: usize,
+    pub(crate) closed_unbounded_face_count: usize,
+    pub(crate) unbounded_face_twin_count: usize,
+    pub(crate) unbounded_face_unmapped_twin_count: usize,
+    pub(crate) unbounded_face_not_ready_twin_count: usize,
+    pub(crate) candidate_count: usize,
+    pub(crate) proof_ready: bool,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -2730,6 +2747,91 @@ impl PartitionBorderGraph {
         })
     }
 
+    /// Applies a conservative proof boundary to local-unbounded evidence.
+    /// Exactly one local unbounded marker is a candidate only when every face
+    /// cycle is closed, every border twin is mapped, and every unbounded-face
+    /// twin is mutation-ready. Multiple local markers, including markers that
+    /// share one retained connected component, remain unresolved evidence.
+    #[cfg(test)]
+    pub(crate) fn validate_global_unbounded_face_proof(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalUnboundedFaceProofStats> {
+        execution_policy.check_cancelled("partition_border_global_unbounded_face_proof")?;
+        let walk = self.validate_global_face_walk_invariants(execution_policy)?;
+        self.validate_global_unbounded_face_proof_with_walk(execution_policy, walk)
+    }
+
+    pub(crate) fn validate_global_unbounded_face_proof_with_walk(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        walk: PartitionBorderGlobalFaceWalkInvariantStats,
+    ) -> crate::Result<PartitionBorderGlobalUnboundedFaceProofStats> {
+        execution_policy.check_cancelled("partition_border_global_unbounded_face_proof")?;
+        let unbounded_faces = self
+            .global_face_plans
+            .iter()
+            .filter(|plan| plan.local_face_is_unbounded)
+            .map(|plan| plan.face_ref)
+            .collect::<BTreeSet<_>>();
+        let local_unbounded_face_count = unbounded_faces.len();
+        let closed_unbounded_face_count = self
+            .global_face_transitions
+            .iter()
+            .filter(|transition| transition.local_face_is_unbounded && transition.closed)
+            .count();
+        let mapped_twin_links = self
+            .global_face_twin_transitions
+            .iter()
+            .map(|link| (link.edge_key, link))
+            .collect::<BTreeMap<_, _>>();
+        let mut unbounded_face_twin_count = 0usize;
+        let mut unbounded_face_unmapped_twin_count = 0usize;
+        let mut unbounded_face_not_ready_twin_count = 0usize;
+        for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_unbounded_face_proof_twins",
+                twin_index,
+            )?;
+            if !unbounded_faces.contains(&twin.forward_face_ref)
+                && !unbounded_faces.contains(&twin.reverse_face_ref)
+            {
+                continue;
+            }
+            unbounded_face_twin_count += 1;
+            let Some(link) = mapped_twin_links.get(&twin.twin.edge_key) else {
+                unbounded_face_unmapped_twin_count += 1;
+                continue;
+            };
+            if !(link.forward_cycle_closed && link.reverse_cycle_closed) {
+                unbounded_face_not_ready_twin_count += 1;
+            }
+        }
+        let candidate_count = usize::from(local_unbounded_face_count == 1);
+        let proof_ready = candidate_count == 1
+            && walk.face_count > 0
+            && walk.closed_face_count == walk.face_count
+            && closed_unbounded_face_count == 1
+            && walk.unbounded_component_count == 1
+            && walk.unmapped_twin_count == 0
+            && walk.source_complete_twin_count == walk.applied_twin_count
+            && unbounded_face_unmapped_twin_count == 0
+            && unbounded_face_not_ready_twin_count == 0;
+        debug_assert!(unbounded_face_unmapped_twin_count == 0 || !proof_ready);
+
+        Ok(PartitionBorderGlobalUnboundedFaceProofStats {
+            face_count: walk.face_count,
+            local_unbounded_face_count,
+            unbounded_component_count: walk.unbounded_component_count,
+            closed_unbounded_face_count,
+            unbounded_face_twin_count,
+            unbounded_face_unmapped_twin_count,
+            unbounded_face_not_ready_twin_count,
+            candidate_count,
+            proof_ready,
+        })
+    }
+
     /// Merges source IDs and retains every distinct Z candidate for each
     /// canonical endpoint. No Z conflict policy is applied here.
     pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
@@ -2930,10 +3032,10 @@ mod tests {
         graph
     }
 
-    fn prepared_global_face_walk_graph(closed: bool, unbounded: bool) -> PartitionBorderGraph {
+    fn prepared_global_face_walk_graph(closed: bool, unbounded: [bool; 2]) -> PartitionBorderGraph {
         let mut graph = exact_face_twin_graph_with_successors();
-        for observation in graph.observations.values_mut() {
-            observation.local_face_is_unbounded = unbounded;
+        for (observation_index, observation) in graph.observations.values_mut().enumerate() {
+            observation.local_face_is_unbounded = unbounded[observation_index];
             if closed {
                 observation.local_face_boundary_successor = Some(observation.observation_id());
             }
@@ -4232,7 +4334,7 @@ mod tests {
 
     #[test]
     fn global_face_walk_invariants_validate_cycles_payload_and_connectivity() {
-        let graph = prepared_global_face_walk_graph(true, false);
+        let graph = prepared_global_face_walk_graph(true, [false, false]);
         let before = graph.clone();
         let stats = graph
             .validate_global_face_walk_invariants(&ExecutionPolicy::default())
@@ -4256,7 +4358,7 @@ mod tests {
         );
         assert_eq!(graph, before);
 
-        let incomplete = prepared_global_face_walk_graph(false, false);
+        let incomplete = prepared_global_face_walk_graph(false, [false, false]);
         let stats = incomplete
             .validate_global_face_walk_invariants(&ExecutionPolicy::default())
             .unwrap();
@@ -4265,7 +4367,7 @@ mod tests {
         assert_eq!(stats.mapped_twin_count, 1);
         assert_eq!(stats.source_complete_twin_count, 1);
 
-        let unbounded = prepared_global_face_walk_graph(true, true);
+        let unbounded = prepared_global_face_walk_graph(true, [true, true]);
         let stats = unbounded
             .validate_global_face_walk_invariants(&ExecutionPolicy::default())
             .unwrap();
@@ -4275,7 +4377,7 @@ mod tests {
 
     #[test]
     fn global_face_walk_invariants_fail_closed_on_cycle_payload_and_limits() {
-        let mut cycle_corruption = prepared_global_face_walk_graph(true, false);
+        let mut cycle_corruption = prepared_global_face_walk_graph(true, [false, false]);
         let reverse_id = cycle_corruption
             .observations
             .keys()
@@ -4294,7 +4396,7 @@ mod tests {
         ));
         assert_eq!(cycle_corruption, before);
 
-        let mut payload_corruption = prepared_global_face_walk_graph(true, false);
+        let mut payload_corruption = prepared_global_face_walk_graph(true, [false, false]);
         payload_corruption.applied_face_twins[0]
             .payload
             .source_line_ids
@@ -4310,7 +4412,7 @@ mod tests {
         ));
         assert_eq!(payload_corruption, before);
 
-        let limited = prepared_global_face_walk_graph(true, false);
+        let limited = prepared_global_face_walk_graph(true, [false, false]);
         let error = limited
             .validate_global_face_walk_invariants(&ExecutionPolicy {
                 max_graph_nodes: Some(1),
@@ -4328,7 +4430,7 @@ mod tests {
 
         let token = CancellationToken::new();
         token.cancel();
-        let cancelled = prepared_global_face_walk_graph(true, false)
+        let cancelled = prepared_global_face_walk_graph(true, [false, false])
             .validate_global_face_walk_invariants(&ExecutionPolicy {
                 cancellation_token: Some(token),
                 ..Default::default()
@@ -4339,6 +4441,45 @@ mod tests {
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_walk_invariants"
         ));
+    }
+
+    #[test]
+    fn global_unbounded_face_proof_is_conservative_about_marker_multiplicity() {
+        let single = prepared_global_face_walk_graph(true, [true, false]);
+        assert_eq!(
+            single
+                .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
+                .unwrap(),
+            PartitionBorderGlobalUnboundedFaceProofStats {
+                face_count: 2,
+                local_unbounded_face_count: 1,
+                unbounded_component_count: 1,
+                closed_unbounded_face_count: 1,
+                unbounded_face_twin_count: 1,
+                unbounded_face_unmapped_twin_count: 0,
+                unbounded_face_not_ready_twin_count: 0,
+                candidate_count: 1,
+                proof_ready: true,
+            }
+        );
+
+        let multiple = prepared_global_face_walk_graph(true, [true, true]);
+        let stats = multiple
+            .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.local_unbounded_face_count, 2);
+        assert_eq!(stats.unbounded_component_count, 1);
+        assert_eq!(stats.candidate_count, 0);
+        assert!(!stats.proof_ready);
+
+        let incomplete = prepared_global_face_walk_graph(false, [true, false]);
+        let stats = incomplete
+            .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.candidate_count, 1);
+        assert_eq!(stats.closed_unbounded_face_count, 0);
+        assert_eq!(stats.unbounded_face_not_ready_twin_count, 1);
+        assert!(!stats.proof_ready);
     }
 
     #[test]
