@@ -179,6 +179,128 @@ mod tests {
     }
 
     #[test]
+    fn fixed_and_certified_boundary_export_survives_input_permutation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -1.0, y: 0.0 },
+                Coord { x: 3.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 3.0, y: 0.0 },
+                Coord { x: 3.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 3.0, y: 1.0 },
+                Coord { x: -1.0, y: 1.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: -1.0, y: 1.0 },
+                Coord { x: -1.0, y: 0.0 },
+            ])),
+        ];
+        let options = [
+            PolygonizerOptions {
+                node_input: true,
+                precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+                ..Default::default()
+            },
+            PolygonizerOptions {
+                node_input: true,
+                precision_model: PrecisionModel::FixedGrid { grid_size: 1.0 },
+                noding: NodingOptions {
+                    guarantee: NodingGuarantee::CertifiedFixedPrecision,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ];
+
+        let atomic_signature = |trace: &crate::trace::TopologyTraceV1| {
+            let mut signature = trace
+                .events
+                .iter()
+                .filter(|event| event.kind == "partition_border_atomic_observation")
+                .map(|event| {
+                    serde_json::to_string(&serde_json::json!({
+                        "partition_id": event.payload["partition_id"],
+                        "edge_key": event.payload["edge_key"],
+                        "from": event.payload["from"],
+                        "to": event.payload["to"],
+                        "from_z_bits": event.payload["from_z_bits"],
+                        "to_z_bits": event.payload["to_z_bits"],
+                        "side": event.payload["side"],
+                        "source_count": event.payload["source_count"],
+                    }))
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            signature.sort_unstable();
+            signature
+        };
+        let noding_signature = |trace: &crate::trace::TopologyTraceV1| {
+            let mut signature = trace
+                .events
+                .iter()
+                .filter(|event| event.kind == "partition_boundary_noding")
+                .map(|event| {
+                    (
+                        event.payload["partition_id"].as_u64().unwrap(),
+                        event.payload["added_node_count"].as_u64().unwrap(),
+                        event.payload["added_edge_count"].as_u64().unwrap(),
+                        event.payload["split_event_count"].as_u64().unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            signature.sort_unstable();
+            signature
+        };
+
+        let mut precision_signatures = Vec::new();
+        for option in options {
+            let mut forward = TiledPolygonizer::new(bbox, 1.0)
+                .with_buffer(0.0)
+                .with_options(option.clone());
+            for geometry in &geometries {
+                forward.add_geometry(geometry);
+            }
+            let forward = forward
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let forward_atomic = atomic_signature(&forward.trace);
+            let forward_noding = noding_signature(&forward.trace);
+            assert_eq!(forward_noding.len(), 2);
+            assert!(forward_noding
+                .iter()
+                .all(|(_, nodes, edges, splits)| { *nodes > 0 && *edges > 0 && *splits > 0 }));
+            assert!(!forward_atomic.is_empty());
+
+            let mut reversed = TiledPolygonizer::new(bbox, 1.0)
+                .with_buffer(0.0)
+                .with_options(option);
+            for geometry in geometries.iter().rev() {
+                reversed.add_geometry(geometry);
+            }
+            let reversed = reversed
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            assert_eq!(forward_atomic, atomic_signature(&reversed.trace));
+            assert_eq!(forward_noding, noding_signature(&reversed.trace));
+            assert_eq!(
+                forward.result.partition_border_graph.edge_count(),
+                reversed.result.partition_border_graph.edge_count()
+            );
+            assert_eq!(
+                forward.result.partition_border_graph.node_count(),
+                reversed.result.partition_border_graph.node_count()
+            );
+
+            precision_signatures.push(forward_atomic);
+        }
+        assert_eq!(precision_signatures[0], precision_signatures[1]);
+    }
+
+    #[test]
     fn test_tiled_polygonization_grid() {
         // Create a 2x2 grid of squares
         // 0,0 - 10,0 - 20,0
