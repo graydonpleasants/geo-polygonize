@@ -119,6 +119,33 @@ The publisher rejects shared runners, too few warmups, process repetitions or
 samples, duplicate record IDs, mixed commits/environments/workloads, schema
 failures, and p50 relative median absolute deviation above 3%.
 
+`production-baseline-suite-v1.json` is the fail-closed matrix for the next
+roadmap decisions. It requires seven publications: already-noded coverage and
+nested containment, floating and certified-fixed dense crossings, and floating
+California highway tiers at approximately 1k, 10k, and 100k input segments.
+Every entry must retain `work.component_memory`, and the suite must use one
+implementation, architecture, OS, compiler, and commit. Aggregate downloaded
+`publication.json` artifacts only after each entry has passed the individual
+publication gate:
+
+```bash
+python3 benchmarks/validate_baseline_suite.py \
+  --suite benchmarks/production-baseline-suite-v1.json \
+  --publication artifacts/already-noded-coverage/publication.json \
+  --publication artifacts/component-nested-containment/publication.json \
+  --publication artifacts/floating-dense-crossings/publication.json \
+  --publication artifacts/certified-fixed-dense-crossings/publication.json \
+  --publication artifacts/production-network-1k/publication.json \
+  --publication artifacts/production-network-10k/publication.json \
+  --publication artifacts/production-network-100k/publication.json \
+  --output artifacts/production-baseline-evidence-v1.json
+```
+
+The validator emits a checksum-linked evidence summary and rejects missing,
+duplicate, mixed-environment, undersized, or incomplete publications. The
+matrix is a publication contract, not evidence by itself; the P1.2 roadmap
+gate remains open until these artifacts are produced on the dedicated runner.
+
 `benchmark-decision-v1.schema.json` defines the durable decision record for an
 experiment. Store records under `benchmarks/decisions/` when real evidence
 exists. Each record preserves the predeclared policy thresholds and links

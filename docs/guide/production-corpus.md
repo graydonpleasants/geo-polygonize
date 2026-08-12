@@ -110,6 +110,21 @@ CAD categories remain represented by the existing public/procedural fixtures;
 the materialization report records those choices and reasons. No CFB or
 customer geometry is used.
 
+The required cross-workload baseline matrix is
+`benchmarks/production-baseline-suite-v1.json`. Repeat the dedicated publication
+workflow for each matrix entry, download each resulting `publication.json` into
+one directory on the dedicated runner, then validate the complete suite:
+
+```bash
+gh workflow run benchmark-baseline-suite.yml --ref main \
+  -f publication_dir=/mnt/geo-polygonize/publications
+```
+
+The suite workflow refuses incomplete or mixed-commit collections and retains
+only the checksum-linked `production-baseline-evidence-v1.json` summary. This
+does not close P1.2 until all seven required dedicated-runner publications
+exist; local or hosted correctness runs remain diagnostic.
+
 ## Adding a source
 
 Add a source only after independently reading its license and publisher

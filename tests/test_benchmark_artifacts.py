@@ -74,3 +74,16 @@ def test_publication_requires_a_dedicated_runner_and_retains_gated_outputs():
     assert 'cat target/benchmark-publication/trends.md >> "$GITHUB_STEP_SUMMARY"' in workflow
     assert "retention-days: 90" in workflow
     assert "ubuntu-latest" not in workflow
+
+
+def test_baseline_suite_validation_is_dedicated_and_fail_closed():
+    workflow = (ROOT / ".github/workflows/benchmark-baseline-suite.yml").read_text()
+    assert "runs-on: [self-hosted, benchmark-dedicated, linux, x64]" in workflow
+    assert "publication_dir:" in workflow
+    assert 'test -d "$PUBLICATION_DIR"' in workflow
+    assert 'find "$PUBLICATION_DIR" -type f -name publication.json | sort' in workflow
+    assert "benchmarks/validate_baseline_suite.py" in workflow
+    assert "benchmarks/production-baseline-suite-v1.json" in workflow
+    assert "production-baseline-evidence-v1.json" in workflow
+    assert "retention-days: 90" in workflow
+    assert "ubuntu-latest" not in workflow

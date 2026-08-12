@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/benchmark-evidence.yml"
+      - ".github/workflows/benchmark-baseline-suite.yml"
       - "benchmarks/**"
       - "crates/geo-polygonize-core/examples/benchmark_record.rs"
       - "crates/geo-polygonize-core/tests/workloads/**"
@@ -12,6 +13,7 @@ on:
       - "tests/test_publish_benchmark.py"
       - "tests/test_benchmark_workflow_pins.py"
       - "tests/test_benchmark_artifacts.py"
+      - "tests/test_baseline_suite.py"
   push:
     branches: [main]
     paths:
@@ -22,6 +24,7 @@ on:
       - "tests/test_publish_benchmark.py"
       - "tests/test_benchmark_workflow_pins.py"
       - "tests/test_benchmark_artifacts.py"
+      - "tests/test_baseline_suite.py"
 
 permissions:
   contents: read
@@ -54,7 +57,7 @@ jobs:
 
       - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
 
-      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py tests/test_benchmark_workflow_pins.py tests/test_benchmark_artifacts.py
+      - run: pytest -q tests/test_reference_geos.py tests/test_publish_benchmark.py tests/test_benchmark_workflow_pins.py tests/test_benchmark_artifacts.py tests/test_baseline_suite.py
 
       - run: python benchmarks/check_geos_references.py --output-dir target/geos-reference
 
