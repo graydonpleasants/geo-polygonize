@@ -5,9 +5,10 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentCoverageStats, PartitionBorderGlobalComponentPayloadStats,
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceEdgeMapStats,
     PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
-    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
+    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -1006,6 +1007,23 @@ impl TraceRecorderV1 {
             serde_json::json!({
                 "edge_count": stats.edge_count,
                 "applied_next_count": stats.applied_next_count,
+                "mutation_ready": stats.mutation_ready,
+                "applied": stats.applied,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_id_mutation(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdMutationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_id_mutation",
+            serde_json::json!({
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "applied_face_id_count": stats.applied_face_id_count,
+                "unbounded_face_id_count": stats.unbounded_face_id_count,
                 "mutation_ready": stats.mutation_ready,
                 "applied": stats.applied,
             }),

@@ -1233,6 +1233,33 @@ mod tests {
                 topology_mutation_gate.gate_ready,
             ]
         );
+        assert!(
+            !result
+                .stitching_report
+                .partition_border_global_face_id_mutation_applied
+                || result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_ready
+        );
+        if result
+            .stitching_report
+            .partition_border_global_face_id_mutation_applied
+        {
+            assert_eq!(
+                result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_applied_face_id_count,
+                result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_candidate_cycle_count
+            );
+            assert_eq!(
+                result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_unbounded_face_id_count,
+                1
+            );
+        }
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -2963,6 +2990,60 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_topology_mutation_gate_ready
+            )
+        );
+        let face_id_mutation = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_id_mutation")
+            .expect("global face ID mutation evidence");
+        assert_eq!(
+            face_id_mutation.payload["candidate_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_candidate_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_mutation.payload["applied_face_id_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_applied_face_id_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_mutation.payload["unbounded_face_id_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_unbounded_face_id_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            face_id_mutation.payload["mutation_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_ready
+            )
+        );
+        assert_eq!(
+            face_id_mutation.payload["applied"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_mutation_applied
             )
         );
     }

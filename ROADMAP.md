@@ -537,6 +537,10 @@ Blocked by #1288.
 - [x] Atomically commit a validated detached global successor vector only after
   the complete gate; keep local half-edge links, face IDs, and tiled output
   untouched until their own promotion proofs exist.
+- [x] Atomically commit deterministic candidate face IDs onto detached cycle
+  starts only after unique cycle mapping, contiguous IDs, successor mutation,
+  and exactly-one-unbounded evidence are ready; keep local IDs and output
+  payloads untouched.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

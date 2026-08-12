@@ -444,6 +444,12 @@ pub struct StitchingReport {
     pub partition_border_global_topology_mutation_applied_next_count: usize,
     pub partition_border_global_topology_mutation_ready: bool,
     pub partition_border_global_topology_mutation_applied: bool,
+    /// Detached deterministic face IDs committed after successor mutation.
+    pub partition_border_global_face_id_mutation_candidate_cycle_count: usize,
+    pub partition_border_global_face_id_mutation_applied_face_id_count: usize,
+    pub partition_border_global_face_id_mutation_unbounded_face_id_count: usize,
+    pub partition_border_global_face_id_mutation_ready: bool,
+    pub partition_border_global_face_id_mutation_applied: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2707,6 +2713,13 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_topology_mutation_gate,
                 partition_border_global_topology_candidate,
             )?;
+        let partition_border_global_face_id_mutation = partition_border_graph
+            .apply_global_face_ids_with_evidence(
+                &self.execution_policy,
+                partition_border_global_topology_mutation,
+                partition_border_global_face_id_application,
+                partition_border_global_unbounded_face_application,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2781,6 +2794,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_topology_mutation(
                 partition_border_global_topology_mutation,
+            );
+            trace.record_partition_border_global_face_id_mutation(
+                partition_border_global_face_id_mutation,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3212,6 +3228,16 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_topology_mutation.mutation_ready,
                 partition_border_global_topology_mutation_applied:
                     partition_border_global_topology_mutation.applied,
+                partition_border_global_face_id_mutation_candidate_cycle_count:
+                    partition_border_global_face_id_mutation.candidate_cycle_count,
+                partition_border_global_face_id_mutation_applied_face_id_count:
+                    partition_border_global_face_id_mutation.applied_face_id_count,
+                partition_border_global_face_id_mutation_unbounded_face_id_count:
+                    partition_border_global_face_id_mutation.unbounded_face_id_count,
+                partition_border_global_face_id_mutation_ready:
+                    partition_border_global_face_id_mutation.mutation_ready,
+                partition_border_global_face_id_mutation_applied:
+                    partition_border_global_face_id_mutation.applied,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
