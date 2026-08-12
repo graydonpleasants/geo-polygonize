@@ -179,6 +179,34 @@ mod tests {
                 .filter(|plan| !plan.twin_edge_keys.is_empty())
                 .count()
         );
+        let validation = result
+            .partition_border_graph
+            .validate_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_validated_count,
+            validation.face_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_validated_candidate_count,
+            validation.candidate_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_validated_twin_count,
+            validation.twin_link_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_validated_unbounded_count,
+            validation.unbounded_face_count
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -450,6 +478,48 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_linked_count as u64
+            )
+        );
+        let global_face_validation = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_validation")
+            .expect("global face validation evidence");
+        assert_eq!(
+            global_face_validation.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_validation.payload["candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_validation.payload["twin_link_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_twin_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_validation.payload["unbounded_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_validated_unbounded_count as u64
             )
         );
     }

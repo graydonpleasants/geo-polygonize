@@ -621,6 +621,15 @@ pub(crate) struct PartitionBorderGlobalFacePlanStats {
     pub(crate) linked_face_count: usize,
 }
 
+/// Counts from validating the retained global face-boundary plan.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFacePlanValidationStats {
+    pub(crate) face_count: usize,
+    pub(crate) candidate_count: usize,
+    pub(crate) twin_link_count: usize,
+    pub(crate) unbounded_face_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -1247,12 +1256,17 @@ impl PartitionBorderGraph {
 
         let mut candidates = Vec::new();
         let mut missing_successor_count = 0;
+        let mut face_unbounded = BTreeMap::<PartitionFaceRef, bool>::new();
         for (observation_index, observation) in self.observations.values().enumerate() {
             execution_policy
                 .check_cancelled_every("partition_border_global_face_plan", observation_index)?;
             let Some(face_ref) = observation.face_ref else {
                 continue;
             };
+            face_unbounded
+                .entry(face_ref)
+                .and_modify(|is_unbounded| *is_unbounded |= observation.local_face_is_unbounded)
+                .or_insert(observation.local_face_is_unbounded);
             let Some(local_face_successor) = observation.local_face_successor else {
                 missing_successor_count += 1;
                 continue;
@@ -1286,6 +1300,10 @@ impl PartitionBorderGraph {
             let group = face_groups.entry(candidate.face_ref).or_default();
             group.0.insert(candidate);
             group.2 |= candidate.local_face_is_unbounded;
+        }
+
+        for (face_ref, is_unbounded) in face_unbounded {
+            face_groups.entry(face_ref).or_default().2 |= is_unbounded;
         }
 
         for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
@@ -1341,6 +1359,272 @@ impl PartitionBorderGraph {
 
     pub(crate) fn global_face_plans(&self) -> &[PartitionBorderGlobalFacePlan] {
         &self.global_face_plans
+    }
+
+    /// Validates retained face-boundary evidence without assigning global
+    /// `next` links or face IDs. Every candidate must still resolve to its
+    /// immutable observation, and every retained twin edge must connect
+    /// exactly two qualified face plans.
+    pub(crate) fn validate_global_face_plans(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFacePlanValidationStats> {
+        execution_policy.check_cancelled("partition_border_global_face_validation")?;
+        let candidate_count = self
+            .global_face_plans
+            .iter()
+            .map(|plan| plan.candidates.len())
+            .sum::<usize>();
+        execution_policy.check(
+            "partition_border_global_face_validation_faces",
+            execution_policy.max_graph_nodes,
+            self.global_face_plans.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_validation_candidates",
+            execution_policy.max_graph_edges,
+            candidate_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_validation_twins",
+            execution_policy.max_graph_edges,
+            self.applied_face_twins.len(),
+        )?;
+
+        let mut observed_face_unbounded = BTreeMap::<PartitionFaceRef, bool>::new();
+        for (observation_index, observation) in self.observations.values().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_validation_observations",
+                observation_index,
+            )?;
+            let Some(face_ref) = observation.face_ref else {
+                continue;
+            };
+            observed_face_unbounded
+                .entry(face_ref)
+                .and_modify(|is_unbounded| *is_unbounded |= observation.local_face_is_unbounded)
+                .or_insert(observation.local_face_is_unbounded);
+        }
+
+        let mut plan_indices = BTreeMap::<PartitionFaceRef, usize>::new();
+        let mut candidate_observation_ids = BTreeSet::<PartitionBorderObservationId>::new();
+        let mut unbounded_face_count = 0;
+        let mut previous_face_ref = None;
+        for (plan_index, plan) in self.global_face_plans.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_validation", plan_index)?;
+            if previous_face_ref.is_some_and(|previous| previous >= plan.face_ref) {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face plans are not strictly ordered at face {:?}",
+                        plan.face_ref
+                    ),
+                });
+            }
+            previous_face_ref = Some(plan.face_ref);
+            if plan_indices.insert(plan.face_ref, plan_index).is_some() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!("global face plan {:?} is duplicated", plan.face_ref),
+                });
+            }
+            let Some(&observed_is_unbounded) = observed_face_unbounded.get(&plan.face_ref) else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face plan {:?} has no qualified observation",
+                        plan.face_ref
+                    ),
+                });
+            };
+            if plan.local_face_is_unbounded != observed_is_unbounded {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face plan {:?} has inconsistent unbounded-face evidence",
+                        plan.face_ref
+                    ),
+                });
+            }
+            if plan.local_face_is_unbounded {
+                unbounded_face_count += 1;
+            }
+
+            let mut previous_candidate = None;
+            let mut previous_twin_edge_key = None;
+            for (candidate_index, candidate) in plan.candidates.iter().enumerate() {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_validation_candidates",
+                    candidate_index,
+                )?;
+                if previous_candidate.is_some_and(|previous| previous >= *candidate) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face plan {:?} candidates are not strictly ordered",
+                            plan.face_ref
+                        ),
+                    });
+                }
+                previous_candidate = Some(*candidate);
+                if !candidate_observation_ids.insert(candidate.observation_id) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face boundary observation {:?} is duplicated",
+                            candidate.observation_id
+                        ),
+                    });
+                }
+                let Some(observation) = self.observations.get(&candidate.observation_id) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face boundary observation {:?} is missing",
+                            candidate.observation_id
+                        ),
+                    });
+                };
+                if observation.edge_key != candidate.edge_key
+                    || candidate.face_ref != plan.face_ref
+                    || observation.face_ref != Some(candidate.face_ref)
+                    || observation.local_dir_edge_id != candidate.local_dir_edge_id
+                    || observation.local_face_successor != Some(candidate.local_face_successor)
+                    || observation.local_face_is_unbounded != candidate.local_face_is_unbounded
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face boundary candidate {:?} disagrees with its observation",
+                            candidate.observation_id
+                        ),
+                    });
+                }
+            }
+            for edge_key in &plan.twin_edge_keys {
+                if previous_twin_edge_key.is_some_and(|previous| previous >= *edge_key) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face plan {:?} twin edges are not strictly ordered",
+                            plan.face_ref
+                        ),
+                    });
+                }
+                previous_twin_edge_key = Some(*edge_key);
+            }
+        }
+
+        let mut twin_faces = BTreeMap::<PartitionBorderEdgeKey, BTreeSet<PartitionFaceRef>>::new();
+        for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_validation_twins",
+                twin_index,
+            )?;
+            if applied_twin.forward_face_ref == applied_twin.reverse_face_ref {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin {:?} joins a face to itself",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            }
+            let Some(forward) = self.observations.get(&applied_twin.twin.forward) else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin {:?} has a missing forward observation",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            };
+            let Some(reverse) = self.observations.get(&applied_twin.twin.reverse) else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin {:?} has a missing reverse observation",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            };
+            if forward.observation_id() != applied_twin.twin.forward
+                || reverse.observation_id() != applied_twin.twin.reverse
+                || forward.edge_key != applied_twin.twin.edge_key
+                || reverse.edge_key != applied_twin.twin.edge_key
+                || forward.face_ref != Some(applied_twin.forward_face_ref)
+                || reverse.face_ref != Some(applied_twin.reverse_face_ref)
+                || forward.from != reverse.to
+                || forward.to != reverse.from
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin {:?} disagrees with its observations",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            }
+            let faces = twin_faces.entry(applied_twin.twin.edge_key).or_default();
+            if !faces.insert(applied_twin.forward_face_ref)
+                || !faces.insert(applied_twin.reverse_face_ref)
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin edge {:?} is duplicated",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            }
+        }
+
+        for plan in &self.global_face_plans {
+            for edge_key in &plan.twin_edge_keys {
+                let Some(faces) = twin_faces.get(edge_key) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face plan {:?} references an unapplied twin edge {:?}",
+                            plan.face_ref, edge_key
+                        ),
+                    });
+                };
+                if !faces.contains(&plan.face_ref) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face plan {:?} does not belong to twin edge {:?}",
+                            plan.face_ref, edge_key
+                        ),
+                    });
+                }
+            }
+        }
+        for (edge_key, faces) in &twin_faces {
+            if faces.len() != 2 {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin edge {:?} connects {} face plans",
+                        edge_key,
+                        faces.len()
+                    ),
+                });
+            }
+            for face_ref in faces {
+                let Some(&plan_index) = plan_indices.get(face_ref) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face twin edge {:?} references missing face plan {:?}",
+                            edge_key, face_ref
+                        ),
+                    });
+                };
+                if !self.global_face_plans[plan_index]
+                    .twin_edge_keys
+                    .contains(edge_key)
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face twin edge {:?} is absent from face plan {:?}",
+                            edge_key, face_ref
+                        ),
+                    });
+                }
+            }
+        }
+
+        Ok(PartitionBorderGlobalFacePlanValidationStats {
+            face_count: self.global_face_plans.len(),
+            candidate_count,
+            twin_link_count: twin_faces.len(),
+            unbounded_face_count,
+        })
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -2485,6 +2769,18 @@ mod tests {
             .iter()
             .all(|plan| plan.candidates.is_empty()));
 
+        for observation in missing.observations.values_mut() {
+            observation.local_face_is_unbounded = true;
+        }
+        let stats = missing
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.unbounded_face_count, 2);
+        assert!(missing
+            .global_face_plans()
+            .iter()
+            .all(|plan| plan.local_face_is_unbounded));
+
         let mut limited = exact_face_twin_graph_with_successors();
         let before = limited.clone();
         let error = limited
@@ -2517,6 +2813,153 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_plan"
+        ));
+        assert_eq!(cancelled, before);
+    }
+
+    #[test]
+    fn global_face_plan_validation_is_deterministic_and_preserves_graph_state() {
+        let mut graph = exact_face_twin_graph_with_successors();
+        graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFacePlanValidationStats {
+                face_count: 2,
+                candidate_count: 2,
+                twin_link_count: 1,
+                unbounded_face_count: 0,
+            }
+        );
+        assert_eq!(graph, before);
+        assert_eq!(
+            graph
+                .validate_global_face_plans(&ExecutionPolicy::default())
+                .unwrap(),
+            stats
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_face_plan_validation_rejects_lineage_and_twin_corruption() {
+        let mut candidate_corruption = exact_face_twin_graph_with_successors();
+        candidate_corruption
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        candidate_corruption
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        candidate_corruption.global_face_plans[0].candidates[0].local_face_successor += 1;
+        let before = candidate_corruption.clone();
+        let error = candidate_corruption
+            .validate_global_face_plans(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("disagrees with its observation")
+        ));
+        assert_eq!(candidate_corruption, before);
+
+        let mut twin_corruption = exact_face_twin_graph_with_successors();
+        twin_corruption
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        twin_corruption
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        twin_corruption.global_face_plans[0].twin_edge_keys.clear();
+        let before = twin_corruption.clone();
+        let error = twin_corruption
+            .validate_global_face_plans(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("absent from face plan")
+        ));
+        assert_eq!(twin_corruption, before);
+    }
+
+    #[test]
+    fn global_face_plan_validation_is_bounded_and_cancellable_before_mutation() {
+        let mut limited_faces = exact_face_twin_graph_with_successors();
+        limited_faces
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        limited_faces
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = limited_faces.clone();
+        let error = limited_faces
+            .validate_global_face_plans(&ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_face_validation_faces"
+        ));
+        assert_eq!(limited_faces, before);
+
+        let mut limited_candidates = exact_face_twin_graph_with_successors();
+        limited_candidates
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        limited_candidates
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = limited_candidates.clone();
+        let error = limited_candidates
+            .validate_global_face_plans(&ExecutionPolicy {
+                max_graph_edges: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_face_validation_candidates"
+        ));
+        assert_eq!(limited_candidates, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_twin_graph_with_successors();
+        cancelled
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        cancelled
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = cancelled.clone();
+        let error = cancelled
+            .validate_global_face_plans(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_validation"
         ));
         assert_eq!(cancelled, before);
     }
