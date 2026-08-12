@@ -830,6 +830,16 @@ impl Polygonizer {
                 None
             },
         )?;
+        let mut boundary_graph = if let Some(export) = self.partition_border_export {
+            let mut graph = self.graph.clone();
+            graph.node_partition_boundaries_with_execution_policy(
+                export.bbox,
+                &self.execution_policy,
+            )?;
+            Some(graph)
+        } else {
+            None
+        };
         if let Some(trace) = self.trace.as_mut() {
             trace.record_graph(&self.graph)?;
         }
@@ -858,7 +868,7 @@ impl Polygonizer {
         });
         let (
             (mut dangles, mut cut_edges, maximal, rings_with_ids),
-            border_observations,
+            _,
             capture_truncated,
             component_memory_stats,
         ) = self.graph.process_components_with_execution_policy(
@@ -867,8 +877,23 @@ impl Polygonizer {
             &self.execution_policy,
             noding_postcondition_validated,
             capture_byte_limit,
-            self.partition_border_export,
+            None,
         )?;
+        let border_observations = if let (Some(graph), Some(export)) =
+            (boundary_graph.as_mut(), self.partition_border_export)
+        {
+            let (_, observations, _, _) = graph.process_components_with_execution_policy(
+                self.options.node_input,
+                include_source_ids,
+                &self.execution_policy,
+                noding_postcondition_validated,
+                None,
+                Some(export),
+            )?;
+            observations
+        } else {
+            Vec::new()
+        };
         self.partition_border_observations = border_observations;
         if let Some(trace) = self.trace.as_mut() {
             trace.record_classified_lines("dangle", &dangles)?;

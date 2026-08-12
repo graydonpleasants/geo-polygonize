@@ -5,7 +5,7 @@ mod tests {
         ComponentFallbackDecision, ComponentFallbackDeclineReason, InputComponent,
     };
     use crate::{
-        trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy,
+        trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy, Line3D,
         NodingGuarantee, NodingOptions, Polygon3D, PolygonizeError, Polygonizer,
         PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
         TileComponentConnection, TileCoverageGuarantee, TileCoverageIssue,
@@ -64,6 +64,55 @@ mod tests {
             .iter()
             .all(|observation| observation.face_ref.is_some()));
         assert_eq!(result.polygons.len(), 2);
+    }
+
+    #[test]
+    fn boundary_noding_exports_only_physical_finite_border_spans() {
+        let mut polygonizer = Polygonizer::new();
+        polygonizer.add_lines(vec![
+            Line3D::new(
+                Coord3D::new(-2.0, 0.0, 1.0),
+                Coord3D::new(12.0, 0.0, 15.0),
+                41,
+            ),
+            Line3D::new(
+                Coord3D::new(12.0, 0.0, 0.0),
+                Coord3D::new(12.0, 2.0, 0.0),
+                42,
+            ),
+            Line3D::new(
+                Coord3D::new(12.0, 2.0, 0.0),
+                Coord3D::new(-2.0, 2.0, 0.0),
+                43,
+            ),
+            Line3D::new(
+                Coord3D::new(-2.0, 2.0, 0.0),
+                Coord3D::new(-2.0, 0.0, 0.0),
+                44,
+            ),
+        ]);
+        let (_, observations) = polygonizer
+            .polygonize_with_partition_border_export(
+                7,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
+            )
+            .unwrap();
+
+        let border = observations
+            .iter()
+            .filter(|observation| {
+                observation.side == crate::graph::partition_border::PartitionBorderSide::MinY
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(border.len(), 2);
+        assert!(border.iter().all(|observation| {
+            let (start, end) = observation.edge_key.endpoints();
+            let x_bits = [start.xy_bits()[0], end.xy_bits()[0]];
+            x_bits == [0, 10.0f64.to_bits()] || x_bits == [10.0f64.to_bits(), 0]
+        }));
+        assert!(border
+            .iter()
+            .all(|observation| observation.source_line_ids == vec![41]));
     }
 
     #[test]

@@ -12,7 +12,9 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use super::partition_border::{PartitionBorderHalfEdge, PartitionBorderSide};
+use super::partition_border::{
+    partition_boundary_intersections, PartitionBorderHalfEdge, PartitionBorderSide,
+};
 
 /// Index of a node in the graph.
 pub type NodeId = usize;
@@ -680,6 +682,220 @@ impl PlanarGraph {
         self.nodes_degree[v] += 1;
 
         edge_idx
+    }
+
+    fn append_edge_with_sources(&mut self, line: Line3D, sources: EdgeSources) -> EdgeId {
+        let u = self.add_node(line.start);
+        let v = self.add_node(line.end);
+        debug_assert_ne!(u, v);
+
+        let edge_idx = self.edges.len();
+        let de_u_v_idx = self.directed_edges.len();
+        let de_v_u_idx = de_u_v_idx + 1;
+        let (_, _, _, _, de_u_v, de_v_u, edge) =
+            create_edge_components(0, u, v, line, sources, edge_idx, de_u_v_idx);
+        self.directed_edges.push(de_u_v);
+        self.directed_edges.push(de_v_u);
+        self.edges.push(edge);
+        self.nodes_outgoing[u].push(de_u_v_idx);
+        self.nodes_degree[u] += 1;
+        self.nodes_outgoing[v].push(de_v_u_idx);
+        self.nodes_degree[v] += 1;
+        edge_idx
+    }
+
+    /// Physically nodes live arrangement edges at the exact finite boundary
+    /// segments of one tile partition.
+    ///
+    /// This runs after input noding and before component scratch extraction.
+    /// Each replacement edge inherits the complete source set and the
+    /// original representative ID. The method plans all growth before
+    /// mutation so graph limits fail closed, then rebuilds adjacency and
+    /// angular order through the normal execution-policy sort path.
+    pub(crate) fn node_partition_boundaries_with_execution_policy(
+        &mut self,
+        bbox: Rect<f64>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<()> {
+        execution_policy.check_cancelled("boundary_noding")?;
+        if self.edges.is_empty() {
+            return Ok(());
+        }
+
+        // Bulk loading intentionally leaves this incremental map empty. Build
+        // it once so split nodes reuse the graph's canonical XY identities.
+        self.node_map.clear();
+        self.node_map.reserve(self.nodes_x.len());
+        for node_id in 0..self.nodes_x.len() {
+            execution_policy.check_cancelled_every("boundary_noding", node_id)?;
+            self.node_map.insert(
+                NodeKey::from(Coord {
+                    x: self.nodes_x[node_id],
+                    y: self.nodes_y[node_id],
+                }),
+                node_id,
+            );
+        }
+
+        let mut plans = Vec::<(EdgeId, Vec<Coord3D>)>::new();
+        let mut planned_node_keys = std::collections::HashSet::new();
+        let mut split_events = 0usize;
+        let mut added_edges = 0usize;
+        for edge_idx in 0..self.edges.len() {
+            execution_policy.check_cancelled_every("boundary_noding_intersections", edge_idx)?;
+            let edge = &self.edges[edge_idx];
+            if edge.deleted {
+                continue;
+            }
+            let forward_idx = edge.dir_edges[0];
+            let forward = &self.directed_edges[forward_idx];
+            let start = Coord3D {
+                x: self.nodes_x[forward.src],
+                y: self.nodes_y[forward.src],
+                z: self.nodes_z[forward.src],
+            };
+            let end = Coord3D {
+                x: self.nodes_x[forward.dst],
+                y: self.nodes_y[forward.dst],
+                z: self.nodes_z[forward.dst],
+            };
+            let start_key = NodeKey::from(start.to_coord_2d());
+            let end_key = NodeKey::from(end.to_coord_2d());
+            let mut points = Vec::with_capacity(4);
+            points.push(start);
+            let mut point_keys = std::collections::HashSet::new();
+            point_keys.insert(start_key);
+            point_keys.insert(end_key);
+            for intersection in partition_boundary_intersections(start, end, bbox) {
+                if !(intersection.t > 0.0 && intersection.t < 1.0) {
+                    continue;
+                }
+                let point_key = NodeKey::from(intersection.point.to_coord_2d());
+                if !point_keys.insert(point_key) {
+                    continue;
+                }
+                if !self.node_map.contains_key(&point_key) {
+                    planned_node_keys.insert(point_key);
+                }
+                points.push(intersection.point);
+            }
+            points.push(end);
+            if points.len() < 3 {
+                continue;
+            }
+            let event_count = points.len() - 2;
+            split_events = split_events.checked_add(event_count).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "partition boundary split-event counter overflow".to_string(),
+                }
+            })?;
+            added_edges = added_edges.checked_add(event_count).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "partition boundary edge-growth counter overflow".to_string(),
+                }
+            })?;
+            plans.push((edge_idx, points));
+        }
+
+        execution_policy.check_split_events(split_events)?;
+        let planned_nodes = self
+            .nodes_x
+            .len()
+            .checked_add(planned_node_keys.len())
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "partition boundary node count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            "graph_nodes",
+            execution_policy.max_graph_nodes,
+            planned_nodes,
+        )?;
+        let planned_edges = self.edges.len().checked_add(added_edges).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "partition boundary edge count overflow".to_string(),
+            }
+        })?;
+        execution_policy.check(
+            "graph_edges",
+            execution_policy.max_graph_edges,
+            planned_edges,
+        )?;
+        execution_policy.check(
+            "noded_segments",
+            execution_policy.max_noded_segments,
+            planned_edges,
+        )?;
+        if plans.is_empty() {
+            return Ok(());
+        }
+
+        execution_policy.check_cancelled("boundary_noding_split")?;
+        self.nodes_x.reserve(planned_node_keys.len());
+        self.nodes_y.reserve(planned_node_keys.len());
+        self.nodes_z.reserve(planned_node_keys.len());
+        self.nodes_outgoing.reserve(planned_node_keys.len());
+        self.nodes_degree.reserve(planned_node_keys.len());
+        self.nodes_marked.reserve(planned_node_keys.len());
+        self.edges.reserve(added_edges);
+        self.directed_edges
+            .reserve(added_edges.checked_mul(2).ok_or_else(|| {
+                crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "partition boundary directed-edge count overflow".to_string(),
+                }
+            })?);
+        self.clear_next_links();
+
+        for (plan_index, (edge_idx, points)) in plans.into_iter().enumerate() {
+            execution_policy.check_cancelled_every("boundary_noding_split", plan_index)?;
+            let [forward_idx, reverse_idx] = self.edges[edge_idx].dir_edges;
+            let old_src = self.directed_edges[forward_idx].src;
+            let old_dst = self.directed_edges[forward_idx].dst;
+            let sources = self.edges[edge_idx].sources.clone();
+            let representative_id = self.edges[edge_idx].line.line_id;
+
+            self.nodes_outgoing[old_src].retain(|&dir_edge| dir_edge != forward_idx);
+            self.nodes_outgoing[old_dst].retain(|&dir_edge| dir_edge != reverse_idx);
+            self.nodes_degree[old_src] = self.nodes_outgoing[old_src].len();
+            self.nodes_degree[old_dst] = self.nodes_outgoing[old_dst].len();
+
+            let first_line = Line3D::new(points[0], points[1], representative_id);
+            let first_src = self.add_node(first_line.start);
+            let first_dst = self.add_node(first_line.end);
+            self.directed_edges[forward_idx].src = first_src;
+            self.directed_edges[forward_idx].dst = first_dst;
+            self.directed_edges[forward_idx].sym_idx = reverse_idx;
+            self.directed_edges[forward_idx].next_idx = None;
+            self.directed_edges[forward_idx].face_id = None;
+            self.directed_edges[forward_idx].is_visited = false;
+            self.directed_edges[forward_idx].is_marked = false;
+            self.directed_edges[reverse_idx].src = first_dst;
+            self.directed_edges[reverse_idx].dst = first_src;
+            self.directed_edges[reverse_idx].sym_idx = forward_idx;
+            self.directed_edges[reverse_idx].next_idx = None;
+            self.directed_edges[reverse_idx].face_id = None;
+            self.directed_edges[reverse_idx].is_visited = false;
+            self.directed_edges[reverse_idx].is_marked = false;
+            self.edges[edge_idx].line = first_line;
+            self.edges[edge_idx].is_marked = false;
+            self.edges[edge_idx].deleted = false;
+            self.nodes_outgoing[first_src].push(forward_idx);
+            self.nodes_outgoing[first_dst].push(reverse_idx);
+            self.nodes_degree[first_src] = self.nodes_outgoing[first_src].len();
+            self.nodes_degree[first_dst] = self.nodes_outgoing[first_dst].len();
+
+            for (piece_index, pair) in points.windows(2).enumerate().skip(1) {
+                execution_policy.check_cancelled_every("boundary_noding_split", piece_index)?;
+                if NodeKey::from(pair[0].to_coord_2d()) == NodeKey::from(pair[1].to_coord_2d()) {
+                    continue;
+                }
+                self.append_edge_with_sources(
+                    Line3D::new(pair[0], pair[1], representative_id),
+                    sources.clone(),
+                );
+            }
+        }
+
+        self.sort_edges_with_execution_policy(execution_policy)
     }
 
     /// Removes an edge by marking it as deleted by matching line ID.
@@ -3329,5 +3545,116 @@ mod arrangement_ring_invariant_tests {
             component_id: 1,
             face_id: 0,
         }));
+    }
+
+    #[test]
+    fn partition_boundary_noding_splits_crossings_and_preserves_sources_and_z() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line(Line3D::new(
+            Coord3D::new(-1.0, 2.0, 0.0),
+            Coord3D::new(11.0, 2.0, 12.0),
+            17,
+        ));
+        graph.add_line(Line3D::new(
+            Coord3D::new(-1.0, 2.0, 0.0),
+            Coord3D::new(11.0, 2.0, 12.0),
+            19,
+        ));
+
+        graph
+            .node_partition_boundaries_with_execution_policy(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+
+        assert_eq!(graph.edges.len(), 3);
+        assert_eq!(graph.nodes_x.len(), 4);
+        let mut nodes = graph
+            .nodes_x
+            .iter()
+            .zip(&graph.nodes_y)
+            .zip(&graph.nodes_z)
+            .map(|((x, y), z)| (*x, *y, *z))
+            .collect::<Vec<_>>();
+        nodes.sort_by(|left, right| left.0.total_cmp(&right.0));
+        assert_eq!(nodes[1], (0.0, 2.0, 1.0));
+        assert_eq!(nodes[2], (10.0, 2.0, 11.0));
+        assert!(graph.edges.iter().all(|edge| {
+            edge.sources.line_ids.as_slice() == [17, 19] && edge.line.line_id == 17 && !edge.deleted
+        }));
+        assert!(graph.validate_arrangement_edge_invariants().is_ok());
+    }
+
+    #[test]
+    fn partition_boundary_noding_makes_finite_collinear_border_span_physical() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line(Line3D::new(
+            Coord3D::new(-2.0, 0.0, 1.0),
+            Coord3D::new(12.0, 0.0, 15.0),
+            23,
+        ));
+        graph
+            .node_partition_boundaries_with_execution_policy(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+
+        assert_eq!(graph.edges.len(), 3);
+        let border_edges = graph
+            .edges
+            .iter()
+            .enumerate()
+            .filter_map(|(edge_idx, edge)| {
+                let [forward, _] = edge.dir_edges;
+                let start = graph.directed_edges[forward].src;
+                let end = graph.directed_edges[forward].dst;
+                (graph.nodes_y[start] == 0.0
+                    && graph.nodes_y[end] == 0.0
+                    && graph.nodes_x[start].min(graph.nodes_x[end]) >= 0.0
+                    && graph.nodes_x[start].max(graph.nodes_x[end]) <= 10.0)
+                    .then_some((edge_idx, graph.nodes_x[start], graph.nodes_x[end]))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(border_edges.len(), 1);
+        assert_eq!(border_edges[0].1.min(border_edges[0].2), 0.0);
+        assert_eq!(border_edges[0].1.max(border_edges[0].2), 10.0);
+        let edge = &graph.edges[border_edges[0].0];
+        assert_eq!(edge.sources.line_ids.as_slice(), [23]);
+        let [forward, reverse] = edge.dir_edges;
+        assert_eq!(
+            graph
+                .partition_border_half_edge(0, forward, PartitionBorderSide::MinY)
+                .unwrap()
+                .source_line_ids,
+            vec![23]
+        );
+        assert!(graph
+            .partition_border_half_edge(0, reverse, PartitionBorderSide::MinY)
+            .is_some());
+    }
+
+    #[test]
+    fn partition_boundary_noding_rejects_growth_before_mutation() {
+        let mut graph = PlanarGraph::new();
+        graph.add_line(Line3D::new(
+            Coord3D::new(-1.0, 2.0, 0.0),
+            Coord3D::new(11.0, 2.0, 12.0),
+            31,
+        ));
+        let policy = ExecutionPolicy {
+            max_graph_edges: Some(1),
+            ..Default::default()
+        };
+        let error = graph
+            .node_partition_boundaries_with_execution_policy(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 }),
+                &policy,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("graph_edges"));
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.nodes_x.len(), 2);
     }
 }
