@@ -117,6 +117,12 @@ mod tests {
         assert!(border
             .iter()
             .all(|observation| observation.source_line_ids == vec![41]));
+        assert!(border.iter().all(|observation| {
+            let z_bits = [observation.from_z_bits, observation.to_z_bits];
+            observation.representative_line_id == Some(41)
+                && (z_bits == [3.0f64.to_bits(), 13.0f64.to_bits()]
+                    || z_bits == [13.0f64.to_bits(), 3.0f64.to_bits()])
+        }));
     }
 
     #[test]
@@ -175,6 +181,8 @@ mod tests {
                 && event.payload["from_z_bits"].as_str().is_some()
                 && event.payload["to_z_bits"].as_str().is_some()
                 && event.payload["source_count"].as_u64().is_some()
+                && event.payload["representative_line_id"].as_u64().is_some()
+                && event.payload["component_id"].as_u64().is_some()
         }));
     }
 

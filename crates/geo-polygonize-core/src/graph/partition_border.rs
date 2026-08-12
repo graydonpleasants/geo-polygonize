@@ -300,11 +300,18 @@ pub struct PartitionBorderHalfEdge {
     pub to_z_bits: u64,
     pub side: PartitionBorderSide,
     pub partition_id: usize,
+    /// Component identity remains available even when this directed edge is
+    /// on the unbounded side and has no local face ID.
+    pub component_id: usize,
     pub local_dir_edge_id: DirEdgeId,
     /// Component-local face ID retained for existing debug consumers.
     pub face_id: Option<FaceId>,
     pub(crate) face_ref: Option<PartitionFaceRef>,
     pub source_line_ids: Vec<u32>,
+    /// The deterministic representative source ID carried by the local edge.
+    /// This is the first ID in the sorted source set, or `None` for synthetic
+    /// observations without source provenance.
+    pub representative_line_id: Option<u32>,
 }
 
 impl PartitionBorderHalfEdge {
@@ -349,6 +356,7 @@ impl PartitionBorderHalfEdge {
         let mut source_line_ids = source_line_ids.into_iter().collect::<Vec<_>>();
         source_line_ids.sort_unstable();
         source_line_ids.dedup();
+        let representative_line_id = source_line_ids.first().copied();
         Some(Self {
             edge_key,
             from,
@@ -357,10 +365,12 @@ impl PartitionBorderHalfEdge {
             to_z_bits: canonical_coordinate_bits(end.z),
             side,
             partition_id,
+            component_id: face_ref.map_or(0, |face_ref| face_ref.component_id),
             local_dir_edge_id,
             face_id: face_ref.map(|face_ref| face_ref.face_id),
             face_ref,
             source_line_ids,
+            representative_line_id,
         })
     }
 
@@ -489,6 +499,11 @@ pub struct PartitionBorderTwin {
 pub struct PartitionBorderTwinPayload {
     pub twin: PartitionBorderTwin,
     pub source_line_ids: Vec<u32>,
+    /// Representative IDs retained separately for the two local observations.
+    /// A future stitcher may reconcile them only after applying its explicit
+    /// representative policy.
+    pub forward_representative_line_id: Option<u32>,
+    pub reverse_representative_line_id: Option<u32>,
     /// Distinct Z candidates at `twin.edge_key.endpoints().0`, in bit order.
     /// A length greater than one is an explicit conflict, not a hidden choice.
     pub start_z_bits: Vec<u64>,
@@ -705,6 +720,8 @@ impl PartitionBorderGraph {
                 Some(PartitionBorderTwinPayload {
                     twin,
                     source_line_ids,
+                    forward_representative_line_id: forward.representative_line_id,
+                    reverse_representative_line_id: reverse.representative_line_id,
                     start_z_bits,
                     end_z_bits,
                 })
@@ -921,6 +938,10 @@ mod tests {
         assert_eq!(
             observations.iter().next().unwrap().source_line_ids,
             vec![2, 4]
+        );
+        assert_eq!(
+            observations.iter().next().unwrap().representative_line_id,
+            Some(2)
         );
     }
 
@@ -1264,6 +1285,8 @@ mod tests {
             vec![PartitionBorderTwinPayload {
                 twin,
                 source_line_ids: vec![2, 4, 8],
+                forward_representative_line_id: Some(2),
+                reverse_representative_line_id: Some(4),
                 start_z_bits: vec![0, 1.0f64.to_bits()],
                 end_z_bits: vec![2.0f64.to_bits()],
             }]
