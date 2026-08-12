@@ -299,6 +299,12 @@ pub struct StitchingReport {
     pub partition_border_global_face_transition_closed_count: usize,
     /// Face plans retained with incomplete transition evidence.
     pub partition_border_global_face_transition_incomplete_count: usize,
+    /// Declared face-qualified twins positioned in local transition cycles.
+    pub partition_border_global_face_twin_transition_count: usize,
+    /// Declared twins whose two local cycles are mutation-ready.
+    pub partition_border_global_face_twin_transition_ready_count: usize,
+    /// Declared twins not present in both local transition cycles.
+    pub partition_border_global_face_twin_transition_unmapped_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2350,6 +2356,14 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_global_face_transition_plan.face_count,
             global_face_transition_plan_count
         );
+        let partition_border_global_face_twin_transition = partition_border_graph
+            .reconcile_global_face_twin_transitions(&self.execution_policy)?;
+        let global_face_twin_transition_count =
+            partition_border_graph.global_face_twin_transitions().len();
+        debug_assert_eq!(
+            partition_border_global_face_twin_transition.mapped_twin_count,
+            global_face_twin_transition_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2369,6 +2383,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_transition_plan(
                 partition_border_global_face_transition_plan,
+            );
+            trace.record_partition_border_global_face_twin_transitions(
+                partition_border_global_face_twin_transition,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -2637,6 +2654,12 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_transition_plan.closed_face_count,
                 partition_border_global_face_transition_incomplete_count:
                     partition_border_global_face_transition_plan.incomplete_face_count,
+                partition_border_global_face_twin_transition_count:
+                    partition_border_global_face_twin_transition.mapped_twin_count,
+                partition_border_global_face_twin_transition_ready_count:
+                    partition_border_global_face_twin_transition.mutation_ready_twin_count,
+                partition_border_global_face_twin_transition_unmapped_count:
+                    partition_border_global_face_twin_transition.unmapped_twin_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,

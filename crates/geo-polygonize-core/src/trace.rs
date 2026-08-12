@@ -4,9 +4,9 @@ use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -723,6 +723,24 @@ impl TraceRecorderV1 {
                 "missing_boundary_successor_count": stats.missing_boundary_successor_count,
                 "closed_face_count": stats.closed_face_count,
                 "incomplete_face_count": stats.incomplete_face_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_twin_transitions(
+        &mut self,
+        stats: PartitionBorderGlobalFaceTwinTransitionStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_twin_transitions",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "transition_count": stats.transition_count,
+                "applied_twin_count": stats.applied_twin_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "unmapped_twin_count": stats.unmapped_twin_count,
+                "mutation_ready_twin_count": stats.mutation_ready_twin_count,
             }),
         )
     }
