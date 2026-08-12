@@ -3,13 +3,13 @@
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFacePlanStats,
-    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
-    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdentityPlanStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
+    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -846,6 +846,25 @@ impl TraceRecorderV1 {
                 "ready_candidate_count": stats.ready_candidate_count,
                 "incomplete_candidate_count": stats.incomplete_candidate_count,
                 "global_successor_count": stats.global_successor_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_identity_plans(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdentityPlanStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_identity_plans",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "boundary_observation_count": stats.boundary_observation_count,
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "closed_cycle_count": stats.closed_cycle_count,
+                "incomplete_component_count": stats.incomplete_component_count,
+                "non_permutation_component_count": stats.non_permutation_component_count,
+                "permutation_ready": stats.permutation_ready,
             }),
         )
     }

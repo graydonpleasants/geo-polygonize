@@ -492,6 +492,69 @@ mod tests {
                 .partition_border_global_face_next_global_successor_count,
             global_successor_count
         );
+        let identity_plans = result.partition_border_graph.global_face_identity_plans();
+        let identity_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_face_identity_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_candidate_cycle_count,
+            identity_plans.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_closed_cycle_count,
+            identity_plans.iter().filter(|plan| plan.closed).count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_boundary_observation_count,
+            identity_plans
+                .iter()
+                .map(|plan| plan.boundary_observation_ids.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_candidate_cycle_count,
+            identity_stats.candidate_cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_closed_cycle_count,
+            identity_stats.closed_cycle_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_boundary_observation_count,
+            identity_stats.boundary_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_incomplete_component_count,
+            identity_stats.incomplete_component_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_non_permutation_component_count,
+            identity_stats.non_permutation_component_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_identity_permutation_ready,
+            identity_stats.permutation_ready
+        );
         let unbounded_proof = result
             .partition_border_graph
             .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
@@ -1264,6 +1327,71 @@ mod tests {
                     .stitching_report
                     .partition_border_global_face_next_global_successor_count
                     as u64
+            )
+        );
+        let global_face_identity_plans = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_identity_plans")
+            .expect("global face identity plan evidence");
+        assert_eq!(
+            global_face_identity_plans.payload["candidate_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_candidate_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_identity_plans.payload["boundary_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_boundary_observation_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_identity_plans.payload["closed_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_closed_cycle_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_identity_plans.payload["incomplete_component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_incomplete_component_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_identity_plans.payload["non_permutation_component_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_non_permutation_component_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_identity_plans.payload["permutation_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_identity_permutation_ready
             )
         );
         let unbounded_proof = traced

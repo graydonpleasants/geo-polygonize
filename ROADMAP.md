@@ -493,6 +493,9 @@ Blocked by #1288.
 - [x] Retain deterministic cross-tile global-next splice candidates from mapped
   twins and local cycle predecessors/successors; keep incomplete or conflicting
   assignments fail-closed without writing local `next` links or global face IDs.
+- [x] Retain boundary-only deterministic global face identity cycle candidates
+  from prospective successors; require a closed permutation walk and keep
+  incomplete or non-permutation components from receiving global face IDs.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
