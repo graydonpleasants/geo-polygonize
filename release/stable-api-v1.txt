@@ -1,5 +1,6 @@
 # Supported non-hidden geo-polygonize-core crate-root exports for 1.x.
 # Keep compiler-public research modules and #[doc(hidden)] exports out of this list.
+diagnostics::ComponentMemoryStats
 diagnostics::ContainmentStats
 diagnostics::IntersectionStats
 diagnostics::NodingIterationStats
