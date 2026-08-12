@@ -241,6 +241,29 @@ mod tests {
                 .partition_border_global_face_mutation_ready_count,
             mutation_gate.mutation_ready_face_count
         );
+        let transition_plan = result.partition_border_graph.global_face_transitions();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_transition_count,
+            transition_plan
+                .iter()
+                .filter(|plan| plan.closed)
+                .map(|plan| plan.boundary_observation_ids.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_transition_closed_count,
+            transition_plan.iter().filter(|plan| plan.closed).count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_transition_incomplete_count,
+            transition_plan.iter().filter(|plan| !plan.closed).count()
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -620,6 +643,58 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_mutation_ready_count as u64
+            )
+        );
+        let global_face_transition_plan = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_transition_plan")
+            .expect("global face transition plan evidence");
+        assert_eq!(
+            global_face_transition_plan.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_plan_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_transition_plan.payload["candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_candidate_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_transition_plan.payload["boundary_transition_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_transition_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_transition_plan.payload["closed_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_transition_closed_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_transition_plan.payload["incomplete_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_transition_incomplete_count
+                    as u64
             )
         );
     }
