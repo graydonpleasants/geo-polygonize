@@ -512,6 +512,19 @@ pub struct PartitionBorderTwinPayload {
     pub end_z_bits: Vec<u64>,
 }
 
+/// Deterministic evidence for the declared-adjacency twin boundary.
+///
+/// Only observations covered by a declared partition adjacency contribute to
+/// normalized or matched counts. Unrelated coincident observations therefore
+/// cannot become twins by geometry alone.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PartitionBorderReconciliationStats {
+    pub declared_adjacency_count: usize,
+    pub normalized_edge_count: usize,
+    pub matched_twin_count: usize,
+    pub unmatched_edge_count: usize,
+}
+
 /// Deterministic partition-border observations ready for twin reconciliation.
 ///
 /// The graph stores canonical undirected edge buckets while retaining each
@@ -684,6 +697,19 @@ impl PartitionBorderGraph {
     /// unrelated-partition buckets remain unmatched for later reconciliation.
     pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
         self.twin_pairs_from_edges(&self.normalized_edges())
+    }
+
+    /// Reports the conservative declared-adjacency reconciliation boundary
+    /// without mutating observations or choosing a Z/provenance policy.
+    pub fn reconciliation_stats(&self) -> PartitionBorderReconciliationStats {
+        let edges = self.normalized_edges();
+        let matched_twin_count = self.twin_pairs_from_edges(&edges).len();
+        PartitionBorderReconciliationStats {
+            declared_adjacency_count: self.adjacencies.len(),
+            normalized_edge_count: edges.len(),
+            matched_twin_count,
+            unmatched_edge_count: edges.len().saturating_sub(matched_twin_count),
+        }
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -1236,6 +1262,15 @@ mod tests {
         graph.insert(forward).unwrap();
 
         assert!(graph.twin_pairs().is_empty());
+        assert_eq!(
+            graph.reconciliation_stats(),
+            PartitionBorderReconciliationStats {
+                declared_adjacency_count: 1,
+                normalized_edge_count: 0,
+                matched_twin_count: 0,
+                unmatched_edge_count: 0,
+            }
+        );
     }
 
     #[test]
@@ -1279,6 +1314,16 @@ mod tests {
         );
         graph.insert(reverse).unwrap();
         graph.insert(forward).unwrap();
+
+        assert_eq!(
+            graph.reconciliation_stats(),
+            PartitionBorderReconciliationStats {
+                declared_adjacency_count: 1,
+                normalized_edge_count: 1,
+                matched_twin_count: 1,
+                unmatched_edge_count: 0,
+            }
+        );
 
         assert_eq!(
             graph.reconcile_twin_payloads(),

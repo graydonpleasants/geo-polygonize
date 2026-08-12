@@ -63,6 +63,22 @@ mod tests {
         assert!(observations
             .iter()
             .all(|observation| observation.face_ref.is_some()));
+        let reconciliation = result.partition_border_graph.reconciliation_stats();
+        assert_eq!(reconciliation.declared_adjacency_count, 1);
+        assert_eq!(
+            result.stitching_report.partition_border_adjacency_count,
+            reconciliation.declared_adjacency_count
+        );
+        assert_eq!(
+            result.stitching_report.partition_border_twin_count,
+            reconciliation.matched_twin_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_unmatched_edge_count,
+            reconciliation.unmatched_edge_count
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -184,6 +200,24 @@ mod tests {
                 && event.payload["representative_line_id"].as_u64().is_some()
                 && event.payload["component_id"].as_u64().is_some()
         }));
+        let reconciliation = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_twin_reconciliation")
+            .expect("twin reconciliation evidence");
+        assert_eq!(reconciliation.payload["declared_adjacency_count"], 1);
+        assert_eq!(
+            reconciliation.payload["matched_twin_count"]
+                .as_u64()
+                .unwrap()
+                + reconciliation.payload["unmatched_edge_count"]
+                    .as_u64()
+                    .unwrap(),
+            reconciliation.payload["normalized_edge_count"]
+                .as_u64()
+                .unwrap()
+        );
     }
 
     #[test]
