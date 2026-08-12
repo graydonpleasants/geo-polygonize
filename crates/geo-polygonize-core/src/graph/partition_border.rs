@@ -559,6 +559,26 @@ pub(crate) struct PartitionBorderNodeReconciliationStats {
     pub(crate) z_conflict_count: usize,
 }
 
+/// One deterministic connected component of qualified partition-border face
+/// evidence. This is retained for a future global arrangement; it does not
+/// rewrite local face IDs, adjacency, or tiled output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalComponent {
+    pub(crate) component_index: usize,
+    pub(crate) face_refs: Vec<PartitionFaceRef>,
+    pub(crate) border_node_keys: Vec<PartitionBorderNodeKey>,
+    pub(crate) twin_edge_keys: Vec<PartitionBorderEdgeKey>,
+}
+
+/// Counts from deterministic global component reconciliation evidence.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalComponentReconciliationStats {
+    pub(crate) component_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) linked_face_count: usize,
+    pub(crate) twin_link_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -585,6 +605,7 @@ pub struct PartitionBorderGraph {
     edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
     applied_face_twins: Vec<PartitionBorderFaceTwin>,
     reconciled_nodes: Vec<PartitionBorderNodePayload>,
+    global_components: Vec<PartitionBorderGlobalComponent>,
 }
 
 impl PartitionBorderGraph {
@@ -620,6 +641,7 @@ impl PartitionBorderGraph {
         self.observations.insert(observation_id, half_edge);
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
+        self.global_components.clear();
         Ok(())
     }
 
@@ -627,6 +649,7 @@ impl PartitionBorderGraph {
         self.adjacencies.insert(adjacency);
         self.applied_face_twins.clear();
         self.reconciled_nodes.clear();
+        self.global_components.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -875,6 +898,7 @@ impl PartitionBorderGraph {
         }
         stats.applied_twin_count = applied_face_twins.len();
         self.applied_face_twins = applied_face_twins;
+        self.global_components.clear();
         Ok(stats)
     }
 
@@ -884,11 +908,10 @@ impl PartitionBorderGraph {
 
     /// Reconciles every exact border node without mutating observations or
     /// local topology. All source, representative, face, and Z evidence is
-    /// retained. Non-ignored policies choose the first canonical Z candidate,
-    /// matching the existing deterministic graph-construction rule; conflict
-    /// detection remains explicit and `ErrorOnConflict` fails before the plan
-    /// is committed. Non-ignored selection follows the existing source-ID
-    /// ordering used by untiled graph construction.
+    /// retained. Non-ignored policies choose the first candidate under the
+    /// existing representative/source ordering used by untiled graph
+    /// construction; conflict detection remains explicit and
+    /// `ErrorOnConflict` fails before the plan is committed.
     pub(crate) fn reconcile_border_nodes(
         &mut self,
         z_options: ZOptions,
@@ -1014,11 +1037,154 @@ impl PartitionBorderGraph {
             });
         }
         self.reconciled_nodes = reconciled_nodes;
+        self.global_components.clear();
         Ok(stats)
     }
 
     pub(crate) fn reconciled_border_nodes(&self) -> &[PartitionBorderNodePayload] {
         &self.reconciled_nodes
+    }
+
+    /// Reconciles qualified face references into deterministic connected
+    /// components using only retained exact twin links. Every face observed
+    /// at a reconciled border node is included, so unlinked faces remain
+    /// explicit singleton components instead of being silently dropped.
+    /// Components are retained as evidence only; no local or tiled topology
+    /// is mutated.
+    pub(crate) fn reconcile_global_components(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalComponentReconciliationStats> {
+        execution_policy.check_cancelled("partition_border_global_components")?;
+        let mut face_set = BTreeSet::new();
+        for (node_index, node) in self.reconciled_nodes.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_components", node_index)?;
+            face_set.extend(node.face_refs.iter().copied());
+        }
+        face_set.extend(
+            self.applied_face_twins
+                .iter()
+                .flat_map(|twin| [twin.forward_face_ref, twin.reverse_face_ref]),
+        );
+        execution_policy.check(
+            "partition_border_global_faces",
+            execution_policy.max_graph_nodes,
+            face_set.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_links",
+            execution_policy.max_graph_edges,
+            self.applied_face_twins.len(),
+        )?;
+
+        let faces = face_set.into_iter().collect::<Vec<_>>();
+        let face_indices = faces
+            .iter()
+            .enumerate()
+            .map(|(index, face_ref)| (*face_ref, index))
+            .collect::<BTreeMap<_, _>>();
+        let mut parents = (0..faces.len()).collect::<Vec<_>>();
+        fn find(parents: &mut [usize], mut index: usize) -> usize {
+            while parents[index] != index {
+                parents[index] = parents[parents[index]];
+                index = parents[index];
+            }
+            index
+        }
+        let mut linked_faces = BTreeSet::new();
+        for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_components", twin_index)?;
+            let Some(&forward_index) = face_indices.get(&twin.forward_face_ref) else {
+                continue;
+            };
+            let Some(&reverse_index) = face_indices.get(&twin.reverse_face_ref) else {
+                continue;
+            };
+            linked_faces.insert(twin.forward_face_ref);
+            linked_faces.insert(twin.reverse_face_ref);
+            let forward_root = find(&mut parents, forward_index);
+            let reverse_root = find(&mut parents, reverse_index);
+            if forward_root != reverse_root {
+                let (root, child) = if forward_root < reverse_root {
+                    (forward_root, reverse_root)
+                } else {
+                    (reverse_root, forward_root)
+                };
+                parents[child] = root;
+            }
+        }
+
+        let mut groups = BTreeMap::<
+            usize,
+            (
+                BTreeSet<PartitionFaceRef>,
+                BTreeSet<PartitionBorderNodeKey>,
+                BTreeSet<PartitionBorderEdgeKey>,
+            ),
+        >::new();
+        for (face_index, face_ref) in faces.iter().copied().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_components", face_index)?;
+            groups
+                .entry(find(&mut parents, face_index))
+                .or_default()
+                .0
+                .insert(face_ref);
+        }
+        for (node_index, node) in self.reconciled_nodes.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_components", node_index)?;
+            let mut roots = BTreeSet::new();
+            for face_ref in &node.face_refs {
+                if let Some(&face_index) = face_indices.get(face_ref) {
+                    roots.insert(find(&mut parents, face_index));
+                }
+            }
+            for root in roots {
+                groups.entry(root).or_default().1.insert(node.key);
+            }
+        }
+        for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_components", twin_index)?;
+            let Some(&face_index) = face_indices.get(&twin.forward_face_ref) else {
+                continue;
+            };
+            groups
+                .entry(find(&mut parents, face_index))
+                .or_default()
+                .2
+                .insert(twin.twin.edge_key);
+        }
+
+        let global_components = groups
+            .into_iter()
+            .enumerate()
+            .map(
+                |(component_index, (_root, (face_refs, border_node_keys, twin_edge_keys)))| {
+                    PartitionBorderGlobalComponent {
+                        component_index,
+                        face_refs: face_refs.into_iter().collect(),
+                        border_node_keys: border_node_keys.into_iter().collect(),
+                        twin_edge_keys: twin_edge_keys.into_iter().collect(),
+                    }
+                },
+            )
+            .collect::<Vec<_>>();
+        let stats = PartitionBorderGlobalComponentReconciliationStats {
+            component_count: global_components.len(),
+            face_count: faces.len(),
+            linked_face_count: linked_faces.len(),
+            twin_link_count: self.applied_face_twins.len(),
+        };
+        self.global_components = global_components;
+        Ok(stats)
+    }
+
+    pub(crate) fn global_components(&self) -> &[PartitionBorderGlobalComponent] {
+        &self.global_components
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -1975,6 +2141,119 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_node_reconciliation"
+        ));
+        assert_eq!(cancelled, before);
+    }
+
+    #[test]
+    fn global_component_reconciliation_unions_qualified_faces_deterministically() {
+        let mut graph = exact_face_twin_graph();
+        graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let stats = graph
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalComponentReconciliationStats {
+                component_count: 1,
+                face_count: 2,
+                linked_face_count: 2,
+                twin_link_count: 1,
+            }
+        );
+        assert_eq!(graph.global_components().len(), 1);
+        let component = &graph.global_components()[0];
+        assert_eq!(component.component_index, 0);
+        assert_eq!(component.face_refs, vec![face(1, 4, 9), face(2, 6, 11)]);
+        assert_eq!(component.border_node_keys.len(), 2);
+        assert_eq!(
+            component.twin_edge_keys,
+            vec![PartitionBorderEdgeKey::new(
+                PartitionBorderNodeKey::from_coord(coord(0.0, 0.0, 0.0)),
+                PartitionBorderNodeKey::from_coord(coord(2.0, 0.0, 0.0)),
+            )
+            .unwrap(),]
+        );
+
+        let mut reordered = PartitionBorderGraph::default();
+        for adjacency in graph.adjacencies.iter().copied() {
+            reordered.declare_adjacency(adjacency);
+        }
+        for observation in graph.observations.values().rev().cloned() {
+            reordered.insert(observation).unwrap();
+        }
+        reordered
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(reordered.global_components(), graph.global_components());
+
+        let mut singletons = exact_face_twin_graph();
+        singletons
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let singleton_stats = singletons
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(singleton_stats.component_count, 2);
+        assert_eq!(singleton_stats.linked_face_count, 0);
+        assert!(singletons
+            .global_components()
+            .iter()
+            .all(|component| component.twin_edge_keys.is_empty()));
+    }
+
+    #[test]
+    fn global_component_reconciliation_is_bounded_and_cancellable_before_mutation() {
+        let mut limited = exact_face_twin_graph();
+        limited
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let before = limited.clone();
+        let error = limited
+            .reconcile_global_components(&ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_global_faces"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_twin_graph();
+        let before = cancelled.clone();
+        let error = cancelled
+            .reconcile_global_components(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_components"
         ));
         assert_eq!(cancelled, before);
     }

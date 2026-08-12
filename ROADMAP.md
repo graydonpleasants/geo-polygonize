@@ -457,6 +457,10 @@ Blocked by #1288.
   sets, representative IDs, face lineage, and endpoint-Z candidates under
   the selected Z policy, with fail-closed conflict, limit, and cancellation
   behavior; do not mutate local or tiled topology.
+- [x] Build and retain deterministic connected-component evidence for
+  qualified border faces, including explicit singleton faces and linked twin
+  edges with fail-closed limit and cancellation behavior; do not mutate local
+  or tiled topology.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.
