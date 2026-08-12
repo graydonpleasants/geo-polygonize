@@ -1149,6 +1149,90 @@ mod tests {
                 .partition_border_global_unbounded_face_application_ready,
             unbounded_application.application_ready
         );
+        let topology_mutation_gate = result
+            .partition_border_graph
+            .validate_global_topology_mutation_gate_with_evidence(
+                &ExecutionPolicy::default(),
+                global_topology_application_gate_stats,
+                global_component_coverage_stats,
+                global_face_id_application_stats,
+                unbounded_application,
+                face_walk,
+                face_euler,
+            )
+            .unwrap();
+        assert_eq!(
+            [
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_edge_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_component_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_face_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_candidate_cycle_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_applied_twin_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_mapped_twin_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_source_complete_twin_count,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_closed_face_count,
+            ],
+            [
+                topology_mutation_gate.edge_count,
+                topology_mutation_gate.component_count,
+                topology_mutation_gate.face_count,
+                topology_mutation_gate.candidate_cycle_count,
+                topology_mutation_gate.applied_twin_count,
+                topology_mutation_gate.mapped_twin_count,
+                topology_mutation_gate.source_complete_twin_count,
+                topology_mutation_gate.closed_face_count,
+            ]
+        );
+        assert_eq!(
+            [
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_topology_application_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_component_coverage_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_face_id_application_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_unbounded_face_application_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_face_walk_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_euler_evidence_ready,
+                result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_ready,
+            ],
+            [
+                topology_mutation_gate.topology_application_ready,
+                topology_mutation_gate.component_coverage_ready,
+                topology_mutation_gate.face_id_application_ready,
+                topology_mutation_gate.unbounded_face_application_ready,
+                topology_mutation_gate.face_walk_ready,
+                topology_mutation_gate.euler_evidence_ready,
+                topology_mutation_gate.gate_ready,
+            ]
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -2807,6 +2891,78 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_unbounded_face_application_ready
+            )
+        );
+        let topology_mutation_gate = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_topology_mutation_gate")
+            .expect("global topology mutation gate evidence");
+        assert_eq!(
+            topology_mutation_gate.payload["edge_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_edge_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_face_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["closed_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_closed_face_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["topology_application_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_topology_application_ready
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["face_walk_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_face_walk_ready
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["euler_evidence_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_euler_evidence_ready
+            )
+        );
+        assert_eq!(
+            topology_mutation_gate.payload["gate_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_topology_mutation_gate_ready
             )
         );
     }

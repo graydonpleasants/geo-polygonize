@@ -977,6 +977,30 @@ pub(crate) struct PartitionBorderGlobalUnboundedFaceApplicationStats {
     pub(crate) application_ready: bool,
 }
 
+/// Combined fail-closed evidence before any future global topology mutation.
+/// `gate_ready` is a proof-boundary result only; it does not authorize writes
+/// to local `next`, global edge slots, face IDs, or tiled output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalTopologyMutationGateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) component_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) candidate_cycle_count: usize,
+    pub(crate) applied_twin_count: usize,
+    pub(crate) mapped_twin_count: usize,
+    pub(crate) source_complete_twin_count: usize,
+    pub(crate) closed_face_count: usize,
+    pub(crate) euler_boundary_lhs: i64,
+    pub(crate) euler_boundary_rhs: i64,
+    pub(crate) topology_application_ready: bool,
+    pub(crate) component_coverage_ready: bool,
+    pub(crate) face_id_application_ready: bool,
+    pub(crate) unbounded_face_application_ready: bool,
+    pub(crate) face_walk_ready: bool,
+    pub(crate) euler_evidence_ready: bool,
+    pub(crate) gate_ready: bool,
+}
+
 /// Counts from an Euler witness over retained partition-border evidence.
 ///
 /// The witness deliberately names its measurements as boundary-only values:
@@ -6451,6 +6475,81 @@ impl PartitionBorderGraph {
         })
     }
 
+    /// Combines every retained detached-topology proof boundary into one
+    /// deterministic readiness result. This remains evidence only: no graph
+    /// identity, successor, face ID, or output field is mutated.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_global_topology_mutation_gate_with_evidence(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        topology_application: PartitionBorderGlobalTopologyApplicationGateStats,
+        component_coverage: PartitionBorderGlobalComponentCoverageStats,
+        face_id_application: PartitionBorderGlobalFaceIdApplicationStats,
+        unbounded_face_application: PartitionBorderGlobalUnboundedFaceApplicationStats,
+        walk: PartitionBorderGlobalFaceWalkInvariantStats,
+        euler: PartitionBorderGlobalFaceEulerWitnessStats,
+    ) -> crate::Result<PartitionBorderGlobalTopologyMutationGateStats> {
+        execution_policy.check_cancelled("partition_border_global_topology_mutation_gate")?;
+        execution_policy.check(
+            "partition_border_global_topology_mutation_gate_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_topology_mutation_gate_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global topology mutation gate has no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global topology mutation gate candidate length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    self.global_face_edge_map.len()
+                ),
+            });
+        }
+        let face_walk_ready = walk.face_count > 0
+            && walk.closed_face_count == walk.face_count
+            && walk.unmapped_twin_count == 0
+            && walk.mapped_twin_count == walk.applied_twin_count
+            && walk.source_complete_twin_count == walk.applied_twin_count
+            && walk.unbounded_face_count == 1
+            && walk.unbounded_component_count == 1;
+        let euler_evidence_ready = euler.boundary_euler_consistent;
+        let gate_ready = topology_application.application_ready
+            && component_coverage.coverage_ready
+            && face_id_application.application_ready
+            && unbounded_face_application.application_ready
+            && face_walk_ready
+            && euler_evidence_ready;
+        Ok(PartitionBorderGlobalTopologyMutationGateStats {
+            edge_count: self.global_face_edge_map.len(),
+            component_count: self.global_components.len(),
+            face_count: walk.face_count,
+            candidate_cycle_count: candidate.cycle_start_global_dir_edge_ids.len(),
+            applied_twin_count: walk.applied_twin_count,
+            mapped_twin_count: walk.mapped_twin_count,
+            source_complete_twin_count: walk.source_complete_twin_count,
+            closed_face_count: walk.closed_face_count,
+            euler_boundary_lhs: euler.boundary_euler_lhs,
+            euler_boundary_rhs: euler.boundary_euler_rhs,
+            topology_application_ready: topology_application.application_ready,
+            component_coverage_ready: component_coverage.coverage_ready,
+            face_id_application_ready: face_id_application.application_ready,
+            unbounded_face_application_ready: unbounded_face_application.application_ready,
+            face_walk_ready,
+            euler_evidence_ready,
+            gate_ready,
+        })
+    }
+
     /// Merges source IDs and retains every distinct Z candidate for each
     /// canonical endpoint. No Z conflict policy is applied here.
     pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
@@ -9953,6 +10052,113 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_unbounded_face_application"
+        ));
+    }
+
+    #[test]
+    fn global_topology_mutation_gate_combines_evidence_without_mutation() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_topology_mutation_gate_with_evidence(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalTopologyApplicationGateStats {
+                    application_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalComponentCoverageStats {
+                    coverage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdApplicationStats {
+                    application_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalUnboundedFaceApplicationStats {
+                    application_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceWalkInvariantStats {
+                    face_count: 2,
+                    closed_face_count: 2,
+                    applied_twin_count: 2,
+                    mapped_twin_count: 2,
+                    source_complete_twin_count: 2,
+                    unbounded_face_count: 1,
+                    unbounded_component_count: 1,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceEulerWitnessStats {
+                    boundary_euler_consistent: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count, 4);
+        assert_eq!(stats.component_count, 1);
+        assert_eq!(stats.candidate_cycle_count, 2);
+        assert!(stats.face_walk_ready);
+        assert!(stats.euler_evidence_ready);
+        assert!(stats.gate_ready);
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_topology_mutation_gate_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .validate_global_topology_mutation_gate_with_evidence(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalTopologyApplicationGateStats::default(),
+                PartitionBorderGlobalComponentCoverageStats::default(),
+                PartitionBorderGlobalFaceIdApplicationStats::default(),
+                PartitionBorderGlobalUnboundedFaceApplicationStats::default(),
+                PartitionBorderGlobalFaceWalkInvariantStats::default(),
+                PartitionBorderGlobalFaceEulerWitnessStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_topology_mutation_gate_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_global_topology_mutation_gate_with_evidence(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalTopologyApplicationGateStats::default(),
+                PartitionBorderGlobalComponentCoverageStats::default(),
+                PartitionBorderGlobalFaceIdApplicationStats::default(),
+                PartitionBorderGlobalUnboundedFaceApplicationStats::default(),
+                PartitionBorderGlobalFaceWalkInvariantStats::default(),
+                PartitionBorderGlobalFaceEulerWitnessStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_topology_mutation_gate"
         ));
     }
 

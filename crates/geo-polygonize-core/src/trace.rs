@@ -12,6 +12,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
+    PartitionBorderGlobalTopologyMutationGateStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
     PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
     PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
@@ -962,6 +963,35 @@ impl TraceRecorderV1 {
                 "duplicate_unbounded_face_id_count": stats.duplicate_unbounded_face_id_count,
                 "proof_ready": stats.proof_ready,
                 "application_ready": stats.application_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_topology_mutation_gate(
+        &mut self,
+        stats: PartitionBorderGlobalTopologyMutationGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_topology_mutation_gate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "component_count": stats.component_count,
+                "face_count": stats.face_count,
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "applied_twin_count": stats.applied_twin_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "source_complete_twin_count": stats.source_complete_twin_count,
+                "closed_face_count": stats.closed_face_count,
+                "euler_boundary_lhs": stats.euler_boundary_lhs,
+                "euler_boundary_rhs": stats.euler_boundary_rhs,
+                "topology_application_ready": stats.topology_application_ready,
+                "component_coverage_ready": stats.component_coverage_ready,
+                "face_id_application_ready": stats.face_id_application_ready,
+                "unbounded_face_application_ready": stats.unbounded_face_application_ready,
+                "face_walk_ready": stats.face_walk_ready,
+                "euler_evidence_ready": stats.euler_evidence_ready,
+                "gate_ready": stats.gate_ready,
             }),
         )
     }
