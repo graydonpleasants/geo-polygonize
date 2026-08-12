@@ -496,6 +496,9 @@ Blocked by #1288.
 - [x] Retain boundary-only deterministic global face identity cycle candidates
   from prospective successors; require a closed permutation walk and keep
   incomplete or non-permutation components from receiving global face IDs.
+- [x] Retain a fail-closed global-next mutation plan from validated identity
+  cycles; require exact cycle assignments while keeping local and global links
+  unwritten until a real global topology exists.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

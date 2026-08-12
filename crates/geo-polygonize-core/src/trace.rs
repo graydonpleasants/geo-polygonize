@@ -5,11 +5,12 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdentityPlanStats,
     PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -865,6 +866,25 @@ impl TraceRecorderV1 {
                 "incomplete_component_count": stats.incomplete_component_count,
                 "non_permutation_component_count": stats.non_permutation_component_count,
                 "permutation_ready": stats.permutation_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_next_mutation_plans(
+        &mut self,
+        stats: PartitionBorderGlobalFaceNextMutationPlanStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_next_mutation_plans",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "boundary_observation_count": stats.boundary_observation_count,
+                "plan_count": stats.plan_count,
+                "candidate_link_count": stats.candidate_link_count,
+                "ready_component_count": stats.ready_component_count,
+                "incomplete_component_count": stats.incomplete_component_count,
+                "mutation_ready": stats.mutation_ready,
             }),
         )
     }

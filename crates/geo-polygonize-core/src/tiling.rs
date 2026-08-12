@@ -365,6 +365,18 @@ pub struct StitchingReport {
     pub partition_border_global_face_identity_boundary_observation_count: usize,
     /// Whether all retained boundary evidence forms closed permutation cycles.
     pub partition_border_global_face_identity_permutation_ready: bool,
+    /// Boundary-only global-next mutation plans retained from identity cycles.
+    pub partition_border_global_face_next_mutation_plan_count: usize,
+    /// Prospective global-next links retained without applying them.
+    pub partition_border_global_face_next_mutation_candidate_link_count: usize,
+    /// Boundary observations covered by the prospective mutation plan.
+    pub partition_border_global_face_next_mutation_boundary_observation_count: usize,
+    /// Components whose prospective global-next plan is complete.
+    pub partition_border_global_face_next_mutation_ready_component_count: usize,
+    /// Components whose prospective global-next plan remains incomplete.
+    pub partition_border_global_face_next_mutation_incomplete_component_count: usize,
+    /// Whether the prospective global-next plan is safe to apply later.
+    pub partition_border_global_face_next_mutation_ready: bool,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2465,6 +2477,11 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_face_next_mutation_plans = partition_border_graph
+            .reconcile_global_face_next_mutation_plans_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2507,6 +2524,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_identity_plans(
                 partition_border_global_face_identity_plans,
+            );
+            trace.record_partition_border_global_face_next_mutation_plans(
+                partition_border_global_face_next_mutation_plans,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -2844,6 +2864,18 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_identity_plans.boundary_observation_count,
                 partition_border_global_face_identity_permutation_ready:
                     partition_border_global_face_identity_plans.permutation_ready,
+                partition_border_global_face_next_mutation_plan_count:
+                    partition_border_global_face_next_mutation_plans.plan_count,
+                partition_border_global_face_next_mutation_candidate_link_count:
+                    partition_border_global_face_next_mutation_plans.candidate_link_count,
+                partition_border_global_face_next_mutation_boundary_observation_count:
+                    partition_border_global_face_next_mutation_plans.boundary_observation_count,
+                partition_border_global_face_next_mutation_ready_component_count:
+                    partition_border_global_face_next_mutation_plans.ready_component_count,
+                partition_border_global_face_next_mutation_incomplete_component_count:
+                    partition_border_global_face_next_mutation_plans.incomplete_component_count,
+                partition_border_global_face_next_mutation_ready:
+                    partition_border_global_face_next_mutation_plans.mutation_ready,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:
