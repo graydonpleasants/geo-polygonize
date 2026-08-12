@@ -412,6 +412,18 @@ pub struct StitchingReport {
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
     pub partition_border_global_unbounded_face_proof_ready: bool,
+    /// Detached candidate cycles checked against the unique unbounded face.
+    pub partition_border_global_unbounded_face_application_candidate_cycle_count: usize,
+    /// Candidate face IDs carrying the unique local-unbounded marker.
+    pub partition_border_global_unbounded_face_application_candidate_unbounded_face_id_count: usize,
+    /// Candidate unbounded cycles mapped through the face-ID application gate.
+    pub partition_border_global_unbounded_face_application_mapped_unbounded_cycle_count: usize,
+    /// Local-unbounded faces without a candidate global face ID.
+    pub partition_border_global_unbounded_face_application_missing_unbounded_face_id_count: usize,
+    /// Duplicate candidate IDs carrying local-unbounded evidence.
+    pub partition_border_global_unbounded_face_application_duplicate_unbounded_face_id_count: usize,
+    /// Whether the unique unbounded-face evidence is ready for future mutation.
+    pub partition_border_global_unbounded_face_application_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2653,6 +2665,12 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_unbounded_face_application = partition_border_graph
+            .validate_global_unbounded_face_application_with_evidence(
+                &self.execution_policy,
+                partition_border_global_unbounded_face_proof,
+                partition_border_global_face_id_application,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2718,6 +2736,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
+            );
+            trace.record_partition_border_global_unbounded_face_application(
+                partition_border_global_unbounded_face_application,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3096,6 +3117,22 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:
                     partition_border_global_unbounded_face_proof.proof_ready,
+                partition_border_global_unbounded_face_application_candidate_cycle_count:
+                    partition_border_global_unbounded_face_application.candidate_cycle_count,
+                partition_border_global_unbounded_face_application_candidate_unbounded_face_id_count:
+                    partition_border_global_unbounded_face_application
+                        .candidate_unbounded_face_id_count,
+                partition_border_global_unbounded_face_application_mapped_unbounded_cycle_count:
+                    partition_border_global_unbounded_face_application
+                        .mapped_unbounded_cycle_count,
+                partition_border_global_unbounded_face_application_missing_unbounded_face_id_count:
+                    partition_border_global_unbounded_face_application
+                        .missing_unbounded_face_id_count,
+                partition_border_global_unbounded_face_application_duplicate_unbounded_face_id_count:
+                    partition_border_global_unbounded_face_application
+                        .duplicate_unbounded_face_id_count,
+                partition_border_global_unbounded_face_application_ready:
+                    partition_border_global_unbounded_face_application.application_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

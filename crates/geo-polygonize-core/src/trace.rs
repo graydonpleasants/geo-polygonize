@@ -12,6 +12,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
+    PartitionBorderGlobalUnboundedFaceApplicationStats,
     PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
     PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
     PartitionBorderTwinApplicationStats,
@@ -940,6 +941,27 @@ impl TraceRecorderV1 {
                 "unbounded_face_not_ready_twin_count": stats.unbounded_face_not_ready_twin_count,
                 "candidate_count": stats.candidate_count,
                 "proof_ready": stats.proof_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_unbounded_face_application(
+        &mut self,
+        stats: PartitionBorderGlobalUnboundedFaceApplicationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_unbounded_face_application",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "local_unbounded_face_count": stats.local_unbounded_face_count,
+                "candidate_unbounded_face_id_count": stats.candidate_unbounded_face_id_count,
+                "mapped_unbounded_cycle_count": stats.mapped_unbounded_cycle_count,
+                "missing_unbounded_face_id_count": stats.missing_unbounded_face_id_count,
+                "duplicate_unbounded_face_id_count": stats.duplicate_unbounded_face_id_count,
+                "proof_ready": stats.proof_ready,
+                "application_ready": stats.application_ready,
             }),
         )
     }

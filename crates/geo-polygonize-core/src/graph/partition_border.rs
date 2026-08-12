@@ -961,6 +961,22 @@ pub(crate) struct PartitionBorderGlobalUnboundedFaceProofStats {
     pub(crate) proof_ready: bool,
 }
 
+/// Counts from applying the conservative unbounded-face proof to detached
+/// candidate face-ID evidence. This gate identifies one candidate only; it
+/// does not write a global face identity or mutate topology.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalUnboundedFaceApplicationStats {
+    pub(crate) face_count: usize,
+    pub(crate) candidate_cycle_count: usize,
+    pub(crate) local_unbounded_face_count: usize,
+    pub(crate) candidate_unbounded_face_id_count: usize,
+    pub(crate) mapped_unbounded_cycle_count: usize,
+    pub(crate) missing_unbounded_face_id_count: usize,
+    pub(crate) duplicate_unbounded_face_id_count: usize,
+    pub(crate) proof_ready: bool,
+    pub(crate) application_ready: bool,
+}
+
 /// Counts from an Euler witness over retained partition-border evidence.
 ///
 /// The witness deliberately names its measurements as boundary-only values:
@@ -6335,6 +6351,106 @@ impl PartitionBorderGraph {
         })
     }
 
+    /// Validates that exactly one local-unbounded face proof is represented by
+    /// one mapped candidate global face ID and one detached candidate cycle.
+    /// This is the final unbounded-face evidence gate before any future global
+    /// face identity mutation; it never changes the graph.
+    #[cfg(test)]
+    pub(crate) fn validate_global_unbounded_face_application(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalUnboundedFaceApplicationStats> {
+        execution_policy.check_cancelled("partition_border_global_unbounded_face_application")?;
+        let walk = self.validate_global_face_walk_invariants(execution_policy)?;
+        let proof = self.validate_global_unbounded_face_proof_with_walk(execution_policy, walk)?;
+        let face_id_application = self.validate_global_face_id_application(execution_policy)?;
+        self.validate_global_unbounded_face_application_with_evidence(
+            execution_policy,
+            proof,
+            face_id_application,
+        )
+    }
+
+    pub(crate) fn validate_global_unbounded_face_application_with_evidence(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        proof: PartitionBorderGlobalUnboundedFaceProofStats,
+        face_id_application: PartitionBorderGlobalFaceIdApplicationStats,
+    ) -> crate::Result<PartitionBorderGlobalUnboundedFaceApplicationStats> {
+        execution_policy.check_cancelled("partition_border_global_unbounded_face_application")?;
+        execution_policy.check(
+            "partition_border_global_unbounded_face_application_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global unbounded face application has no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global unbounded face application candidate length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    self.global_face_edge_map.len()
+                ),
+            });
+        }
+        let candidate_cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        let local_unbounded_face_count = self
+            .global_face_plans
+            .iter()
+            .filter(|plan| plan.local_face_is_unbounded)
+            .count();
+        let mut unbounded_face_ids = BTreeSet::new();
+        let mut candidate_unbounded_face_id_count = 0usize;
+        for (plan_index, plan) in self.global_face_id_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_unbounded_face_application_plans",
+                plan_index,
+            )?;
+            if plan.local_unbounded_face_count == 0 {
+                continue;
+            }
+            if let Some(face_id) = plan.candidate_global_face_id {
+                candidate_unbounded_face_id_count += 1;
+                unbounded_face_ids.insert(face_id);
+            }
+        }
+        let duplicate_unbounded_face_id_count =
+            candidate_unbounded_face_id_count.saturating_sub(unbounded_face_ids.len());
+        let missing_unbounded_face_id_count =
+            local_unbounded_face_count.saturating_sub(candidate_unbounded_face_id_count);
+        let mapped_unbounded_cycle_count = if face_id_application.application_ready {
+            candidate_unbounded_face_id_count
+        } else {
+            0
+        };
+        let application_ready = proof.proof_ready
+            && face_id_application.application_ready
+            && face_id_application.candidate_cycle_count == self.global_face_id_plans.len()
+            && face_id_application.candidate_cycle_count == candidate_cycle_count
+            && candidate_cycle_count == face_id_application.candidate_cycle_start_count
+            && local_unbounded_face_count == 1
+            && candidate_unbounded_face_id_count == 1
+            && mapped_unbounded_cycle_count == 1
+            && missing_unbounded_face_id_count == 0
+            && duplicate_unbounded_face_id_count == 0;
+        Ok(PartitionBorderGlobalUnboundedFaceApplicationStats {
+            face_count: proof.face_count,
+            candidate_cycle_count,
+            local_unbounded_face_count,
+            candidate_unbounded_face_id_count,
+            mapped_unbounded_cycle_count,
+            missing_unbounded_face_id_count,
+            duplicate_unbounded_face_id_count,
+            proof_ready: proof.proof_ready,
+            application_ready,
+        })
+    }
+
     /// Merges source IDs and retains every distinct Z candidate for each
     /// canonical endpoint. No Z conflict policy is applied here.
     pub fn reconcile_twin_payloads(&self) -> Vec<PartitionBorderTwinPayload> {
@@ -9692,6 +9808,152 @@ mod tests {
         assert_eq!(stats.closed_unbounded_face_count, 0);
         assert_eq!(stats.unbounded_face_not_ready_twin_count, 1);
         assert!(!stats.proof_ready);
+    }
+
+    #[test]
+    fn global_unbounded_face_application_requires_one_mapped_candidate() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        graph.global_face_plans = vec![PartitionBorderGlobalFacePlan {
+            face_ref: face(1, 4, 9),
+            candidates: Vec::new(),
+            twin_edge_keys: Vec::new(),
+            local_face_is_unbounded: true,
+        }];
+        graph.global_face_id_plans = vec![
+            PartitionBorderGlobalFaceIdPlan {
+                candidate_global_face_id: Some(0),
+                component_index: 0,
+                boundary_observation_ids: Vec::new(),
+                face_refs: vec![face(1, 4, 9)],
+                local_unbounded_face_count: 1,
+                closed: true,
+            },
+            PartitionBorderGlobalFaceIdPlan {
+                candidate_global_face_id: Some(1),
+                component_index: 0,
+                boundary_observation_ids: Vec::new(),
+                face_refs: vec![face(1, 4, 10)],
+                local_unbounded_face_count: 0,
+                closed: true,
+            },
+        ];
+        let stats = graph
+            .validate_global_unbounded_face_application_with_evidence(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalUnboundedFaceProofStats {
+                    face_count: 4,
+                    local_unbounded_face_count: 1,
+                    unbounded_component_count: 1,
+                    closed_unbounded_face_count: 1,
+                    unbounded_face_twin_count: 0,
+                    unbounded_face_unmapped_twin_count: 0,
+                    unbounded_face_not_ready_twin_count: 0,
+                    candidate_count: 1,
+                    proof_ready: true,
+                },
+                PartitionBorderGlobalFaceIdApplicationStats {
+                    component_count: 1,
+                    candidate_cycle_count: 2,
+                    assigned_face_count: 2,
+                    candidate_cycle_start_count: 2,
+                    mapped_cycle_count: 1,
+                    unmapped_plan_count: 0,
+                    duplicate_face_id_count: 0,
+                    non_contiguous_face_id_count: 0,
+                    application_ready: true,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalUnboundedFaceApplicationStats {
+                face_count: 4,
+                candidate_cycle_count: 2,
+                local_unbounded_face_count: 1,
+                candidate_unbounded_face_id_count: 1,
+                mapped_unbounded_cycle_count: 1,
+                missing_unbounded_face_id_count: 0,
+                duplicate_unbounded_face_id_count: 0,
+                proof_ready: true,
+                application_ready: true,
+            }
+        );
+
+        graph.global_face_id_plans[0].candidate_global_face_id = None;
+        let stats = graph
+            .validate_global_unbounded_face_application_with_evidence(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalUnboundedFaceProofStats {
+                    face_count: 4,
+                    local_unbounded_face_count: 1,
+                    unbounded_component_count: 1,
+                    closed_unbounded_face_count: 1,
+                    candidate_count: 1,
+                    proof_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdApplicationStats {
+                    candidate_cycle_count: 2,
+                    assigned_face_count: 2,
+                    candidate_cycle_start_count: 2,
+                    application_ready: false,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.missing_unbounded_face_id_count, 1);
+        assert!(!stats.application_ready);
+    }
+
+    #[test]
+    fn global_unbounded_face_application_is_bounded_and_cancellable() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = limited
+            .validate_global_unbounded_face_application_with_evidence(
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalUnboundedFaceProofStats::default(),
+                PartitionBorderGlobalFaceIdApplicationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "partition_border_global_unbounded_face_application_components"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_global_topology_candidate_graph();
+        cancelled
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_global_unbounded_face_application_with_evidence(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalUnboundedFaceProofStats::default(),
+                PartitionBorderGlobalFaceIdApplicationStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_unbounded_face_application"
+        ));
     }
 
     #[test]
