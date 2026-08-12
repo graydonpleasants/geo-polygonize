@@ -353,6 +353,18 @@ pub struct StitchingReport {
     pub partition_border_global_face_next_incomplete_candidate_count: usize,
     /// Distinct predecessor-to-successor assignments retained without mutation.
     pub partition_border_global_face_next_global_successor_count: usize,
+    /// Boundary-only global face cycle candidates retained from local cycles.
+    pub partition_border_global_face_identity_candidate_cycle_count: usize,
+    /// Candidate global face cycles whose prospective successor walk is closed.
+    pub partition_border_global_face_identity_closed_cycle_count: usize,
+    /// Components with incomplete local boundary evidence.
+    pub partition_border_global_face_identity_incomplete_component_count: usize,
+    /// Components whose prospective successor map is not a permutation.
+    pub partition_border_global_face_identity_non_permutation_component_count: usize,
+    /// Boundary observations retained in the identity candidate plan.
+    pub partition_border_global_face_identity_boundary_observation_count: usize,
+    /// Whether all retained boundary evidence forms closed permutation cycles.
+    pub partition_border_global_face_identity_permutation_ready: bool,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2448,6 +2460,11 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_face_identity_plans = partition_border_graph
+            .reconcile_global_face_identity_plans_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2487,6 +2504,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_next_candidates(
                 partition_border_global_face_next_candidates,
+            );
+            trace.record_partition_border_global_face_identity_plans(
+                partition_border_global_face_identity_plans,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -2812,6 +2832,18 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_next_candidates.incomplete_candidate_count,
                 partition_border_global_face_next_global_successor_count:
                     partition_border_global_face_next_candidates.global_successor_count,
+                partition_border_global_face_identity_candidate_cycle_count:
+                    partition_border_global_face_identity_plans.candidate_cycle_count,
+                partition_border_global_face_identity_closed_cycle_count:
+                    partition_border_global_face_identity_plans.closed_cycle_count,
+                partition_border_global_face_identity_incomplete_component_count:
+                    partition_border_global_face_identity_plans.incomplete_component_count,
+                partition_border_global_face_identity_non_permutation_component_count:
+                    partition_border_global_face_identity_plans.non_permutation_component_count,
+                partition_border_global_face_identity_boundary_observation_count:
+                    partition_border_global_face_identity_plans.boundary_observation_count,
+                partition_border_global_face_identity_permutation_ready:
+                    partition_border_global_face_identity_plans.permutation_ready,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:
