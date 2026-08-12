@@ -743,6 +743,27 @@ pub(crate) struct PartitionBorderGlobalFaceIdentityMaterializationStats {
     pub(crate) materialization_ready: bool,
 }
 
+/// Counts the final detached global face-identity invariant check. This
+/// cross-checks the per-edge face map against committed cycles, successor
+/// continuity, reciprocal twins, source lineage, and retained walk/Euler
+/// evidence without mutating any graph or output state.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceIdentityInvariantStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) mapped_face_id_edge_count: usize,
+    pub(crate) face_id_set_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) cycle_face_mismatch_count: usize,
+    pub(crate) successor_discontinuity_count: usize,
+    pub(crate) source_incomplete_edge_count: usize,
+    pub(crate) twin_count: usize,
+    pub(crate) twin_mapping_mismatch_count: usize,
+    pub(crate) face_walk_ready: bool,
+    pub(crate) euler_evidence_ready: bool,
+    pub(crate) invariants_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -5950,6 +5971,186 @@ impl PartitionBorderGraph {
     #[cfg(test)]
     pub(crate) fn global_face_id_by_global_dir_edge_id(&self) -> &[Option<usize>] {
         &self.global_face_id_by_global_dir_edge_id
+    }
+
+    /// Validates the detached per-edge face identity against all retained
+    /// global evidence. This is a proof boundary only: it does not promote
+    /// `next`, face IDs, unbounded identity, or any payload into local/output
+    /// topology.
+    pub(crate) fn validate_global_face_identity_invariants(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        materialization: PartitionBorderGlobalFaceIdentityMaterializationStats,
+        walk: PartitionBorderGlobalFaceWalkInvariantStats,
+        euler: PartitionBorderGlobalFaceEulerWitnessStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceIdentityInvariantStats> {
+        execution_policy.check_cancelled("partition_border_global_face_identity_invariants")?;
+        execution_policy.check(
+            "partition_border_global_face_identity_invariants_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face identity invariants have no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != self.global_face_edge_map.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face identity invariants successor length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    self.global_face_edge_map.len()
+                ),
+            });
+        }
+        execution_policy.check(
+            "partition_border_global_face_identity_invariants_cycles",
+            execution_policy.max_graph_nodes,
+            candidate.cycle_start_global_dir_edge_ids.len(),
+        )?;
+
+        let edge_count = self.global_face_edge_map.len();
+        let cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        let face_ids = &self.global_face_id_by_global_dir_edge_id;
+        let mut stats = PartitionBorderGlobalFaceIdentityInvariantStats {
+            edge_count,
+            cycle_count,
+            ..Default::default()
+        };
+        let mut face_id_set = BTreeSet::new();
+        for (edge_index, face_id) in face_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_identity_invariants_edges",
+                edge_index,
+            )?;
+            let Some(face_id) = face_id else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            stats.mapped_face_id_edge_count += 1;
+            face_id_set.insert(*face_id);
+        }
+        if face_ids.len() != edge_count {
+            stats.missing_face_id_count = stats
+                .missing_face_id_count
+                .saturating_add(edge_count.saturating_sub(face_ids.len()));
+        }
+        stats.face_id_set_count = face_id_set.len();
+
+        for (cycle_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_identity_invariants_cycles",
+                cycle_index,
+            )?;
+            let expected_face_id = self
+                .global_face_id_by_cycle_start
+                .get(cycle_index)
+                .copied()
+                .flatten();
+            let Some(expected_face_id) = expected_face_id else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            if start >= edge_count {
+                stats.cycle_face_mismatch_count += 1;
+                continue;
+            }
+            let mut visited = BTreeSet::new();
+            let mut current = start;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_identity_invariants_cycle_edges",
+                    visited.len(),
+                )?;
+                if !visited.insert(current) {
+                    if current != start {
+                        stats.cycle_face_mismatch_count += 1;
+                    }
+                    break;
+                }
+                if current >= edge_count
+                    || face_ids.get(current).copied().flatten() != Some(expected_face_id)
+                {
+                    stats.cycle_face_mismatch_count += 1;
+                    break;
+                }
+                let Some(successor) = candidate.next_global_dir_edge_ids[current] else {
+                    stats.cycle_face_mismatch_count += 1;
+                    break;
+                };
+                if successor >= edge_count {
+                    stats.cycle_face_mismatch_count += 1;
+                    break;
+                }
+                current = successor;
+            }
+        }
+
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_identity_invariants_successors",
+                edge_index,
+            )?;
+            if edge.source_line_ids.is_empty() {
+                stats.source_incomplete_edge_count += 1;
+            }
+            let Some(successor_index) = candidate.next_global_dir_edge_ids[edge_index] else {
+                stats.successor_discontinuity_count += 1;
+                continue;
+            };
+            let Some(successor) = self.global_face_edge_map.get(successor_index) else {
+                stats.successor_discontinuity_count += 1;
+                continue;
+            };
+            if edge.to_global_node_id != successor.from_global_node_id
+                || face_ids.get(edge_index).copied().flatten()
+                    != face_ids.get(successor_index).copied().flatten()
+            {
+                stats.successor_discontinuity_count += 1;
+            }
+        }
+
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            let Some(twin_index) = edge.cross_border_twin_global_dir_edge_id else {
+                continue;
+            };
+            if edge_index > twin_index {
+                continue;
+            }
+            stats.twin_count += 1;
+            let reciprocal = self
+                .global_face_edge_map
+                .get(twin_index)
+                .is_some_and(|twin| twin.cross_border_twin_global_dir_edge_id == Some(edge_index));
+            if !reciprocal
+                || face_ids.get(edge_index).copied().flatten().is_none()
+                || face_ids.get(twin_index).copied().flatten().is_none()
+            {
+                stats.twin_mapping_mismatch_count += 1;
+            }
+        }
+
+        stats.face_walk_ready = walk.face_count > 0
+            && walk.closed_face_count == walk.face_count
+            && walk.unmapped_twin_count == 0
+            && walk.mapped_twin_count == walk.applied_twin_count
+            && walk.source_complete_twin_count == walk.applied_twin_count
+            && walk.unbounded_face_count == 1
+            && walk.unbounded_component_count == 1;
+        stats.euler_evidence_ready = euler.boundary_euler_consistent;
+        stats.invariants_ready = materialization.materialization_ready
+            && stats.mapped_face_id_edge_count == edge_count
+            && stats.face_id_set_count == cycle_count
+            && stats.missing_face_id_count == 0
+            && stats.cycle_face_mismatch_count == 0
+            && stats.successor_discontinuity_count == 0
+            && stats.source_incomplete_edge_count == 0
+            && stats.twin_mapping_mismatch_count == 0
+            && stats.face_walk_ready
+            && stats.euler_evidence_ready;
+        Ok(stats)
     }
 
     #[cfg(test)]
@@ -11263,6 +11464,153 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_identity_materialization"
+        ));
+    }
+
+    #[test]
+    fn global_face_identity_invariants_cross_check_detached_evidence() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: None,
+                to_global_node_id: None,
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(1), Some(0)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        graph.global_face_id_by_cycle_start = vec![Some(0)];
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0)];
+        let stats = graph
+            .validate_global_face_identity_invariants(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityMaterializationStats {
+                    edge_count: 2,
+                    cycle_count: 1,
+                    assigned_edge_count: 2,
+                    unbounded_edge_count: 2,
+                    materialization_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceWalkInvariantStats {
+                    face_count: 1,
+                    closed_face_count: 1,
+                    applied_twin_count: 1,
+                    mapped_twin_count: 1,
+                    source_complete_twin_count: 1,
+                    unbounded_face_count: 1,
+                    unbounded_component_count: 1,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceEulerWitnessStats {
+                    boundary_euler_consistent: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(stats.invariants_ready);
+        assert_eq!(stats.mapped_face_id_edge_count, 2);
+        assert_eq!(stats.twin_count, 1);
+        assert_eq!(stats.twin_mapping_mismatch_count, 0);
+        assert_eq!(
+            graph.global_face_id_by_global_dir_edge_id,
+            vec![Some(0), Some(0)]
+        );
+
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(1)];
+        let stats = graph
+            .validate_global_face_identity_invariants(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityMaterializationStats {
+                    edge_count: 2,
+                    cycle_count: 1,
+                    assigned_edge_count: 2,
+                    unbounded_edge_count: 2,
+                    materialization_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceWalkInvariantStats {
+                    face_count: 1,
+                    closed_face_count: 1,
+                    applied_twin_count: 1,
+                    mapped_twin_count: 1,
+                    source_complete_twin_count: 1,
+                    unbounded_face_count: 1,
+                    unbounded_component_count: 1,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceEulerWitnessStats {
+                    boundary_euler_consistent: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!stats.invariants_ready);
+        assert!(stats.cycle_face_mismatch_count > 0);
+        assert!(stats.successor_discontinuity_count > 0);
+    }
+
+    #[test]
+    fn global_face_identity_invariants_are_bounded_and_cancellable() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph.global_face_id_by_cycle_start = vec![Some(0), Some(1)];
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0); 4];
+        let error = graph
+            .validate_global_face_identity_invariants(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityMaterializationStats::default(),
+                PartitionBorderGlobalFaceWalkInvariantStats::default(),
+                PartitionBorderGlobalFaceEulerWitnessStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_face_identity_invariants_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_identity_invariants(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityMaterializationStats::default(),
+                PartitionBorderGlobalFaceWalkInvariantStats::default(),
+                PartitionBorderGlobalFaceEulerWitnessStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_identity_invariants"
         ));
     }
 

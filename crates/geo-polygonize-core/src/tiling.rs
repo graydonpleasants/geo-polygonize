@@ -476,6 +476,15 @@ pub struct StitchingReport {
     pub partition_border_global_face_identity_invalid_cycle_count: usize,
     pub partition_border_global_face_identity_unbounded_edge_count: usize,
     pub partition_border_global_face_identity_materialization_ready: bool,
+    /// Final detached global face-identity invariant evidence.
+    pub partition_border_global_face_identity_invariant_twin_count: usize,
+    pub partition_border_global_face_identity_invariant_twin_mapping_mismatch_count: usize,
+    pub partition_border_global_face_identity_invariant_cycle_face_mismatch_count: usize,
+    pub partition_border_global_face_identity_invariant_successor_discontinuity_count: usize,
+    pub partition_border_global_face_identity_invariant_source_incomplete_edge_count: usize,
+    pub partition_border_global_face_identity_invariant_face_walk_ready: bool,
+    pub partition_border_global_face_identity_invariant_euler_ready: bool,
+    pub partition_border_global_face_identity_invariants_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2757,6 +2766,13 @@ impl<'a> TiledPolygonizer<'a> {
             )?;
         let partition_border_global_face_identity_materialization =
             partition_border_graph.materialize_global_face_identity(&self.execution_policy)?;
+        let partition_border_global_face_identity_invariants = partition_border_graph
+            .validate_global_face_identity_invariants(
+                &self.execution_policy,
+                partition_border_global_face_identity_materialization,
+                partition_border_global_face_walk_invariants,
+                partition_border_global_face_euler_witness,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2843,6 +2859,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_identity_materialization(
                 partition_border_global_face_identity_materialization,
+            );
+            trace.record_partition_border_global_face_identity_invariants(
+                partition_border_global_face_identity_invariants,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3323,6 +3342,24 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_identity_materialization.unbounded_edge_count,
                 partition_border_global_face_identity_materialization_ready:
                     partition_border_global_face_identity_materialization.materialization_ready,
+                partition_border_global_face_identity_invariant_twin_count:
+                    partition_border_global_face_identity_invariants.twin_count,
+                partition_border_global_face_identity_invariant_twin_mapping_mismatch_count:
+                    partition_border_global_face_identity_invariants.twin_mapping_mismatch_count,
+                partition_border_global_face_identity_invariant_cycle_face_mismatch_count:
+                    partition_border_global_face_identity_invariants.cycle_face_mismatch_count,
+                partition_border_global_face_identity_invariant_successor_discontinuity_count:
+                    partition_border_global_face_identity_invariants
+                        .successor_discontinuity_count,
+                partition_border_global_face_identity_invariant_source_incomplete_edge_count:
+                    partition_border_global_face_identity_invariants
+                        .source_incomplete_edge_count,
+                partition_border_global_face_identity_invariant_face_walk_ready:
+                    partition_border_global_face_identity_invariants.face_walk_ready,
+                partition_border_global_face_identity_invariant_euler_ready:
+                    partition_border_global_face_identity_invariants.euler_evidence_ready,
+                partition_border_global_face_identity_invariants_ready:
+                    partition_border_global_face_identity_invariants.invariants_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
