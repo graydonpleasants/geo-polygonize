@@ -5,8 +5,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
     PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
-    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderHalfEdge,
+    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
+    PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -741,6 +742,30 @@ impl TraceRecorderV1 {
                 "mapped_twin_count": stats.mapped_twin_count,
                 "unmapped_twin_count": stats.unmapped_twin_count,
                 "mutation_ready_twin_count": stats.mutation_ready_twin_count,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_walk_invariants(
+        &mut self,
+        stats: PartitionBorderGlobalFaceWalkInvariantStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_walk_invariants",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "transition_count": stats.transition_count,
+                "closed_face_count": stats.closed_face_count,
+                "applied_twin_count": stats.applied_twin_count,
+                "mapped_twin_count": stats.mapped_twin_count,
+                "unmapped_twin_count": stats.unmapped_twin_count,
+                "mutation_ready_twin_count": stats.mutation_ready_twin_count,
+                "component_count": stats.component_count,
+                "unbounded_face_count": stats.unbounded_face_count,
+                "unbounded_component_count": stats.unbounded_component_count,
+                "source_complete_twin_count": stats.source_complete_twin_count,
+                "face_adjacency_cycle_rank": stats.face_adjacency_cycle_rank,
             }),
         )
     }

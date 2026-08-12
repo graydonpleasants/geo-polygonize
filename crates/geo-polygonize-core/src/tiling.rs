@@ -305,6 +305,16 @@ pub struct StitchingReport {
     pub partition_border_global_face_twin_transition_ready_count: usize,
     /// Declared twins not present in both local transition cycles.
     pub partition_border_global_face_twin_transition_unmapped_count: usize,
+    /// Face plans whose retained local walks passed global evidence validation.
+    pub partition_border_global_face_walk_validated_count: usize,
+    /// Validated face plans whose retained local walks are closed.
+    pub partition_border_global_face_walk_closed_count: usize,
+    /// Applied twins whose payload and reconciled endpoint lineage passed validation.
+    pub partition_border_global_face_walk_source_complete_twin_count: usize,
+    /// Components containing at least one locally unbounded face marker.
+    pub partition_border_global_face_walk_unbounded_component_count: usize,
+    /// Cycle rank of the retained face/twin connectivity graph, not planar Euler.
+    pub partition_border_global_face_walk_face_adjacency_cycle_rank: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2364,6 +2374,16 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_global_face_twin_transition.mapped_twin_count,
             global_face_twin_transition_count
         );
+        let partition_border_global_face_walk_invariants =
+            partition_border_graph.validate_global_face_walk_invariants(&self.execution_policy)?;
+        debug_assert_eq!(
+            partition_border_global_face_walk_invariants.face_count,
+            global_face_plan_count
+        );
+        debug_assert_eq!(
+            partition_border_global_face_walk_invariants.mapped_twin_count,
+            global_face_twin_transition_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2386,6 +2406,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_twin_transitions(
                 partition_border_global_face_twin_transition,
+            );
+            trace.record_partition_border_global_face_walk_invariants(
+                partition_border_global_face_walk_invariants,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -2660,6 +2683,16 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_twin_transition.mutation_ready_twin_count,
                 partition_border_global_face_twin_transition_unmapped_count:
                     partition_border_global_face_twin_transition.unmapped_twin_count,
+                partition_border_global_face_walk_validated_count:
+                    partition_border_global_face_walk_invariants.face_count,
+                partition_border_global_face_walk_closed_count:
+                    partition_border_global_face_walk_invariants.closed_face_count,
+                partition_border_global_face_walk_source_complete_twin_count:
+                    partition_border_global_face_walk_invariants.source_complete_twin_count,
+                partition_border_global_face_walk_unbounded_component_count:
+                    partition_border_global_face_walk_invariants.unbounded_component_count,
+                partition_border_global_face_walk_face_adjacency_cycle_rank:
+                    partition_border_global_face_walk_invariants.face_adjacency_cycle_rank,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,
