@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "suite_id": "production-baseline-suite-v1",
+  "policy_id": "benchmark-decision-v1",
+  "description": "Decision-quality baselines for current polygonization, noding, component, and production-scale paths.",
+  "required_publications": [
+    {
+      "entry_id": "already-noded-coverage",
+      "workload_id": "already-noded-coverage-v1",
+      "lane": "already-noded-polygonization",
+      "coverage": ["already-noded-polygonization", "component-local-graph"],
+      "minimum_input_segments": 12,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "component-nested-containment",
+      "workload_id": "disconnected-nested-rings-v1",
+      "lane": "already-noded-polygonization",
+      "coverage": ["already-noded-polygonization", "component-local-graph", "nested-containment"],
+      "minimum_input_segments": 12,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "floating-dense-crossings",
+      "workload_id": "dense-crossings-v1",
+      "lane": "floating-noding-plus-polygonization",
+      "coverage": ["floating-noding-plus-polygonization", "component-local-graph"],
+      "minimum_input_segments": 8,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "certified-fixed-dense-crossings",
+      "workload_id": "dense-crossings-v1",
+      "lane": "certified-fixed-precision-noding-plus-polygonization",
+      "coverage": ["certified-fixed-precision-noding-plus-polygonization", "component-local-graph"],
+      "minimum_input_segments": 8,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "production-network-1k",
+      "workload_id": "osm-california-highways-1k-v1",
+      "lane": "floating-noding-plus-polygonization",
+      "coverage": ["floating-noding-plus-polygonization", "production-scale-network", "component-local-graph"],
+      "minimum_input_segments": 1000,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "production-network-10k",
+      "workload_id": "osm-california-highways-10k-v1",
+      "lane": "floating-noding-plus-polygonization",
+      "coverage": ["floating-noding-plus-polygonization", "production-scale-network", "component-local-graph"],
+      "minimum_input_segments": 10000,
+      "required_work_fields": ["component_memory"]
+    },
+    {
+      "entry_id": "production-network-100k",
+      "workload_id": "osm-california-highways-100k-v1",
+      "lane": "floating-noding-plus-polygonization",
+      "coverage": ["floating-noding-plus-polygonization", "production-scale-network", "component-local-graph"],
+      "minimum_input_segments": 100000,
+      "required_work_fields": ["component_memory"]
+    }
+  ]
+}
