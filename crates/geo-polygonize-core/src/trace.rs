@@ -2,13 +2,13 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderGlobalComponentCoverageStats, PartitionBorderGlobalComponentPayloadStats,
-    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFaceEdgeMapStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
-    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
-    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderCanonicalNodeValidationStats, PartitionBorderGlobalComponentCoverageStats,
+    PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
+    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
+    PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -792,6 +792,32 @@ impl TraceRecorderV1 {
                 "z_conflict_count": stats.z_conflict_count,
                 "z_policy": format!("{:?}", z_options.policy),
                 "conflict_tolerance": format!("0x{:016x}", z_options.conflict_tolerance.to_bits()),
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_canonical_node_validation(
+        &mut self,
+        stats: PartitionBorderCanonicalNodeValidationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_canonical_node_validation",
+            serde_json::json!({
+                "canonical_node_count": stats.canonical_node_count,
+                "global_node_count": stats.global_node_count,
+                "mapped_global_node_count": stats.mapped_global_node_count,
+                "canonical_only_node_count": stats.canonical_only_node_count,
+                "source_set_mismatch_count": stats.source_set_mismatch_count,
+                "representative_set_mismatch_count": stats.representative_set_mismatch_count,
+                "face_set_mismatch_count": stats.face_set_mismatch_count,
+                "z_candidate_mismatch_count": stats.z_candidate_mismatch_count,
+                "selected_z_mismatch_count": stats.selected_z_mismatch_count,
+                "z_policy_mismatch_count": stats.z_policy_mismatch_count,
+                "z_conflict_mismatch_count": stats.z_conflict_mismatch_count,
+                "edge_endpoint_mismatch_count": stats.edge_endpoint_mismatch_count,
+                "invalid_global_node_id_count": stats.invalid_global_node_id_count,
+                "reconciliation_ready": stats.reconciliation_ready,
             }),
         )
     }

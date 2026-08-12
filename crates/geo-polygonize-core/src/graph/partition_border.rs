@@ -805,6 +805,29 @@ pub(crate) struct PartitionBorderNodeReconciliationStats {
     pub(crate) z_conflict_count: usize,
 }
 
+/// Counts the fail-closed bridge between canonical border-node payloads and
+/// active global face-node slots. Canonical-only nodes are retained as valid
+/// evidence because they may belong to dangles or other non-face-qualified
+/// observations; every active global node must still be a payload-consistent
+/// projection of its canonical node.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderCanonicalNodeValidationStats {
+    pub(crate) canonical_node_count: usize,
+    pub(crate) global_node_count: usize,
+    pub(crate) mapped_global_node_count: usize,
+    pub(crate) canonical_only_node_count: usize,
+    pub(crate) source_set_mismatch_count: usize,
+    pub(crate) representative_set_mismatch_count: usize,
+    pub(crate) face_set_mismatch_count: usize,
+    pub(crate) z_candidate_mismatch_count: usize,
+    pub(crate) selected_z_mismatch_count: usize,
+    pub(crate) z_policy_mismatch_count: usize,
+    pub(crate) z_conflict_mismatch_count: usize,
+    pub(crate) edge_endpoint_mismatch_count: usize,
+    pub(crate) invalid_global_node_id_count: usize,
+    pub(crate) reconciliation_ready: bool,
+}
+
 /// One deterministic connected component of qualified partition-border face
 /// evidence. This is retained for a future global arrangement; it does not
 /// rewrite local face IDs, adjacency, or tiled output.
@@ -2224,7 +2247,6 @@ impl PartitionBorderGraph {
                 ));
             }
         }
-
         let mut reconciled_nodes = Vec::with_capacity(evidence.len());
         let mut stats = PartitionBorderNodeReconciliationStats {
             node_count: evidence.len(),
@@ -2317,6 +2339,149 @@ impl PartitionBorderGraph {
 
     pub(crate) fn reconciled_border_nodes(&self) -> &[PartitionBorderNodePayload] {
         &self.reconciled_nodes
+    }
+
+    /// Validates that every active global face-node slot is a consistent
+    /// projection of the canonical border-node payload at the same XY key.
+    /// Canonical-only nodes remain allowed because not every physical border
+    /// observation is face-qualified. This method is evidence only and does
+    /// not mutate nodes, edges, observations, topology, or output.
+    pub(crate) fn validate_canonical_border_nodes(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderCanonicalNodeValidationStats> {
+        execution_policy.check_cancelled("partition_border_canonical_node_validation")?;
+        execution_policy.check(
+            "partition_border_canonical_node_validation_nodes",
+            execution_policy.max_graph_nodes,
+            self.reconciled_nodes.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_canonical_node_validation_global_nodes",
+            execution_policy.max_graph_nodes,
+            self.global_face_nodes.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_canonical_node_validation_edges",
+            execution_policy.max_graph_edges,
+            self.global_face_edge_map.len(),
+        )?;
+
+        let canonical_by_key = self
+            .reconciled_nodes
+            .iter()
+            .map(|node| (node.key, node))
+            .collect::<BTreeMap<_, _>>();
+        if canonical_by_key.len() != self.reconciled_nodes.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "canonical border-node reconciliation contains duplicate keys".to_string(),
+            });
+        }
+
+        let mut stats = PartitionBorderCanonicalNodeValidationStats {
+            canonical_node_count: self.reconciled_nodes.len(),
+            global_node_count: self.global_face_nodes.len(),
+            canonical_only_node_count: self
+                .reconciled_nodes
+                .iter()
+                .filter(|node| {
+                    !self
+                        .global_face_nodes
+                        .iter()
+                        .any(|global| global.key == node.key)
+                })
+                .count(),
+            ..Default::default()
+        };
+        let set_is_subset = |left: &[u32], right: &[u32]| {
+            left.iter().all(|value| right.binary_search(value).is_ok())
+        };
+        let face_set_is_subset = |left: &[PartitionFaceRef], right: &[PartitionFaceRef]| {
+            left.iter().all(|value| right.binary_search(value).is_ok())
+        };
+        let z_set_is_subset = |left: &[u64], right: &[u64]| {
+            left.iter().all(|value| right.binary_search(value).is_ok())
+        };
+
+        for (global_index, global_node) in self.global_face_nodes.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_canonical_node_validation_nodes",
+                global_index,
+            )?;
+            if global_node.global_node_id != global_index
+                || !canonical_by_key.contains_key(&global_node.key)
+            {
+                stats.invalid_global_node_id_count += 1;
+                continue;
+            }
+            let canonical = canonical_by_key[&global_node.key];
+            stats.mapped_global_node_count += 1;
+            if !set_is_subset(&global_node.source_line_ids, &canonical.source_line_ids) {
+                stats.source_set_mismatch_count += 1;
+            }
+            if !set_is_subset(
+                &global_node.representative_line_ids,
+                &canonical.representative_line_ids,
+            ) {
+                stats.representative_set_mismatch_count += 1;
+            }
+            let mut canonical_face_refs = canonical.face_refs.clone();
+            canonical_face_refs.extend(
+                self.global_face_edge_map
+                    .iter()
+                    .filter(|edge| edge.from == global_node.key || edge.to == global_node.key)
+                    .filter_map(|edge| edge.face_ref),
+            );
+            canonical_face_refs.sort_unstable();
+            canonical_face_refs.dedup();
+            if !face_set_is_subset(&global_node.face_refs, &canonical_face_refs) {
+                stats.face_set_mismatch_count += 1;
+            }
+            if !z_set_is_subset(&global_node.z_bits, &canonical.z_bits) {
+                stats.z_candidate_mismatch_count += 1;
+            }
+            if global_node.selected_z_bits != canonical.selected_z_bits {
+                stats.selected_z_mismatch_count += 1;
+            }
+            if global_node.selected_z_policy != canonical.selected_z_policy
+                || global_node.conflict_tolerance_bits != canonical.conflict_tolerance_bits
+            {
+                stats.z_policy_mismatch_count += 1;
+            }
+            if global_node.z_conflict != canonical.z_conflict {
+                stats.z_conflict_mismatch_count += 1;
+            }
+        }
+
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_canonical_node_validation_edges",
+                edge_index,
+            )?;
+            for (key, node_id) in [
+                (edge.from, edge.from_global_node_id),
+                (edge.to, edge.to_global_node_id),
+            ] {
+                let valid = node_id
+                    .and_then(|node_id| self.global_face_nodes.get(node_id))
+                    .is_some_and(|node| node.key == key);
+                if !valid {
+                    stats.edge_endpoint_mismatch_count += 1;
+                }
+            }
+        }
+
+        stats.reconciliation_ready = stats.mapped_global_node_count == stats.global_node_count
+            && stats.source_set_mismatch_count == 0
+            && stats.representative_set_mismatch_count == 0
+            && stats.face_set_mismatch_count == 0
+            && stats.z_candidate_mismatch_count == 0
+            && stats.selected_z_mismatch_count == 0
+            && stats.z_policy_mismatch_count == 0
+            && stats.z_conflict_mismatch_count == 0
+            && stats.edge_endpoint_mismatch_count == 0
+            && stats.invalid_global_node_id_count == 0;
+        Ok(stats)
     }
 
     /// Reconciles qualified face references into deterministic connected
@@ -7728,6 +7893,106 @@ mod tests {
                 if stage == "partition_border_global_face_nodes"
         ));
         assert!(cancelled.global_face_nodes.is_empty());
+    }
+
+    #[test]
+    fn canonical_border_nodes_validate_active_global_payloads_without_mutation() {
+        let mut graph = exact_face_edge_map_graph(false);
+        graph
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_global_face_edge_map(&ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        graph
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let before = graph.clone();
+        let stats = graph
+            .validate_canonical_border_nodes(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderCanonicalNodeValidationStats {
+                canonical_node_count: 2,
+                global_node_count: 2,
+                mapped_global_node_count: 2,
+                canonical_only_node_count: 0,
+                reconciliation_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+
+        graph.global_face_nodes[0].selected_z_bits = 0;
+        let stats = graph
+            .validate_canonical_border_nodes(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.selected_z_mismatch_count, 1);
+        assert!(!stats.reconciliation_ready);
+    }
+
+    #[test]
+    fn canonical_border_node_validation_is_bounded_and_cancellable() {
+        let mut limited = exact_face_edge_map_graph(false);
+        limited
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_global_face_edge_map(&ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_global_face_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        limited
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let before = limited.clone();
+        let error = limited
+            .validate_canonical_border_nodes(&ExecutionPolicy {
+                max_graph_nodes: Some(1),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            } if stage == "partition_border_canonical_node_validation_nodes"
+        ));
+        assert_eq!(limited, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut cancelled = exact_face_edge_map_graph(false);
+        cancelled
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        cancelled
+            .reconcile_global_face_edge_map(&ExecutionPolicy::default())
+            .unwrap();
+        cancelled
+            .reconcile_global_face_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        cancelled
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        let error = cancelled
+            .validate_canonical_border_nodes(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_canonical_node_validation"
+        ));
     }
 
     #[test]
