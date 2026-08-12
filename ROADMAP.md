@@ -473,6 +473,9 @@ Blocked by #1288.
 - [x] Materialize deterministic ordered local transition plans from the
   mutation gate, proving insertion-order equivalence while retaining
   incomplete cycles as evidence only.
+- [x] Position declared face-qualified twins inside those ordered cycles with
+  explicit mapped/unmapped and mutation-ready counts, without assigning global
+  `next` links or face IDs.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

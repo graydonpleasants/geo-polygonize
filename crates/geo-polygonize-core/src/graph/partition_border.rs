@@ -669,6 +669,33 @@ pub(crate) struct PartitionBorderGlobalFaceTransitionPlanStats {
     pub(crate) incomplete_face_count: usize,
 }
 
+/// One declared face-qualified twin positioned inside the two deterministic
+/// local transition plans. This is a bridge for a future global walk; it does
+/// not assign a global successor or face identity.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PartitionBorderGlobalFaceTwinTransition {
+    pub(crate) edge_key: PartitionBorderEdgeKey,
+    pub(crate) forward_face_ref: PartitionFaceRef,
+    pub(crate) reverse_face_ref: PartitionFaceRef,
+    pub(crate) forward_observation_id: PartitionBorderObservationId,
+    pub(crate) reverse_observation_id: PartitionBorderObservationId,
+    pub(crate) forward_cycle_index: usize,
+    pub(crate) reverse_cycle_index: usize,
+    pub(crate) forward_cycle_closed: bool,
+    pub(crate) reverse_cycle_closed: bool,
+}
+
+/// Counts from positioning declared face twins in ordered local cycles.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceTwinTransitionStats {
+    pub(crate) face_count: usize,
+    pub(crate) transition_count: usize,
+    pub(crate) applied_twin_count: usize,
+    pub(crate) mapped_twin_count: usize,
+    pub(crate) unmapped_twin_count: usize,
+    pub(crate) mutation_ready_twin_count: usize,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -698,6 +725,7 @@ pub struct PartitionBorderGraph {
     global_components: Vec<PartitionBorderGlobalComponent>,
     global_face_plans: Vec<PartitionBorderGlobalFacePlan>,
     global_face_transitions: Vec<PartitionBorderGlobalFaceTransitionPlan>,
+    global_face_twin_transitions: Vec<PartitionBorderGlobalFaceTwinTransition>,
 }
 
 impl PartitionBorderGraph {
@@ -736,6 +764,7 @@ impl PartitionBorderGraph {
         self.global_components.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
         Ok(())
     }
 
@@ -746,6 +775,7 @@ impl PartitionBorderGraph {
         self.global_components.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -997,6 +1027,7 @@ impl PartitionBorderGraph {
         self.global_components.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
         Ok(stats)
     }
 
@@ -1138,6 +1169,7 @@ impl PartitionBorderGraph {
         self.global_components.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
         Ok(stats)
     }
 
@@ -1282,6 +1314,7 @@ impl PartitionBorderGraph {
         self.global_components = global_components;
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
         Ok(stats)
     }
 
@@ -1406,6 +1439,7 @@ impl PartitionBorderGraph {
         };
         self.global_face_plans = global_face_plans;
         self.global_face_transitions.clear();
+        self.global_face_twin_transitions.clear();
         Ok(stats)
     }
 
@@ -1912,11 +1946,151 @@ impl PartitionBorderGraph {
             incomplete_face_count,
         };
         self.global_face_transitions = transition_plans;
+        self.global_face_twin_transitions.clear();
         Ok(stats)
     }
 
     pub(crate) fn global_face_transitions(&self) -> &[PartitionBorderGlobalFaceTransitionPlan] {
         &self.global_face_transitions
+    }
+
+    /// Positions declared face-qualified twins in the ordered local face
+    /// cycles. A twin missing from an incomplete cycle is reported rather than
+    /// guessed; no global successor or face identity is assigned.
+    pub(crate) fn reconcile_global_face_twin_transitions(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFaceTwinTransitionStats> {
+        execution_policy.check_cancelled("partition_border_global_face_twin_transitions")?;
+        execution_policy.check(
+            "partition_border_global_face_twin_transition_faces",
+            execution_policy.max_graph_nodes,
+            self.global_face_transitions.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_twin_transition_edges",
+            execution_policy.max_graph_edges,
+            self.applied_face_twins.len(),
+        )?;
+
+        let mut positions =
+            BTreeMap::<PartitionBorderObservationId, (PartitionFaceRef, usize, bool)>::new();
+        let mut transition_count = 0usize;
+        for (plan_index, plan) in self.global_face_transitions.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_twin_transitions",
+                plan_index,
+            )?;
+            transition_count = transition_count
+                .checked_add(plan.boundary_observation_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global face transition count overflow".to_string(),
+                })?;
+            for (cycle_index, observation_id) in
+                plan.boundary_observation_ids.iter().copied().enumerate()
+            {
+                let Some(observation) = self.observations.get(&observation_id) else {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face transition observation {:?} is missing",
+                            observation_id
+                        ),
+                    });
+                };
+                if observation.observation_id() != observation_id
+                    || observation.face_ref != Some(plan.face_ref)
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face transition observation {:?} disagrees with face {:?}",
+                            observation_id, plan.face_ref
+                        ),
+                    });
+                }
+                if positions
+                    .insert(observation_id, (plan.face_ref, cycle_index, plan.closed))
+                    .is_some()
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face transition observation {:?} is duplicated",
+                            observation_id
+                        ),
+                    });
+                }
+            }
+        }
+
+        let mut links = BTreeSet::new();
+        let mut unmapped_twin_count = 0;
+        let mut mutation_ready_twin_count = 0;
+        for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_twin_transitions",
+                twin_index,
+            )?;
+            let Some(&(forward_face_ref, forward_cycle_index, forward_cycle_closed)) =
+                positions.get(&applied_twin.twin.forward)
+            else {
+                unmapped_twin_count += 1;
+                continue;
+            };
+            let Some(&(reverse_face_ref, reverse_cycle_index, reverse_cycle_closed)) =
+                positions.get(&applied_twin.twin.reverse)
+            else {
+                unmapped_twin_count += 1;
+                continue;
+            };
+            if forward_face_ref != applied_twin.forward_face_ref
+                || reverse_face_ref != applied_twin.reverse_face_ref
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin {:?} is positioned in the wrong face cycles",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            }
+            let link = PartitionBorderGlobalFaceTwinTransition {
+                edge_key: applied_twin.twin.edge_key,
+                forward_face_ref,
+                reverse_face_ref,
+                forward_observation_id: applied_twin.twin.forward,
+                reverse_observation_id: applied_twin.twin.reverse,
+                forward_cycle_index,
+                reverse_cycle_index,
+                forward_cycle_closed,
+                reverse_cycle_closed,
+            };
+            if !links.insert(link) {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face twin transition {:?} is duplicated",
+                        applied_twin.twin.edge_key
+                    ),
+                });
+            }
+            if forward_cycle_closed && reverse_cycle_closed {
+                mutation_ready_twin_count += 1;
+            }
+        }
+
+        let stats = PartitionBorderGlobalFaceTwinTransitionStats {
+            face_count: self.global_face_transitions.len(),
+            transition_count,
+            applied_twin_count: self.applied_face_twins.len(),
+            mapped_twin_count: links.len(),
+            unmapped_twin_count,
+            mutation_ready_twin_count,
+        };
+        self.global_face_twin_transitions = links.into_iter().collect();
+        Ok(stats)
+    }
+
+    pub(crate) fn global_face_twin_transitions(
+        &self,
+    ) -> &[PartitionBorderGlobalFaceTwinTransition] {
+        &self.global_face_twin_transitions
     }
 
     /// Merges source IDs and retains every distinct Z candidate for each
@@ -3297,6 +3471,95 @@ mod tests {
             error,
             crate::PolygonizeError::InternalInvariantViolation { ref reason }
                 if reason.contains("disagrees with its observation")
+        ));
+        assert_eq!(complete, before);
+    }
+
+    #[test]
+    fn global_face_twin_transitions_position_declared_twins_deterministically() {
+        let mut incomplete = exact_face_twin_graph_with_successors();
+        incomplete
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        incomplete
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        incomplete
+            .reconcile_global_face_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = incomplete
+            .reconcile_global_face_twin_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceTwinTransitionStats {
+                face_count: 2,
+                transition_count: 2,
+                applied_twin_count: 1,
+                mapped_twin_count: 1,
+                unmapped_twin_count: 0,
+                mutation_ready_twin_count: 0,
+            }
+        );
+        assert_eq!(incomplete.global_face_twin_transitions().len(), 1);
+
+        let mut complete = exact_face_twin_graph_with_successors();
+        let observation_ids = complete.observations.keys().copied().collect::<Vec<_>>();
+        for observation_id in observation_ids {
+            complete
+                .observations
+                .get_mut(&observation_id)
+                .expect("observation identity")
+                .local_face_boundary_successor = Some(observation_id);
+        }
+        complete
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        complete
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        complete
+            .reconcile_global_face_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        let stats = complete
+            .reconcile_global_face_twin_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.mutation_ready_twin_count, 1);
+
+        let mut reordered = PartitionBorderGraph::default();
+        for adjacency in complete.adjacencies.iter().copied() {
+            reordered.declare_adjacency(adjacency);
+        }
+        for observation in complete.observations.values().rev().cloned() {
+            reordered.insert(observation).unwrap();
+        }
+        reordered
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_face_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        reordered
+            .reconcile_global_face_twin_transitions(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            reordered.global_face_twin_transitions(),
+            complete.global_face_twin_transitions()
+        );
+
+        let reverse_id = complete.observations.keys().nth(1).copied().unwrap();
+        complete.global_face_transitions[0].boundary_observation_ids[0] = reverse_id;
+        let before = complete.clone();
+        let error = complete
+            .reconcile_global_face_twin_transitions(&ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("disagrees with face")
         ));
         assert_eq!(complete, before);
     }

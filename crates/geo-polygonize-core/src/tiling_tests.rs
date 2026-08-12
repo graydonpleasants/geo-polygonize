@@ -264,6 +264,28 @@ mod tests {
                 .partition_border_global_face_transition_incomplete_count,
             transition_plan.iter().filter(|plan| !plan.closed).count()
         );
+        let twin_transition_plan = result.partition_border_graph.global_face_twin_transitions();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_twin_transition_count,
+            twin_transition_plan.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_twin_transition_ready_count,
+            twin_transition_plan
+                .iter()
+                .filter(|link| link.forward_cycle_closed && link.reverse_cycle_closed)
+                .count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_twin_transition_unmapped_count,
+            result.stitching_report.partition_border_face_twin_count - twin_transition_plan.len()
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -694,6 +716,68 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_transition_incomplete_count
+                    as u64
+            )
+        );
+        let global_face_twin_transition = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_twin_transitions")
+            .expect("global face twin transition evidence");
+        assert_eq!(
+            global_face_twin_transition.payload["face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_plan_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_twin_transition.payload["transition_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_transition_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_twin_transition.payload["applied_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_face_twin_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_twin_transition.payload["mapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_twin_transition_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_twin_transition.payload["unmapped_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_twin_transition_unmapped_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_twin_transition.payload["mutation_ready_twin_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_twin_transition_ready_count
                     as u64
             )
         );
