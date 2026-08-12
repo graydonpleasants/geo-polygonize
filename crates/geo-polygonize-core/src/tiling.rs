@@ -485,6 +485,24 @@ pub struct StitchingReport {
     pub partition_border_global_face_identity_invariant_face_walk_ready: bool,
     pub partition_border_global_face_identity_invariant_euler_ready: bool,
     pub partition_border_global_face_identity_invariants_ready: bool,
+    /// Detached global-next integration evidence against local face lineage,
+    /// boundary overrides, committed successors, and face-qualified twins.
+    pub partition_border_global_next_lineage_integration_edge_count: usize,
+    pub partition_border_global_next_lineage_integration_cycle_count: usize,
+    pub partition_border_global_next_lineage_integration_local_successor_count: usize,
+    pub partition_border_global_next_lineage_integration_override_count: usize,
+    pub partition_border_global_next_lineage_integration_successor_count: usize,
+    pub partition_border_global_next_lineage_integration_missing_successor_count: usize,
+    pub partition_border_global_next_lineage_integration_local_mismatch_count: usize,
+    pub partition_border_global_next_lineage_integration_override_mismatch_count: usize,
+    pub partition_border_global_next_lineage_integration_plan_link_count: usize,
+    pub partition_border_global_next_lineage_integration_unrepresented_link_count: usize,
+    pub partition_border_global_next_lineage_integration_committed_next_count: usize,
+    pub partition_border_global_next_lineage_integration_committed_next_mismatch_count: usize,
+    pub partition_border_global_next_lineage_integration_twin_count: usize,
+    pub partition_border_global_next_lineage_integration_twin_mismatch_count: usize,
+    pub partition_border_global_next_lineage_integration_identity_ready: bool,
+    pub partition_border_global_next_lineage_integration_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2773,6 +2791,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_walk_invariants,
                 partition_border_global_face_euler_witness,
             )?;
+        let partition_border_global_next_lineage_integration = partition_border_graph
+            .validate_global_next_lineage_integration(
+                &self.execution_policy,
+                partition_border_global_face_identity_invariants,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2862,6 +2885,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_identity_invariants(
                 partition_border_global_face_identity_invariants,
+            );
+            trace.record_partition_border_global_next_lineage_integration(
+                partition_border_global_next_lineage_integration,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3360,6 +3386,43 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_identity_invariants.euler_evidence_ready,
                 partition_border_global_face_identity_invariants_ready:
                     partition_border_global_face_identity_invariants.invariants_ready,
+                partition_border_global_next_lineage_integration_edge_count:
+                    partition_border_global_next_lineage_integration.edge_count,
+                partition_border_global_next_lineage_integration_cycle_count:
+                    partition_border_global_next_lineage_integration.cycle_count,
+                partition_border_global_next_lineage_integration_local_successor_count:
+                    partition_border_global_next_lineage_integration.local_successor_count,
+                partition_border_global_next_lineage_integration_override_count:
+                    partition_border_global_next_lineage_integration.override_count,
+                partition_border_global_next_lineage_integration_successor_count:
+                    partition_border_global_next_lineage_integration.integrated_successor_count,
+                partition_border_global_next_lineage_integration_missing_successor_count:
+                    partition_border_global_next_lineage_integration
+                        .missing_candidate_successor_count,
+                partition_border_global_next_lineage_integration_local_mismatch_count:
+                    partition_border_global_next_lineage_integration.local_lineage_mismatch_count,
+                partition_border_global_next_lineage_integration_override_mismatch_count:
+                    partition_border_global_next_lineage_integration
+                        .override_lineage_mismatch_count,
+                partition_border_global_next_lineage_integration_plan_link_count:
+                    partition_border_global_next_lineage_integration.application_plan_link_count,
+                partition_border_global_next_lineage_integration_unrepresented_link_count:
+                    partition_border_global_next_lineage_integration
+                        .unrepresented_application_link_count,
+                partition_border_global_next_lineage_integration_committed_next_count:
+                    partition_border_global_next_lineage_integration.committed_next_edge_count,
+                partition_border_global_next_lineage_integration_committed_next_mismatch_count:
+                    partition_border_global_next_lineage_integration
+                        .committed_next_mismatch_count,
+                partition_border_global_next_lineage_integration_twin_count:
+                    partition_border_global_next_lineage_integration.twin_count,
+                partition_border_global_next_lineage_integration_twin_mismatch_count:
+                    partition_border_global_next_lineage_integration
+                        .twin_lineage_mismatch_count,
+                partition_border_global_next_lineage_integration_identity_ready:
+                    partition_border_global_next_lineage_integration.identity_ready,
+                partition_border_global_next_lineage_integration_ready:
+                    partition_border_global_next_lineage_integration.integration_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

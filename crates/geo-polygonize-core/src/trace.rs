@@ -14,6 +14,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalNextLineageIntegrationStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1234,6 +1235,35 @@ impl TraceRecorderV1 {
                 "face_walk_ready": stats.face_walk_ready,
                 "euler_evidence_ready": stats.euler_evidence_ready,
                 "invariants_ready": stats.invariants_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_next_lineage_integration(
+        &mut self,
+        stats: PartitionBorderGlobalNextLineageIntegrationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_next_lineage_integration",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "local_successor_count": stats.local_successor_count,
+                "override_count": stats.override_count,
+                "integrated_successor_count": stats.integrated_successor_count,
+                "missing_candidate_successor_count": stats.missing_candidate_successor_count,
+                "local_lineage_mismatch_count": stats.local_lineage_mismatch_count,
+                "override_lineage_mismatch_count": stats.override_lineage_mismatch_count,
+                "application_plan_link_count": stats.application_plan_link_count,
+                "unrepresented_application_link_count":
+                    stats.unrepresented_application_link_count,
+                "committed_next_edge_count": stats.committed_next_edge_count,
+                "committed_next_mismatch_count": stats.committed_next_mismatch_count,
+                "twin_count": stats.twin_count,
+                "twin_lineage_mismatch_count": stats.twin_lineage_mismatch_count,
+                "identity_ready": stats.identity_ready,
+                "integration_ready": stats.integration_ready,
             }),
         )
     }

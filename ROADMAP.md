@@ -551,6 +551,10 @@ Blocked by #1288.
 - [x] Cross-check detached per-edge face identity against successor cycles,
   reciprocal twins, source lineage, and retained face-walk/Euler evidence;
   preserve incomplete proofs without mutating topology or output.
+- [x] Cross-check the committed detached global successor permutation against
+  local face successors, retained boundary overrides, per-edge face identity,
+  and reciprocal face-qualified cross-partition twins without mutating
+  topology or output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
