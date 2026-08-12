@@ -377,6 +377,20 @@ pub struct StitchingReport {
     pub partition_border_global_face_next_mutation_incomplete_component_count: usize,
     /// Whether the prospective global-next plan is safe to apply later.
     pub partition_border_global_face_next_mutation_ready: bool,
+    /// Boundary-only candidate global face cycles retained from the mutation
+    /// plan. These IDs are not assigned to local observations or output.
+    pub partition_border_global_face_id_candidate_cycle_count: usize,
+    /// Candidate global face IDs assigned to closed boundary cycles.
+    pub partition_border_global_face_id_assigned_count: usize,
+    /// Boundary observations covered by candidate global face ID plans.
+    pub partition_border_global_face_id_boundary_observation_count: usize,
+    /// Candidate cycles containing a local unbounded-face marker.
+    pub partition_border_global_face_id_unbounded_candidate_count: usize,
+    /// Candidate cycles retained without a global ID because their boundary
+    /// evidence is incomplete.
+    pub partition_border_global_face_id_incomplete_plan_count: usize,
+    /// Whether every retained boundary cycle received a candidate ID.
+    pub partition_border_global_face_id_assignment_ready: bool,
     /// Conservative exactly-one-local-marker unbounded-face candidates.
     pub partition_border_global_unbounded_face_proof_candidate_count: usize,
     /// Whether the conservative unbounded-face proof gate is ready.
@@ -2482,6 +2496,11 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_walk_invariants,
             )?;
+        let partition_border_global_face_id_plans = partition_border_graph
+            .reconcile_global_face_id_plans_with_walk(
+                &self.execution_policy,
+                partition_border_global_face_walk_invariants,
+            )?;
         let partition_border_global_unbounded_face_proof = partition_border_graph
             .validate_global_unbounded_face_proof_with_walk(
                 &self.execution_policy,
@@ -2527,6 +2546,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_next_mutation_plans(
                 partition_border_global_face_next_mutation_plans,
+            );
+            trace.record_partition_border_global_face_id_plans(
+                partition_border_global_face_id_plans,
             );
             trace.record_partition_border_global_unbounded_face_proof(
                 partition_border_global_unbounded_face_proof,
@@ -2876,6 +2898,18 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_next_mutation_plans.incomplete_component_count,
                 partition_border_global_face_next_mutation_ready:
                     partition_border_global_face_next_mutation_plans.mutation_ready,
+                partition_border_global_face_id_candidate_cycle_count:
+                    partition_border_global_face_id_plans.candidate_cycle_count,
+                partition_border_global_face_id_assigned_count:
+                    partition_border_global_face_id_plans.assigned_face_count,
+                partition_border_global_face_id_boundary_observation_count:
+                    partition_border_global_face_id_plans.boundary_observation_count,
+                partition_border_global_face_id_unbounded_candidate_count:
+                    partition_border_global_face_id_plans.unbounded_candidate_count,
+                partition_border_global_face_id_incomplete_plan_count:
+                    partition_border_global_face_id_plans.incomplete_plan_count,
+                partition_border_global_face_id_assignment_ready:
+                    partition_border_global_face_id_plans.assignment_ready,
                 partition_border_global_unbounded_face_proof_candidate_count:
                     partition_border_global_unbounded_face_proof.candidate_count,
                 partition_border_global_unbounded_face_proof_ready:

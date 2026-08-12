@@ -857,6 +857,33 @@ pub(crate) struct PartitionBorderGlobalFaceNextMutationPlanStats {
     pub(crate) mutation_ready: bool,
 }
 
+/// One deterministic candidate global face identity derived from a validated
+/// boundary mutation cycle. The ID is evidence for a future complete global
+/// arrangement; it is never written into local observations or tiled output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceIdPlan {
+    pub(crate) candidate_global_face_id: Option<usize>,
+    pub(crate) component_index: usize,
+    pub(crate) boundary_observation_ids: Vec<PartitionBorderObservationId>,
+    pub(crate) face_refs: Vec<PartitionFaceRef>,
+    pub(crate) local_unbounded_face_count: usize,
+    pub(crate) closed: bool,
+}
+
+/// Counts from assigning deterministic candidate IDs to closed boundary
+/// cycles. `assignment_ready` is deliberately narrower than global topology
+/// readiness: it says only that the retained boundary cycles are complete.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceIdPlanStats {
+    pub(crate) component_count: usize,
+    pub(crate) candidate_cycle_count: usize,
+    pub(crate) assigned_face_count: usize,
+    pub(crate) boundary_observation_count: usize,
+    pub(crate) unbounded_candidate_count: usize,
+    pub(crate) incomplete_plan_count: usize,
+    pub(crate) assignment_ready: bool,
+}
+
 /// Deterministic evidence for the declared-adjacency twin boundary.
 ///
 /// Only observations covered by a declared partition adjacency contribute to
@@ -891,6 +918,7 @@ pub struct PartitionBorderGraph {
     global_face_next_candidates: Vec<PartitionBorderGlobalFaceNextCandidate>,
     global_face_identity_plans: Vec<PartitionBorderGlobalFaceIdentityPlan>,
     global_face_next_mutation_plans: Vec<PartitionBorderGlobalFaceNextMutationPlan>,
+    global_face_id_plans: Vec<PartitionBorderGlobalFaceIdPlan>,
 }
 
 impl PartitionBorderGraph {
@@ -934,6 +962,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(())
     }
 
@@ -949,6 +978,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -1205,6 +1235,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -1351,6 +1382,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -1500,6 +1532,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -1812,6 +1845,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -2322,6 +2356,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -2462,6 +2497,7 @@ impl PartitionBorderGraph {
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
+        self.global_face_id_plans.clear();
         Ok(stats)
     }
 
@@ -3281,6 +3317,203 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalFaceNextMutationPlan] {
         &self.global_face_next_mutation_plans
+    }
+
+    /// Assigns deterministic candidate global face IDs to validated closed
+    /// boundary cycles. Incomplete cycles are retained with no ID, and this
+    /// plan never writes IDs into local observations, global topology, or
+    /// tiled output.
+    #[cfg(test)]
+    pub(crate) fn reconcile_global_face_id_plans(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalFaceIdPlanStats> {
+        execution_policy.check_cancelled("partition_border_global_face_id_plans")?;
+        let walk = self.validate_global_face_walk_invariants(execution_policy)?;
+        if self.global_face_next_mutation_plans.is_empty() && !self.global_components.is_empty() {
+            self.reconcile_global_face_next_candidates_with_walk(execution_policy, walk)?;
+            self.reconcile_global_face_identity_plans_with_walk(execution_policy, walk)?;
+            self.reconcile_global_face_next_mutation_plans_with_walk(execution_policy, walk)?;
+        }
+        self.reconcile_global_face_id_plans_with_walk(execution_policy, walk)
+    }
+
+    pub(crate) fn reconcile_global_face_id_plans_with_walk(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        walk: PartitionBorderGlobalFaceWalkInvariantStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceIdPlanStats> {
+        execution_policy.check_cancelled("partition_border_global_face_id_plans")?;
+        execution_policy.check(
+            "partition_border_global_face_id_plans_faces",
+            execution_policy.max_graph_nodes,
+            self.global_face_identity_plans.len(),
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_id_plans_observations",
+            execution_policy.max_graph_edges,
+            walk.transition_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_face_id_plans_components",
+            execution_policy.max_graph_nodes,
+            self.global_components.len(),
+        )?;
+        if walk.face_count != self.global_face_transitions.len()
+            || self.global_face_identity_plans.len() != self.global_face_next_mutation_plans.len()
+        {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face ID plan evidence mismatch".to_string(),
+            });
+        }
+
+        let mut transition_unbounded_by_face = BTreeMap::<PartitionFaceRef, usize>::new();
+        for (transition_index, transition) in self.global_face_transitions.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_id_plans_transitions",
+                transition_index,
+            )?;
+            if transition_unbounded_by_face
+                .insert(
+                    transition.face_ref,
+                    usize::from(transition.local_face_is_unbounded),
+                )
+                .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face ID plan transition {:?} is duplicated",
+                        transition.face_ref
+                    ),
+                });
+            }
+        }
+
+        let mut plans = Vec::with_capacity(self.global_face_identity_plans.len());
+        let mut seen_components = BTreeSet::new();
+        let mut seen_observations = BTreeSet::new();
+        let mut boundary_observation_count = 0usize;
+        let mut incomplete_plan_count = 0usize;
+        let mut unbounded_candidate_count = 0usize;
+        for (plan_index, identity_plan) in self.global_face_identity_plans.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_id_plans", plan_index)?;
+            if identity_plan.component_index >= self.global_components.len() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face ID plan {} references missing component {}",
+                        plan_index, identity_plan.component_index
+                    ),
+                });
+            }
+            seen_components.insert(identity_plan.component_index);
+            let mutation_plan = &self.global_face_next_mutation_plans[plan_index];
+            if mutation_plan.component_index != identity_plan.component_index
+                || mutation_plan.boundary_observation_ids != identity_plan.boundary_observation_ids
+                || mutation_plan.closed != identity_plan.closed
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face ID plan {} disagrees with its mutation plan",
+                        plan_index
+                    ),
+                });
+            }
+            for observation_id in &identity_plan.boundary_observation_ids {
+                if !seen_observations.insert(*observation_id) {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global face ID plan observation {:?} is duplicated",
+                            observation_id
+                        ),
+                    });
+                }
+            }
+            boundary_observation_count = boundary_observation_count
+                .checked_add(identity_plan.boundary_observation_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global face ID plan observation count overflow".to_string(),
+                })?;
+            let local_unbounded_face_count = identity_plan
+                .face_refs
+                .iter()
+                .map(|face_ref| transition_unbounded_by_face.get(face_ref).copied())
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face ID plan {} references a face without a transition",
+                        plan_index
+                    ),
+                })?
+                .into_iter()
+                .sum();
+            if local_unbounded_face_count > 0 && identity_plan.closed {
+                unbounded_candidate_count += 1;
+            }
+            if !identity_plan.closed {
+                incomplete_plan_count += 1;
+            }
+            plans.push(PartitionBorderGlobalFaceIdPlan {
+                candidate_global_face_id: None,
+                component_index: identity_plan.component_index,
+                boundary_observation_ids: identity_plan.boundary_observation_ids.clone(),
+                face_refs: identity_plan.face_refs.clone(),
+                local_unbounded_face_count,
+                closed: identity_plan.closed,
+            });
+        }
+        if seen_components.len() != self.global_components.len() {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face ID plan omits components: planned={}, components={}",
+                    seen_components.len(),
+                    self.global_components.len()
+                ),
+            });
+        }
+
+        let mut closed_plan_indices = plans
+            .iter()
+            .enumerate()
+            .filter_map(|(index, plan)| plan.closed.then_some(index))
+            .collect::<Vec<_>>();
+        closed_plan_indices.sort_unstable_by(|left, right| {
+            plans[*left]
+                .component_index
+                .cmp(&plans[*right].component_index)
+                .then_with(|| {
+                    plans[*left]
+                        .boundary_observation_ids
+                        .cmp(&plans[*right].boundary_observation_ids)
+                })
+                .then_with(|| plans[*left].face_refs.cmp(&plans[*right].face_refs))
+        });
+        for (candidate_global_face_id, plan_index) in
+            closed_plan_indices.iter().copied().enumerate()
+        {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_id_plans_cycles",
+                candidate_global_face_id,
+            )?;
+            plans[plan_index].candidate_global_face_id = Some(candidate_global_face_id);
+        }
+
+        let stats = PartitionBorderGlobalFaceIdPlanStats {
+            component_count: self.global_components.len(),
+            candidate_cycle_count: plans.len(),
+            assigned_face_count: closed_plan_indices.len(),
+            boundary_observation_count,
+            unbounded_candidate_count,
+            incomplete_plan_count,
+            assignment_ready: incomplete_plan_count == 0,
+        };
+        self.global_face_id_plans = plans;
+        Ok(stats)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_face_id_plans(&self) -> &[PartitionBorderGlobalFaceIdPlan] {
+        &self.global_face_id_plans
     }
 
     /// Validates the retained face-walk, twin, payload, and face-adjacency
@@ -6472,6 +6705,136 @@ mod tests {
                 observed: 2,
             } if stage == "partition_border_global_face_next_mutation_plans_faces"
         ));
+    }
+
+    #[test]
+    fn global_face_id_plans_assign_only_closed_boundary_cycles() {
+        let graph = prepared_global_face_walk_graph(true, [false, false]);
+        let mut complete = graph.clone();
+        let stats = complete
+            .reconcile_global_face_id_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceIdPlanStats {
+                component_count: 1,
+                candidate_cycle_count: 1,
+                assigned_face_count: 1,
+                boundary_observation_count: 2,
+                unbounded_candidate_count: 0,
+                incomplete_plan_count: 0,
+                assignment_ready: true,
+            }
+        );
+        let plan = complete
+            .global_face_id_plans()
+            .first()
+            .expect("global face ID plan");
+        assert_eq!(plan.candidate_global_face_id, Some(0));
+        assert!(plan.closed);
+        assert_eq!(plan.local_unbounded_face_count, 0);
+        assert_eq!(complete.global_face_plans(), graph.global_face_plans());
+
+        let mut incomplete = prepared_global_face_walk_graph(false, [false, false]);
+        let stats = incomplete
+            .reconcile_global_face_id_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.candidate_cycle_count, 1);
+        assert_eq!(stats.assigned_face_count, 0);
+        assert_eq!(stats.boundary_observation_count, 2);
+        assert_eq!(stats.incomplete_plan_count, 1);
+        assert!(!stats.assignment_ready);
+        assert_eq!(
+            incomplete.global_face_id_plans()[0].candidate_global_face_id,
+            None
+        );
+        assert!(!incomplete.global_face_id_plans()[0].closed);
+
+        let unbounded = prepared_global_face_walk_graph(true, [true, false]);
+        let mut unbounded = unbounded;
+        let stats = unbounded
+            .reconcile_global_face_id_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.unbounded_candidate_count, 1);
+        assert!(unbounded.global_face_id_plans()[0].closed);
+        assert_eq!(
+            unbounded.global_face_id_plans()[0].local_unbounded_face_count,
+            1
+        );
+    }
+
+    #[test]
+    fn global_face_id_plans_are_atomic_deterministic_and_bounded() {
+        let graph = prepared_global_face_walk_graph(true, [false, false]);
+        let walk = graph
+            .validate_global_face_walk_invariants(&ExecutionPolicy::default())
+            .unwrap();
+        let mut ready = graph.clone();
+        ready
+            .reconcile_global_face_next_candidates(&ExecutionPolicy::default())
+            .unwrap();
+        ready
+            .reconcile_global_face_identity_plans(&ExecutionPolicy::default())
+            .unwrap();
+        ready
+            .reconcile_global_face_next_mutation_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = ready.clone();
+        let error = ready
+            .reconcile_global_face_id_plans_with_walk(
+                &ExecutionPolicy {
+                    max_graph_nodes: Some(0),
+                    ..Default::default()
+                },
+                walk,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "partition_border_global_face_id_plans_faces"
+        ));
+        assert_eq!(ready, before);
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .clone()
+            .reconcile_global_face_id_plans_with_walk(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                walk,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_id_plans"
+        ));
+
+        let mut malformed = graph.clone();
+        malformed
+            .reconcile_global_face_id_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let before = malformed.clone();
+        malformed.global_face_next_mutation_plans[0].closed = false;
+        let error = malformed
+            .reconcile_global_face_id_plans_with_walk(&ExecutionPolicy::default(), walk)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::InternalInvariantViolation { ref reason }
+                if reason.contains("disagrees")
+        ));
+        assert_eq!(
+            malformed.global_face_id_plans(),
+            before.global_face_id_plans()
+        );
     }
 
     #[test]
