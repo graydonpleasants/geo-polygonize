@@ -764,6 +764,30 @@ pub(crate) struct PartitionBorderGlobalFaceIdentityInvariantStats {
     pub(crate) invariants_ready: bool,
 }
 
+/// Counts the final detached global-next lineage integration check. This
+/// proves that the committed successor permutation agrees with local face
+/// successors, retained boundary overrides, per-edge face identity, and
+/// cross-partition face-qualified twins without mutating topology or output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalNextLineageIntegrationStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) local_successor_count: usize,
+    pub(crate) override_count: usize,
+    pub(crate) integrated_successor_count: usize,
+    pub(crate) missing_candidate_successor_count: usize,
+    pub(crate) local_lineage_mismatch_count: usize,
+    pub(crate) override_lineage_mismatch_count: usize,
+    pub(crate) application_plan_link_count: usize,
+    pub(crate) unrepresented_application_link_count: usize,
+    pub(crate) committed_next_edge_count: usize,
+    pub(crate) committed_next_mismatch_count: usize,
+    pub(crate) twin_count: usize,
+    pub(crate) twin_lineage_mismatch_count: usize,
+    pub(crate) identity_ready: bool,
+    pub(crate) integration_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -6150,6 +6174,261 @@ impl PartitionBorderGraph {
             && stats.twin_mapping_mismatch_count == 0
             && stats.face_walk_ready
             && stats.euler_evidence_ready;
+        Ok(stats)
+    }
+
+    /// Validates that the detached successor permutation is the exact
+    /// integration of local face successors and retained cross-border
+    /// boundary overrides. The check also maps every retained face-qualified
+    /// twin back to its reciprocal global edge slots and verifies that the
+    /// committed detached successor buffer agrees with the candidate. This is
+    /// evidence only; local topology, public face IDs, and tiled output remain
+    /// untouched.
+    pub(crate) fn validate_global_next_lineage_integration(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        identity: PartitionBorderGlobalFaceIdentityInvariantStats,
+    ) -> crate::Result<PartitionBorderGlobalNextLineageIntegrationStats> {
+        execution_policy.check_cancelled("partition_border_global_next_lineage_integration")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_next_lineage_integration_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global next lineage integration has no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != edge_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global next lineage integration successor length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    edge_count
+                ),
+            });
+        }
+        execution_policy.check(
+            "partition_border_global_next_lineage_integration_cycles",
+            execution_policy.max_graph_nodes,
+            candidate.cycle_start_global_dir_edge_ids.len(),
+        )?;
+
+        let mut stats = PartitionBorderGlobalNextLineageIntegrationStats {
+            edge_count,
+            cycle_count: candidate.cycle_start_global_dir_edge_ids.len(),
+            identity_ready: identity.invariants_ready,
+            ..Default::default()
+        };
+        let mut expected_next = self
+            .global_face_edge_map
+            .iter()
+            .map(|edge| {
+                if edge.local_face_successor_global_dir_edge_id.is_some() {
+                    stats.local_successor_count += 1;
+                }
+                edge.local_face_successor_global_dir_edge_id
+            })
+            .collect::<Vec<_>>();
+        let mut override_edges = BTreeSet::new();
+        let mut override_by_edge = BTreeMap::<usize, usize>::new();
+        let mut application_links = BTreeSet::<(usize, usize)>::new();
+        for (plan_index, plan) in self.global_face_next_application_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_next_lineage_integration_plans",
+                plan_index,
+            )?;
+            if !plan.closed || !plan.node_continuous {
+                continue;
+            }
+            if plan.global_dir_edge_ids.len() != plan.successor_global_dir_edge_ids.len() {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global next lineage integration plan {} has mismatched successor lengths",
+                        plan_index
+                    ),
+                });
+            }
+            for (link_index, (&edge_index, &successor_index)) in plan
+                .global_dir_edge_ids
+                .iter()
+                .zip(&plan.successor_global_dir_edge_ids)
+                .enumerate()
+            {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_next_lineage_integration_links",
+                    link_index,
+                )?;
+                if edge_index >= edge_count || successor_index >= edge_count {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global next lineage integration plan {} references edge {} -> {} outside {} slots",
+                            plan_index, edge_index, successor_index, edge_count
+                        ),
+                    });
+                }
+                if self.global_face_edge_map[edge_index].to_global_node_id
+                    != self.global_face_edge_map[successor_index].from_global_node_id
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global next lineage integration plan {} is not node-continuous at edge {}",
+                            plan_index, edge_index
+                        ),
+                    });
+                }
+                if override_by_edge
+                    .insert(edge_index, successor_index)
+                    .is_some_and(|existing| existing != successor_index)
+                {
+                    return Err(crate::PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "global next lineage integration conflicts at edge {}",
+                            edge_index
+                        ),
+                    });
+                }
+                expected_next[edge_index] = Some(successor_index);
+                override_edges.insert(edge_index);
+                application_links.insert((edge_index, successor_index));
+            }
+        }
+        stats.override_count = override_edges.len();
+        stats.application_plan_link_count = application_links.len();
+
+        for (edge_index, (&expected, &actual)) in expected_next
+            .iter()
+            .zip(&candidate.next_global_dir_edge_ids)
+            .enumerate()
+        {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_next_lineage_integration_edges",
+                edge_index,
+            )?;
+            match (expected, actual) {
+                (Some(expected), Some(actual)) if expected == actual => {
+                    stats.integrated_successor_count += 1;
+                }
+                (Some(_), None) => stats.missing_candidate_successor_count += 1,
+                (Some(_), Some(_)) if override_edges.contains(&edge_index) => {
+                    stats.override_lineage_mismatch_count += 1;
+                }
+                _ => stats.local_lineage_mismatch_count += 1,
+            }
+        }
+        stats.unrepresented_application_link_count = application_links
+            .iter()
+            .filter(|&&(edge_index, successor_index)| {
+                candidate.next_global_dir_edge_ids.get(edge_index).copied()
+                    != Some(Some(successor_index))
+            })
+            .count();
+
+        stats.committed_next_edge_count = self
+            .global_next_global_dir_edge_ids
+            .iter()
+            .flatten()
+            .count();
+        if self.global_next_global_dir_edge_ids.len() != edge_count {
+            stats.committed_next_mismatch_count = edge_count;
+        } else {
+            stats.committed_next_mismatch_count = self
+                .global_next_global_dir_edge_ids
+                .iter()
+                .zip(&candidate.next_global_dir_edge_ids)
+                .filter(|(committed, candidate)| committed != candidate)
+                .count();
+        }
+
+        let mut edge_slot_by_local = BTreeMap::<(usize, usize, DirEdgeId), usize>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            if edge_slot_by_local
+                .insert(
+                    (edge.partition_id, edge.component_id, edge.local_dir_edge_id),
+                    edge_index,
+                )
+                .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global next lineage integration duplicates local edge identity at {}",
+                        edge_index
+                    ),
+                });
+            }
+        }
+        let mut edge_slot_by_observation = BTreeMap::<PartitionBorderObservationId, usize>::new();
+        for observation in self.observations.values() {
+            let component_id = observation
+                .face_ref
+                .map_or(observation.component_id, |face_ref| face_ref.component_id);
+            let Some(&edge_index) = edge_slot_by_local.get(&(
+                observation.partition_id,
+                component_id,
+                observation.local_dir_edge_id,
+            )) else {
+                continue;
+            };
+            let edge = &self.global_face_edge_map[edge_index];
+            if edge.edge_key != observation.edge_key || edge.face_ref != observation.face_ref {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global next lineage integration observation {:?} disagrees with edge lineage",
+                        observation.observation_id()
+                    ),
+                });
+            }
+            if edge_slot_by_observation
+                .insert(observation.observation_id(), edge_index)
+                .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global next lineage integration duplicates observation {:?}",
+                        observation.observation_id()
+                    ),
+                });
+            }
+        }
+        for (twin_index, twin) in self.global_face_twin_transitions.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_next_lineage_integration_twins",
+                twin_index,
+            )?;
+            stats.twin_count += 1;
+            let Some(&forward_index) = edge_slot_by_observation.get(&twin.forward_observation_id)
+            else {
+                stats.twin_lineage_mismatch_count += 1;
+                continue;
+            };
+            let Some(&reverse_index) = edge_slot_by_observation.get(&twin.reverse_observation_id)
+            else {
+                stats.twin_lineage_mismatch_count += 1;
+                continue;
+            };
+            let forward = &self.global_face_edge_map[forward_index];
+            let reverse = &self.global_face_edge_map[reverse_index];
+            if forward.face_ref != Some(twin.forward_face_ref)
+                || reverse.face_ref != Some(twin.reverse_face_ref)
+                || forward.cross_border_twin_global_dir_edge_id != Some(reverse_index)
+                || reverse.cross_border_twin_global_dir_edge_id != Some(forward_index)
+            {
+                stats.twin_lineage_mismatch_count += 1;
+            }
+        }
+
+        stats.integration_ready = stats.identity_ready
+            && stats.integrated_successor_count == edge_count
+            && stats.missing_candidate_successor_count == 0
+            && stats.local_lineage_mismatch_count == 0
+            && stats.override_lineage_mismatch_count == 0
+            && stats.unrepresented_application_link_count == 0
+            && stats.committed_next_edge_count == edge_count
+            && stats.committed_next_mismatch_count == 0
+            && stats.twin_lineage_mismatch_count == 0;
         Ok(stats)
     }
 
@@ -11611,6 +11890,186 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_identity_invariants"
+        ));
+    }
+
+    #[test]
+    fn global_next_lineage_integration_matches_overrides_and_face_twins() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: Some(edge_index),
+                to_global_node_id: Some(1 - edge_index),
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(1), Some(0)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        graph.global_next_global_dir_edge_ids = vec![Some(1), Some(0)];
+        graph.global_face_next_application_plans =
+            vec![PartitionBorderGlobalFaceNextApplicationPlan {
+                component_index: 0,
+                global_dir_edge_ids: vec![0, 1],
+                successor_global_dir_edge_ids: vec![1, 0],
+                closed: true,
+                node_continuous: true,
+            }];
+        graph.global_face_twin_transitions = vec![PartitionBorderGlobalFaceTwinTransition {
+            edge_key: observations[0].edge_key,
+            forward_face_ref: observations[0].face_ref.unwrap(),
+            reverse_face_ref: observations[1].face_ref.unwrap(),
+            forward_observation_id: observations[0].observation_id(),
+            reverse_observation_id: observations[1].observation_id(),
+            forward_cycle_index: 0,
+            reverse_cycle_index: 0,
+            forward_cycle_closed: true,
+            reverse_cycle_closed: true,
+        }];
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_next_lineage_integration(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalNextLineageIntegrationStats {
+                edge_count: 2,
+                cycle_count: 1,
+                override_count: 2,
+                integrated_successor_count: 2,
+                application_plan_link_count: 2,
+                committed_next_edge_count: 2,
+                twin_count: 1,
+                identity_ready: true,
+                integration_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_next_lineage_integration_rejects_successor_drift() {
+        let mut graph = exact_face_twin_graph();
+        let observations = graph.observations.values().cloned().collect::<Vec<_>>();
+        graph.global_face_edge_map = observations
+            .iter()
+            .enumerate()
+            .map(|(edge_index, observation)| PartitionBorderGlobalFaceEdge {
+                global_dir_edge_id: edge_index,
+                partition_id: observation.partition_id,
+                component_id: observation.face_ref.unwrap().component_id,
+                local_dir_edge_id: observation.local_dir_edge_id,
+                symmetric_global_dir_edge_id: 1 - edge_index,
+                local_face_successor_global_dir_edge_id: None,
+                cross_border_twin_global_dir_edge_id: Some(1 - edge_index),
+                from_global_node_id: Some(edge_index),
+                to_global_node_id: Some(1 - edge_index),
+                from: observation.from,
+                to: observation.to,
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                edge_key: observation.edge_key,
+                face_ref: observation.face_ref,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
+                source_line_ids: observation.source_line_ids.clone(),
+            })
+            .collect();
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: vec![Some(0), Some(1)],
+            cycle_start_global_dir_edge_ids: vec![0],
+        });
+        graph.global_next_global_dir_edge_ids = vec![Some(0), Some(1)];
+        graph.global_face_next_application_plans =
+            vec![PartitionBorderGlobalFaceNextApplicationPlan {
+                component_index: 0,
+                global_dir_edge_ids: vec![0, 1],
+                successor_global_dir_edge_ids: vec![1, 0],
+                closed: true,
+                node_continuous: true,
+            }];
+        let stats = graph
+            .validate_global_next_lineage_integration(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!stats.integration_ready);
+        assert_eq!(stats.override_lineage_mismatch_count, 2);
+        assert_eq!(stats.committed_next_mismatch_count, 0);
+    }
+
+    #[test]
+    fn global_next_lineage_integration_is_bounded_and_cancellable() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        graph.global_next_global_dir_edge_ids = graph
+            .global_topology_candidate()
+            .unwrap()
+            .next_global_dir_edge_ids
+            .clone();
+        let error = graph
+            .validate_global_next_lineage_integration(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_next_lineage_integration_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_next_lineage_integration(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_next_lineage_integration"
         ));
     }
 
