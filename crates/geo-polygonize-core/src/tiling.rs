@@ -440,6 +440,10 @@ pub struct StitchingReport {
     pub partition_border_global_topology_mutation_gate_face_walk_ready: bool,
     pub partition_border_global_topology_mutation_gate_euler_evidence_ready: bool,
     pub partition_border_global_topology_mutation_gate_ready: bool,
+    /// Detached global successor links committed after the complete gate.
+    pub partition_border_global_topology_mutation_applied_next_count: usize,
+    pub partition_border_global_topology_mutation_ready: bool,
+    pub partition_border_global_topology_mutation_applied: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2697,6 +2701,12 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_walk_invariants,
                 partition_border_global_face_euler_witness,
             )?;
+        let partition_border_global_topology_mutation = partition_border_graph
+            .apply_global_topology_candidate_with_gate(
+                &self.execution_policy,
+                partition_border_global_topology_mutation_gate,
+                partition_border_global_topology_candidate,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2768,6 +2778,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_topology_mutation_gate(
                 partition_border_global_topology_mutation_gate,
+            );
+            trace.record_partition_border_global_topology_mutation(
+                partition_border_global_topology_mutation,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3193,6 +3206,12 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_topology_mutation_gate.euler_evidence_ready,
                 partition_border_global_topology_mutation_gate_ready:
                     partition_border_global_topology_mutation_gate.gate_ready,
+                partition_border_global_topology_mutation_applied_next_count:
+                    partition_border_global_topology_mutation.applied_next_count,
+                partition_border_global_topology_mutation_ready:
+                    partition_border_global_topology_mutation.mutation_ready,
+                partition_border_global_topology_mutation_applied:
+                    partition_border_global_topology_mutation.applied,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

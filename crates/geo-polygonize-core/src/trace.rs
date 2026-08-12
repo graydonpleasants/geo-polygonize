@@ -12,7 +12,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
-    PartitionBorderGlobalTopologyMutationGateStats,
+    PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
     PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
     PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
@@ -992,6 +992,22 @@ impl TraceRecorderV1 {
                 "face_walk_ready": stats.face_walk_ready,
                 "euler_evidence_ready": stats.euler_evidence_ready,
                 "gate_ready": stats.gate_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_topology_mutation(
+        &mut self,
+        stats: PartitionBorderGlobalTopologyMutationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_topology_mutation",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "applied_next_count": stats.applied_next_count,
+                "mutation_ready": stats.mutation_ready,
+                "applied": stats.applied,
             }),
         )
     }

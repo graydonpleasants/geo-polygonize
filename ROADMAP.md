@@ -534,6 +534,9 @@ Blocked by #1288.
 - [x] Combine detached topology, component, face-ID, unbounded, twin, cycle,
   source, Euler, and face-walk evidence into one bounded pre-mutation gate;
   retain incomplete proof without mutating topology.
+- [x] Atomically commit a validated detached global successor vector only after
+  the complete gate; keep local half-edge links, face IDs, and tiled output
+  untouched until their own promotion proofs exist.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
