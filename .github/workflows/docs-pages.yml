@@ -96,7 +96,9 @@ jobs:
             sleep 2
           done
           tar -xzf "${install_dir}/${filename}" -C "${install_dir}"
-          echo "${install_dir}" >> "${GITHUB_PATH}"
+          lychee_bin="${install_dir}/lychee-${arch}-unknown-linux-gnu/lychee"
+          test -x "${lychee_bin}"
+          dirname "${lychee_bin}" >> "${GITHUB_PATH}"
 
       - name: Check documentation links
         run: lychee --no-progress README.md docs
