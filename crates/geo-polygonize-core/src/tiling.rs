@@ -266,6 +266,16 @@ pub struct StitchingReport {
     pub partition_border_global_face_count: usize,
     /// Face references participating in at least one retained twin link.
     pub partition_border_global_linked_face_count: usize,
+    /// Qualified local faces retained in the deterministic face-walk plan.
+    pub partition_border_global_face_plan_count: usize,
+    /// Local border half-edges retained as face-walk candidates.
+    pub partition_border_global_face_candidate_count: usize,
+    /// Qualified observations that lacked a local face-walk successor.
+    pub partition_border_global_face_missing_successor_count: usize,
+    /// Local faces marked unbounded by their source arrangement.
+    pub partition_border_global_unbounded_face_count: usize,
+    /// Planned faces that participate in at least one retained twin edge.
+    pub partition_border_global_face_linked_count: usize,
     /// Exact twin pairs whose observations also carried valid qualified local
     /// face references and were retained as face-level links.
     pub partition_border_face_twin_count: usize,
@@ -2290,6 +2300,13 @@ impl<'a> TiledPolygonizer<'a> {
             global_component_count,
             partition_border_global_component_reconciliation.component_count
         );
+        let partition_border_global_face_plan =
+            partition_border_graph.reconcile_global_face_plans(&self.execution_policy)?;
+        let global_face_plan_count = partition_border_graph.global_face_plans().len();
+        debug_assert_eq!(
+            global_face_plan_count,
+            partition_border_global_face_plan.face_count
+        );
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2300,6 +2317,7 @@ impl<'a> TiledPolygonizer<'a> {
             trace.record_partition_border_global_component_reconciliation(
                 partition_border_global_component_reconciliation,
             );
+            trace.record_partition_border_global_face_plan(partition_border_global_face_plan);
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
         let component_fallback_attempted = self.component_fallback && unresolved;
@@ -2536,6 +2554,15 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_component_reconciliation.face_count,
                 partition_border_global_linked_face_count:
                     partition_border_global_component_reconciliation.linked_face_count,
+                partition_border_global_face_plan_count: global_face_plan_count,
+                partition_border_global_face_candidate_count: partition_border_global_face_plan
+                    .candidate_count,
+                partition_border_global_face_missing_successor_count:
+                    partition_border_global_face_plan.missing_successor_count,
+                partition_border_global_unbounded_face_count: partition_border_global_face_plan
+                    .unbounded_face_count,
+                partition_border_global_face_linked_count: partition_border_global_face_plan
+                    .linked_face_count,
                 partition_border_face_twin_count: applied_face_twin_count,
                 partition_border_face_twin_missing_face_count: partition_border_twin_application
                     .missing_face_ref_count,

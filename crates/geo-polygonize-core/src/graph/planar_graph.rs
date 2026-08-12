@@ -466,6 +466,13 @@ impl PlanarGraph {
             end,
             edge.sources.line_ids.iter().copied(),
         )?;
+        observation.local_face_successor = directed
+            .face_id
+            .and_then(|_| self.directed_edges.get(directed.sym_idx))
+            .and_then(|symmetric| symmetric.next_idx);
+        observation.local_face_is_unbounded = directed
+            .face_id
+            .is_some_and(|face_id| self.unbounded_face_ids.contains(&face_id));
         observation.component_id = component_id;
         Some(observation)
     }
@@ -3033,10 +3040,7 @@ impl ComponentScratch {
         (0..self.graph.directed_edges.len())
             .filter_map(|local_dir_edge_id| {
                 let side = self.border_side(local_dir_edge_id, export.bbox)?;
-                let local_edge_id = self.graph.directed_edges[local_dir_edge_id].edge_idx;
-                let local_dir_edges = self.graph.edges[local_edge_id].dir_edges;
-                let direction = usize::from(local_dir_edges[1] == local_dir_edge_id);
-                let global_dir_edge_id = self.global_dir_edge_ids.get(local_edge_id)?[direction];
+                let global_dir_edge_id = self.global_dir_edge_id(local_dir_edge_id)?;
                 let mut observation = self.graph.partition_border_half_edge_for_component(
                     export.partition_id,
                     component_id,
@@ -3044,9 +3048,22 @@ impl ComponentScratch {
                     side,
                 )?;
                 observation.local_dir_edge_id = global_dir_edge_id;
+                observation.local_face_successor = observation
+                    .local_face_successor
+                    .and_then(|successor| self.global_dir_edge_id(successor));
                 Some(observation)
             })
             .collect()
+    }
+
+    fn global_dir_edge_id(&self, local_dir_edge_id: DirEdgeId) -> Option<DirEdgeId> {
+        let local_edge_id = self.graph.directed_edges.get(local_dir_edge_id)?.edge_idx;
+        let local_dir_edges = self.graph.edges.get(local_edge_id)?.dir_edges;
+        let direction = usize::from(local_dir_edges[1] == local_dir_edge_id);
+        self.global_dir_edge_ids
+            .get(local_edge_id)?
+            .get(direction)
+            .copied()
     }
 
     fn border_side(&self, dir_edge_id: DirEdgeId, bbox: Rect<f64>) -> Option<PartitionBorderSide> {
@@ -3892,6 +3909,10 @@ mod arrangement_ring_invariant_tests {
                 .representative_line_id
                 .is_some_and(|representative| observation.source_line_ids.contains(&representative))
         }));
+        assert!(observations
+            .iter()
+            .filter(|observation| observation.face_ref.is_some())
+            .all(|observation| observation.local_face_successor.is_some()));
     }
 
     #[test]

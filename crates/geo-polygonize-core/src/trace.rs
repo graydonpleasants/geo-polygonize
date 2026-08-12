@@ -2,9 +2,9 @@
 
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
-    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalComponentReconciliationStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -672,6 +672,23 @@ impl TraceRecorderV1 {
         )
     }
 
+    pub(crate) fn record_partition_border_global_face_plan(
+        &mut self,
+        stats: PartitionBorderGlobalFacePlanStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_plan",
+            serde_json::json!({
+                "face_count": stats.face_count,
+                "candidate_count": stats.candidate_count,
+                "missing_successor_count": stats.missing_successor_count,
+                "unbounded_face_count": stats.unbounded_face_count,
+                "linked_face_count": stats.linked_face_count,
+            }),
+        )
+    }
+
     pub(crate) fn record_partition_border_observation(
         &mut self,
         observation: &PartitionBorderHalfEdge,
@@ -697,6 +714,8 @@ impl TraceRecorderV1 {
                 "side": format!("{:?}", observation.side),
                 "face_id": observation.face_id,
                 "component_id": observation.component_id,
+                "local_face_successor": observation.local_face_successor,
+                "local_face_is_unbounded": observation.local_face_is_unbounded,
                 "source_count": observation.source_line_ids.len(),
                 "first_source_line_id": observation.source_line_ids.first(),
                 "last_source_line_id": observation.source_line_ids.last(),
@@ -726,6 +745,8 @@ impl TraceRecorderV1 {
                 "edge_key": [endpoint(edge_start), endpoint(edge_end)],
                 "side": format!("{:?}", observation.side),
                 "component_id": observation.component_id,
+                "local_face_successor": observation.local_face_successor,
+                "local_face_is_unbounded": observation.local_face_is_unbounded,
                 "representative_line_id": observation.representative_line_id,
                 "reason": reason,
             }),
