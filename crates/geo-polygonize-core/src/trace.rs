@@ -6,7 +6,8 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
     PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityPlanStats,
     PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats, PartitionBorderGlobalFacePlanStats,
+    PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePlanStats,
     PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
     PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
@@ -662,6 +663,26 @@ impl TraceRecorderV1 {
                 "mapped_twin_count": stats.mapped_twin_count,
                 "unmapped_twin_count": stats.unmapped_twin_count,
                 "edge_map_ready": stats.edge_map_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_nodes(
+        &mut self,
+        stats: PartitionBorderGlobalFaceNodeReconciliationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_nodes",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "node_count": stats.node_count,
+                "endpoint_count": stats.endpoint_count,
+                "mapped_observation_count": stats.mapped_observation_count,
+                "unmapped_observation_count": stats.unmapped_observation_count,
+                "z_candidate_count": stats.z_candidate_count,
+                "z_conflict_count": stats.z_conflict_count,
+                "node_map_ready": stats.node_map_ready,
             }),
         )
     }

@@ -506,6 +506,10 @@ Blocked by #1288.
   symmetric/successor identities plus declared face-qualified twins into
   global edge slots, validating geometry, provenance, Z, and cancellation
   boundaries without mutating topology.
+- [x] Reconcile deterministic global face-node slots from active edge
+  endpoints, retaining merged source, face, observation, representative, and
+  endpoint-Z payloads with atomic conflict, limit, and cancellation behavior;
+  attach node slots to evidence edges without mutating topology.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

@@ -425,6 +425,22 @@ pub struct StitchingReport {
     pub partition_border_global_face_edge_map_unmapped_twin_count: usize,
     /// Whether every applied face twin mapped to active local edge slots.
     pub partition_border_global_face_edge_map_ready: bool,
+    /// Active global face edges covered by canonical global node slots.
+    pub partition_border_global_face_node_edge_count: usize,
+    /// Deterministic global node slots retained for active face-edge endpoints.
+    pub partition_border_global_face_node_count: usize,
+    /// Active face-edge endpoints assigned to global node slots.
+    pub partition_border_global_face_node_endpoint_count: usize,
+    /// Border observations mapped into global node payloads.
+    pub partition_border_global_face_node_observation_count: usize,
+    /// Border observations without a matching active global edge slot.
+    pub partition_border_global_face_node_unmapped_observation_count: usize,
+    /// Distinct endpoint-Z candidates retained by global node payloads.
+    pub partition_border_global_face_node_z_candidate_count: usize,
+    /// Global node slots with Z candidates outside the selected tolerance.
+    pub partition_border_global_face_node_z_conflict_count: usize,
+    /// Whether every retained observation received global endpoint slots.
+    pub partition_border_global_face_node_ready: bool,
     /// Whether indexed components were recovered by component or region fallback.
     /// This is operational metadata; strict validation uses `coverage_resolution`.
     pub component_fallback_used: bool,
@@ -2433,6 +2449,8 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_graph.apply_unambiguous_face_twins(&self.execution_policy)?;
         let partition_border_global_face_edge_map =
             partition_border_graph.reconcile_global_face_edge_map(&self.execution_policy)?;
+        let partition_border_global_face_nodes = partition_border_graph
+            .reconcile_global_face_nodes(self.options.z, &self.execution_policy)?;
         let applied_face_twin_count = partition_border_graph.applied_face_twins().len();
         debug_assert_eq!(
             applied_face_twin_count,
@@ -2539,6 +2557,7 @@ impl<'a> TiledPolygonizer<'a> {
             trace.record_partition_border_global_face_edge_map(
                 partition_border_global_face_edge_map,
             );
+            trace.record_partition_border_global_face_nodes(partition_border_global_face_nodes);
             trace.record_partition_border_node_reconciliation(
                 partition_border_node_reconciliation,
                 self.options.z,
@@ -2969,6 +2988,22 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_edge_map.unmapped_twin_count,
                 partition_border_global_face_edge_map_ready: partition_border_global_face_edge_map
                     .edge_map_ready,
+                partition_border_global_face_node_edge_count: partition_border_global_face_nodes
+                    .edge_count,
+                partition_border_global_face_node_count: partition_border_global_face_nodes
+                    .node_count,
+                partition_border_global_face_node_endpoint_count:
+                    partition_border_global_face_nodes.endpoint_count,
+                partition_border_global_face_node_observation_count:
+                    partition_border_global_face_nodes.mapped_observation_count,
+                partition_border_global_face_node_unmapped_observation_count:
+                    partition_border_global_face_nodes.unmapped_observation_count,
+                partition_border_global_face_node_z_candidate_count:
+                    partition_border_global_face_nodes.z_candidate_count,
+                partition_border_global_face_node_z_conflict_count:
+                    partition_border_global_face_nodes.z_conflict_count,
+                partition_border_global_face_node_ready: partition_border_global_face_nodes
+                    .node_map_ready,
                 component_fallback_used,
                 untiled_fallback_attempted,
                 untiled_fallback_authoritative,
