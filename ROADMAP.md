@@ -520,8 +520,9 @@ Blocked by #1288.
 - [x] Gate detached topology application on unambiguous twins remaining backed
   by declared adjacent borders and reciprocal global edge slots; retain
   malformed or incomplete evidence as not ready without mutating topology.
-- [ ] Reconcile canonical border nodes, source sets, representative IDs, and
-  selected Z-policy decisions.
+- [x] Reconcile canonical border nodes, source sets, representative IDs, face
+  lineage, and selected Z-policy decisions against active global face-node
+  slots, while allowing canonical-only non-face-qualified observations.
 - [x] Reconcile deterministic global connected components and verify that
   every face-qualified detached edge is covered exactly once without duplicate
   faces or twin ownership.

@@ -261,6 +261,16 @@ pub struct StitchingReport {
     /// Reconciled border nodes whose Z candidates exceed the configured
     /// conflict tolerance.
     pub partition_border_node_z_conflict_count: usize,
+    /// Canonical border nodes available to the detached global face graph.
+    pub partition_border_canonical_node_count: usize,
+    /// Active global face-node slots checked against canonical payloads.
+    pub partition_border_canonical_global_node_count: usize,
+    /// Active global face-node slots with a canonical payload match.
+    pub partition_border_canonical_mapped_global_node_count: usize,
+    /// Canonical-only nodes retained for non-face-qualified evidence.
+    pub partition_border_canonical_only_node_count: usize,
+    /// Whether active global face-node payloads reconcile with canonical nodes.
+    pub partition_border_canonical_node_reconciliation_ready: bool,
     /// Deterministic connected components of qualified border-face evidence.
     pub partition_border_global_component_count: usize,
     /// Retained deterministic payload plans for qualified border components.
@@ -2601,6 +2611,8 @@ impl<'a> TiledPolygonizer<'a> {
             reconciled_border_node_count,
             partition_border_node_reconciliation.node_count
         );
+        let partition_border_canonical_node_validation =
+            partition_border_graph.validate_canonical_border_nodes(&self.execution_policy)?;
         let partition_border_global_component_reconciliation =
             partition_border_graph.reconcile_global_components(&self.execution_policy)?;
         let global_component_count = partition_border_graph.global_components().len();
@@ -2745,6 +2757,9 @@ impl<'a> TiledPolygonizer<'a> {
             trace.record_partition_border_node_reconciliation(
                 partition_border_node_reconciliation,
                 self.options.z,
+            );
+            trace.record_partition_border_canonical_node_validation(
+                partition_border_canonical_node_validation,
             );
             trace.record_partition_border_global_component_reconciliation(
                 partition_border_global_component_reconciliation,
@@ -3047,6 +3062,16 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_reconciled_node_count: reconciled_border_node_count,
                 partition_border_node_z_conflict_count: partition_border_node_reconciliation
                     .z_conflict_count,
+                partition_border_canonical_node_count: partition_border_canonical_node_validation
+                    .canonical_node_count,
+                partition_border_canonical_global_node_count:
+                    partition_border_canonical_node_validation.global_node_count,
+                partition_border_canonical_mapped_global_node_count:
+                    partition_border_canonical_node_validation.mapped_global_node_count,
+                partition_border_canonical_only_node_count:
+                    partition_border_canonical_node_validation.canonical_only_node_count,
+                partition_border_canonical_node_reconciliation_ready:
+                    partition_border_canonical_node_validation.reconciliation_ready,
                 partition_border_global_component_count: global_component_count,
                 partition_border_global_component_payload_count:
                     partition_border_global_component_payloads.component_count,
