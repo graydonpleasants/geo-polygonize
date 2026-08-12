@@ -3,14 +3,14 @@
 use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdentityPlanStats,
-    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats, PartitionBorderGlobalFacePlanStats,
-    PartitionBorderGlobalFacePlanValidationStats, PartitionBorderGlobalFaceTransitionPlanStats,
-    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalUnboundedFaceProofStats, PartitionBorderHalfEdge,
-    PartitionBorderNodeReconciliationStats, PartitionBorderReconciliationStats,
-    PartitionBorderTwinApplicationStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdPlanStats,
+    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalUnboundedFaceProofStats,
+    PartitionBorderHalfEdge, PartitionBorderNodeReconciliationStats,
+    PartitionBorderReconciliationStats, PartitionBorderTwinApplicationStats,
 };
 use crate::graph::planar_graph::PartitionBoundaryNodingStats;
 use crate::graph::{ExtractedRing, PlanarGraph};
@@ -885,6 +885,25 @@ impl TraceRecorderV1 {
                 "ready_component_count": stats.ready_component_count,
                 "incomplete_component_count": stats.incomplete_component_count,
                 "mutation_ready": stats.mutation_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_id_plans(
+        &mut self,
+        stats: PartitionBorderGlobalFaceIdPlanStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_id_plans",
+            serde_json::json!({
+                "component_count": stats.component_count,
+                "candidate_cycle_count": stats.candidate_cycle_count,
+                "assigned_face_count": stats.assigned_face_count,
+                "boundary_observation_count": stats.boundary_observation_count,
+                "unbounded_candidate_count": stats.unbounded_candidate_count,
+                "incomplete_plan_count": stats.incomplete_plan_count,
+                "assignment_ready": stats.assignment_ready,
             }),
         )
     }

@@ -499,6 +499,9 @@ Blocked by #1288.
 - [x] Retain a fail-closed global-next mutation plan from validated identity
   cycles; require exact cycle assignments while keeping local and global links
   unwritten until a real global topology exists.
+- [x] Retain deterministic candidate global face IDs for closed boundary
+  mutation cycles; keep incomplete cycles explicitly unassigned and do not
+  write candidate IDs into local observations or tiled output.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

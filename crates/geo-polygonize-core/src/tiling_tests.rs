@@ -602,6 +602,51 @@ mod tests {
                 .partition_border_global_face_next_mutation_ready,
             mutation_stats.mutation_ready
         );
+        let id_plans = result.partition_border_graph.global_face_id_plans();
+        let id_stats = result
+            .partition_border_graph
+            .clone()
+            .reconcile_global_face_id_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_candidate_cycle_count,
+            id_plans.len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_assigned_count,
+            id_plans
+                .iter()
+                .filter(|plan| plan.candidate_global_face_id.is_some())
+                .count()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_boundary_observation_count,
+            id_stats.boundary_observation_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_unbounded_candidate_count,
+            id_stats.unbounded_candidate_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_incomplete_plan_count,
+            id_stats.incomplete_plan_count
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_face_id_assignment_ready,
+            id_stats.assignment_ready
+        );
         let unbounded_proof = result
             .partition_border_graph
             .validate_global_unbounded_face_proof(&ExecutionPolicy::default())
@@ -1493,6 +1538,68 @@ mod tests {
                     .result
                     .stitching_report
                     .partition_border_global_face_next_mutation_ready
+            )
+        );
+        let global_face_id_plans = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_face_id_plans")
+            .expect("global face ID plan evidence");
+        assert_eq!(
+            global_face_id_plans.payload["candidate_cycle_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_candidate_cycle_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_id_plans.payload["assigned_face_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_assigned_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_id_plans.payload["boundary_observation_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_boundary_observation_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_id_plans.payload["unbounded_candidate_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_unbounded_candidate_count
+                    as u64
+            )
+        );
+        assert_eq!(
+            global_face_id_plans.payload["incomplete_plan_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_incomplete_plan_count as u64
+            )
+        );
+        assert_eq!(
+            global_face_id_plans.payload["assignment_ready"].as_bool(),
+            Some(
+                traced
+                    .result
+                    .stitching_report
+                    .partition_border_global_face_id_assignment_ready
             )
         );
         let unbounded_proof = traced
