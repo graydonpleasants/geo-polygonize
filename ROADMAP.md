@@ -453,6 +453,10 @@ Blocked by #1288.
   declared-adjacency pairs with valid partition-matching local face identity;
   report and trace missing or malformed face lineage without mutating local
   adjacency or tiled output.
+- [x] Build canonical border-node reconciliation evidence that unions source
+  sets, representative IDs, face lineage, and endpoint-Z candidates under
+  the selected Z policy, with fail-closed conflict, limit, and cancellation
+  behavior; do not mutate local or tiled topology.
 - [ ] Apply unambiguous twins only across declared adjacent borders.
 - [ ] Reconcile canonical border nodes, source sets, representative IDs, and
   selected Z-policy decisions.

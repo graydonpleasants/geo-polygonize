@@ -93,6 +93,26 @@ mod tests {
                     .partition_border_face_twin_invalid_face_count,
             reconciliation.matched_twin_count
         );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_reconciled_node_count,
+            result
+                .partition_border_graph
+                .reconciled_border_nodes()
+                .len()
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_node_z_conflict_count,
+            result
+                .partition_border_graph
+                .reconciled_border_nodes()
+                .iter()
+                .filter(|node| node.z_conflict)
+                .count()
+        );
         assert_eq!(result.polygons.len(), 2);
     }
 
@@ -253,6 +273,34 @@ mod tests {
             application.payload["candidate_twin_count"]
                 .as_u64()
                 .unwrap()
+        );
+        let node_reconciliation = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_node_reconciliation")
+            .expect("border node reconciliation evidence");
+        assert_eq!(
+            node_reconciliation.payload["node_count"].as_u64(),
+            Some(
+                traced
+                    .result
+                    .partition_border_graph
+                    .reconciled_border_nodes()
+                    .len() as u64
+            )
+        );
+        assert_eq!(
+            node_reconciliation.payload["z_conflict_count"].as_u64(),
+            Some(0)
+        );
+        assert_eq!(
+            node_reconciliation.payload["z_policy"],
+            "InterpolateAlongEdge"
+        );
+        assert_eq!(
+            node_reconciliation.payload["conflict_tolerance"],
+            "0x0000000000000000"
         );
     }
 
