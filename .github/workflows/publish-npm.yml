@@ -39,9 +39,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
       - name: Build WebAssembly and TypeScript
         run: npm run build
 

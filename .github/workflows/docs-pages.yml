@@ -78,9 +78,6 @@ jobs:
           args: --no-progress README.md docs
           fail: true
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
       - name: Build Site Wasm Library
         run: npm run build:site-lib
         env:

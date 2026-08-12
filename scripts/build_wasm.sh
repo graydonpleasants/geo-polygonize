@@ -38,14 +38,10 @@ setup_wasm_tools() {
 
     if ! command -v wasm-bindgen &> /dev/null || [ "$(wasm-bindgen --version | awk '{print $2}')" != "$WASM_BINDGEN_VERSION" ]; then
         echo "Installing wasm-bindgen-cli $WASM_BINDGEN_VERSION..."
-        if command -v cargo-binstall &> /dev/null; then
-            cargo binstall -y wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-        else
-            cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-        fi
+        cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --locked
     fi
     if ! command -v wasm-bindgen &> /dev/null; then
-        cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
+        cargo install --force wasm-bindgen-cli --version $WASM_BINDGEN_VERSION --locked
     fi
     WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
