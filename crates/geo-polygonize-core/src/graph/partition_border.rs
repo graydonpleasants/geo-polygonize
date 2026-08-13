@@ -696,6 +696,34 @@ pub(crate) struct PartitionBorderGlobalTopologyCandidate {
     pub(crate) cycle_start_global_dir_edge_ids: Vec<usize>,
 }
 
+/// One canonical detached ring payload retained after the complete evidence
+/// gate. This is private evidence and is not public stitched output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceRingPayload {
+    pub(crate) candidate_global_face_id: usize,
+    pub(crate) cycle_start_global_dir_edge_id: usize,
+    pub(crate) edge_ids: Vec<usize>,
+    pub(crate) coords: Vec<[u64; 3]>,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) unbounded: bool,
+}
+
+/// Counts atomic detached ring-payload materialization after the final gate.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceRingPayloadStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) materialized_cycle_count: usize,
+    pub(crate) coordinate_count: usize,
+    pub(crate) source_line_id_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) missing_edge_face_id_count: usize,
+    pub(crate) invalid_cycle_count: usize,
+    pub(crate) canonical_ring_mismatch_count: usize,
+    pub(crate) unbounded_cycle_count: usize,
+    pub(crate) materialization_ready: bool,
+}
+
 /// Counts the one atomic commit of detached global successor links. Face IDs
 /// remain a separate roadmap slice; no local face identity or output is
 /// changed by this mutation.
@@ -1434,6 +1462,7 @@ pub struct PartitionBorderGraph {
     global_face_id_by_cycle_start: Vec<Option<usize>>,
     global_face_id_by_global_dir_edge_id: Vec<Option<usize>>,
     global_unbounded_face_id_by_cycle_start: Option<(usize, usize)>,
+    global_face_ring_payloads: Vec<PartitionBorderGlobalFaceRingPayload>,
 }
 
 impl PartitionBorderGraph {
@@ -1485,6 +1514,7 @@ impl PartitionBorderGraph {
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
+        self.global_face_ring_payloads.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1526,6 +1556,7 @@ impl PartitionBorderGraph {
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
+        self.global_face_ring_payloads.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1556,6 +1587,7 @@ impl PartitionBorderGraph {
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
+        self.global_face_ring_payloads.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -3020,6 +3052,185 @@ impl PartitionBorderGraph {
             cycle_count_mismatch_count,
             extraction_ready,
         })
+    }
+
+    /// Materializes canonical detached ring payloads after the complete
+    /// extraction gate. The payloads remain private evidence and are committed
+    /// atomically; local topology and public tiled output are untouched.
+    pub(crate) fn materialize_global_face_ring_payloads(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        extraction_gate: PartitionBorderGlobalFaceExtractionGateStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceRingPayloadStats> {
+        execution_policy.check_cancelled("partition_border_global_face_ring_payloads")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_ring_payloads_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face ring payloads have no detached topology candidate".to_string(),
+            });
+        };
+        let cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        execution_policy.check(
+            "partition_border_global_face_ring_payloads_cycles",
+            execution_policy.max_graph_nodes,
+            cycle_count,
+        )?;
+        let mut stats = PartitionBorderGlobalFaceRingPayloadStats {
+            edge_count,
+            cycle_count,
+            ..Default::default()
+        };
+        let mut payloads = Vec::with_capacity(cycle_count);
+        for (cycle_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_ring_payloads_cycles",
+                cycle_index,
+            )?;
+            let Some(face_id) = self
+                .global_face_id_by_cycle_start
+                .get(cycle_index)
+                .copied()
+                .flatten()
+            else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            if start >= edge_count {
+                stats.invalid_cycle_count += 1;
+                continue;
+            }
+            let mut edge_ids = Vec::new();
+            let mut coords = Vec::new();
+            let mut source_line_ids = BTreeSet::new();
+            let mut visited = BTreeSet::new();
+            let mut current = start;
+            let mut closed = true;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_ring_payloads_cycle_edges",
+                    visited.len(),
+                )?;
+                if !visited.insert(current) {
+                    if current != start {
+                        closed = false;
+                    }
+                    break;
+                }
+                let Some(edge) = self.global_face_edge_map.get(current) else {
+                    closed = false;
+                    break;
+                };
+                if self
+                    .global_face_id_by_global_dir_edge_id
+                    .get(current)
+                    .copied()
+                    .flatten()
+                    != Some(face_id)
+                {
+                    stats.missing_edge_face_id_count += 1;
+                    closed = false;
+                    break;
+                }
+                edge_ids.push(current);
+                coords.push(Coord3D::new(
+                    f64::from_bits(edge.from.xy_bits()[0]),
+                    f64::from_bits(edge.from.xy_bits()[1]),
+                    f64::from_bits(edge.from_z_bits),
+                ));
+                source_line_ids.extend(edge.source_line_ids.iter().copied());
+                let Some(successor) = candidate
+                    .next_global_dir_edge_ids
+                    .get(current)
+                    .copied()
+                    .flatten()
+                else {
+                    closed = false;
+                    break;
+                };
+                if successor >= edge_count {
+                    closed = false;
+                    break;
+                }
+                current = successor;
+            }
+            if !closed || coords.len() < 3 {
+                stats.invalid_cycle_count += 1;
+                continue;
+            }
+            coords.push(coords[0]);
+            let mut canonical_coords = coords.clone();
+            canonicalize_ring(&mut canonical_coords, None);
+            let mut rotated_coords = coords[..coords.len() - 1].to_vec();
+            rotated_coords.rotate_left(1);
+            rotated_coords.push(rotated_coords[0]);
+            canonicalize_ring(&mut rotated_coords, None);
+            if canonical_coords != rotated_coords {
+                stats.canonical_ring_mismatch_count += 1;
+            }
+            stats.coordinate_count = stats
+                .coordinate_count
+                .checked_add(canonical_coords.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global face ring payload coordinate count overflow".to_string(),
+                })?;
+            execution_policy.check(
+                "partition_border_global_face_ring_payloads_coordinates",
+                execution_policy.max_output_coordinates,
+                stats.coordinate_count,
+            )?;
+            stats.source_line_id_count = stats
+                .source_line_id_count
+                .checked_add(source_line_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global face ring payload source count overflow".to_string(),
+                })?;
+            stats.materialized_cycle_count += 1;
+            stats.unbounded_cycle_count += usize::from(
+                self.global_unbounded_face_id_by_cycle_start
+                    .is_some_and(|(_, unbounded_start)| unbounded_start == start),
+            );
+            payloads.push(PartitionBorderGlobalFaceRingPayload {
+                candidate_global_face_id: face_id,
+                cycle_start_global_dir_edge_id: start,
+                edge_ids,
+                coords: canonical_coords
+                    .into_iter()
+                    .map(|coord| {
+                        [
+                            canonical_coordinate_bits(coord.x),
+                            canonical_coordinate_bits(coord.y),
+                            coord.z.to_bits(),
+                        ]
+                    })
+                    .collect(),
+                source_line_ids: source_line_ids.into_iter().collect(),
+                unbounded: self
+                    .global_unbounded_face_id_by_cycle_start
+                    .is_some_and(|(_, unbounded_start)| unbounded_start == start),
+            });
+        }
+        stats.materialization_ready = extraction_gate.extraction_ready
+            && stats.materialized_cycle_count == cycle_count
+            && stats.coordinate_count > 0
+            && stats.missing_face_id_count == 0
+            && stats.missing_edge_face_id_count == 0
+            && stats.invalid_cycle_count == 0
+            && stats.canonical_ring_mismatch_count == 0
+            && stats.unbounded_cycle_count == 1;
+        if stats.materialization_ready {
+            self.global_face_ring_payloads = payloads;
+        }
+        Ok(stats)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_face_ring_payloads(&self) -> &[PartitionBorderGlobalFaceRingPayload] {
+        &self.global_face_ring_payloads
     }
 
     #[cfg(test)]
@@ -5847,6 +6058,7 @@ impl PartitionBorderGraph {
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
+        self.global_face_ring_payloads.clear();
         Ok(stats)
     }
 
@@ -6581,6 +6793,7 @@ impl PartitionBorderGraph {
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
+        self.global_face_ring_payloads.clear();
         self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
             next_global_dir_edge_ids,
             cycle_start_global_dir_edge_ids,
@@ -13913,6 +14126,108 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_extraction_gate"
+        ));
+    }
+
+    #[test]
+    fn global_face_ring_payloads_materialize_canonical_face_source_and_z_evidence() {
+        let mut graph = nested_global_face_cycle_geometry_graph();
+        graph.global_face_id_by_global_dir_edge_id = vec![
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(1),
+            Some(1),
+            Some(1),
+            Some(1),
+        ];
+        let stats = graph
+            .materialize_global_face_ring_payloads(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceRingPayloadStats {
+                edge_count: 8,
+                cycle_count: 2,
+                materialized_cycle_count: 2,
+                coordinate_count: 10,
+                source_line_id_count: 2,
+                unbounded_cycle_count: 1,
+                materialization_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph.global_face_ring_payloads().len(), 2);
+        assert_eq!(
+            graph.global_face_ring_payloads()[0].candidate_global_face_id,
+            0
+        );
+        assert_eq!(graph.global_face_ring_payloads()[0].coords.len(), 5);
+        assert_eq!(
+            graph.global_face_ring_payloads()[0].source_line_ids,
+            vec![1]
+        );
+        assert!(!graph.global_face_ring_payloads()[0].unbounded);
+        assert!(graph.global_face_ring_payloads()[1].unbounded);
+    }
+
+    #[test]
+    fn global_face_ring_payloads_are_atomic_bounded_and_cancellable() {
+        let mut graph = nested_global_face_cycle_geometry_graph();
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0); 8];
+        let before = graph.clone();
+        let stats = graph
+            .materialize_global_face_ring_payloads(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats::default(),
+            )
+            .unwrap();
+        assert!(!stats.materialization_ready);
+        assert!(graph.global_face_ring_payloads().is_empty());
+        assert_eq!(graph, before);
+
+        let error = graph
+            .materialize_global_face_ring_payloads(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceExtractionGateStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 8,
+            } if stage == "partition_border_global_face_ring_payloads_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .materialize_global_face_ring_payloads(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceExtractionGateStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_ring_payloads"
         ));
     }
 

@@ -577,6 +577,9 @@ Blocked by #1288.
 - [x] Combine committed detached face identity, successor, cycle lineage,
   payload, geometry, and canonical ring evidence into one bounded final
   pre-extraction readiness record without promoting local topology or output.
+- [x] Materialize canonical detached ring payload evidence with face IDs,
+  source lineage, endpoint Z, and exactly-one-unbounded coverage only after the
+  final gate; retain it privately without merging stitched output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
