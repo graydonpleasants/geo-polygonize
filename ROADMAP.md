@@ -567,6 +567,10 @@ Blocked by #1288.
   lineage, endpoint Z, face metadata, and reconciled global-node payloads;
   retain missing or corrupt payloads as bounded evidence without mutating
   topology or output.
+- [x] Validate detached cycle geometry from the committed successor and node
+  payloads, retaining winding, nested-containment, shell/hole orientation, and
+  exactly-one-unbounded negative-orientation evidence without classifying or
+  extracting stitched output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

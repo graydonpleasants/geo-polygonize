@@ -5,9 +5,10 @@ use crate::graph::partition_border::{
     PartitionBorderCanonicalNodeValidationStats, PartitionBorderGlobalComponentCoverageStats,
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalCycleFaceLineageStats, PartitionBorderGlobalCycleFacePromotionGateStats,
-    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
-    PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityInvariantStats,
+    PartitionBorderGlobalFaceCycleGeometryStats, PartitionBorderGlobalFaceEdgeMapStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
+    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
+    PartitionBorderGlobalFaceIdentityInvariantStats,
     PartitionBorderGlobalFaceIdentityMaterializationStats,
     PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
@@ -1351,6 +1352,40 @@ impl TraceRecorderV1 {
                 "face_lineage_mismatch_count": stats.face_lineage_mismatch_count,
                 "node_lineage_mismatch_count": stats.node_lineage_mismatch_count,
                 "lineage_ready": stats.lineage_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_cycle_geometry(
+        &mut self,
+        stats: PartitionBorderGlobalFaceCycleGeometryStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_cycle_geometry",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "checked_cycle_count": stats.checked_cycle_count,
+                "closed_cycle_count": stats.closed_cycle_count,
+                "missing_node_count": stats.missing_node_count,
+                "node_discontinuity_count": stats.node_discontinuity_count,
+                "repeated_edge_count": stats.repeated_edge_count,
+                "missing_face_id_count": stats.missing_face_id_count,
+                "missing_interior_point_count": stats.missing_interior_point_count,
+                "degenerate_cycle_count": stats.degenerate_cycle_count,
+                "positive_cycle_count": stats.positive_cycle_count,
+                "negative_cycle_count": stats.negative_cycle_count,
+                "unbounded_cycle_count": stats.unbounded_cycle_count,
+                "unbounded_orientation_mismatch_count":
+                    stats.unbounded_orientation_mismatch_count,
+                "containment_pair_count": stats.containment_pair_count,
+                "contained_cycle_count": stats.contained_cycle_count,
+                "nested_opposite_orientation_pair_count":
+                    stats.nested_opposite_orientation_pair_count,
+                "nested_same_orientation_pair_count":
+                    stats.nested_same_orientation_pair_count,
+                "geometry_ready": stats.geometry_ready,
             }),
         )
     }
