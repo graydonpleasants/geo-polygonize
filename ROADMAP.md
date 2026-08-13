@@ -574,6 +574,9 @@ Blocked by #1288.
   overlap evidence without classifying or extracting stitched output; retain
   stable canonical ring payload, non-adjacent self-intersection, and reciprocal
   symmetric-edge coverage evidence as a separate pre-extraction gate.
+- [x] Combine committed detached face identity, successor, cycle lineage,
+  payload, geometry, and canonical ring evidence into one bounded final
+  pre-extraction readiness record without promoting local topology or output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

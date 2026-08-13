@@ -6,9 +6,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalCycleFaceLineageStats, PartitionBorderGlobalCycleFacePromotionGateStats,
     PartitionBorderGlobalFaceCycleGeometryStats, PartitionBorderGlobalFaceEdgeMapStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
-    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
-    PartitionBorderGlobalFaceIdentityInvariantStats,
+    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceExtractionGateStats,
+    PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityInvariantStats,
     PartitionBorderGlobalFaceIdentityMaterializationStats,
     PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
@@ -1402,6 +1402,30 @@ impl TraceRecorderV1 {
                 "reciprocal_edge_mismatch_count": stats.reciprocal_edge_mismatch_count,
                 "ring_payload_ready": stats.ring_payload_ready,
                 "geometry_ready": stats.geometry_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_extraction_gate(
+        &mut self,
+        stats: PartitionBorderGlobalFaceExtractionGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_extraction_gate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "identity_invariants_ready": stats.identity_invariants_ready,
+                "next_lineage_ready": stats.next_lineage_ready,
+                "cycle_face_lineage_ready": stats.cycle_face_lineage_ready,
+                "promotion_gate_ready": stats.promotion_gate_ready,
+                "payload_lineage_ready": stats.payload_lineage_ready,
+                "geometry_ready": stats.geometry_ready,
+                "ring_payload_ready": stats.ring_payload_ready,
+                "edge_count_mismatch_count": stats.edge_count_mismatch_count,
+                "cycle_count_mismatch_count": stats.cycle_count_mismatch_count,
+                "extraction_ready": stats.extraction_ready,
             }),
         )
     }
