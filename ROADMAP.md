@@ -559,6 +559,10 @@ Blocked by #1288.
   global face plan, validating observation slots, qualified local face
   lineage, and local-unbounded marker lineage without mutating topology or
   output.
+- [x] Cross-check detached cycle/face lineage against complete component
+  coverage and exactly-one-unbounded application evidence with explicit count
+  mismatches and bounded cancellation/limit handling; keep the promotion gate
+  evidence-only.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

@@ -4,10 +4,10 @@ use crate::fingerprint::{coordinate_fingerprint, float_bits};
 use crate::graph::partition_border::{
     PartitionBorderCanonicalNodeValidationStats, PartitionBorderGlobalComponentCoverageStats,
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
-    PartitionBorderGlobalCycleFaceLineageStats, PartitionBorderGlobalFaceEdgeMapStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceIdApplicationStats,
-    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
-    PartitionBorderGlobalFaceIdentityInvariantStats,
+    PartitionBorderGlobalCycleFaceLineageStats, PartitionBorderGlobalCycleFacePromotionGateStats,
+    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
+    PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
+    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityInvariantStats,
     PartitionBorderGlobalFaceIdentityMaterializationStats,
     PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
@@ -1296,6 +1296,35 @@ impl TraceRecorderV1 {
                 "identity_ready": stats.identity_ready,
                 "next_lineage_ready": stats.next_lineage_ready,
                 "lineage_ready": stats.lineage_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_cycle_face_promotion_gate(
+        &mut self,
+        stats: PartitionBorderGlobalCycleFacePromotionGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_cycle_face_promotion_gate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "plan_count": stats.plan_count,
+                "component_count": stats.component_count,
+                "face_count": stats.face_count,
+                "covered_face_edge_count": stats.covered_face_edge_count,
+                "candidate_unbounded_face_id_count": stats.candidate_unbounded_face_id_count,
+                "mapped_unbounded_cycle_count": stats.mapped_unbounded_cycle_count,
+                "lineage_ready": stats.lineage_ready,
+                "component_coverage_ready": stats.component_coverage_ready,
+                "unbounded_face_application_ready": stats.unbounded_face_application_ready,
+                "edge_count_mismatch_count": stats.edge_count_mismatch_count,
+                "cycle_count_mismatch_count": stats.cycle_count_mismatch_count,
+                "plan_count_mismatch_count": stats.plan_count_mismatch_count,
+                "face_count_mismatch_count": stats.face_count_mismatch_count,
+                "unbounded_marker_mismatch_count": stats.unbounded_marker_mismatch_count,
+                "gate_ready": stats.gate_ready,
             }),
         )
     }
