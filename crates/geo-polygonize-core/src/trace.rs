@@ -1395,6 +1395,12 @@ impl TraceRecorderV1 {
                 "unexpected_collinear_overlap_count":
                     stats.unexpected_collinear_overlap_count,
                 "interaction_ready": stats.interaction_ready,
+                "canonical_ring_count": stats.canonical_ring_count,
+                "canonical_ring_mismatch_count": stats.canonical_ring_mismatch_count,
+                "self_intersection_count": stats.self_intersection_count,
+                "reciprocal_edge_count": stats.reciprocal_edge_count,
+                "reciprocal_edge_mismatch_count": stats.reciprocal_edge_mismatch_count,
+                "ring_payload_ready": stats.ring_payload_ready,
                 "geometry_ready": stats.geometry_ready,
             }),
         )

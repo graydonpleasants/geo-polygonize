@@ -584,6 +584,18 @@ pub struct StitchingReport {
     pub partition_border_global_face_cycle_geometry_collinear_overlap_count: usize,
     pub partition_border_global_face_cycle_geometry_unexpected_collinear_overlap_count: usize,
     pub partition_border_global_face_cycle_geometry_interaction_ready: bool,
+    /// Closed detached cycles that canonicalize into stable coordinate/Z payloads.
+    pub partition_border_global_face_cycle_geometry_canonical_ring_count: usize,
+    /// Detached cycles whose canonical ring payload was not stable on repeat.
+    pub partition_border_global_face_cycle_geometry_canonical_ring_mismatch_count: usize,
+    /// Non-adjacent edge intersections within one detached cycle.
+    pub partition_border_global_face_cycle_geometry_self_intersection_count: usize,
+    /// Detached edges with reciprocal symmetric-edge coverage.
+    pub partition_border_global_face_cycle_geometry_reciprocal_edge_count: usize,
+    /// Detached edges with missing or non-reciprocal symmetric-edge coverage.
+    pub partition_border_global_face_cycle_geometry_reciprocal_edge_mismatch_count: usize,
+    /// Whether detached ring payload evidence is ready for a future extraction gate.
+    pub partition_border_global_face_cycle_geometry_ring_payload_ready: bool,
     pub partition_border_global_face_cycle_geometry_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
@@ -3705,6 +3717,18 @@ impl<'a> TiledPolygonizer<'a> {
                         .unexpected_collinear_overlap_count,
                 partition_border_global_face_cycle_geometry_interaction_ready:
                     partition_border_global_face_cycle_geometry.interaction_ready,
+                partition_border_global_face_cycle_geometry_canonical_ring_count:
+                    partition_border_global_face_cycle_geometry.canonical_ring_count,
+                partition_border_global_face_cycle_geometry_canonical_ring_mismatch_count:
+                    partition_border_global_face_cycle_geometry.canonical_ring_mismatch_count,
+                partition_border_global_face_cycle_geometry_self_intersection_count:
+                    partition_border_global_face_cycle_geometry.self_intersection_count,
+                partition_border_global_face_cycle_geometry_reciprocal_edge_count:
+                    partition_border_global_face_cycle_geometry.reciprocal_edge_count,
+                partition_border_global_face_cycle_geometry_reciprocal_edge_mismatch_count:
+                    partition_border_global_face_cycle_geometry.reciprocal_edge_mismatch_count,
+                partition_border_global_face_cycle_geometry_ring_payload_ready:
+                    partition_border_global_face_cycle_geometry.ring_payload_ready,
                 partition_border_global_face_cycle_geometry_ready:
                     partition_border_global_face_cycle_geometry.geometry_ready,
                 partition_border_global_unbounded_face_proof_closed_count:

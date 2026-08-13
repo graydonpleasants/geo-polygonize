@@ -1,4 +1,5 @@
 use crate::options::{ExecutionPolicy, ZOptions, ZPolicy};
+use crate::polygonizer::canonicalize_ring;
 use crate::types::{Coord3D, PartitionFaceRef, Polygon3D};
 use crate::utils::canonical_coordinate_bits;
 use geo::algorithm::line_intersection::{line_intersection, LineIntersection};
@@ -892,6 +893,12 @@ pub(crate) struct PartitionBorderGlobalFaceCycleGeometryStats {
     pub(crate) collinear_overlap_count: usize,
     pub(crate) unexpected_collinear_overlap_count: usize,
     pub(crate) interaction_ready: bool,
+    pub(crate) canonical_ring_count: usize,
+    pub(crate) canonical_ring_mismatch_count: usize,
+    pub(crate) self_intersection_count: usize,
+    pub(crate) reciprocal_edge_count: usize,
+    pub(crate) reciprocal_edge_mismatch_count: usize,
+    pub(crate) ring_payload_ready: bool,
     pub(crate) geometry_ready: bool,
 }
 
@@ -2714,6 +2721,16 @@ impl PartitionBorderGraph {
             stats.closed_cycle_count += 1;
             stats.checked_cycle_count += 1;
             coords.push(coords[0]);
+            let mut canonical_coords = coords.clone();
+            canonicalize_ring(&mut canonical_coords, None);
+            let mut rotated_coords = coords[..coords.len() - 1].to_vec();
+            rotated_coords.rotate_left(1);
+            rotated_coords.push(rotated_coords[0]);
+            canonicalize_ring(&mut rotated_coords, None);
+            stats.canonical_ring_count += 1;
+            if canonical_coords != rotated_coords {
+                stats.canonical_ring_mismatch_count += 1;
+            }
             let area = Polygon3D::ring_signed_area_2d(&coords);
             if !area.is_finite() || area == 0.0 {
                 stats.degenerate_cycle_count += 1;
@@ -2740,6 +2757,22 @@ impl PartitionBorderGraph {
                 continue;
             }
             valid_cycles.push((polygon, area));
+        }
+
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_cycle_geometry_reciprocal_edges",
+                edge_index,
+            )?;
+            let reciprocal = self
+                .global_face_edge_map
+                .get(edge.symmetric_global_dir_edge_id)
+                .is_some_and(|symmetric| symmetric.symmetric_global_dir_edge_id == edge_index);
+            if reciprocal {
+                stats.reciprocal_edge_count += 1;
+            } else {
+                stats.reciprocal_edge_mismatch_count += 1;
+            }
         }
 
         let containment_work = valid_cycles
@@ -2820,6 +2853,9 @@ impl PartitionBorderGraph {
                         intersection,
                         is_proper,
                     }) => {
+                        if same_cycle && !adjacent {
+                            stats.self_intersection_count += 1;
+                        }
                         if is_proper {
                             stats.proper_crossing_count += 1;
                         } else {
@@ -2878,6 +2914,13 @@ impl PartitionBorderGraph {
             && stats.degenerate_cycle_count == 0
             && stats.unbounded_cycle_count == 1
             && stats.unbounded_orientation_mismatch_count == 0;
+        stats.ring_payload_ready = stats.geometry_ready
+            && stats.interaction_ready
+            && stats.canonical_ring_count == cycle_count
+            && stats.canonical_ring_mismatch_count == 0
+            && stats.self_intersection_count == 0
+            && stats.reciprocal_edge_count == edge_count
+            && stats.reciprocal_edge_mismatch_count == 0;
         Ok(stats)
     }
 
@@ -13534,7 +13577,13 @@ mod tests {
         assert_eq!(stats.boundary_touch_count, 0);
         assert_eq!(stats.collinear_overlap_count, 0);
         assert_eq!(stats.unexpected_collinear_overlap_count, 0);
+        assert_eq!(stats.canonical_ring_count, 2);
+        assert_eq!(stats.canonical_ring_mismatch_count, 0);
+        assert_eq!(stats.self_intersection_count, 0);
+        assert_eq!(stats.reciprocal_edge_count, 8);
+        assert_eq!(stats.reciprocal_edge_mismatch_count, 0);
         assert!(stats.interaction_ready);
+        assert!(stats.ring_payload_ready);
         assert!(stats.geometry_ready);
         assert_eq!(graph, before);
     }
@@ -13564,6 +13613,38 @@ mod tests {
         assert!(stats.collinear_overlap_count > 0);
         assert!(stats.unexpected_collinear_overlap_count > 0);
         assert!(!stats.interaction_ready);
+    }
+
+    #[test]
+    fn global_face_cycle_geometry_rejects_self_intersection_and_reciprocal_drift() {
+        let graph =
+            cycle_geometry_graph(&[vec![(0.0, 0.0), (4.0, 4.0), (0.0, 4.0), (4.0, 0.0)]], 0);
+        let stats = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(stats.self_intersection_count > 0);
+        assert!(!stats.ring_payload_ready);
+
+        let mut graph = nested_global_face_cycle_geometry_graph();
+        graph.global_face_edge_map[0].symmetric_global_dir_edge_id = usize::MAX;
+        let stats = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.reciprocal_edge_count, 7);
+        assert_eq!(stats.reciprocal_edge_mismatch_count, 1);
+        assert!(!stats.ring_payload_ready);
     }
 
     #[test]
