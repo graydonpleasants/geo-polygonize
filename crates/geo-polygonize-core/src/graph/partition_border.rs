@@ -1,7 +1,8 @@
 use crate::options::{ExecutionPolicy, ZOptions, ZPolicy};
-use crate::types::{Coord3D, PartitionFaceRef};
+use crate::types::{Coord3D, PartitionFaceRef, Polygon3D};
 use crate::utils::canonical_coordinate_bits;
-use geo_types::Rect;
+use geo::{Contains, InteriorPoint};
+use geo_types::{LineString, Polygon, Rect};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::planar_graph::{DirEdgeId, FaceId};
@@ -857,6 +858,31 @@ pub(crate) struct PartitionBorderGlobalFacePayloadLineageStats {
     pub(crate) face_lineage_mismatch_count: usize,
     pub(crate) node_lineage_mismatch_count: usize,
     pub(crate) lineage_ready: bool,
+}
+
+/// Counts detached cycle geometry evidence after payload lineage. This is a
+/// diagnostic boundary only: it does not classify or extract stitched output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceCycleGeometryStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) checked_cycle_count: usize,
+    pub(crate) closed_cycle_count: usize,
+    pub(crate) missing_node_count: usize,
+    pub(crate) node_discontinuity_count: usize,
+    pub(crate) repeated_edge_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) missing_interior_point_count: usize,
+    pub(crate) degenerate_cycle_count: usize,
+    pub(crate) positive_cycle_count: usize,
+    pub(crate) negative_cycle_count: usize,
+    pub(crate) unbounded_cycle_count: usize,
+    pub(crate) unbounded_orientation_mismatch_count: usize,
+    pub(crate) containment_pair_count: usize,
+    pub(crate) contained_cycle_count: usize,
+    pub(crate) nested_opposite_orientation_pair_count: usize,
+    pub(crate) nested_same_orientation_pair_count: usize,
+    pub(crate) geometry_ready: bool,
 }
 
 /// Counts from validating a detached global directed-edge topology candidate.
@@ -2546,6 +2572,204 @@ impl PartitionBorderGraph {
             && stats.z_lineage_mismatch_count == 0
             && stats.face_lineage_mismatch_count == 0
             && stats.node_lineage_mismatch_count == 0;
+        Ok(stats)
+    }
+
+    /// Validates detached cycle geometry after payload lineage. Positive and
+    /// negative winding, nesting, and the unbounded marker are retained as
+    /// evidence; no shell, hole, face, or output classification is applied.
+    pub(crate) fn validate_global_face_cycle_geometry(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        payload_lineage: PartitionBorderGlobalFacePayloadLineageStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceCycleGeometryStats> {
+        execution_policy.check_cancelled("partition_border_global_face_cycle_geometry")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_cycle_geometry_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face cycle geometry has no detached topology candidate".to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != edge_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face cycle geometry successor length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    edge_count
+                ),
+            });
+        }
+        let cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        execution_policy.check(
+            "partition_border_global_face_cycle_geometry_cycles",
+            execution_policy.max_graph_nodes,
+            cycle_count,
+        )?;
+
+        let mut stats = PartitionBorderGlobalFaceCycleGeometryStats {
+            edge_count,
+            cycle_count,
+            ..Default::default()
+        };
+        let unbounded_start = self
+            .global_unbounded_face_id_by_cycle_start
+            .map(|(_, start)| start);
+        let mut valid_cycles = Vec::<(Polygon<f64>, f64)>::new();
+
+        for (cycle_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_cycle_geometry_cycles",
+                cycle_index,
+            )?;
+            if start >= edge_count {
+                stats.repeated_edge_count += 1;
+                continue;
+            }
+            if self
+                .global_face_id_by_cycle_start
+                .get(cycle_index)
+                .copied()
+                .flatten()
+                .is_none()
+            {
+                stats.missing_face_id_count += 1;
+            }
+
+            let mut coords = Vec::new();
+            let mut visited = BTreeSet::new();
+            let mut current = start;
+            let mut closed = true;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_cycle_geometry_cycle_edges",
+                    visited.len(),
+                )?;
+                if !visited.insert(current) {
+                    if current != start {
+                        stats.repeated_edge_count += 1;
+                        closed = false;
+                    }
+                    break;
+                }
+                let Some(edge) = self.global_face_edge_map.get(current) else {
+                    closed = false;
+                    break;
+                };
+                for (node_id, key) in [
+                    (edge.from_global_node_id, edge.from),
+                    (edge.to_global_node_id, edge.to),
+                ] {
+                    let valid_node = node_id
+                        .and_then(|node_id| self.global_face_nodes.get(node_id))
+                        .is_some_and(|node| node.key == key);
+                    if !valid_node {
+                        stats.missing_node_count += 1;
+                    }
+                }
+                coords.push(Coord3D::new(
+                    f64::from_bits(edge.from.xy_bits()[0]),
+                    f64::from_bits(edge.from.xy_bits()[1]),
+                    f64::from_bits(edge.from_z_bits),
+                ));
+                let Some(successor) = candidate
+                    .next_global_dir_edge_ids
+                    .get(current)
+                    .copied()
+                    .flatten()
+                else {
+                    closed = false;
+                    break;
+                };
+                if successor >= edge_count {
+                    closed = false;
+                    break;
+                }
+                if self.global_face_edge_map[successor].from != edge.to {
+                    stats.node_discontinuity_count += 1;
+                }
+                current = successor;
+            }
+            if !closed || coords.len() < 3 {
+                continue;
+            }
+            stats.closed_cycle_count += 1;
+            stats.checked_cycle_count += 1;
+            coords.push(coords[0]);
+            let area = Polygon3D::ring_signed_area_2d(&coords);
+            if !area.is_finite() || area == 0.0 {
+                stats.degenerate_cycle_count += 1;
+                continue;
+            }
+            if area > 0.0 {
+                stats.positive_cycle_count += 1;
+            } else {
+                stats.negative_cycle_count += 1;
+            }
+            let unbounded = unbounded_start == Some(start);
+            if unbounded {
+                stats.unbounded_cycle_count += 1;
+                if area >= 0.0 {
+                    stats.unbounded_orientation_mismatch_count += 1;
+                }
+            }
+            let polygon = Polygon::new(
+                LineString(coords.iter().copied().map(Coord3D::to_coord_2d).collect()),
+                Vec::new(),
+            );
+            if polygon.interior_point().is_none() {
+                stats.missing_interior_point_count += 1;
+                continue;
+            }
+            valid_cycles.push((polygon, area));
+        }
+
+        let containment_work = valid_cycles
+            .len()
+            .checked_mul(valid_cycles.len())
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face cycle containment work count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            "partition_border_global_face_cycle_geometry_containment",
+            execution_policy.max_candidate_pairs,
+            containment_work,
+        )?;
+        let mut contained_cycles = BTreeSet::new();
+        for (outer_index, (outer, outer_area)) in valid_cycles.iter().enumerate() {
+            for (inner_index, (inner, inner_area)) in valid_cycles.iter().enumerate() {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_cycle_geometry_containment",
+                    outer_index * valid_cycles.len() + inner_index,
+                )?;
+                if outer_index == inner_index || !outer.contains(inner.exterior()) {
+                    continue;
+                }
+                stats.containment_pair_count += 1;
+                contained_cycles.insert(inner_index);
+                if outer_area.is_sign_positive() != inner_area.is_sign_positive() {
+                    stats.nested_opposite_orientation_pair_count += 1;
+                } else {
+                    stats.nested_same_orientation_pair_count += 1;
+                }
+            }
+        }
+        stats.contained_cycle_count = contained_cycles.len();
+        stats.geometry_ready = payload_lineage.lineage_ready
+            && stats.checked_cycle_count == cycle_count
+            && stats.closed_cycle_count == cycle_count
+            && stats.missing_node_count == 0
+            && stats.node_discontinuity_count == 0
+            && stats.repeated_edge_count == 0
+            && stats.missing_face_id_count == 0
+            && stats.missing_interior_point_count == 0
+            && stats.degenerate_cycle_count == 0
+            && stats.unbounded_cycle_count == 1
+            && stats.unbounded_orientation_mismatch_count == 0;
         Ok(stats)
     }
 
@@ -13076,6 +13300,163 @@ mod tests {
             })
             .collect();
         graph
+    }
+
+    fn nested_global_face_cycle_geometry_graph() -> PartitionBorderGraph {
+        let rings = [
+            [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            [(2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0)],
+        ];
+        let mut graph = PartitionBorderGraph::default();
+        let mut node_ids = BTreeMap::new();
+        for (x, y) in rings.iter().flatten().copied() {
+            let key = PartitionBorderNodeKey::from_coord(coord(x, y, 0.0));
+            let node_id = node_ids.len();
+            node_ids.entry(key).or_insert_with(|| {
+                graph.global_face_nodes.push(PartitionBorderGlobalFaceNode {
+                    global_node_id: node_id,
+                    key,
+                    observation_ids: Vec::new(),
+                    source_line_ids: vec![1],
+                    representative_line_ids: vec![1],
+                    face_refs: Vec::new(),
+                    z_bits: vec![0.0f64.to_bits()],
+                    selected_z_bits: 0.0f64.to_bits(),
+                    selected_z_policy: ZPolicy::default(),
+                    conflict_tolerance_bits: 0,
+                    z_conflict: false,
+                    incident_global_dir_edge_ids: Vec::new(),
+                });
+                node_id
+            });
+        }
+        let mut next = vec![None; 8];
+        for (ring_index, ring) in rings.iter().enumerate() {
+            let offset = ring_index * 4;
+            for edge_index in 0..4 {
+                let from = ring[edge_index];
+                let to = ring[(edge_index + 1) % 4];
+                let from_key = PartitionBorderNodeKey::from_coord(coord(from.0, from.1, 0.0));
+                let to_key = PartitionBorderNodeKey::from_coord(coord(to.0, to.1, 0.0));
+                let global_index = offset + edge_index;
+                next[global_index] = Some(offset + (edge_index + 1) % 4);
+                graph
+                    .global_face_edge_map
+                    .push(PartitionBorderGlobalFaceEdge {
+                        global_dir_edge_id: global_index,
+                        partition_id: 0,
+                        component_id: 0,
+                        local_dir_edge_id: global_index,
+                        symmetric_global_dir_edge_id: global_index,
+                        local_face_successor_global_dir_edge_id: None,
+                        cross_border_twin_global_dir_edge_id: None,
+                        from_global_node_id: Some(node_ids[&from_key]),
+                        to_global_node_id: Some(node_ids[&to_key]),
+                        from: from_key,
+                        to: to_key,
+                        from_z_bits: 0.0f64.to_bits(),
+                        to_z_bits: 0.0f64.to_bits(),
+                        edge_key: PartitionBorderEdgeKey::new(from_key, to_key).unwrap(),
+                        face_ref: None,
+                        local_face_is_unbounded: ring_index == 1,
+                        source_line_ids: vec![1],
+                    });
+            }
+        }
+        graph.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: next,
+            cycle_start_global_dir_edge_ids: vec![0, 4],
+        });
+        graph.global_face_id_by_cycle_start = vec![Some(0), Some(1)];
+        graph.global_unbounded_face_id_by_cycle_start = Some((1, 4));
+        graph
+    }
+
+    #[test]
+    fn global_face_cycle_geometry_reports_nested_opposite_winding() {
+        let graph = nested_global_face_cycle_geometry_graph();
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count, 8);
+        assert_eq!(stats.cycle_count, 2);
+        assert_eq!(stats.checked_cycle_count, 2);
+        assert_eq!(stats.positive_cycle_count, 1);
+        assert_eq!(stats.negative_cycle_count, 1);
+        assert_eq!(stats.unbounded_cycle_count, 1);
+        assert_eq!(stats.containment_pair_count, 1);
+        assert_eq!(stats.contained_cycle_count, 1);
+        assert_eq!(stats.nested_opposite_orientation_pair_count, 1);
+        assert_eq!(stats.nested_same_orientation_pair_count, 0);
+        assert!(stats.geometry_ready);
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_face_cycle_geometry_is_bounded_and_cancellable() {
+        let graph = nested_global_face_cycle_geometry_graph();
+        let error = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFacePayloadLineageStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 8,
+            } if stage == "partition_border_global_face_cycle_geometry_edges"
+        ));
+
+        let error = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy {
+                    max_candidate_pairs: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_face_cycle_geometry_containment"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFacePayloadLineageStats::default(),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_cycle_geometry"
+        ));
     }
 
     #[test]

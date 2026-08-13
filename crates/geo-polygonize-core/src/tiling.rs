@@ -556,6 +556,26 @@ pub struct StitchingReport {
     pub partition_border_global_face_payload_lineage_face_mismatch_count: usize,
     pub partition_border_global_face_payload_lineage_node_mismatch_count: usize,
     pub partition_border_global_face_payload_lineage_ready: bool,
+    /// Detached cycle winding and containment evidence; no output is promoted.
+    pub partition_border_global_face_cycle_geometry_edge_count: usize,
+    pub partition_border_global_face_cycle_geometry_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_checked_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_closed_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_missing_node_count: usize,
+    pub partition_border_global_face_cycle_geometry_node_discontinuity_count: usize,
+    pub partition_border_global_face_cycle_geometry_repeated_edge_count: usize,
+    pub partition_border_global_face_cycle_geometry_missing_face_id_count: usize,
+    pub partition_border_global_face_cycle_geometry_missing_interior_point_count: usize,
+    pub partition_border_global_face_cycle_geometry_degenerate_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_positive_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_negative_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_unbounded_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_unbounded_orientation_mismatch_count: usize,
+    pub partition_border_global_face_cycle_geometry_containment_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_contained_cycle_count: usize,
+    pub partition_border_global_face_cycle_geometry_nested_opposite_orientation_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_nested_same_orientation_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2867,6 +2887,11 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_cycle_face_promotion_gate,
             )?;
+        let partition_border_global_face_cycle_geometry = partition_border_graph
+            .validate_global_face_cycle_geometry(
+                &self.execution_policy,
+                partition_border_global_face_payload_lineage,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2968,6 +2993,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_payload_lineage(
                 partition_border_global_face_payload_lineage,
+            );
+            trace.record_partition_border_global_face_cycle_geometry(
+                partition_border_global_face_cycle_geometry,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3610,6 +3638,47 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_payload_lineage.node_lineage_mismatch_count,
                 partition_border_global_face_payload_lineage_ready:
                     partition_border_global_face_payload_lineage.lineage_ready,
+                partition_border_global_face_cycle_geometry_edge_count:
+                    partition_border_global_face_cycle_geometry.edge_count,
+                partition_border_global_face_cycle_geometry_cycle_count:
+                    partition_border_global_face_cycle_geometry.cycle_count,
+                partition_border_global_face_cycle_geometry_checked_cycle_count:
+                    partition_border_global_face_cycle_geometry.checked_cycle_count,
+                partition_border_global_face_cycle_geometry_closed_cycle_count:
+                    partition_border_global_face_cycle_geometry.closed_cycle_count,
+                partition_border_global_face_cycle_geometry_missing_node_count:
+                    partition_border_global_face_cycle_geometry.missing_node_count,
+                partition_border_global_face_cycle_geometry_node_discontinuity_count:
+                    partition_border_global_face_cycle_geometry.node_discontinuity_count,
+                partition_border_global_face_cycle_geometry_repeated_edge_count:
+                    partition_border_global_face_cycle_geometry.repeated_edge_count,
+                partition_border_global_face_cycle_geometry_missing_face_id_count:
+                    partition_border_global_face_cycle_geometry.missing_face_id_count,
+                partition_border_global_face_cycle_geometry_missing_interior_point_count:
+                    partition_border_global_face_cycle_geometry.missing_interior_point_count,
+                partition_border_global_face_cycle_geometry_degenerate_cycle_count:
+                    partition_border_global_face_cycle_geometry.degenerate_cycle_count,
+                partition_border_global_face_cycle_geometry_positive_cycle_count:
+                    partition_border_global_face_cycle_geometry.positive_cycle_count,
+                partition_border_global_face_cycle_geometry_negative_cycle_count:
+                    partition_border_global_face_cycle_geometry.negative_cycle_count,
+                partition_border_global_face_cycle_geometry_unbounded_cycle_count:
+                    partition_border_global_face_cycle_geometry.unbounded_cycle_count,
+                partition_border_global_face_cycle_geometry_unbounded_orientation_mismatch_count:
+                    partition_border_global_face_cycle_geometry
+                        .unbounded_orientation_mismatch_count,
+                partition_border_global_face_cycle_geometry_containment_pair_count:
+                    partition_border_global_face_cycle_geometry.containment_pair_count,
+                partition_border_global_face_cycle_geometry_contained_cycle_count:
+                    partition_border_global_face_cycle_geometry.contained_cycle_count,
+                partition_border_global_face_cycle_geometry_nested_opposite_orientation_pair_count:
+                    partition_border_global_face_cycle_geometry
+                        .nested_opposite_orientation_pair_count,
+                partition_border_global_face_cycle_geometry_nested_same_orientation_pair_count:
+                    partition_border_global_face_cycle_geometry
+                        .nested_same_orientation_pair_count,
+                partition_border_global_face_cycle_geometry_ready:
+                    partition_border_global_face_cycle_geometry.geometry_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
