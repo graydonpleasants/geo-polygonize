@@ -584,6 +584,9 @@ Blocked by #1288.
   candidates using winding and containment depth; keep the unbounded cycle
   separate and reject crossings, touches, unexpected overlaps, and same-winding
   nesting without promoting stitched output.
+- [x] Assemble deterministic private shell-to-hole candidate groups from the
+  classified rings; require every bounded hole to have one containing shell and
+  retain unassigned or multiply-contained holes without promoting output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
