@@ -601,6 +601,18 @@ pub struct StitchingReport {
     pub partition_border_global_face_extraction_gate_ready: bool,
     pub partition_border_global_face_extraction_gate_edge_count_mismatch_count: usize,
     pub partition_border_global_face_extraction_gate_cycle_count_mismatch_count: usize,
+    /// Detached canonical ring payloads retained after the extraction gate.
+    pub partition_border_global_face_ring_payload_edge_count: usize,
+    pub partition_border_global_face_ring_payload_cycle_count: usize,
+    pub partition_border_global_face_ring_payload_materialized_cycle_count: usize,
+    pub partition_border_global_face_ring_payload_coordinate_count: usize,
+    pub partition_border_global_face_ring_payload_source_line_id_count: usize,
+    pub partition_border_global_face_ring_payload_missing_face_id_count: usize,
+    pub partition_border_global_face_ring_payload_missing_edge_face_id_count: usize,
+    pub partition_border_global_face_ring_payload_invalid_cycle_count: usize,
+    pub partition_border_global_face_ring_payload_canonical_ring_mismatch_count: usize,
+    pub partition_border_global_face_ring_payload_unbounded_cycle_count: usize,
+    pub partition_border_global_face_ring_payload_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2927,6 +2939,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_payload_lineage,
                 partition_border_global_face_cycle_geometry,
             )?;
+        let partition_border_global_face_ring_payloads = partition_border_graph
+            .materialize_global_face_ring_payloads(
+                &self.execution_policy,
+                partition_border_global_face_extraction_gate,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -3034,6 +3051,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_extraction_gate(
                 partition_border_global_face_extraction_gate,
+            );
+            trace.record_partition_border_global_face_ring_payloads(
+                partition_border_global_face_ring_payloads,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3754,6 +3774,28 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_extraction_gate.edge_count_mismatch_count,
                 partition_border_global_face_extraction_gate_cycle_count_mismatch_count:
                     partition_border_global_face_extraction_gate.cycle_count_mismatch_count,
+                partition_border_global_face_ring_payload_edge_count:
+                    partition_border_global_face_ring_payloads.edge_count,
+                partition_border_global_face_ring_payload_cycle_count:
+                    partition_border_global_face_ring_payloads.cycle_count,
+                partition_border_global_face_ring_payload_materialized_cycle_count:
+                    partition_border_global_face_ring_payloads.materialized_cycle_count,
+                partition_border_global_face_ring_payload_coordinate_count:
+                    partition_border_global_face_ring_payloads.coordinate_count,
+                partition_border_global_face_ring_payload_source_line_id_count:
+                    partition_border_global_face_ring_payloads.source_line_id_count,
+                partition_border_global_face_ring_payload_missing_face_id_count:
+                    partition_border_global_face_ring_payloads.missing_face_id_count,
+                partition_border_global_face_ring_payload_missing_edge_face_id_count:
+                    partition_border_global_face_ring_payloads.missing_edge_face_id_count,
+                partition_border_global_face_ring_payload_invalid_cycle_count:
+                    partition_border_global_face_ring_payloads.invalid_cycle_count,
+                partition_border_global_face_ring_payload_canonical_ring_mismatch_count:
+                    partition_border_global_face_ring_payloads.canonical_ring_mismatch_count,
+                partition_border_global_face_ring_payload_unbounded_cycle_count:
+                    partition_border_global_face_ring_payloads.unbounded_cycle_count,
+                partition_border_global_face_ring_payload_ready:
+                    partition_border_global_face_ring_payloads.materialization_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

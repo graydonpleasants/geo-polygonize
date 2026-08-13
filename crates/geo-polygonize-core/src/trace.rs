@@ -15,8 +15,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePayloadLineageStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
+    PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalNextLineageIntegrationStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1426,6 +1427,29 @@ impl TraceRecorderV1 {
                 "edge_count_mismatch_count": stats.edge_count_mismatch_count,
                 "cycle_count_mismatch_count": stats.cycle_count_mismatch_count,
                 "extraction_ready": stats.extraction_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_ring_payloads(
+        &mut self,
+        stats: PartitionBorderGlobalFaceRingPayloadStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_face_ring_payloads",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "materialized_cycle_count": stats.materialized_cycle_count,
+                "coordinate_count": stats.coordinate_count,
+                "source_line_id_count": stats.source_line_id_count,
+                "missing_face_id_count": stats.missing_face_id_count,
+                "missing_edge_face_id_count": stats.missing_edge_face_id_count,
+                "invalid_cycle_count": stats.invalid_cycle_count,
+                "canonical_ring_mismatch_count": stats.canonical_ring_mismatch_count,
+                "unbounded_cycle_count": stats.unbounded_cycle_count,
+                "materialization_ready": stats.materialization_ready,
             }),
         )
     }
