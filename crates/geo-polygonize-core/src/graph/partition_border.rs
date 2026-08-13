@@ -838,6 +838,27 @@ pub(crate) struct PartitionBorderGlobalCycleFacePromotionGateStats {
     pub(crate) gate_ready: bool,
 }
 
+/// Counts detached face-cycle payload lineage after the promotion gate. Each
+/// edge must still agree with its source observation and both endpoint nodes;
+/// this remains evidence only and never promotes stitched output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFacePayloadLineageStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) plan_count: usize,
+    pub(crate) checked_edge_count: usize,
+    pub(crate) checked_cycle_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) missing_plan_count: usize,
+    pub(crate) missing_observation_count: usize,
+    pub(crate) source_incomplete_edge_count: usize,
+    pub(crate) source_lineage_mismatch_count: usize,
+    pub(crate) z_lineage_mismatch_count: usize,
+    pub(crate) face_lineage_mismatch_count: usize,
+    pub(crate) node_lineage_mismatch_count: usize,
+    pub(crate) lineage_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -2289,6 +2310,243 @@ impl PartitionBorderGraph {
             unbounded_marker_mismatch_count,
             gate_ready,
         })
+    }
+
+    /// Cross-checks every gate-ready detached face edge against its retained
+    /// observation, source/Z/face payload, and reconciled endpoint nodes.
+    /// Cycle plans are checked as well so no face can become ready with a
+    /// missing boundary observation. This never mutates graph or output state.
+    pub(crate) fn validate_global_face_payload_lineage(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        promotion_gate: PartitionBorderGlobalCycleFacePromotionGateStats,
+    ) -> crate::Result<PartitionBorderGlobalFacePayloadLineageStats> {
+        execution_policy.check_cancelled("partition_border_global_face_payload_lineage")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_payload_lineage_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let Some(candidate) = self.global_topology_candidate.as_ref() else {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face payload lineage has no detached topology candidate"
+                    .to_string(),
+            });
+        };
+        if candidate.next_global_dir_edge_ids.len() != edge_count {
+            return Err(crate::PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "global face payload lineage successor length mismatch: candidate={}, edges={}",
+                    candidate.next_global_dir_edge_ids.len(),
+                    edge_count
+                ),
+            });
+        }
+        let cycle_count = candidate.cycle_start_global_dir_edge_ids.len();
+        execution_policy.check(
+            "partition_border_global_face_payload_lineage_cycles",
+            execution_policy.max_graph_nodes,
+            cycle_count,
+        )?;
+
+        let mut stats = PartitionBorderGlobalFacePayloadLineageStats {
+            edge_count,
+            cycle_count,
+            plan_count: self.global_face_id_plans.len(),
+            ..Default::default()
+        };
+        let mut edge_index_by_observation = BTreeMap::<PartitionBorderObservationId, usize>::new();
+        for (edge_index, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_payload_lineage_edges",
+                edge_index,
+            )?;
+            let observation_id = PartitionBorderObservationId {
+                partition_id: edge.partition_id,
+                local_dir_edge_id: edge.local_dir_edge_id,
+                edge_key: edge.edge_key,
+            };
+            if edge_index_by_observation
+                .insert(observation_id, edge_index)
+                .is_some()
+            {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face payload lineage duplicates observation {:?}",
+                        observation_id
+                    ),
+                });
+            }
+            stats.checked_edge_count += 1;
+            if edge.source_line_ids.is_empty() {
+                stats.source_incomplete_edge_count += 1;
+            }
+            let local_lineage = self.local_face_graphs.iter().find_map(|graph| {
+                if graph.partition_id == edge.partition_id
+                    && graph.component_id == edge.component_id
+                {
+                    graph
+                        .directed_edges
+                        .iter()
+                        .find(|local_edge| local_edge.local_dir_edge_id == edge.local_dir_edge_id)
+                } else {
+                    None
+                }
+            });
+            if let Some(local_edge) = local_lineage {
+                if edge.source_line_ids != local_edge.source_line_ids {
+                    stats.source_lineage_mismatch_count += 1;
+                }
+                if edge.from_z_bits != local_edge.from_z_bits
+                    || edge.to_z_bits != local_edge.to_z_bits
+                {
+                    stats.z_lineage_mismatch_count += 1;
+                }
+                if edge.from != local_edge.from
+                    || edge.to != local_edge.to
+                    || edge.edge_key != local_edge.edge_key
+                    || edge.face_ref != local_edge.face_ref
+                    || edge.local_face_is_unbounded != local_edge.local_face_is_unbounded
+                {
+                    stats.face_lineage_mismatch_count += 1;
+                }
+            } else if let Some(observation) = self.observations.get(&observation_id) {
+                if edge.source_line_ids != observation.source_line_ids {
+                    stats.source_lineage_mismatch_count += 1;
+                }
+                if edge.from_z_bits != observation.from_z_bits
+                    || edge.to_z_bits != observation.to_z_bits
+                {
+                    stats.z_lineage_mismatch_count += 1;
+                }
+                if edge.from != observation.from
+                    || edge.to != observation.to
+                    || edge.edge_key != observation.edge_key
+                    || edge.face_ref != observation.face_ref
+                    || edge.local_face_is_unbounded != observation.local_face_is_unbounded
+                {
+                    stats.face_lineage_mismatch_count += 1;
+                }
+            } else {
+                stats.missing_observation_count += 1;
+            }
+
+            for (node_id, key, z_bits) in [
+                (edge.from_global_node_id, edge.from, edge.from_z_bits),
+                (edge.to_global_node_id, edge.to, edge.to_z_bits),
+            ] {
+                let Some(node_id) = node_id else {
+                    stats.node_lineage_mismatch_count += 1;
+                    continue;
+                };
+                let Some(node) = self.global_face_nodes.get(node_id) else {
+                    stats.node_lineage_mismatch_count += 1;
+                    continue;
+                };
+                if node.global_node_id != node_id
+                    || node.key != key
+                    || !edge
+                        .source_line_ids
+                        .iter()
+                        .all(|source_line_id| node.source_line_ids.contains(source_line_id))
+                    || !node.z_bits.contains(&z_bits)
+                    || edge
+                        .face_ref
+                        .is_some_and(|face_ref| !node.face_refs.contains(&face_ref))
+                {
+                    stats.node_lineage_mismatch_count += 1;
+                }
+            }
+        }
+
+        let mut plan_by_face_id = BTreeMap::<usize, usize>::new();
+        for (plan_index, plan) in self.global_face_id_plans.iter().enumerate() {
+            if let Some(face_id) = plan.candidate_global_face_id {
+                if plan_by_face_id.insert(face_id, plan_index).is_some() {
+                    stats.face_lineage_mismatch_count += 1;
+                }
+            }
+        }
+        for (cycle_index, &start) in candidate.cycle_start_global_dir_edge_ids.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_payload_lineage_cycles",
+                cycle_index,
+            )?;
+            if start >= edge_count {
+                stats.face_lineage_mismatch_count += 1;
+                continue;
+            }
+            let Some(face_id) = self
+                .global_face_id_by_cycle_start
+                .get(cycle_index)
+                .copied()
+                .flatten()
+            else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            let Some(&plan_index) = plan_by_face_id.get(&face_id) else {
+                stats.missing_plan_count += 1;
+                continue;
+            };
+            let plan = &self.global_face_id_plans[plan_index];
+            let mut plan_edges = BTreeSet::new();
+            for observation_id in &plan.boundary_observation_ids {
+                let Some(&edge_index) = edge_index_by_observation.get(observation_id) else {
+                    stats.missing_observation_count += 1;
+                    continue;
+                };
+                plan_edges.insert(edge_index);
+            }
+            let mut cycle_edges = BTreeSet::new();
+            let mut current = start;
+            let mut closed = true;
+            loop {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_payload_lineage_cycle_edges",
+                    cycle_edges.len(),
+                )?;
+                if !cycle_edges.insert(current) {
+                    if current != start {
+                        closed = false;
+                    }
+                    break;
+                }
+                let Some(successor) = candidate
+                    .next_global_dir_edge_ids
+                    .get(current)
+                    .copied()
+                    .flatten()
+                else {
+                    closed = false;
+                    break;
+                };
+                if successor >= edge_count {
+                    closed = false;
+                    break;
+                }
+                current = successor;
+            }
+            if !closed || plan_edges != cycle_edges {
+                stats.face_lineage_mismatch_count += 1;
+            } else {
+                stats.checked_cycle_count += 1;
+            }
+        }
+
+        stats.lineage_ready = promotion_gate.gate_ready
+            && stats.checked_edge_count == edge_count
+            && stats.checked_cycle_count == cycle_count
+            && stats.missing_face_id_count == 0
+            && stats.missing_plan_count == 0
+            && stats.missing_observation_count == 0
+            && stats.source_incomplete_edge_count == 0
+            && stats.source_lineage_mismatch_count == 0
+            && stats.z_lineage_mismatch_count == 0
+            && stats.face_lineage_mismatch_count == 0
+            && stats.node_lineage_mismatch_count == 0;
+        Ok(stats)
     }
 
     #[cfg(test)]
@@ -12770,6 +13028,154 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_cycle_face_promotion_gate"
+        ));
+    }
+
+    fn prepared_global_face_payload_lineage_graph() -> PartitionBorderGraph {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        let candidate = graph.global_topology_candidate.clone().unwrap();
+        graph.global_face_id_by_cycle_start = (0..candidate.cycle_start_global_dir_edge_ids.len())
+            .map(Some)
+            .collect();
+        graph.global_face_id_plans = candidate
+            .cycle_start_global_dir_edge_ids
+            .iter()
+            .enumerate()
+            .map(|(face_id, &start)| {
+                let mut boundary_observation_ids = Vec::new();
+                let mut face_refs = BTreeSet::new();
+                let mut local_unbounded_face_count = 0;
+                let mut current = start;
+                loop {
+                    let edge = &graph.global_face_edge_map[current];
+                    boundary_observation_ids.push(PartitionBorderObservationId {
+                        partition_id: edge.partition_id,
+                        local_dir_edge_id: edge.local_dir_edge_id,
+                        edge_key: edge.edge_key,
+                    });
+                    if let Some(face_ref) = edge.face_ref {
+                        face_refs.insert(face_ref);
+                    }
+                    local_unbounded_face_count += usize::from(edge.local_face_is_unbounded);
+                    current = candidate.next_global_dir_edge_ids[current].unwrap();
+                    if current == start {
+                        break;
+                    }
+                }
+                PartitionBorderGlobalFaceIdPlan {
+                    candidate_global_face_id: Some(face_id),
+                    component_index: 0,
+                    boundary_observation_ids,
+                    face_refs: face_refs.into_iter().collect(),
+                    local_unbounded_face_count,
+                    closed: true,
+                }
+            })
+            .collect();
+        graph
+    }
+
+    #[test]
+    fn global_face_payload_lineage_preserves_source_z_face_and_node_payloads() {
+        let graph = prepared_global_face_payload_lineage_graph();
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_face_payload_lineage(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalCycleFacePromotionGateStats {
+                    edge_count: 4,
+                    cycle_count: 2,
+                    plan_count: 2,
+                    gate_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFacePayloadLineageStats {
+                edge_count: 4,
+                cycle_count: 2,
+                plan_count: 2,
+                checked_edge_count: 4,
+                checked_cycle_count: 2,
+                lineage_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn global_face_payload_lineage_rejects_provenance_z_and_node_drift() {
+        let mut graph = prepared_global_face_payload_lineage_graph();
+        graph.global_face_edge_map[0].source_line_ids.push(99);
+        graph.global_face_edge_map[0].from_z_bits = 77;
+        graph.global_face_nodes[0].observation_ids.clear();
+        let stats = graph
+            .validate_global_face_payload_lineage(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalCycleFacePromotionGateStats {
+                    edge_count: 4,
+                    cycle_count: 2,
+                    plan_count: 2,
+                    gate_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!stats.lineage_ready);
+        assert_eq!(stats.source_lineage_mismatch_count, 1);
+        assert_eq!(stats.z_lineage_mismatch_count, 1);
+        assert!(stats.node_lineage_mismatch_count > 0);
+    }
+
+    #[test]
+    fn global_face_payload_lineage_is_bounded_and_cancellable() {
+        let graph = prepared_global_face_payload_lineage_graph();
+        let gate = PartitionBorderGlobalCycleFacePromotionGateStats {
+            edge_count: 4,
+            cycle_count: 2,
+            plan_count: 2,
+            gate_ready: true,
+            ..Default::default()
+        };
+        let error = graph
+            .validate_global_face_payload_lineage(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                gate,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_face_payload_lineage_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_payload_lineage(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                gate,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_payload_lineage"
         ));
     }
 

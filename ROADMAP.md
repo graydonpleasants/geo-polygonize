@@ -563,6 +563,10 @@ Blocked by #1288.
   coverage and exactly-one-unbounded application evidence with explicit count
   mismatches and bounded cancellation/limit handling; keep the promotion gate
   evidence-only.
+- [x] Cross-check every detached gate-ready face cycle against active source
+  lineage, endpoint Z, face metadata, and reconciled global-node payloads;
+  retain missing or corrupt payloads as bounded evidence without mutating
+  topology or output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
