@@ -11,6 +11,10 @@ VARIANT=""
 NO_BUNDLE=0
 BUNDLE_ONLY=0
 
+wasm_opt_works() {
+    command -v wasm-opt &> /dev/null && wasm-opt --version &> /dev/null
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --variant)
@@ -45,15 +49,15 @@ setup_wasm_tools() {
     fi
     WASM_BINDGEN_BIN="$(command -v wasm-bindgen)"
 
-    if [ "$SITE_BUILD" != "1" ] && ! command -v wasm-opt &> /dev/null; then
+    if [ "$SITE_BUILD" != "1" ] && ! wasm_opt_works; then
         echo "wasm-opt not found. Attempting to install via npm..."
         if npm install -g --allow-scripts=wasm-opt wasm-opt \
-            && command -v wasm-opt &> /dev/null; then
+            && wasm_opt_works; then
             echo "Successfully installed wasm-opt: $(wasm-opt --version)"
         else
             echo "Warning: wasm-opt could not be installed. Build will proceed without optimization."
         fi
-    elif [ "$SITE_BUILD" != "1" ]; then
+    elif [ "$SITE_BUILD" != "1" ] && wasm_opt_works; then
         echo "Found wasm-opt: $(wasm-opt --version)"
     fi
 }
@@ -76,7 +80,7 @@ build_variant() {
     rm -rf "$out_dir"
     "$WASM_BINDGEN_BIN" --target web --out-dir "$out_dir" --out-name "geo_polygonize" "$wasm_path"
 
-    if [ "$SITE_BUILD" != "1" ] && command -v wasm-opt &> /dev/null; then
+    if [ "$SITE_BUILD" != "1" ] && wasm_opt_works; then
         echo "Optimizing $variant..."
         wasm-opt -O3 -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
     fi
@@ -119,7 +123,7 @@ build_variant_threads() {
     rm -rf "$out_dir"
     "$WASM_BINDGEN_BIN" --target web --out-dir "$out_dir" --out-name "geo_polygonize" "$wasm_path"
 
-    if command -v wasm-opt &> /dev/null; then
+    if wasm_opt_works; then
         echo "Optimizing Threads..."
         wasm-opt -O3 --enable-threads --enable-bulk-memory -o "$out_dir/geo_polygonize_bg.wasm" "$out_dir/geo_polygonize_bg.wasm"
     fi
