@@ -15,6 +15,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePayloadLineageStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
+    PartitionBorderGlobalFaceRingCandidateAssemblyStats,
     PartitionBorderGlobalFaceRingClassificationStats, PartitionBorderGlobalFaceRingPayloadStats,
     PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
     PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
@@ -1476,6 +1477,27 @@ impl TraceRecorderV1 {
                 "invalid_cycle_count": stats.invalid_cycle_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "classification_ready": stats.classification_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_ring_candidate_assembly(
+        &mut self,
+        stats: PartitionBorderGlobalFaceRingCandidateAssemblyStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_face_ring_candidate_assembly",
+            serde_json::json!({
+                "cycle_count": stats.cycle_count,
+                "shell_candidate_count": stats.shell_candidate_count,
+                "hole_candidate_count": stats.hole_candidate_count,
+                "assembled_shell_count": stats.assembled_shell_count,
+                "assigned_hole_count": stats.assigned_hole_count,
+                "unassigned_hole_count": stats.unassigned_hole_count,
+                "ambiguous_hole_count": stats.ambiguous_hole_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "candidate_ready": stats.candidate_ready,
             }),
         )
     }
