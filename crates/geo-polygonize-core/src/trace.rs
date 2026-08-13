@@ -1385,6 +1385,16 @@ impl TraceRecorderV1 {
                     stats.nested_opposite_orientation_pair_count,
                 "nested_same_orientation_pair_count":
                     stats.nested_same_orientation_pair_count,
+                "edge_pair_count": stats.edge_pair_count,
+                "checked_edge_pair_count": stats.checked_edge_pair_count,
+                "expected_reciprocal_pair_count": stats.expected_reciprocal_pair_count,
+                "proper_crossing_count": stats.proper_crossing_count,
+                "endpoint_touch_count": stats.endpoint_touch_count,
+                "boundary_touch_count": stats.boundary_touch_count,
+                "collinear_overlap_count": stats.collinear_overlap_count,
+                "unexpected_collinear_overlap_count":
+                    stats.unexpected_collinear_overlap_count,
+                "interaction_ready": stats.interaction_ready,
                 "geometry_ready": stats.geometry_ready,
             }),
         )

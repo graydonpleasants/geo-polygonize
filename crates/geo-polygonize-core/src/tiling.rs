@@ -575,6 +575,15 @@ pub struct StitchingReport {
     pub partition_border_global_face_cycle_geometry_contained_cycle_count: usize,
     pub partition_border_global_face_cycle_geometry_nested_opposite_orientation_pair_count: usize,
     pub partition_border_global_face_cycle_geometry_nested_same_orientation_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_edge_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_checked_edge_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_expected_reciprocal_pair_count: usize,
+    pub partition_border_global_face_cycle_geometry_proper_crossing_count: usize,
+    pub partition_border_global_face_cycle_geometry_endpoint_touch_count: usize,
+    pub partition_border_global_face_cycle_geometry_boundary_touch_count: usize,
+    pub partition_border_global_face_cycle_geometry_collinear_overlap_count: usize,
+    pub partition_border_global_face_cycle_geometry_unexpected_collinear_overlap_count: usize,
+    pub partition_border_global_face_cycle_geometry_interaction_ready: bool,
     pub partition_border_global_face_cycle_geometry_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
@@ -3677,6 +3686,25 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_cycle_geometry_nested_same_orientation_pair_count:
                     partition_border_global_face_cycle_geometry
                         .nested_same_orientation_pair_count,
+                partition_border_global_face_cycle_geometry_edge_pair_count:
+                    partition_border_global_face_cycle_geometry.edge_pair_count,
+                partition_border_global_face_cycle_geometry_checked_edge_pair_count:
+                    partition_border_global_face_cycle_geometry.checked_edge_pair_count,
+                partition_border_global_face_cycle_geometry_expected_reciprocal_pair_count:
+                    partition_border_global_face_cycle_geometry.expected_reciprocal_pair_count,
+                partition_border_global_face_cycle_geometry_proper_crossing_count:
+                    partition_border_global_face_cycle_geometry.proper_crossing_count,
+                partition_border_global_face_cycle_geometry_endpoint_touch_count:
+                    partition_border_global_face_cycle_geometry.endpoint_touch_count,
+                partition_border_global_face_cycle_geometry_boundary_touch_count:
+                    partition_border_global_face_cycle_geometry.boundary_touch_count,
+                partition_border_global_face_cycle_geometry_collinear_overlap_count:
+                    partition_border_global_face_cycle_geometry.collinear_overlap_count,
+                partition_border_global_face_cycle_geometry_unexpected_collinear_overlap_count:
+                    partition_border_global_face_cycle_geometry
+                        .unexpected_collinear_overlap_count,
+                partition_border_global_face_cycle_geometry_interaction_ready:
+                    partition_border_global_face_cycle_geometry.interaction_ready,
                 partition_border_global_face_cycle_geometry_ready:
                     partition_border_global_face_cycle_geometry.geometry_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
