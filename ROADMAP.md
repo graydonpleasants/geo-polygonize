@@ -580,6 +580,10 @@ Blocked by #1288.
 - [x] Materialize canonical detached ring payload evidence with face IDs,
   source lineage, endpoint Z, and exactly-one-unbounded coverage only after the
   final gate; retain it privately without merging stitched output.
+- [x] Classify retained detached ring payloads into private shell and hole
+  candidates using winding and containment depth; keep the unbounded cycle
+  separate and reject crossings, touches, unexpected overlaps, and same-winding
+  nesting without promoting stitched output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
