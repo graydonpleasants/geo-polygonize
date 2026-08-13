@@ -541,6 +541,21 @@ pub struct StitchingReport {
     pub partition_border_global_cycle_face_promotion_gate_face_count_mismatch_count: usize,
     pub partition_border_global_cycle_face_promotion_gate_unbounded_marker_mismatch_count: usize,
     pub partition_border_global_cycle_face_promotion_gate_ready: bool,
+    /// Detached face-cycle source, Z, observation, and global-node lineage.
+    pub partition_border_global_face_payload_lineage_edge_count: usize,
+    pub partition_border_global_face_payload_lineage_cycle_count: usize,
+    pub partition_border_global_face_payload_lineage_plan_count: usize,
+    pub partition_border_global_face_payload_lineage_checked_edge_count: usize,
+    pub partition_border_global_face_payload_lineage_checked_cycle_count: usize,
+    pub partition_border_global_face_payload_lineage_missing_face_id_count: usize,
+    pub partition_border_global_face_payload_lineage_missing_plan_count: usize,
+    pub partition_border_global_face_payload_lineage_missing_observation_count: usize,
+    pub partition_border_global_face_payload_lineage_source_incomplete_edge_count: usize,
+    pub partition_border_global_face_payload_lineage_source_mismatch_count: usize,
+    pub partition_border_global_face_payload_lineage_z_mismatch_count: usize,
+    pub partition_border_global_face_payload_lineage_face_mismatch_count: usize,
+    pub partition_border_global_face_payload_lineage_node_mismatch_count: usize,
+    pub partition_border_global_face_payload_lineage_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2847,6 +2862,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_component_coverage,
                 partition_border_global_unbounded_face_application,
             )?;
+        let partition_border_global_face_payload_lineage = partition_border_graph
+            .validate_global_face_payload_lineage(
+                &self.execution_policy,
+                partition_border_global_cycle_face_promotion_gate,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -2945,6 +2965,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_cycle_face_promotion_gate(
                 partition_border_global_cycle_face_promotion_gate,
+            );
+            trace.record_partition_border_global_face_payload_lineage(
+                partition_border_global_face_payload_lineage,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3559,6 +3582,34 @@ impl<'a> TiledPolygonizer<'a> {
                         .unbounded_marker_mismatch_count,
                 partition_border_global_cycle_face_promotion_gate_ready:
                     partition_border_global_cycle_face_promotion_gate.gate_ready,
+                partition_border_global_face_payload_lineage_edge_count:
+                    partition_border_global_face_payload_lineage.edge_count,
+                partition_border_global_face_payload_lineage_cycle_count:
+                    partition_border_global_face_payload_lineage.cycle_count,
+                partition_border_global_face_payload_lineage_plan_count:
+                    partition_border_global_face_payload_lineage.plan_count,
+                partition_border_global_face_payload_lineage_checked_edge_count:
+                    partition_border_global_face_payload_lineage.checked_edge_count,
+                partition_border_global_face_payload_lineage_checked_cycle_count:
+                    partition_border_global_face_payload_lineage.checked_cycle_count,
+                partition_border_global_face_payload_lineage_missing_face_id_count:
+                    partition_border_global_face_payload_lineage.missing_face_id_count,
+                partition_border_global_face_payload_lineage_missing_plan_count:
+                    partition_border_global_face_payload_lineage.missing_plan_count,
+                partition_border_global_face_payload_lineage_missing_observation_count:
+                    partition_border_global_face_payload_lineage.missing_observation_count,
+                partition_border_global_face_payload_lineage_source_incomplete_edge_count:
+                    partition_border_global_face_payload_lineage.source_incomplete_edge_count,
+                partition_border_global_face_payload_lineage_source_mismatch_count:
+                    partition_border_global_face_payload_lineage.source_lineage_mismatch_count,
+                partition_border_global_face_payload_lineage_z_mismatch_count:
+                    partition_border_global_face_payload_lineage.z_lineage_mismatch_count,
+                partition_border_global_face_payload_lineage_face_mismatch_count:
+                    partition_border_global_face_payload_lineage.face_lineage_mismatch_count,
+                partition_border_global_face_payload_lineage_node_mismatch_count:
+                    partition_border_global_face_payload_lineage.node_lineage_mismatch_count,
+                partition_border_global_face_payload_lineage_ready:
+                    partition_border_global_face_payload_lineage.lineage_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
