@@ -597,6 +597,10 @@ pub struct StitchingReport {
     /// Whether detached ring payload evidence is ready for a future extraction gate.
     pub partition_border_global_face_cycle_geometry_ring_payload_ready: bool,
     pub partition_border_global_face_cycle_geometry_ready: bool,
+    /// Final detached pre-extraction evidence gate; no stitched output is promoted.
+    pub partition_border_global_face_extraction_gate_ready: bool,
+    pub partition_border_global_face_extraction_gate_edge_count_mismatch_count: usize,
+    pub partition_border_global_face_extraction_gate_cycle_count_mismatch_count: usize,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2913,6 +2917,16 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_payload_lineage,
             )?;
+        let partition_border_global_face_extraction_gate = partition_border_graph
+            .validate_global_face_extraction_gate(
+                &self.execution_policy,
+                partition_border_global_face_identity_invariants,
+                partition_border_global_next_lineage_integration,
+                partition_border_global_cycle_face_lineage,
+                partition_border_global_cycle_face_promotion_gate,
+                partition_border_global_face_payload_lineage,
+                partition_border_global_face_cycle_geometry,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -3017,6 +3031,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_cycle_geometry(
                 partition_border_global_face_cycle_geometry,
+            );
+            trace.record_partition_border_global_face_extraction_gate(
+                partition_border_global_face_extraction_gate,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3731,6 +3748,12 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_cycle_geometry.ring_payload_ready,
                 partition_border_global_face_cycle_geometry_ready:
                     partition_border_global_face_cycle_geometry.geometry_ready,
+                partition_border_global_face_extraction_gate_ready:
+                    partition_border_global_face_extraction_gate.extraction_ready,
+                partition_border_global_face_extraction_gate_edge_count_mismatch_count:
+                    partition_border_global_face_extraction_gate.edge_count_mismatch_count,
+                partition_border_global_face_extraction_gate_cycle_count_mismatch_count:
+                    partition_border_global_face_extraction_gate.cycle_count_mismatch_count,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

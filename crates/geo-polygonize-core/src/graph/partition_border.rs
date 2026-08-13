@@ -902,6 +902,25 @@ pub(crate) struct PartitionBorderGlobalFaceCycleGeometryStats {
     pub(crate) geometry_ready: bool,
 }
 
+/// Combines detached identity, lineage, and ring evidence at the boundary
+/// before a future stitched extraction. This is evidence only and never
+/// promotes local topology or output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceExtractionGateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) identity_invariants_ready: bool,
+    pub(crate) next_lineage_ready: bool,
+    pub(crate) cycle_face_lineage_ready: bool,
+    pub(crate) promotion_gate_ready: bool,
+    pub(crate) payload_lineage_ready: bool,
+    pub(crate) geometry_ready: bool,
+    pub(crate) ring_payload_ready: bool,
+    pub(crate) edge_count_mismatch_count: usize,
+    pub(crate) cycle_count_mismatch_count: usize,
+    pub(crate) extraction_ready: bool,
+}
+
 /// Counts from validating a detached global directed-edge topology candidate.
 /// Readiness requires complete application evidence, one predecessor and one
 /// successor per edge, endpoint continuity, and closed cycles.
@@ -2922,6 +2941,85 @@ impl PartitionBorderGraph {
             && stats.reciprocal_edge_count == edge_count
             && stats.reciprocal_edge_mismatch_count == 0;
         Ok(stats)
+    }
+
+    /// Combines the committed detached face-identity, lineage, and ring
+    /// evidence before a future stitched extraction. The result is a final
+    /// observational gate; it does not write links, IDs, or output payloads.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_global_face_extraction_gate(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        identity_invariants: PartitionBorderGlobalFaceIdentityInvariantStats,
+        next_lineage: PartitionBorderGlobalNextLineageIntegrationStats,
+        cycle_face_lineage: PartitionBorderGlobalCycleFaceLineageStats,
+        promotion_gate: PartitionBorderGlobalCycleFacePromotionGateStats,
+        payload_lineage: PartitionBorderGlobalFacePayloadLineageStats,
+        geometry: PartitionBorderGlobalFaceCycleGeometryStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceExtractionGateStats> {
+        execution_policy.check_cancelled("partition_border_global_face_extraction_gate")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_extraction_gate_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let cycle_count = self
+            .global_topology_candidate
+            .as_ref()
+            .map_or(0, |candidate| {
+                candidate.cycle_start_global_dir_edge_ids.len()
+            });
+        execution_policy.check(
+            "partition_border_global_face_extraction_gate_cycles",
+            execution_policy.max_graph_nodes,
+            cycle_count,
+        )?;
+        let edge_count_mismatch_count = [
+            identity_invariants.edge_count,
+            next_lineage.edge_count,
+            cycle_face_lineage.edge_count,
+            promotion_gate.edge_count,
+            payload_lineage.edge_count,
+            geometry.edge_count,
+        ]
+        .into_iter()
+        .filter(|&count| count != edge_count)
+        .count();
+        let cycle_count_mismatch_count = [
+            identity_invariants.cycle_count,
+            next_lineage.cycle_count,
+            cycle_face_lineage.cycle_count,
+            promotion_gate.cycle_count,
+            payload_lineage.cycle_count,
+            geometry.cycle_count,
+        ]
+        .into_iter()
+        .filter(|&count| count != cycle_count)
+        .count();
+        let extraction_ready = edge_count_mismatch_count == 0
+            && cycle_count_mismatch_count == 0
+            && identity_invariants.invariants_ready
+            && next_lineage.integration_ready
+            && cycle_face_lineage.lineage_ready
+            && promotion_gate.gate_ready
+            && payload_lineage.lineage_ready
+            && geometry.geometry_ready
+            && geometry.ring_payload_ready;
+        Ok(PartitionBorderGlobalFaceExtractionGateStats {
+            edge_count,
+            cycle_count,
+            identity_invariants_ready: identity_invariants.invariants_ready,
+            next_lineage_ready: next_lineage.integration_ready,
+            cycle_face_lineage_ready: cycle_face_lineage.lineage_ready,
+            promotion_gate_ready: promotion_gate.gate_ready,
+            payload_lineage_ready: payload_lineage.lineage_ready,
+            geometry_ready: geometry.geometry_ready,
+            ring_payload_ready: geometry.ring_payload_ready,
+            edge_count_mismatch_count,
+            cycle_count_mismatch_count,
+            extraction_ready,
+        })
     }
 
     #[cfg(test)]
@@ -13645,6 +13743,177 @@ mod tests {
         assert_eq!(stats.reciprocal_edge_count, 7);
         assert_eq!(stats.reciprocal_edge_mismatch_count, 1);
         assert!(!stats.ring_payload_ready);
+    }
+
+    #[test]
+    fn global_face_extraction_gate_combines_detached_evidence_without_mutation() {
+        let graph = nested_global_face_cycle_geometry_graph();
+        let before = graph.clone();
+        let geometry = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let stats = graph
+            .validate_global_face_extraction_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalNextLineageIntegrationStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    integration_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalCycleFaceLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalCycleFacePromotionGateStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    plan_count: 2,
+                    gate_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                geometry,
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceExtractionGateStats {
+                edge_count: 8,
+                cycle_count: 2,
+                identity_invariants_ready: true,
+                next_lineage_ready: true,
+                cycle_face_lineage_ready: true,
+                promotion_gate_ready: true,
+                payload_lineage_ready: true,
+                geometry_ready: true,
+                ring_payload_ready: true,
+                extraction_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(graph, before);
+
+        let stats = graph
+            .validate_global_face_extraction_gate(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceIdentityInvariantStats {
+                    edge_count: 7,
+                    cycle_count: 2,
+                    invariants_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalNextLineageIntegrationStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    integration_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalCycleFaceLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalCycleFacePromotionGateStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    plan_count: 2,
+                    gate_ready: true,
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+                geometry,
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count_mismatch_count, 1);
+        assert!(!stats.extraction_ready);
+    }
+
+    #[test]
+    fn global_face_extraction_gate_is_bounded_and_cancellable() {
+        let graph = nested_global_face_cycle_geometry_graph();
+        let geometry = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    edge_count: 8,
+                    cycle_count: 2,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let error = graph
+            .validate_global_face_extraction_gate(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+                PartitionBorderGlobalNextLineageIntegrationStats::default(),
+                PartitionBorderGlobalCycleFaceLineageStats::default(),
+                PartitionBorderGlobalCycleFacePromotionGateStats::default(),
+                PartitionBorderGlobalFacePayloadLineageStats::default(),
+                geometry,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 8,
+            } if stage == "partition_border_global_face_extraction_gate_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_extraction_gate(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                PartitionBorderGlobalFaceIdentityInvariantStats::default(),
+                PartitionBorderGlobalNextLineageIntegrationStats::default(),
+                PartitionBorderGlobalCycleFaceLineageStats::default(),
+                PartitionBorderGlobalCycleFacePromotionGateStats::default(),
+                PartitionBorderGlobalFacePayloadLineageStats::default(),
+                geometry,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_extraction_gate"
+        ));
     }
 
     #[test]
