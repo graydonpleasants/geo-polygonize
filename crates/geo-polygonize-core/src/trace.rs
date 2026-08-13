@@ -15,9 +15,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePayloadLineageStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
-    PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
-    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalNextLineageIntegrationStats,
+    PartitionBorderGlobalFaceRingClassificationStats, PartitionBorderGlobalFaceRingPayloadStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1450,6 +1450,32 @@ impl TraceRecorderV1 {
                 "canonical_ring_mismatch_count": stats.canonical_ring_mismatch_count,
                 "unbounded_cycle_count": stats.unbounded_cycle_count,
                 "materialization_ready": stats.materialization_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_ring_classification(
+        &mut self,
+        stats: PartitionBorderGlobalFaceRingClassificationStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_face_ring_classification",
+            serde_json::json!({
+                "cycle_count": stats.cycle_count,
+                "classified_cycle_count": stats.classified_cycle_count,
+                "shell_candidate_count": stats.shell_candidate_count,
+                "hole_candidate_count": stats.hole_candidate_count,
+                "unbounded_cycle_count": stats.unbounded_cycle_count,
+                "containment_pair_count": stats.containment_pair_count,
+                "contained_cycle_count": stats.contained_cycle_count,
+                "nested_same_orientation_pair_count":
+                    stats.nested_same_orientation_pair_count,
+                "ambiguous_interaction_count": stats.ambiguous_interaction_count,
+                "missing_interior_point_count": stats.missing_interior_point_count,
+                "invalid_cycle_count": stats.invalid_cycle_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "classification_ready": stats.classification_ready,
             }),
         )
     }
