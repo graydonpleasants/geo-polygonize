@@ -571,7 +571,9 @@ Blocked by #1288.
   payloads, retaining winding, nested-containment, shell/hole orientation, and
   exactly-one-unbounded negative-orientation evidence; retain bounded proper
   crossing, endpoint/boundary-touch, and expected-versus-unexpected collinear
-  overlap evidence without classifying or extracting stitched output.
+  overlap evidence without classifying or extracting stitched output; retain
+  stable canonical ring payload, non-adjacent self-intersection, and reciprocal
+  symmetric-edge coverage evidence as a separate pre-extraction gate.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
