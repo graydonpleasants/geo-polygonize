@@ -776,6 +776,37 @@ pub(crate) struct PartitionBorderGlobalFaceRingCandidateAssemblyStats {
     pub(crate) candidate_ready: bool,
 }
 
+/// One private shell/hole extraction candidate backed by retained ring
+/// payloads. The indexes avoid copying coordinates or provenance before a
+/// future stitched output phase is proven.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceRingExtractionCandidate {
+    pub(crate) shell_candidate_global_face_id: usize,
+    pub(crate) shell_cycle_start_global_dir_edge_id: usize,
+    pub(crate) shell_payload_index: usize,
+    pub(crate) hole_candidate_global_face_ids: Vec<usize>,
+    pub(crate) hole_payload_indices: Vec<usize>,
+}
+
+/// Counts the final private shell/hole extraction-readiness gate.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceRingExtractionReadinessStats {
+    pub(crate) cycle_count: usize,
+    pub(crate) candidate_shell_count: usize,
+    pub(crate) candidate_hole_count: usize,
+    pub(crate) candidate_coordinate_count: usize,
+    pub(crate) candidate_source_line_id_count: usize,
+    pub(crate) missing_payload_count: usize,
+    pub(crate) duplicate_face_id_count: usize,
+    pub(crate) duplicate_cycle_start_count: usize,
+    pub(crate) duplicate_candidate_count: usize,
+    pub(crate) unbounded_payload_count: usize,
+    pub(crate) invalid_coordinate_count: usize,
+    pub(crate) source_lineage_mismatch_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) candidate_ready: bool,
+}
+
 /// Counts the one atomic commit of detached global successor links. Face IDs
 /// remain a separate roadmap slice; no local face identity or output is
 /// changed by this mutation.
@@ -1517,6 +1548,7 @@ pub struct PartitionBorderGraph {
     global_face_ring_payloads: Vec<PartitionBorderGlobalFaceRingPayload>,
     global_face_ring_classifications: Vec<PartitionBorderGlobalFaceRingClassification>,
     global_face_ring_candidate_assemblies: Vec<PartitionBorderGlobalFaceRingCandidateAssembly>,
+    global_face_ring_extraction_candidates: Vec<PartitionBorderGlobalFaceRingExtractionCandidate>,
 }
 
 impl PartitionBorderGraph {
@@ -1571,6 +1603,7 @@ impl PartitionBorderGraph {
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
         self.global_face_ring_candidate_assemblies.clear();
+        self.global_face_ring_extraction_candidates.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1615,6 +1648,7 @@ impl PartitionBorderGraph {
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
         self.global_face_ring_candidate_assemblies.clear();
+        self.global_face_ring_extraction_candidates.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1648,6 +1682,7 @@ impl PartitionBorderGraph {
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
         self.global_face_ring_candidate_assemblies.clear();
+        self.global_face_ring_extraction_candidates.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -3555,6 +3590,263 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Materializes private shell/hole candidates backed by retained ring
+    /// payloads. The candidates are evidence only and are committed
+    /// atomically; no local topology or tiled output is changed.
+    pub(crate) fn materialize_global_face_ring_extraction_candidates(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        payload_stats: PartitionBorderGlobalFaceRingPayloadStats,
+        classification_stats: PartitionBorderGlobalFaceRingClassificationStats,
+        assembly_stats: PartitionBorderGlobalFaceRingCandidateAssemblyStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceRingExtractionReadinessStats> {
+        execution_policy
+            .check_cancelled("partition_border_global_face_ring_extraction_readiness")?;
+        let cycle_count = payload_stats.cycle_count;
+        execution_policy.check(
+            "partition_border_global_face_ring_extraction_readiness_cycles",
+            execution_policy.max_graph_nodes,
+            cycle_count,
+        )?;
+        let mut stats = PartitionBorderGlobalFaceRingExtractionReadinessStats {
+            cycle_count,
+            candidate_shell_count: assembly_stats.assembled_shell_count,
+            candidate_hole_count: assembly_stats.assigned_hole_count,
+            ..Default::default()
+        };
+        if !payload_stats.materialization_ready
+            || !classification_stats.classification_ready
+            || !assembly_stats.candidate_ready
+            || assembly_stats.unassigned_hole_count != 0
+            || assembly_stats.ambiguous_hole_count != 0
+            || assembly_stats.assigned_hole_count != assembly_stats.hole_candidate_count
+            || self.global_face_ring_payloads.len() != cycle_count
+            || self.global_face_ring_classifications.len() != cycle_count
+        {
+            stats.evidence_mismatch_count += 1;
+            return Ok(stats);
+        }
+
+        let pair_work = cycle_count.checked_mul(cycle_count).ok_or_else(|| {
+            crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global face extraction candidate pair count overflow".to_string(),
+            }
+        })?;
+        execution_policy.check(
+            "partition_border_global_face_ring_extraction_readiness_pairs",
+            execution_policy.max_candidate_pairs,
+            pair_work,
+        )?;
+
+        execution_policy.check(
+            "partition_border_global_face_ring_extraction_readiness_shells",
+            execution_policy.max_output_polygons,
+            assembly_stats.assembled_shell_count,
+        )?;
+
+        let mut payload_by_face_id = BTreeMap::new();
+        let mut payload_by_cycle_start = BTreeMap::new();
+        let mut bounded_coordinate_count = 0usize;
+        let mut bounded_source_line_id_count = 0usize;
+        for (payload_index, payload) in self.global_face_ring_payloads.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_ring_extraction_readiness_payloads",
+                payload_index,
+            )?;
+            if payload.unbounded {
+                stats.unbounded_payload_count += 1;
+            } else {
+                bounded_coordinate_count = bounded_coordinate_count
+                    .checked_add(payload.coords.len())
+                    .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "global face extraction coordinate count overflow".to_string(),
+                    })?;
+                bounded_source_line_id_count = bounded_source_line_id_count
+                    .checked_add(payload.source_line_ids.len())
+                    .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "global face extraction source count overflow".to_string(),
+                    })?;
+            }
+            if payload_by_face_id
+                .insert(payload.candidate_global_face_id, payload_index)
+                .is_some()
+            {
+                stats.duplicate_face_id_count += 1;
+            }
+            if payload_by_cycle_start
+                .insert(payload.cycle_start_global_dir_edge_id, payload_index)
+                .is_some()
+            {
+                stats.duplicate_cycle_start_count += 1;
+            }
+            let valid_coordinates = payload.coords.len() >= 4
+                && payload.coords.first() == payload.coords.last()
+                && payload
+                    .coords
+                    .iter()
+                    .all(|bits| bits.iter().all(|value| f64::from_bits(*value).is_finite()))
+                && payload.edge_ids.len().checked_add(1) == Some(payload.coords.len())
+                && {
+                    let mut edge_ids = BTreeSet::new();
+                    payload
+                        .edge_ids
+                        .iter()
+                        .all(|edge_id| edge_ids.insert(*edge_id))
+                };
+            if !valid_coordinates {
+                stats.invalid_coordinate_count += 1;
+            }
+            let mut edge_source_line_ids = BTreeSet::new();
+            let edge_lineage_valid = payload.edge_ids.iter().all(|edge_id| {
+                let Some(edge) = self.global_face_edge_map.get(*edge_id) else {
+                    return false;
+                };
+                if self
+                    .global_face_id_by_global_dir_edge_id
+                    .get(*edge_id)
+                    .copied()
+                    .flatten()
+                    != Some(payload.candidate_global_face_id)
+                {
+                    return false;
+                }
+                edge_source_line_ids.extend(edge.source_line_ids.iter().copied());
+                true
+            });
+            let source_lineage_valid = edge_lineage_valid
+                && payload
+                    .source_line_ids
+                    .windows(2)
+                    .all(|window| window[0] < window[1])
+                && edge_source_line_ids
+                    .iter()
+                    .copied()
+                    .eq(payload.source_line_ids.iter().copied());
+            if !source_lineage_valid {
+                stats.source_lineage_mismatch_count += 1;
+            }
+        }
+        stats.candidate_coordinate_count = bounded_coordinate_count;
+        stats.candidate_source_line_id_count = bounded_source_line_id_count;
+        execution_policy.check(
+            "partition_border_global_face_ring_extraction_readiness_coordinates",
+            execution_policy.max_output_coordinates,
+            bounded_coordinate_count,
+        )?;
+
+        let classification_counts_match = classification_stats.cycle_count == cycle_count
+            && classification_stats.classified_cycle_count == cycle_count
+            && classification_stats.shell_candidate_count == assembly_stats.shell_candidate_count
+            && classification_stats.hole_candidate_count == assembly_stats.hole_candidate_count
+            && classification_stats.unbounded_cycle_count == stats.unbounded_payload_count;
+        stats.evidence_mismatch_count += usize::from(!classification_counts_match);
+
+        let mut candidates = Vec::with_capacity(assembly_stats.assembled_shell_count);
+        let mut covered_payload_indices = BTreeSet::new();
+        let mut assembled_hole_count = 0usize;
+        for (assembly_index, assembly) in self
+            .global_face_ring_candidate_assemblies
+            .iter()
+            .enumerate()
+        {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_face_ring_extraction_readiness_candidates",
+                assembly_index,
+            )?;
+            let Some(&shell_payload_index) =
+                payload_by_face_id.get(&assembly.shell_candidate_global_face_id)
+            else {
+                stats.missing_payload_count += 1;
+                continue;
+            };
+            if payload_by_cycle_start.get(&assembly.shell_cycle_start_global_dir_edge_id)
+                != Some(&shell_payload_index)
+            {
+                stats.evidence_mismatch_count += 1;
+                continue;
+            }
+            let shell_payload = &self.global_face_ring_payloads[shell_payload_index];
+            let shell_classification = &self.global_face_ring_classifications[shell_payload_index];
+            if shell_payload.unbounded
+                || !shell_classification.shell_candidate
+                || shell_classification.candidate_global_face_id
+                    != assembly.shell_candidate_global_face_id
+                || shell_classification.cycle_start_global_dir_edge_id
+                    != assembly.shell_cycle_start_global_dir_edge_id
+            {
+                stats.evidence_mismatch_count += 1;
+                continue;
+            }
+            if !covered_payload_indices.insert(shell_payload_index) {
+                stats.duplicate_candidate_count += 1;
+            }
+
+            let mut hole_payload_indices =
+                Vec::with_capacity(assembly.hole_candidate_global_face_ids.len());
+            for hole_face_id in &assembly.hole_candidate_global_face_ids {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_face_ring_extraction_readiness_holes",
+                    assembled_hole_count,
+                )?;
+                let Some(&hole_payload_index) = payload_by_face_id.get(hole_face_id) else {
+                    stats.missing_payload_count += 1;
+                    continue;
+                };
+                let hole_payload = &self.global_face_ring_payloads[hole_payload_index];
+                let hole_classification =
+                    &self.global_face_ring_classifications[hole_payload_index];
+                if hole_payload.unbounded
+                    || !hole_classification.hole_candidate
+                    || hole_classification.candidate_global_face_id != *hole_face_id
+                {
+                    stats.evidence_mismatch_count += 1;
+                    continue;
+                }
+                if !covered_payload_indices.insert(hole_payload_index) {
+                    stats.duplicate_candidate_count += 1;
+                }
+                hole_payload_indices.push(hole_payload_index);
+                assembled_hole_count += 1;
+            }
+            candidates.push(PartitionBorderGlobalFaceRingExtractionCandidate {
+                shell_candidate_global_face_id: assembly.shell_candidate_global_face_id,
+                shell_cycle_start_global_dir_edge_id: assembly.shell_cycle_start_global_dir_edge_id,
+                shell_payload_index,
+                hole_candidate_global_face_ids: assembly.hole_candidate_global_face_ids.clone(),
+                hole_payload_indices,
+            });
+        }
+
+        let bounded_payload_count = self
+            .global_face_ring_payloads
+            .iter()
+            .filter(|payload| !payload.unbounded)
+            .count();
+        let expected_hole_count = classification_stats.hole_candidate_count;
+        let coverage_ready = stats.unbounded_payload_count == 1
+            && bounded_payload_count
+                == classification_stats.shell_candidate_count
+                    + classification_stats.hole_candidate_count
+            && covered_payload_indices.len() == bounded_payload_count
+            && candidates.len() == assembly_stats.assembled_shell_count
+            && assembled_hole_count == expected_hole_count;
+        stats.evidence_mismatch_count += usize::from(!coverage_ready);
+        stats.candidate_ready = classification_counts_match
+            && stats.unbounded_payload_count == 1
+            && stats.invalid_coordinate_count == 0
+            && stats.source_lineage_mismatch_count == 0
+            && stats.missing_payload_count == 0
+            && stats.duplicate_face_id_count == 0
+            && stats.duplicate_cycle_start_count == 0
+            && stats.duplicate_candidate_count == 0
+            && stats.evidence_mismatch_count == 0
+            && coverage_ready;
+        if stats.candidate_ready {
+            self.global_face_ring_extraction_candidates = candidates;
+        }
+        Ok(stats)
+    }
+
     #[cfg(test)]
     pub(crate) fn global_face_ring_payloads(&self) -> &[PartitionBorderGlobalFaceRingPayload] {
         &self.global_face_ring_payloads
@@ -3572,6 +3864,13 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalFaceRingCandidateAssembly] {
         &self.global_face_ring_candidate_assemblies
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_face_ring_extraction_candidates(
+        &self,
+    ) -> &[PartitionBorderGlobalFaceRingExtractionCandidate] {
+        &self.global_face_ring_extraction_candidates
     }
 
     #[cfg(test)]
@@ -6402,6 +6701,7 @@ impl PartitionBorderGraph {
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
         self.global_face_ring_candidate_assemblies.clear();
+        self.global_face_ring_extraction_candidates.clear();
         Ok(stats)
     }
 
@@ -7139,6 +7439,7 @@ impl PartitionBorderGraph {
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
         self.global_face_ring_candidate_assemblies.clear();
+        self.global_face_ring_extraction_candidates.clear();
         self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
             next_global_dir_edge_ids,
             cycle_start_global_dir_edge_ids,
@@ -14204,6 +14505,69 @@ mod tests {
         )
     }
 
+    fn prepared_global_face_ring_extraction_graph() -> (
+        PartitionBorderGraph,
+        PartitionBorderGlobalFaceRingPayloadStats,
+        PartitionBorderGlobalFaceRingClassificationStats,
+        PartitionBorderGlobalFaceRingCandidateAssemblyStats,
+    ) {
+        let mut graph = cycle_geometry_graph(
+            &[
+                vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
+                vec![(2.0, 2.0), (2.0, 8.0), (8.0, 8.0), (8.0, 2.0)],
+                vec![(30.0, 30.0), (30.0, 40.0), (40.0, 40.0), (40.0, 30.0)],
+            ],
+            2,
+        );
+        graph.global_face_id_by_global_dir_edge_id = vec![
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(0),
+            Some(1),
+            Some(1),
+            Some(1),
+            Some(1),
+            Some(2),
+            Some(2),
+            Some(2),
+            Some(2),
+        ];
+        let payload_stats = graph
+            .materialize_global_face_ring_payloads(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 12,
+                    cycle_count: 3,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let geometry_stats = graph
+            .validate_global_face_cycle_geometry(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    edge_count: 12,
+                    cycle_count: 3,
+                    lineage_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let classification_stats = graph
+            .classify_global_face_ring_payloads(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                geometry_stats,
+            )
+            .unwrap();
+        let assembly_stats = graph
+            .assemble_global_face_ring_candidates(&ExecutionPolicy::default(), classification_stats)
+            .unwrap();
+        (graph, payload_stats, classification_stats, assembly_stats)
+    }
+
     #[test]
     fn global_face_cycle_geometry_reports_nested_opposite_winding() {
         let graph = nested_global_face_cycle_geometry_graph();
@@ -14808,6 +15172,230 @@ mod tests {
                 limit: 0,
                 observed: 9,
             } if stage == "partition_border_global_face_ring_candidate_assembly_pairs"
+        ));
+    }
+
+    #[test]
+    fn global_face_ring_extraction_candidates_bind_payloads_deterministically() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalFaceRingExtractionReadinessStats {
+                cycle_count: 3,
+                candidate_shell_count: 1,
+                candidate_hole_count: 1,
+                candidate_coordinate_count: 10,
+                candidate_source_line_id_count: 2,
+                unbounded_payload_count: 1,
+                candidate_ready: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            graph.global_face_ring_extraction_candidates(),
+            &[PartitionBorderGlobalFaceRingExtractionCandidate {
+                shell_candidate_global_face_id: 0,
+                shell_cycle_start_global_dir_edge_id: 0,
+                shell_payload_index: 0,
+                hole_candidate_global_face_ids: vec![1],
+                hole_payload_indices: vec![1],
+            }]
+        );
+
+        let (mut repeated_graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        repeated_graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert_eq!(
+            graph.global_face_ring_extraction_candidates(),
+            repeated_graph.global_face_ring_extraction_candidates()
+        );
+    }
+
+    #[test]
+    fn global_face_ring_extraction_candidates_fail_closed_and_atomic() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        graph.global_face_ring_candidate_assemblies[0].hole_candidate_global_face_ids = vec![99];
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.missing_payload_count, 1);
+        assert!(!stats.candidate_ready);
+        assert!(graph.global_face_ring_extraction_candidates().is_empty());
+
+        let (mut graph, payload_stats, classification_stats, mut assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        assembly_stats.unassigned_hole_count = 1;
+        assembly_stats.candidate_ready = false;
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert!(stats.evidence_mismatch_count > 0);
+        assert!(!stats.candidate_ready);
+        assert!(graph.global_face_ring_extraction_candidates().is_empty());
+
+        let (mut graph, payload_stats, classification_stats, mut assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        assembly_stats.ambiguous_hole_count = 1;
+        assembly_stats.candidate_ready = false;
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert!(stats.evidence_mismatch_count > 0);
+        assert!(!stats.candidate_ready);
+        assert!(graph.global_face_ring_extraction_candidates().is_empty());
+
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        graph.global_face_ring_payloads[2].candidate_global_face_id = 0;
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.duplicate_face_id_count, 1);
+        assert!(!stats.candidate_ready);
+        assert!(graph.global_face_ring_extraction_candidates().is_empty());
+
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        graph.global_face_ring_payloads[0].coords[0][2] = f64::NAN.to_bits();
+        graph.global_face_ring_payloads[0].source_line_ids = vec![2, 1];
+        let stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.invalid_coordinate_count, 1);
+        assert_eq!(stats.source_lineage_mismatch_count, 1);
+        assert!(!stats.candidate_ready);
+        assert!(graph.global_face_ring_extraction_candidates().is_empty());
+    }
+
+    #[test]
+    fn global_face_ring_extraction_candidates_are_bounded_and_cancellable() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let error = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy {
+                    max_candidate_pairs: Some(8),
+                    ..Default::default()
+                },
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 8,
+                observed: 9,
+            } if stage == "partition_border_global_face_ring_extraction_readiness_pairs"
+        ));
+
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let error = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy {
+                    max_output_polygons: Some(0),
+                    ..Default::default()
+                },
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "partition_border_global_face_ring_extraction_readiness_shells"
+        ));
+
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let error = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy {
+                    max_output_coordinates: Some(9),
+                    ..Default::default()
+                },
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 9,
+                observed: 10,
+            } if stage == "partition_border_global_face_ring_extraction_readiness_coordinates"
+        ));
+
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_ring_extraction_readiness"
         ));
     }
 

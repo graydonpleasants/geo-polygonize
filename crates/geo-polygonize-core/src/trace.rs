@@ -16,9 +16,11 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePayloadLineageStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
     PartitionBorderGlobalFaceRingCandidateAssemblyStats,
-    PartitionBorderGlobalFaceRingClassificationStats, PartitionBorderGlobalFaceRingPayloadStats,
-    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
-    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
+    PartitionBorderGlobalFaceRingClassificationStats,
+    PartitionBorderGlobalFaceRingExtractionReadinessStats,
+    PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
+    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
+    PartitionBorderGlobalNextLineageIntegrationStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1496,6 +1498,32 @@ impl TraceRecorderV1 {
                 "assigned_hole_count": stats.assigned_hole_count,
                 "unassigned_hole_count": stats.unassigned_hole_count,
                 "ambiguous_hole_count": stats.ambiguous_hole_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "candidate_ready": stats.candidate_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_ring_extraction_readiness(
+        &mut self,
+        stats: PartitionBorderGlobalFaceRingExtractionReadinessStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_face_ring_extraction_readiness",
+            serde_json::json!({
+                "cycle_count": stats.cycle_count,
+                "candidate_shell_count": stats.candidate_shell_count,
+                "candidate_hole_count": stats.candidate_hole_count,
+                "candidate_coordinate_count": stats.candidate_coordinate_count,
+                "candidate_source_line_id_count": stats.candidate_source_line_id_count,
+                "missing_payload_count": stats.missing_payload_count,
+                "duplicate_face_id_count": stats.duplicate_face_id_count,
+                "duplicate_cycle_start_count": stats.duplicate_cycle_start_count,
+                "duplicate_candidate_count": stats.duplicate_candidate_count,
+                "unbounded_payload_count": stats.unbounded_payload_count,
+                "invalid_coordinate_count": stats.invalid_coordinate_count,
+                "source_lineage_mismatch_count": stats.source_lineage_mismatch_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "candidate_ready": stats.candidate_ready,
             }),

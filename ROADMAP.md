@@ -587,6 +587,9 @@ Blocked by #1288.
 - [x] Assemble deterministic private shell-to-hole candidate groups from the
   classified rings; require every bounded hole to have one containing shell and
   retain unassigned or multiply-contained holes without promoting output.
+- [x] Materialize private extraction candidates backed by canonical ring
+  payloads; require one-to-one shell/hole payload coverage, valid XYZ/source
+  lineage, bounded limits, and atomic readiness without promoting output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
