@@ -696,6 +696,32 @@ pub(crate) struct PartitionBorderGlobalTopologyCandidate {
     pub(crate) cycle_start_global_dir_edge_ids: Vec<usize>,
 }
 
+/// One private global edge-topology record materialized from validated
+/// successor and face-ID buffers. This does not rewrite local topology or
+/// public output.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceTopologyEdge {
+    pub(crate) global_dir_edge_id: usize,
+    pub(crate) next_global_dir_edge_id: usize,
+    pub(crate) global_face_id: usize,
+}
+
+/// Counts atomic detached global edge-topology materialization.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceTopologyStats {
+    pub(crate) edge_count: usize,
+    pub(crate) next_link_count: usize,
+    pub(crate) face_id_count: usize,
+    pub(crate) missing_next_count: usize,
+    pub(crate) invalid_next_count: usize,
+    pub(crate) duplicate_next_count: usize,
+    pub(crate) node_discontinuity_count: usize,
+    pub(crate) missing_face_id_count: usize,
+    pub(crate) non_contiguous_face_id_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) topology_ready: bool,
+}
+
 /// One canonical detached ring payload retained after the complete evidence
 /// gate. This is private evidence and is not public stitched output.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1602,6 +1628,7 @@ pub struct PartitionBorderGraph {
     global_next_global_dir_edge_ids: Vec<Option<usize>>,
     global_face_id_by_cycle_start: Vec<Option<usize>>,
     global_face_id_by_global_dir_edge_id: Vec<Option<usize>>,
+    global_face_topology_edges: Vec<PartitionBorderGlobalFaceTopologyEdge>,
     global_unbounded_face_id_by_cycle_start: Option<(usize, usize)>,
     global_face_ring_payloads: Vec<PartitionBorderGlobalFaceRingPayload>,
     global_face_ring_classifications: Vec<PartitionBorderGlobalFaceRingClassification>,
@@ -1661,6 +1688,7 @@ impl PartitionBorderGraph {
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
+        self.global_face_topology_edges.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
@@ -1710,6 +1738,7 @@ impl PartitionBorderGraph {
         self.global_topology_candidate = None;
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
+        self.global_face_topology_edges.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
@@ -1748,6 +1777,7 @@ impl PartitionBorderGraph {
         self.global_topology_candidate = None;
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
+        self.global_face_topology_edges.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
@@ -2016,6 +2046,7 @@ impl PartitionBorderGraph {
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
+        self.global_face_topology_edges.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(stats)
@@ -2287,6 +2318,7 @@ impl PartitionBorderGraph {
             edge_map_ready: unmapped_twin_count == 0,
         };
         self.global_face_edge_map = global_edges;
+        self.global_face_topology_edges.clear();
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
         self.global_face_nodes.clear();
@@ -4534,6 +4566,7 @@ impl PartitionBorderGraph {
             node_map_ready: unmapped_observation_count == 0,
         };
         self.global_face_edge_map = mapped_edges;
+        self.global_face_topology_edges.clear();
         self.global_face_nodes = global_nodes;
         self.global_components.clear();
         self.global_component_payloads.clear();
@@ -4546,6 +4579,7 @@ impl PartitionBorderGraph {
         self.global_face_id_plans.clear();
         self.global_face_next_application_plans.clear();
         self.global_topology_candidate = None;
+        self.global_face_topology_edges.clear();
         Ok(stats)
     }
 
@@ -4684,6 +4718,7 @@ impl PartitionBorderGraph {
             });
         }
         self.reconciled_nodes = reconciled_nodes;
+        self.global_face_topology_edges.clear();
         self.global_components.clear();
         self.global_component_payloads.clear();
         self.global_face_plans.clear();
@@ -4980,6 +5015,7 @@ impl PartitionBorderGraph {
             twin_link_count: self.applied_face_twins.len(),
         };
         self.global_components = global_components;
+        self.global_face_topology_edges.clear();
         self.global_component_payloads.clear();
         self.global_face_plans.clear();
         self.global_face_transitions.clear();
@@ -5401,6 +5437,7 @@ impl PartitionBorderGraph {
             missing_boundary_successor_count,
         };
         self.global_face_plans = global_face_plans;
+        self.global_face_topology_edges.clear();
         self.global_face_transitions.clear();
         self.global_face_twin_transitions.clear();
         self.global_face_next_candidates.clear();
@@ -5915,6 +5952,7 @@ impl PartitionBorderGraph {
             incomplete_face_count,
         };
         self.global_face_transitions = transition_plans;
+        self.global_face_topology_edges.clear();
         self.global_face_twin_transitions.clear();
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
@@ -6059,6 +6097,7 @@ impl PartitionBorderGraph {
             mutation_ready_twin_count,
         };
         self.global_face_twin_transitions = links.into_iter().collect();
+        self.global_face_topology_edges.clear();
         self.global_face_next_candidates.clear();
         self.global_face_identity_plans.clear();
         self.global_face_next_mutation_plans.clear();
@@ -7080,6 +7119,7 @@ impl PartitionBorderGraph {
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
+        self.global_face_topology_edges.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
@@ -7596,6 +7636,7 @@ impl PartitionBorderGraph {
                 && node_discontinuity_count == 0,
         };
         self.global_face_next_application_plans = plans;
+        self.global_face_topology_edges.clear();
         self.global_topology_candidate = None;
         Ok(stats)
     }
@@ -7822,6 +7863,7 @@ impl PartitionBorderGraph {
         self.global_next_global_dir_edge_ids.clear();
         self.global_face_id_by_cycle_start.clear();
         self.global_face_id_by_global_dir_edge_id.clear();
+        self.global_face_topology_edges.clear();
         self.global_unbounded_face_id_by_cycle_start = None;
         self.global_face_ring_payloads.clear();
         self.global_face_ring_classifications.clear();
@@ -8305,9 +8347,114 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Materializes one private global edge-topology record per validated
+    /// detached edge. The commit combines the already-proven successor and
+    /// per-edge face-ID buffers without rewriting local topology or output.
+    pub(crate) fn materialize_global_face_topology(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        extraction_gate: PartitionBorderGlobalFaceExtractionGateStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceTopologyStats> {
+        execution_policy.check_cancelled("partition_border_global_face_topology")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_topology_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let mut stats = PartitionBorderGlobalFaceTopologyStats {
+            edge_count,
+            ..Default::default()
+        };
+        if !extraction_gate.extraction_ready || extraction_gate.edge_count != edge_count {
+            stats.evidence_mismatch_count += 1;
+            return Ok(stats);
+        }
+        if self.global_next_global_dir_edge_ids.len() != edge_count {
+            stats.evidence_mismatch_count += 1;
+        }
+        if self.global_face_id_by_global_dir_edge_id.len() != edge_count {
+            stats.evidence_mismatch_count += 1;
+        }
+
+        let mut predecessor_counts = vec![0usize; edge_count];
+        let mut face_ids = BTreeSet::new();
+        let mut topology = Vec::with_capacity(edge_count);
+        for edge_index in 0..edge_count {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_topology_edges", edge_index)?;
+            let Some(next_global_dir_edge_id) = self
+                .global_next_global_dir_edge_ids
+                .get(edge_index)
+                .copied()
+                .flatten()
+            else {
+                stats.missing_next_count += 1;
+                continue;
+            };
+            if next_global_dir_edge_id >= edge_count {
+                stats.invalid_next_count += 1;
+                continue;
+            }
+            stats.next_link_count += 1;
+            predecessor_counts[next_global_dir_edge_id] += 1;
+            if predecessor_counts[next_global_dir_edge_id] > 1 {
+                stats.duplicate_next_count += 1;
+            }
+            match (
+                self.global_face_edge_map[edge_index].to_global_node_id,
+                self.global_face_edge_map[next_global_dir_edge_id].from_global_node_id,
+            ) {
+                (Some(to_global_node_id), Some(from_global_node_id))
+                    if to_global_node_id == from_global_node_id => {}
+                _ => stats.node_discontinuity_count += 1,
+            }
+            let Some(global_face_id) = self
+                .global_face_id_by_global_dir_edge_id
+                .get(edge_index)
+                .copied()
+                .flatten()
+            else {
+                stats.missing_face_id_count += 1;
+                continue;
+            };
+            stats.face_id_count += 1;
+            face_ids.insert(global_face_id);
+            topology.push(PartitionBorderGlobalFaceTopologyEdge {
+                global_dir_edge_id: edge_index,
+                next_global_dir_edge_id,
+                global_face_id,
+            });
+        }
+        let expected_face_ids = (0..face_ids.len()).collect::<BTreeSet<_>>();
+        stats.non_contiguous_face_id_count =
+            expected_face_ids.symmetric_difference(&face_ids).count();
+        stats.topology_ready = edge_count > 0
+            && extraction_gate.extraction_ready
+            && extraction_gate.edge_count == edge_count
+            && stats.next_link_count == edge_count
+            && stats.face_id_count == edge_count
+            && stats.missing_next_count == 0
+            && stats.invalid_next_count == 0
+            && stats.duplicate_next_count == 0
+            && stats.node_discontinuity_count == 0
+            && stats.missing_face_id_count == 0
+            && stats.non_contiguous_face_id_count == 0
+            && topology.len() == edge_count;
+        if stats.topology_ready {
+            self.global_face_topology_edges = topology;
+        }
+        Ok(stats)
+    }
+
     #[cfg(test)]
     pub(crate) fn global_face_id_by_global_dir_edge_id(&self) -> &[Option<usize>] {
         &self.global_face_id_by_global_dir_edge_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_face_topology_edges(&self) -> &[PartitionBorderGlobalFaceTopologyEdge] {
+        &self.global_face_topology_edges
     }
 
     /// Validates the detached per-edge face identity against all retained
@@ -14056,6 +14203,126 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_identity_materialization"
+        ));
+    }
+
+    #[test]
+    fn global_face_topology_materialization_is_atomic_and_output_neutral() {
+        let mut graph = exact_global_topology_candidate_graph();
+        graph
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        graph.global_next_global_dir_edge_ids = graph
+            .global_topology_candidate
+            .as_ref()
+            .unwrap()
+            .next_global_dir_edge_ids
+            .clone();
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0), Some(1), Some(1)];
+        let observations_before = graph.observations.clone();
+        let edges_before = graph.global_face_edge_map.clone();
+        let stats = graph
+            .materialize_global_face_topology(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 4,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count, 4);
+        assert_eq!(stats.next_link_count, 4);
+        assert_eq!(stats.face_id_count, 4);
+        assert!(stats.topology_ready);
+        assert_eq!(graph.global_face_topology_edges().len(), 4);
+        assert!(graph
+            .global_face_topology_edges()
+            .iter()
+            .enumerate()
+            .all(|(index, edge)| edge.global_dir_edge_id == index));
+        assert_eq!(graph.observations, observations_before);
+        assert_eq!(graph.global_face_edge_map, edges_before);
+
+        let before = graph.global_face_topology_edges().to_vec();
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0), Some(2), Some(2)];
+        let stats = graph
+            .materialize_global_face_topology(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 4,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(stats.non_contiguous_face_id_count > 0);
+        assert!(!stats.topology_ready);
+        assert_eq!(graph.global_face_topology_edges(), before);
+
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0), Some(1), Some(1)];
+        graph.global_face_edge_map[0].to_global_node_id = None;
+        let stats = graph
+            .materialize_global_face_topology(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 4,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(stats.node_discontinuity_count > 0);
+        assert!(!stats.topology_ready);
+        assert_eq!(graph.global_face_topology_edges(), before);
+    }
+
+    #[test]
+    fn global_face_topology_materialization_checks_limits_and_cancellation() {
+        let mut limited = exact_global_topology_candidate_graph();
+        limited
+            .reconcile_global_topology_candidate(&ExecutionPolicy::default())
+            .unwrap();
+        limited.global_next_global_dir_edge_ids = vec![Some(1), Some(0), Some(3), Some(2)];
+        limited.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0), Some(1), Some(1)];
+        let gate = PartitionBorderGlobalFaceExtractionGateStats {
+            edge_count: 4,
+            extraction_ready: true,
+            ..Default::default()
+        };
+        let error = limited
+            .materialize_global_face_topology(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                gate,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_face_topology_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = limited
+            .materialize_global_face_topology(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                gate,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_topology"
         ));
     }
 

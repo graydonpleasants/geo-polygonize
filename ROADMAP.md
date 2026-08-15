@@ -597,7 +597,9 @@ Blocked by #1288.
   deterministic private XYZ evidence with duplicate and finite-coordinate
   checks; defer source-lineage promotion until the upstream payload contract
   carries it explicitly.
-- [ ] Build global `next` links and deterministic global face IDs.
+- [x] Build private global `next` links and deterministic global face IDs from
+  validated detached edge slots; keep local topology and tiled output
+  untouched.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
 - [ ] Extract stitched shells, holes, dangles, cuts, invalid rings, provenance,

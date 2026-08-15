@@ -19,9 +19,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceRingClassificationStats,
     PartitionBorderGlobalFaceRingExtractionPayloadStats,
     PartitionBorderGlobalFaceRingExtractionReadinessStats,
-    PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
-    PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
-    PartitionBorderGlobalNextLineageIntegrationStats,
+    PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTopologyStats,
+    PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
+    PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
     PartitionBorderGlobalNonPolygonExtractionStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
@@ -1218,6 +1218,29 @@ impl TraceRecorderV1 {
                 "invalid_cycle_count": stats.invalid_cycle_count,
                 "unbounded_edge_count": stats.unbounded_edge_count,
                 "materialization_ready": stats.materialization_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_topology(
+        &mut self,
+        stats: PartitionBorderGlobalFaceTopologyStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_topology",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "next_link_count": stats.next_link_count,
+                "face_id_count": stats.face_id_count,
+                "missing_next_count": stats.missing_next_count,
+                "invalid_next_count": stats.invalid_next_count,
+                "duplicate_next_count": stats.duplicate_next_count,
+                "node_discontinuity_count": stats.node_discontinuity_count,
+                "missing_face_id_count": stats.missing_face_id_count,
+                "non_contiguous_face_id_count": stats.non_contiguous_face_id_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "topology_ready": stats.topology_ready,
             }),
         )
     }
