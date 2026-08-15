@@ -17,6 +17,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
     PartitionBorderGlobalFaceRingCandidateAssemblyStats,
     PartitionBorderGlobalFaceRingClassificationStats,
+    PartitionBorderGlobalFaceRingExtractionPayloadStats,
     PartitionBorderGlobalFaceRingExtractionReadinessStats,
     PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
@@ -1526,6 +1527,29 @@ impl TraceRecorderV1 {
                 "source_lineage_mismatch_count": stats.source_lineage_mismatch_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "candidate_ready": stats.candidate_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_face_ring_extraction_payloads(
+        &mut self,
+        stats: PartitionBorderGlobalFaceRingExtractionPayloadStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_face_ring_extraction_payloads",
+            serde_json::json!({
+                "candidate_count": stats.candidate_count,
+                "materialized_candidate_count": stats.materialized_candidate_count,
+                "shell_coordinate_count": stats.shell_coordinate_count,
+                "hole_coordinate_count": stats.hole_coordinate_count,
+                "source_line_id_count": stats.source_line_id_count,
+                "missing_payload_count": stats.missing_payload_count,
+                "duplicate_payload_count": stats.duplicate_payload_count,
+                "invalid_payload_count": stats.invalid_payload_count,
+                "source_lineage_mismatch_count": stats.source_lineage_mismatch_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "payload_ready": stats.payload_ready,
             }),
         )
     }
