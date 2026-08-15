@@ -637,6 +637,21 @@ pub struct StitchingReport {
     pub partition_border_global_face_ring_candidate_assembly_ambiguous_hole_count: usize,
     pub partition_border_global_face_ring_candidate_assembly_evidence_mismatch_count: usize,
     pub partition_border_global_face_ring_candidate_assembly_ready: bool,
+    /// Private shell/hole extraction candidates backed by retained payloads.
+    pub partition_border_global_face_ring_extraction_candidate_cycle_count: usize,
+    pub partition_border_global_face_ring_extraction_candidate_shell_count: usize,
+    pub partition_border_global_face_ring_extraction_candidate_hole_count: usize,
+    pub partition_border_global_face_ring_extraction_candidate_coordinate_count: usize,
+    pub partition_border_global_face_ring_extraction_candidate_source_line_id_count: usize,
+    pub partition_border_global_face_ring_extraction_missing_payload_count: usize,
+    pub partition_border_global_face_ring_extraction_duplicate_face_id_count: usize,
+    pub partition_border_global_face_ring_extraction_duplicate_cycle_start_count: usize,
+    pub partition_border_global_face_ring_extraction_duplicate_candidate_count: usize,
+    pub partition_border_global_face_ring_extraction_unbounded_payload_count: usize,
+    pub partition_border_global_face_ring_extraction_invalid_coordinate_count: usize,
+    pub partition_border_global_face_ring_extraction_source_lineage_mismatch_count: usize,
+    pub partition_border_global_face_ring_extraction_evidence_mismatch_count: usize,
+    pub partition_border_global_face_ring_extraction_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -2979,6 +2994,13 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_ring_classification,
             )?;
+        let partition_border_global_face_ring_extraction_readiness = partition_border_graph
+            .materialize_global_face_ring_extraction_candidates(
+                &self.execution_policy,
+                partition_border_global_face_ring_payloads,
+                partition_border_global_face_ring_classification,
+                partition_border_global_face_ring_candidate_assembly,
+            )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -3095,6 +3117,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_ring_candidate_assembly(
                 partition_border_global_face_ring_candidate_assembly,
+            );
+            trace.record_partition_border_global_face_ring_extraction_readiness(
+                partition_border_global_face_ring_extraction_readiness,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3882,6 +3907,42 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_ring_candidate_assembly.evidence_mismatch_count,
                 partition_border_global_face_ring_candidate_assembly_ready:
                     partition_border_global_face_ring_candidate_assembly.candidate_ready,
+                partition_border_global_face_ring_extraction_candidate_cycle_count:
+                    partition_border_global_face_ring_extraction_readiness.cycle_count,
+                partition_border_global_face_ring_extraction_candidate_shell_count:
+                    partition_border_global_face_ring_extraction_readiness.candidate_shell_count,
+                partition_border_global_face_ring_extraction_candidate_hole_count:
+                    partition_border_global_face_ring_extraction_readiness.candidate_hole_count,
+                partition_border_global_face_ring_extraction_candidate_coordinate_count:
+                    partition_border_global_face_ring_extraction_readiness.candidate_coordinate_count,
+                partition_border_global_face_ring_extraction_candidate_source_line_id_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .candidate_source_line_id_count,
+                partition_border_global_face_ring_extraction_missing_payload_count:
+                    partition_border_global_face_ring_extraction_readiness.missing_payload_count,
+                partition_border_global_face_ring_extraction_duplicate_face_id_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .duplicate_face_id_count,
+                partition_border_global_face_ring_extraction_duplicate_cycle_start_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .duplicate_cycle_start_count,
+                partition_border_global_face_ring_extraction_duplicate_candidate_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .duplicate_candidate_count,
+                partition_border_global_face_ring_extraction_unbounded_payload_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .unbounded_payload_count,
+                partition_border_global_face_ring_extraction_invalid_coordinate_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .invalid_coordinate_count,
+                partition_border_global_face_ring_extraction_source_lineage_mismatch_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .source_lineage_mismatch_count,
+                partition_border_global_face_ring_extraction_evidence_mismatch_count:
+                    partition_border_global_face_ring_extraction_readiness
+                        .evidence_mismatch_count,
+                partition_border_global_face_ring_extraction_ready:
+                    partition_border_global_face_ring_extraction_readiness.candidate_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
