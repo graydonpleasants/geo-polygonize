@@ -590,6 +590,9 @@ Blocked by #1288.
 - [x] Materialize private extraction candidates backed by canonical ring
   payloads; require one-to-one shell/hole payload coverage, valid XYZ/source
   lineage, bounded limits, and atomic readiness without promoting output.
+- [x] Materialize private stitched shell/hole payloads from ready candidates,
+  retaining raw XYZ bits and merged source IDs with atomic limits and
+  fail-closed evidence; do not expose public polygon output.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
