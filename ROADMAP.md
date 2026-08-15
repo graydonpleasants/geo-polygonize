@@ -593,6 +593,10 @@ Blocked by #1288.
 - [x] Materialize private stitched shell/hole payloads from ready candidates,
   retaining raw XYZ bits and merged source IDs with atomic limits and
   fail-closed evidence; do not expose public polygon output.
+- [x] Retain tile-local dangle, cut-edge, and invalid-ring geometry as
+  deterministic private XYZ evidence with duplicate and finite-coordinate
+  checks; defer source-lineage promotion until the upstream payload contract
+  carries it explicitly.
 - [ ] Build global `next` links and deterministic global face IDs.
 - [ ] Identify exactly one global unbounded face.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.

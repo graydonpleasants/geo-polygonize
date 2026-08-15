@@ -836,6 +836,35 @@ pub(crate) struct PartitionBorderGlobalFaceRingExtractionPayloadStats {
     pub(crate) payload_ready: bool,
 }
 
+/// A tile-local non-polygon output retained as private detached evidence.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum PartitionBorderGlobalNonPolygonPayloadKind {
+    Dangle,
+    CutEdge,
+    InvalidRing,
+}
+
+/// Raw XYZ bits for one private dangle, cut edge, or invalid ring.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalNonPolygonExtractionPayload {
+    pub(crate) partition_id: usize,
+    pub(crate) kind: PartitionBorderGlobalNonPolygonPayloadKind,
+    pub(crate) coordinate_bits: Vec<[u64; 3]>,
+}
+
+/// Counts private non-polygon extraction evidence.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalNonPolygonExtractionStats {
+    pub(crate) dangle_count: usize,
+    pub(crate) cut_edge_count: usize,
+    pub(crate) invalid_ring_count: usize,
+    pub(crate) coordinate_count: usize,
+    pub(crate) duplicate_payload_count: usize,
+    pub(crate) invalid_coordinate_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) payload_ready: bool,
+}
+
 /// Counts the one atomic commit of detached global successor links. Face IDs
 /// remain a separate roadmap slice; no local face identity or output is
 /// changed by this mutation.
@@ -1579,6 +1608,9 @@ pub struct PartitionBorderGraph {
     global_face_ring_candidate_assemblies: Vec<PartitionBorderGlobalFaceRingCandidateAssembly>,
     global_face_ring_extraction_candidates: Vec<PartitionBorderGlobalFaceRingExtractionCandidate>,
     global_face_ring_extraction_payloads: Vec<PartitionBorderGlobalFaceRingExtractionPayload>,
+    global_non_polygon_extraction_payload_candidates:
+        Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
+    global_non_polygon_extraction_payloads: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
 }
 
 impl PartitionBorderGraph {
@@ -1635,6 +1667,9 @@ impl PartitionBorderGraph {
         self.global_face_ring_candidate_assemblies.clear();
         self.global_face_ring_extraction_candidates.clear();
         self.global_face_ring_extraction_payloads.clear();
+        self.global_non_polygon_extraction_payload_candidates
+            .clear();
+        self.global_non_polygon_extraction_payloads.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1681,6 +1716,9 @@ impl PartitionBorderGraph {
         self.global_face_ring_candidate_assemblies.clear();
         self.global_face_ring_extraction_candidates.clear();
         self.global_face_ring_extraction_payloads.clear();
+        self.global_non_polygon_extraction_payload_candidates
+            .clear();
+        self.global_non_polygon_extraction_payloads.clear();
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1716,6 +1754,9 @@ impl PartitionBorderGraph {
         self.global_face_ring_candidate_assemblies.clear();
         self.global_face_ring_extraction_candidates.clear();
         self.global_face_ring_extraction_payloads.clear();
+        self.global_non_polygon_extraction_payload_candidates
+            .clear();
+        self.global_non_polygon_extraction_payloads.clear();
     }
 
     pub fn node_count(&self) -> usize {
@@ -4067,6 +4108,114 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Retains tile-local dangles, cut edges, and invalid rings as private
+    /// raw XYZ evidence. The geometry is not merged into public output.
+    pub(crate) fn retain_global_non_polygon_extraction_payloads(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        partition_id: usize,
+        dangles: Vec<Vec<Coord3D>>,
+        cut_edges: Vec<Vec<Coord3D>>,
+        invalid_rings: Vec<Vec<Coord3D>>,
+    ) -> crate::Result<()> {
+        let mut retain = |kind, payloads: Vec<Vec<Coord3D>>| -> crate::Result<()> {
+            for (payload_index, coords) in payloads.into_iter().enumerate() {
+                execution_policy.check_cancelled_every(
+                    "partition_border_global_non_polygon_extraction_payloads",
+                    payload_index,
+                )?;
+                let coordinate_bits = coords
+                    .into_iter()
+                    .map(|coord| {
+                        [
+                            canonical_coordinate_bits(coord.x),
+                            canonical_coordinate_bits(coord.y),
+                            canonical_coordinate_bits(coord.z),
+                        ]
+                    })
+                    .collect();
+                self.global_non_polygon_extraction_payload_candidates.push(
+                    PartitionBorderGlobalNonPolygonExtractionPayload {
+                        partition_id,
+                        kind,
+                        coordinate_bits,
+                    },
+                );
+            }
+            Ok(())
+        };
+        retain(PartitionBorderGlobalNonPolygonPayloadKind::Dangle, dangles)?;
+        retain(
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+            cut_edges,
+        )?;
+        retain(
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+            invalid_rings,
+        )
+    }
+
+    /// Canonicalizes private non-polygon evidence without promoting it to
+    /// public dangle, cut-edge, or invalid-ring output.
+    pub(crate) fn materialize_global_non_polygon_extraction_payloads(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderGlobalNonPolygonExtractionStats> {
+        execution_policy
+            .check_cancelled("partition_border_global_non_polygon_extraction_payloads")?;
+        let mut payloads = self
+            .global_non_polygon_extraction_payload_candidates
+            .clone();
+        payloads.sort_unstable_by(|left, right| {
+            (left.kind, &left.coordinate_bits, left.partition_id).cmp(&(
+                right.kind,
+                &right.coordinate_bits,
+                right.partition_id,
+            ))
+        });
+        let mut stats = PartitionBorderGlobalNonPolygonExtractionStats::default();
+        for (payload_index, payload) in payloads.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_non_polygon_extraction_payloads",
+                payload_index,
+            )?;
+            match payload.kind {
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle => stats.dangle_count += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => stats.cut_edge_count += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => {
+                    stats.invalid_ring_count += 1
+                }
+            }
+            stats.coordinate_count = stats
+                .coordinate_count
+                .checked_add(payload.coordinate_bits.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global non-polygon coordinate count overflow".to_string(),
+                })?;
+            if !payload
+                .coordinate_bits
+                .iter()
+                .all(|bits| bits.iter().all(|value| f64::from_bits(*value).is_finite()))
+            {
+                stats.invalid_coordinate_count += 1;
+            }
+            if payload_index > 0
+                && payloads[payload_index - 1].kind == payload.kind
+                && payloads[payload_index - 1].coordinate_bits == payload.coordinate_bits
+            {
+                stats.duplicate_payload_count += 1;
+            }
+        }
+        stats.payload_ready =
+            stats.invalid_coordinate_count == 0 && stats.duplicate_payload_count == 0;
+        if stats.payload_ready {
+            self.global_non_polygon_extraction_payloads = payloads;
+        } else {
+            stats.evidence_mismatch_count += 1;
+        }
+        Ok(stats)
+    }
+
     #[cfg(test)]
     pub(crate) fn global_face_ring_payloads(&self) -> &[PartitionBorderGlobalFaceRingPayload] {
         &self.global_face_ring_payloads
@@ -4098,6 +4247,13 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalFaceRingExtractionPayload] {
         &self.global_face_ring_extraction_payloads
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_non_polygon_extraction_payloads(
+        &self,
+    ) -> &[PartitionBorderGlobalNonPolygonExtractionPayload] {
+        &self.global_non_polygon_extraction_payloads
     }
 
     #[cfg(test)]
@@ -6930,6 +7086,9 @@ impl PartitionBorderGraph {
         self.global_face_ring_candidate_assemblies.clear();
         self.global_face_ring_extraction_candidates.clear();
         self.global_face_ring_extraction_payloads.clear();
+        self.global_non_polygon_extraction_payload_candidates
+            .clear();
+        self.global_non_polygon_extraction_payloads.clear();
         Ok(stats)
     }
 
@@ -7669,6 +7828,9 @@ impl PartitionBorderGraph {
         self.global_face_ring_candidate_assemblies.clear();
         self.global_face_ring_extraction_candidates.clear();
         self.global_face_ring_extraction_payloads.clear();
+        self.global_non_polygon_extraction_payload_candidates
+            .clear();
+        self.global_non_polygon_extraction_payloads.clear();
         self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
             next_global_dir_edge_ids,
             cycle_start_global_dir_edge_ids,
@@ -15837,6 +15999,160 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_ring_extraction_payloads"
+        ));
+    }
+
+    #[test]
+    fn global_non_polygon_extraction_payloads_are_deterministic_and_atomic() {
+        let mut graph = PartitionBorderGraph::default();
+        graph
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                2,
+                vec![vec![
+                    Coord3D::new(0.0, 0.0, 3.0),
+                    Coord3D::new(1.0, 0.0, 3.0),
+                ]],
+                vec![vec![
+                    Coord3D::new(2.0, 0.0, 4.0),
+                    Coord3D::new(3.0, 0.0, 4.0),
+                ]],
+                vec![vec![
+                    Coord3D::new(4.0, 0.0, 5.0),
+                    Coord3D::new(5.0, 0.0, 5.0),
+                    Coord3D::new(4.0, 0.0, 5.0),
+                ]],
+            )
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            stats,
+            PartitionBorderGlobalNonPolygonExtractionStats {
+                dangle_count: 1,
+                cut_edge_count: 1,
+                invalid_ring_count: 1,
+                coordinate_count: 7,
+                payload_ready: true,
+                ..Default::default()
+            }
+        );
+        let payloads = graph.global_non_polygon_extraction_payloads();
+        assert_eq!(payloads.len(), 3);
+        assert_eq!(
+            payloads[0].kind,
+            PartitionBorderGlobalNonPolygonPayloadKind::Dangle
+        );
+        assert_eq!(payloads[0].coordinate_bits[0][2], 3.0f64.to_bits());
+        assert_eq!(
+            payloads[1].kind,
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge
+        );
+        assert_eq!(
+            payloads[2].kind,
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing
+        );
+
+        let before = payloads.to_vec();
+        graph
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                3,
+                vec![vec![Coord3D::new(f64::NAN, 0.0, 0.0)]],
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.invalid_coordinate_count, 1);
+        assert!(!stats.payload_ready);
+        assert_eq!(graph.global_non_polygon_extraction_payloads(), before);
+
+        let mut reordered = PartitionBorderGraph::default();
+        reordered
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                2,
+                Vec::new(),
+                Vec::new(),
+                vec![vec![
+                    Coord3D::new(4.0, 0.0, 5.0),
+                    Coord3D::new(5.0, 0.0, 5.0),
+                    Coord3D::new(4.0, 0.0, 5.0),
+                ]],
+            )
+            .unwrap();
+        reordered
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                2,
+                Vec::new(),
+                vec![vec![
+                    Coord3D::new(2.0, 0.0, 4.0),
+                    Coord3D::new(3.0, 0.0, 4.0),
+                ]],
+                Vec::new(),
+            )
+            .unwrap();
+        reordered
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                2,
+                vec![vec![
+                    Coord3D::new(0.0, 0.0, 3.0),
+                    Coord3D::new(1.0, 0.0, 3.0),
+                ]],
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+        reordered
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            graph.global_non_polygon_extraction_payloads(),
+            reordered.global_non_polygon_extraction_payloads()
+        );
+    }
+
+    #[test]
+    fn global_non_polygon_extraction_payloads_reject_duplicates_and_cancellation() {
+        let mut duplicate = PartitionBorderGraph::default();
+        let dangle = vec![Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0)];
+        duplicate
+            .retain_global_non_polygon_extraction_payloads(
+                &ExecutionPolicy::default(),
+                0,
+                vec![dangle.clone(), dangle],
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+        let stats = duplicate
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.duplicate_payload_count, 1);
+        assert!(!stats.payload_ready);
+        assert!(duplicate
+            .global_non_polygon_extraction_payloads()
+            .is_empty());
+
+        let mut cancelled = PartitionBorderGraph::default();
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = cancelled
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_non_polygon_extraction_payloads"
         ));
     }
 

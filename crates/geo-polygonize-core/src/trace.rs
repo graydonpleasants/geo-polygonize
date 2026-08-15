@@ -22,6 +22,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTransitionPlanStats,
     PartitionBorderGlobalFaceTwinTransitionStats, PartitionBorderGlobalFaceWalkInvariantStats,
     PartitionBorderGlobalNextLineageIntegrationStats,
+    PartitionBorderGlobalNonPolygonExtractionStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1548,6 +1549,26 @@ impl TraceRecorderV1 {
                 "duplicate_payload_count": stats.duplicate_payload_count,
                 "invalid_payload_count": stats.invalid_payload_count,
                 "source_lineage_mismatch_count": stats.source_lineage_mismatch_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "payload_ready": stats.payload_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_non_polygon_extraction(
+        &mut self,
+        stats: PartitionBorderGlobalNonPolygonExtractionStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_non_polygon_extraction",
+            serde_json::json!({
+                "dangle_count": stats.dangle_count,
+                "cut_edge_count": stats.cut_edge_count,
+                "invalid_ring_count": stats.invalid_ring_count,
+                "coordinate_count": stats.coordinate_count,
+                "duplicate_payload_count": stats.duplicate_payload_count,
+                "invalid_coordinate_count": stats.invalid_coordinate_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "payload_ready": stats.payload_ready,
             }),

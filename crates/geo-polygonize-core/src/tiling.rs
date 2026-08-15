@@ -664,6 +664,15 @@ pub struct StitchingReport {
     pub partition_border_global_face_ring_extraction_payload_source_lineage_mismatch_count: usize,
     pub partition_border_global_face_ring_extraction_payload_evidence_mismatch_count: usize,
     pub partition_border_global_face_ring_extraction_payload_ready: bool,
+    /// Private non-polygon extraction evidence retained from tile-local output.
+    pub partition_border_global_non_polygon_extraction_dangle_count: usize,
+    pub partition_border_global_non_polygon_extraction_cut_edge_count: usize,
+    pub partition_border_global_non_polygon_extraction_invalid_ring_count: usize,
+    pub partition_border_global_non_polygon_extraction_coordinate_count: usize,
+    pub partition_border_global_non_polygon_extraction_duplicate_payload_count: usize,
+    pub partition_border_global_non_polygon_extraction_invalid_coordinate_count: usize,
+    pub partition_border_global_non_polygon_extraction_evidence_mismatch_count: usize,
+    pub partition_border_global_non_polygon_extraction_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -875,6 +884,9 @@ type TileProcessResult = (
     Vec<PartitionBorderLocalFaceGraph>,
     bool,
     crate::graph::planar_graph::PartitionBoundaryNodingStats,
+    Vec<Vec<Coord3D>>,
+    Vec<Vec<Coord3D>>,
+    Vec<Vec<Coord3D>>,
 );
 
 #[derive(Debug)]
@@ -1469,16 +1481,22 @@ impl<'a> TiledPolygonizer<'a> {
                 Vec::new(),
                 false,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
             ));
         }
 
         // Run polygonization
         let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let dangles = result.dangles;
+        let cut_edges = result.cut_edges;
+        let invalid_rings = result.invalid_rings;
         report.polygon_count = result.polygons.len();
-        report.dangle_count = result.dangles.len();
-        report.cut_edge_count = result.cut_edges.len();
-        report.invalid_ring_count = result.invalid_rings.len();
+        report.dangle_count = dangles.len();
+        report.cut_edge_count = cut_edges.len();
+        report.invalid_ring_count = invalid_rings.len();
         // Ownership check:
         let mut valid_polys = Vec::new();
         let mut ownership_decisions = Vec::new();
@@ -1554,6 +1572,9 @@ impl<'a> TiledPolygonizer<'a> {
             local_face_graphs,
             capture_budget.is_some_and(|budget| budget.truncated()),
             boundary_noding_stats,
+            dangles,
+            cut_edges,
+            invalid_rings,
         ))
     }
 
@@ -2649,6 +2670,9 @@ impl<'a> TiledPolygonizer<'a> {
                     local_face_graphs,
                     capture_truncated,
                     boundary_noding_stats,
+                    dangles,
+                    cut_edges,
+                    invalid_rings,
                 ) = self.process_tile_with_retries(
                     tile_index,
                     tile,
@@ -2715,6 +2739,13 @@ impl<'a> TiledPolygonizer<'a> {
                         return Err(error);
                     }
                 }
+                partition_border_graph.retain_global_non_polygon_extraction_payloads(
+                    &self.execution_policy,
+                    tile_index,
+                    dangles,
+                    cut_edges,
+                    invalid_rings,
+                )?;
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
@@ -2774,11 +2805,29 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .collect();
 
-            for result in tile_results? {
-                let (polygons, report, _, border_observations, local_face_graphs, _, _) = result;
+            for (partition_id, result) in tile_results?.into_iter().enumerate() {
+                let (
+                    polygons,
+                    report,
+                    _,
+                    border_observations,
+                    local_face_graphs,
+                    _,
+                    _,
+                    dangles,
+                    cut_edges,
+                    invalid_rings,
+                ) = result;
                 for observation in border_observations {
                     partition_border_graph.insert(observation)?;
                 }
+                partition_border_graph.retain_global_non_polygon_extraction_payloads(
+                    &self.execution_policy,
+                    partition_id,
+                    dangles,
+                    cut_edges,
+                    invalid_rings,
+                )?;
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
@@ -3018,6 +3067,8 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_ring_extraction_readiness,
             )?;
+        let partition_border_global_non_polygon_extraction = partition_border_graph
+            .materialize_global_non_polygon_extraction_payloads(&self.execution_policy)?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -3140,6 +3191,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_ring_extraction_payloads(
                 partition_border_global_face_ring_extraction_payloads,
+            );
+            trace.record_partition_border_global_non_polygon_extraction(
+                partition_border_global_non_polygon_extraction,
             );
         }
         let unresolved = tile_reports.iter().any(Self::report_is_unresolved);
@@ -3988,6 +4042,22 @@ impl<'a> TiledPolygonizer<'a> {
                         .evidence_mismatch_count,
                 partition_border_global_face_ring_extraction_payload_ready:
                     partition_border_global_face_ring_extraction_payloads.payload_ready,
+                partition_border_global_non_polygon_extraction_dangle_count:
+                    partition_border_global_non_polygon_extraction.dangle_count,
+                partition_border_global_non_polygon_extraction_cut_edge_count:
+                    partition_border_global_non_polygon_extraction.cut_edge_count,
+                partition_border_global_non_polygon_extraction_invalid_ring_count:
+                    partition_border_global_non_polygon_extraction.invalid_ring_count,
+                partition_border_global_non_polygon_extraction_coordinate_count:
+                    partition_border_global_non_polygon_extraction.coordinate_count,
+                partition_border_global_non_polygon_extraction_duplicate_payload_count:
+                    partition_border_global_non_polygon_extraction.duplicate_payload_count,
+                partition_border_global_non_polygon_extraction_invalid_coordinate_count:
+                    partition_border_global_non_polygon_extraction.invalid_coordinate_count,
+                partition_border_global_non_polygon_extraction_evidence_mismatch_count:
+                    partition_border_global_non_polygon_extraction.evidence_mismatch_count,
+                partition_border_global_non_polygon_extraction_ready:
+                    partition_border_global_non_polygon_extraction.payload_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:
