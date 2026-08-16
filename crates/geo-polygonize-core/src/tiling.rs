@@ -495,6 +495,26 @@ pub struct StitchingReport {
     pub partition_border_global_face_topology_evidence_mismatch_count: usize,
     pub partition_border_global_face_topology_unbounded_face_ready: bool,
     pub partition_border_global_face_topology_ready: bool,
+    /// Consolidated private twin, cycle, source, Euler, face-walk, and
+    /// topology invariant evidence.
+    pub partition_border_global_face_invariant_gate_edge_count: usize,
+    pub partition_border_global_face_invariant_gate_cycle_count: usize,
+    pub partition_border_global_face_invariant_gate_edge_count_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_cycle_count_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_twin_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_cycle_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_source_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_face_walk_failure_count: usize,
+    pub partition_border_global_face_invariant_gate_euler_failure_count: usize,
+    pub partition_border_global_face_invariant_gate_evidence_mismatch_count: usize,
+    pub partition_border_global_face_invariant_gate_identity_ready: bool,
+    pub partition_border_global_face_invariant_gate_next_lineage_ready: bool,
+    pub partition_border_global_face_invariant_gate_cycle_face_lineage_ready: bool,
+    pub partition_border_global_face_invariant_gate_payload_lineage_ready: bool,
+    pub partition_border_global_face_invariant_gate_geometry_ready: bool,
+    pub partition_border_global_face_invariant_gate_topology_ready: bool,
+    pub partition_border_global_face_invariant_gate_extraction_gate_ready: bool,
+    pub partition_border_global_face_invariant_gate_ready: bool,
     /// Final detached global face-identity invariant evidence.
     pub partition_border_global_face_identity_invariant_twin_count: usize,
     pub partition_border_global_face_identity_invariant_twin_mapping_mismatch_count: usize,
@@ -705,7 +725,9 @@ pub struct StitchingReport {
     pub partition_border_global_extraction_readiness_missing_ring_candidate_count: usize,
     pub partition_border_global_extraction_readiness_missing_ring_payload_count: usize,
     pub partition_border_global_extraction_readiness_missing_non_polygon_payload_count: usize,
+    pub partition_border_global_extraction_readiness_missing_invariant_gate_count: usize,
     pub partition_border_global_extraction_readiness_evidence_mismatch_count: usize,
+    pub partition_border_global_extraction_readiness_invariant_gate_ready: bool,
     pub partition_border_global_extraction_readiness_topology_ready: bool,
     pub partition_border_global_extraction_readiness_ring_candidate_ready: bool,
     pub partition_border_global_extraction_readiness_ring_payload_ready: bool,
@@ -3082,6 +3104,17 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_extraction_gate,
             )?;
+        let partition_border_global_face_invariant_gate = partition_border_graph
+            .validate_global_face_invariant_gate(
+                &self.execution_policy,
+                partition_border_global_face_identity_invariants,
+                partition_border_global_next_lineage_integration,
+                partition_border_global_cycle_face_lineage,
+                partition_border_global_face_payload_lineage,
+                partition_border_global_face_cycle_geometry,
+                partition_border_global_face_extraction_gate,
+                partition_border_global_face_topology,
+            )?;
         let partition_border_global_face_ring_payloads = partition_border_graph
             .materialize_global_face_ring_payloads(
                 &self.execution_policy,
@@ -3119,6 +3152,7 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_ring_extraction_readiness,
                 partition_border_global_face_ring_extraction_payloads,
                 partition_border_global_non_polygon_extraction,
+                partition_border_global_face_invariant_gate,
             )?;
         if let Some(trace) = trace.as_deref_mut() {
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
@@ -3209,6 +3243,9 @@ impl<'a> TiledPolygonizer<'a> {
             );
             trace.record_partition_border_global_face_topology(
                 partition_border_global_face_topology,
+            );
+            trace.record_partition_border_global_face_invariant_gate(
+                partition_border_global_face_invariant_gate,
             );
             trace.record_partition_border_global_face_identity_invariants(
                 partition_border_global_face_identity_invariants,
@@ -3765,6 +3802,42 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_topology.unbounded_face_ready,
                 partition_border_global_face_topology_ready:
                     partition_border_global_face_topology.topology_ready,
+                partition_border_global_face_invariant_gate_edge_count:
+                    partition_border_global_face_invariant_gate.edge_count,
+                partition_border_global_face_invariant_gate_cycle_count:
+                    partition_border_global_face_invariant_gate.cycle_count,
+                partition_border_global_face_invariant_gate_edge_count_mismatch_count:
+                    partition_border_global_face_invariant_gate.edge_count_mismatch_count,
+                partition_border_global_face_invariant_gate_cycle_count_mismatch_count:
+                    partition_border_global_face_invariant_gate.cycle_count_mismatch_count,
+                partition_border_global_face_invariant_gate_twin_mismatch_count:
+                    partition_border_global_face_invariant_gate.twin_mismatch_count,
+                partition_border_global_face_invariant_gate_cycle_mismatch_count:
+                    partition_border_global_face_invariant_gate.cycle_mismatch_count,
+                partition_border_global_face_invariant_gate_source_mismatch_count:
+                    partition_border_global_face_invariant_gate.source_mismatch_count,
+                partition_border_global_face_invariant_gate_face_walk_failure_count:
+                    partition_border_global_face_invariant_gate.face_walk_failure_count,
+                partition_border_global_face_invariant_gate_euler_failure_count:
+                    partition_border_global_face_invariant_gate.euler_failure_count,
+                partition_border_global_face_invariant_gate_evidence_mismatch_count:
+                    partition_border_global_face_invariant_gate.evidence_mismatch_count,
+                partition_border_global_face_invariant_gate_identity_ready:
+                    partition_border_global_face_invariant_gate.identity_invariants_ready,
+                partition_border_global_face_invariant_gate_next_lineage_ready:
+                    partition_border_global_face_invariant_gate.next_lineage_ready,
+                partition_border_global_face_invariant_gate_cycle_face_lineage_ready:
+                    partition_border_global_face_invariant_gate.cycle_face_lineage_ready,
+                partition_border_global_face_invariant_gate_payload_lineage_ready:
+                    partition_border_global_face_invariant_gate.payload_lineage_ready,
+                partition_border_global_face_invariant_gate_geometry_ready:
+                    partition_border_global_face_invariant_gate.geometry_ready,
+                partition_border_global_face_invariant_gate_topology_ready:
+                    partition_border_global_face_invariant_gate.topology_ready,
+                partition_border_global_face_invariant_gate_extraction_gate_ready:
+                    partition_border_global_face_invariant_gate.extraction_gate_ready,
+                partition_border_global_face_invariant_gate_ready:
+                    partition_border_global_face_invariant_gate.gate_ready,
                 partition_border_global_face_identity_invariant_twin_count:
                     partition_border_global_face_identity_invariants.twin_count,
                 partition_border_global_face_identity_invariant_twin_mapping_mismatch_count:
@@ -4172,8 +4245,12 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_extraction_readiness_missing_non_polygon_payload_count:
                     partition_border_global_extraction_readiness
                         .missing_non_polygon_payload_count,
+                partition_border_global_extraction_readiness_missing_invariant_gate_count:
+                    partition_border_global_extraction_readiness.missing_invariant_gate_count,
                 partition_border_global_extraction_readiness_evidence_mismatch_count:
                     partition_border_global_extraction_readiness.evidence_mismatch_count,
+                partition_border_global_extraction_readiness_invariant_gate_ready:
+                    partition_border_global_extraction_readiness.invariant_gate_ready,
                 partition_border_global_extraction_readiness_topology_ready:
                     partition_border_global_extraction_readiness.topology_ready,
                 partition_border_global_extraction_readiness_ring_candidate_ready:
