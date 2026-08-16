@@ -5,10 +5,11 @@ use crate::graph::partition_border::{
     PartitionBorderCanonicalNodeValidationStats, PartitionBorderGlobalComponentCoverageStats,
     PartitionBorderGlobalComponentPayloadStats, PartitionBorderGlobalComponentReconciliationStats,
     PartitionBorderGlobalCycleFaceLineageStats, PartitionBorderGlobalCycleFacePromotionGateStats,
-    PartitionBorderGlobalFaceCycleGeometryStats, PartitionBorderGlobalFaceEdgeMapStats,
-    PartitionBorderGlobalFaceEulerWitnessStats, PartitionBorderGlobalFaceExtractionGateStats,
-    PartitionBorderGlobalFaceIdApplicationStats, PartitionBorderGlobalFaceIdMutationStats,
-    PartitionBorderGlobalFaceIdPlanStats, PartitionBorderGlobalFaceIdentityInvariantStats,
+    PartitionBorderGlobalExtractionReadinessStats, PartitionBorderGlobalFaceCycleGeometryStats,
+    PartitionBorderGlobalFaceEdgeMapStats, PartitionBorderGlobalFaceEulerWitnessStats,
+    PartitionBorderGlobalFaceExtractionGateStats, PartitionBorderGlobalFaceIdApplicationStats,
+    PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
+    PartitionBorderGlobalFaceIdentityInvariantStats,
     PartitionBorderGlobalFaceIdentityMaterializationStats,
     PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
     PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
@@ -1600,6 +1601,35 @@ impl TraceRecorderV1 {
                 "invalid_coordinate_count": stats.invalid_coordinate_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "payload_ready": stats.payload_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_extraction_readiness(
+        &mut self,
+        stats: PartitionBorderGlobalExtractionReadinessStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_extraction_readiness",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "topology_edge_count": stats.topology_edge_count,
+                "candidate_shell_count": stats.candidate_shell_count,
+                "candidate_hole_count": stats.candidate_hole_count,
+                "candidate_coordinate_count": stats.candidate_coordinate_count,
+                "materialized_candidate_count": stats.materialized_candidate_count,
+                "non_polygon_payload_count": stats.non_polygon_payload_count,
+                "missing_topology_count": stats.missing_topology_count,
+                "missing_ring_candidate_count": stats.missing_ring_candidate_count,
+                "missing_ring_payload_count": stats.missing_ring_payload_count,
+                "missing_non_polygon_payload_count": stats.missing_non_polygon_payload_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "topology_ready": stats.topology_ready,
+                "ring_candidate_ready": stats.ring_candidate_ready,
+                "ring_payload_ready": stats.ring_payload_ready,
+                "non_polygon_payload_ready": stats.non_polygon_payload_ready,
+                "extraction_ready": stats.extraction_ready,
             }),
         )
     }

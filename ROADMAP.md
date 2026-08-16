@@ -602,6 +602,9 @@ Blocked by #1288.
   untouched.
 - [x] Identify exactly one global unbounded face and carry its private
   cycle/edge identity into the detached global topology records.
+- [x] Consolidate private global topology, shell/hole payload, and non-polygon
+  evidence into one fail-closed extraction-readiness record; keep output
+  promotion deferred.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
 - [ ] Extract stitched shells, holes, dangles, cuts, invalid rings, provenance,
   and Z only after validation.
