@@ -203,7 +203,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if rustup toolchain install stable --profile minimal --no-self-update; then
+              rustup default stable
+              exit 0
+            fi
+            echo "Rust toolchain download failed (attempt $attempt/3); retrying..." >&2
+            sleep $((attempt * 30))
+          done
+          exit 1
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
