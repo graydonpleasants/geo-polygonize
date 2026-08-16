@@ -605,7 +605,8 @@ Blocked by #1288.
 - [x] Consolidate private global topology, shell/hole payload, and non-polygon
   evidence into one fail-closed extraction-readiness record; keep output
   promotion deferred.
-- [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
+- [x] Validate and consolidate detached twin, cycle, source, Euler, and
+  face-walk invariant evidence in a private fail-closed gate.
 - [ ] Extract stitched shells, holes, dangles, cuts, invalid rings, provenance,
   and Z only after validation.
 - [ ] Compare full canonical results with untiled execution.

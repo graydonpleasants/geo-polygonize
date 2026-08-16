@@ -11,9 +11,9 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceIdMutationStats, PartitionBorderGlobalFaceIdPlanStats,
     PartitionBorderGlobalFaceIdentityInvariantStats,
     PartitionBorderGlobalFaceIdentityMaterializationStats,
-    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceMutationGateStats,
-    PartitionBorderGlobalFaceNextApplicationStats, PartitionBorderGlobalFaceNextCandidateStats,
-    PartitionBorderGlobalFaceNextMutationPlanStats,
+    PartitionBorderGlobalFaceIdentityPlanStats, PartitionBorderGlobalFaceInvariantGateStats,
+    PartitionBorderGlobalFaceMutationGateStats, PartitionBorderGlobalFaceNextApplicationStats,
+    PartitionBorderGlobalFaceNextCandidateStats, PartitionBorderGlobalFaceNextMutationPlanStats,
     PartitionBorderGlobalFaceNodeReconciliationStats, PartitionBorderGlobalFacePayloadLineageStats,
     PartitionBorderGlobalFacePlanStats, PartitionBorderGlobalFacePlanValidationStats,
     PartitionBorderGlobalFaceRingCandidateAssemblyStats,
@@ -1252,6 +1252,36 @@ impl TraceRecorderV1 {
         )
     }
 
+    pub(crate) fn record_partition_border_global_face_invariant_gate(
+        &mut self,
+        stats: PartitionBorderGlobalFaceInvariantGateStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Graph,
+            "partition_border_global_face_invariant_gate",
+            serde_json::json!({
+                "edge_count": stats.edge_count,
+                "cycle_count": stats.cycle_count,
+                "edge_count_mismatch_count": stats.edge_count_mismatch_count,
+                "cycle_count_mismatch_count": stats.cycle_count_mismatch_count,
+                "twin_mismatch_count": stats.twin_mismatch_count,
+                "cycle_mismatch_count": stats.cycle_mismatch_count,
+                "source_mismatch_count": stats.source_mismatch_count,
+                "face_walk_failure_count": stats.face_walk_failure_count,
+                "euler_failure_count": stats.euler_failure_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "identity_invariants_ready": stats.identity_invariants_ready,
+                "next_lineage_ready": stats.next_lineage_ready,
+                "cycle_face_lineage_ready": stats.cycle_face_lineage_ready,
+                "payload_lineage_ready": stats.payload_lineage_ready,
+                "geometry_ready": stats.geometry_ready,
+                "topology_ready": stats.topology_ready,
+                "extraction_gate_ready": stats.extraction_gate_ready,
+                "gate_ready": stats.gate_ready,
+            }),
+        )
+    }
+
     pub(crate) fn record_partition_border_global_face_identity_invariants(
         &mut self,
         stats: PartitionBorderGlobalFaceIdentityInvariantStats,
@@ -1624,7 +1654,9 @@ impl TraceRecorderV1 {
                 "missing_ring_candidate_count": stats.missing_ring_candidate_count,
                 "missing_ring_payload_count": stats.missing_ring_payload_count,
                 "missing_non_polygon_payload_count": stats.missing_non_polygon_payload_count,
+                "missing_invariant_gate_count": stats.missing_invariant_gate_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "invariant_gate_ready": stats.invariant_gate_ready,
                 "topology_ready": stats.topology_ready,
                 "ring_candidate_ready": stats.ring_candidate_ready,
                 "ring_payload_ready": stats.ring_payload_ready,

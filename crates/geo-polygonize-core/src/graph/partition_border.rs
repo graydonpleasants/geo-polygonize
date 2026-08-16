@@ -914,12 +914,38 @@ pub(crate) struct PartitionBorderGlobalExtractionReadinessStats {
     pub(crate) missing_ring_candidate_count: usize,
     pub(crate) missing_ring_payload_count: usize,
     pub(crate) missing_non_polygon_payload_count: usize,
+    pub(crate) missing_invariant_gate_count: usize,
     pub(crate) evidence_mismatch_count: usize,
+    pub(crate) invariant_gate_ready: bool,
     pub(crate) topology_ready: bool,
     pub(crate) ring_candidate_ready: bool,
     pub(crate) ring_payload_ready: bool,
     pub(crate) non_polygon_payload_ready: bool,
     pub(crate) extraction_ready: bool,
+}
+
+/// Consolidates the already-computed twin, cycle, source, Euler, face-walk,
+/// topology, and geometry evidence before future global promotion.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalFaceInvariantGateStats {
+    pub(crate) edge_count: usize,
+    pub(crate) cycle_count: usize,
+    pub(crate) edge_count_mismatch_count: usize,
+    pub(crate) cycle_count_mismatch_count: usize,
+    pub(crate) twin_mismatch_count: usize,
+    pub(crate) cycle_mismatch_count: usize,
+    pub(crate) source_mismatch_count: usize,
+    pub(crate) face_walk_failure_count: usize,
+    pub(crate) euler_failure_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) identity_invariants_ready: bool,
+    pub(crate) next_lineage_ready: bool,
+    pub(crate) cycle_face_lineage_ready: bool,
+    pub(crate) payload_lineage_ready: bool,
+    pub(crate) geometry_ready: bool,
+    pub(crate) topology_ready: bool,
+    pub(crate) extraction_gate_ready: bool,
+    pub(crate) gate_ready: bool,
 }
 
 /// Counts the one atomic commit of detached global successor links. Face IDs
@@ -4279,6 +4305,143 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Consolidates existing detached invariant evidence without re-running
+    /// any producer or mutating graph/output state.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn validate_global_face_invariant_gate(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        identity_stats: PartitionBorderGlobalFaceIdentityInvariantStats,
+        next_lineage_stats: PartitionBorderGlobalNextLineageIntegrationStats,
+        cycle_face_lineage_stats: PartitionBorderGlobalCycleFaceLineageStats,
+        payload_lineage_stats: PartitionBorderGlobalFacePayloadLineageStats,
+        geometry_stats: PartitionBorderGlobalFaceCycleGeometryStats,
+        extraction_gate_stats: PartitionBorderGlobalFaceExtractionGateStats,
+        topology_stats: PartitionBorderGlobalFaceTopologyStats,
+    ) -> crate::Result<PartitionBorderGlobalFaceInvariantGateStats> {
+        execution_policy.check_cancelled("partition_border_global_face_invariant_gate")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_face_invariant_gate_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        let cycle_count = identity_stats.cycle_count;
+        let edge_count_mismatch_count = [
+            identity_stats.edge_count,
+            next_lineage_stats.edge_count,
+            cycle_face_lineage_stats.edge_count,
+            payload_lineage_stats.edge_count,
+            geometry_stats.edge_count,
+            extraction_gate_stats.edge_count,
+            topology_stats.edge_count,
+        ]
+        .into_iter()
+        .filter(|observed| *observed != edge_count)
+        .count();
+        let cycle_count_mismatch_count = [
+            next_lineage_stats.cycle_count,
+            cycle_face_lineage_stats.cycle_count,
+            payload_lineage_stats.cycle_count,
+            geometry_stats.cycle_count,
+            extraction_gate_stats.cycle_count,
+        ]
+        .into_iter()
+        .filter(|observed| *observed != cycle_count)
+        .count();
+        let checked_sum = |values: &[usize], reason: &str| {
+            values.iter().try_fold(0usize, |total, value| {
+                total.checked_add(*value).ok_or_else(|| {
+                    crate::PolygonizeError::InternalInvariantViolation {
+                        reason: reason.to_string(),
+                    }
+                })
+            })
+        };
+        let twin_mismatch_count = checked_sum(
+            &[
+                identity_stats.twin_mapping_mismatch_count,
+                next_lineage_stats.twin_lineage_mismatch_count,
+            ],
+            "global face invariant twin mismatch count overflow",
+        )?;
+        let cycle_mismatch_count = checked_sum(
+            &[
+                identity_stats.cycle_face_mismatch_count,
+                cycle_face_lineage_stats.invalid_cycle_count,
+                cycle_face_lineage_stats.cycle_plan_mismatch_count,
+                cycle_face_lineage_stats.cycle_face_ref_mismatch_count,
+                cycle_face_lineage_stats.unbounded_lineage_mismatch_count,
+                geometry_stats.degenerate_cycle_count,
+                geometry_stats.self_intersection_count,
+                geometry_stats.canonical_ring_mismatch_count,
+                geometry_stats.reciprocal_edge_mismatch_count,
+            ],
+            "global face invariant cycle mismatch count overflow",
+        )?;
+        let source_mismatch_count = checked_sum(
+            &[
+                identity_stats.source_incomplete_edge_count,
+                payload_lineage_stats.source_incomplete_edge_count,
+                payload_lineage_stats.source_lineage_mismatch_count,
+            ],
+            "global face invariant source mismatch count overflow",
+        )?;
+        let face_walk_failure_count = usize::from(!identity_stats.face_walk_ready);
+        let euler_failure_count = usize::from(!identity_stats.euler_evidence_ready);
+        let evidence_mismatch_count = checked_sum(
+            &[
+                edge_count_mismatch_count,
+                cycle_count_mismatch_count,
+                twin_mismatch_count,
+                cycle_mismatch_count,
+                source_mismatch_count,
+                face_walk_failure_count,
+                euler_failure_count,
+                extraction_gate_stats.edge_count_mismatch_count,
+                extraction_gate_stats.cycle_count_mismatch_count,
+                topology_stats.evidence_mismatch_count,
+                topology_stats.missing_unbounded_identity_count,
+                topology_stats.unbounded_identity_mismatch_count,
+                usize::from(!identity_stats.invariants_ready),
+                usize::from(!next_lineage_stats.integration_ready),
+                usize::from(!cycle_face_lineage_stats.lineage_ready),
+                usize::from(!payload_lineage_stats.lineage_ready),
+                usize::from(!geometry_stats.geometry_ready),
+                usize::from(!topology_stats.topology_ready),
+                usize::from(!extraction_gate_stats.extraction_ready),
+            ],
+            "global face invariant evidence mismatch count overflow",
+        )?;
+        let identity_invariants_ready = identity_stats.invariants_ready;
+        let next_lineage_ready = next_lineage_stats.integration_ready;
+        let cycle_face_lineage_ready = cycle_face_lineage_stats.lineage_ready;
+        let payload_lineage_ready = payload_lineage_stats.lineage_ready;
+        let geometry_ready = geometry_stats.geometry_ready;
+        let topology_ready = topology_stats.topology_ready;
+        let extraction_gate_ready = extraction_gate_stats.extraction_ready;
+        Ok(PartitionBorderGlobalFaceInvariantGateStats {
+            edge_count,
+            cycle_count,
+            edge_count_mismatch_count,
+            cycle_count_mismatch_count,
+            twin_mismatch_count,
+            cycle_mismatch_count,
+            source_mismatch_count,
+            face_walk_failure_count,
+            euler_failure_count,
+            evidence_mismatch_count,
+            identity_invariants_ready,
+            next_lineage_ready,
+            cycle_face_lineage_ready,
+            payload_lineage_ready,
+            geometry_ready,
+            topology_ready,
+            extraction_gate_ready,
+            gate_ready: evidence_mismatch_count == 0,
+        })
+    }
+
     /// Combines the committed private extraction evidence into one bounded,
     /// fail-closed readiness record without changing graph or output state.
     pub(crate) fn validate_global_extraction_readiness(
@@ -4288,6 +4451,7 @@ impl PartitionBorderGraph {
         ring_candidate_stats: PartitionBorderGlobalFaceRingExtractionReadinessStats,
         ring_payload_stats: PartitionBorderGlobalFaceRingExtractionPayloadStats,
         non_polygon_stats: PartitionBorderGlobalNonPolygonExtractionStats,
+        invariant_gate_stats: PartitionBorderGlobalFaceInvariantGateStats,
     ) -> crate::Result<PartitionBorderGlobalExtractionReadinessStats> {
         execution_policy.check_cancelled("partition_border_global_extraction_readiness")?;
         let edge_count = self.global_face_edge_map.len();
@@ -4328,6 +4492,8 @@ impl PartitionBorderGraph {
             })?;
         let non_polygon_payload_ready = non_polygon_stats.payload_ready
             && self.global_non_polygon_extraction_payloads.len() == non_polygon_payload_count;
+        let invariant_gate_ready =
+            invariant_gate_stats.gate_ready && invariant_gate_stats.edge_count == edge_count;
         let mut stats = PartitionBorderGlobalExtractionReadinessStats {
             edge_count,
             topology_edge_count: topology_stats.edge_count,
@@ -4340,10 +4506,12 @@ impl PartitionBorderGraph {
             missing_ring_candidate_count: usize::from(!ring_candidate_ready),
             missing_ring_payload_count: usize::from(!ring_payload_ready),
             missing_non_polygon_payload_count: usize::from(!non_polygon_payload_ready),
+            missing_invariant_gate_count: usize::from(!invariant_gate_ready),
             topology_ready,
             ring_candidate_ready,
             ring_payload_ready,
             non_polygon_payload_ready,
+            invariant_gate_ready,
             ..Default::default()
         };
         stats.evidence_mismatch_count = topology_stats
@@ -4351,10 +4519,12 @@ impl PartitionBorderGraph {
             .checked_add(ring_candidate_stats.evidence_mismatch_count)
             .and_then(|count| count.checked_add(ring_payload_stats.evidence_mismatch_count))
             .and_then(|count| count.checked_add(non_polygon_stats.evidence_mismatch_count))
+            .and_then(|count| count.checked_add(invariant_gate_stats.evidence_mismatch_count))
             .and_then(|count| count.checked_add(stats.missing_topology_count))
             .and_then(|count| count.checked_add(stats.missing_ring_candidate_count))
             .and_then(|count| count.checked_add(stats.missing_ring_payload_count))
             .and_then(|count| count.checked_add(stats.missing_non_polygon_payload_count))
+            .and_then(|count| count.checked_add(stats.missing_invariant_gate_count))
             .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
                 reason: "global extraction evidence mismatch count overflow".to_string(),
             })?;
@@ -4362,6 +4532,7 @@ impl PartitionBorderGraph {
             && stats.ring_candidate_ready
             && stats.ring_payload_ready
             && stats.non_polygon_payload_ready
+            && stats.invariant_gate_ready
             && stats.evidence_mismatch_count == 0;
         Ok(stats)
     }
@@ -14573,6 +14744,11 @@ mod tests {
                 },
             )
             .unwrap();
+        let invariant_gate_stats = PartitionBorderGlobalFaceInvariantGateStats {
+            edge_count: 12,
+            gate_ready: true,
+            ..Default::default()
+        };
         let ring_candidate_stats = graph
             .materialize_global_face_ring_extraction_candidates(
                 &ExecutionPolicy::default(),
@@ -14600,6 +14776,7 @@ mod tests {
                 ring_candidate_stats,
                 ring_payload_stats,
                 non_polygon_stats,
+                invariant_gate_stats,
             )
             .unwrap();
         assert_eq!(stats.edge_count, 12);
@@ -14624,6 +14801,7 @@ mod tests {
                 ring_candidate_stats,
                 ring_payload_stats,
                 non_polygon_stats,
+                invariant_gate_stats,
             )
             .unwrap();
         assert_eq!(stats.missing_topology_count, 1);
@@ -14639,6 +14817,7 @@ mod tests {
                 ring_candidate_stats,
                 ring_payload_stats,
                 non_polygon_stats,
+                invariant_gate_stats,
             )
             .unwrap_err();
         assert!(matches!(
@@ -14662,12 +14841,144 @@ mod tests {
                 ring_candidate_stats,
                 ring_payload_stats,
                 non_polygon_stats,
+                invariant_gate_stats,
             )
             .unwrap_err();
         assert!(matches!(
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_extraction_readiness"
+        ));
+    }
+
+    #[test]
+    fn global_face_invariant_gate_combines_evidence_and_fails_closed() {
+        let graph = exact_global_topology_candidate_graph();
+        let identity_stats = PartitionBorderGlobalFaceIdentityInvariantStats {
+            edge_count: 4,
+            cycle_count: 2,
+            face_walk_ready: true,
+            euler_evidence_ready: true,
+            invariants_ready: true,
+            ..Default::default()
+        };
+        let next_lineage_stats = PartitionBorderGlobalNextLineageIntegrationStats {
+            edge_count: 4,
+            cycle_count: 2,
+            integration_ready: true,
+            ..Default::default()
+        };
+        let cycle_face_lineage_stats = PartitionBorderGlobalCycleFaceLineageStats {
+            edge_count: 4,
+            cycle_count: 2,
+            lineage_ready: true,
+            ..Default::default()
+        };
+        let payload_lineage_stats = PartitionBorderGlobalFacePayloadLineageStats {
+            edge_count: 4,
+            cycle_count: 2,
+            lineage_ready: true,
+            ..Default::default()
+        };
+        let geometry_stats = PartitionBorderGlobalFaceCycleGeometryStats {
+            edge_count: 4,
+            cycle_count: 2,
+            geometry_ready: true,
+            ..Default::default()
+        };
+        let extraction_gate_stats = PartitionBorderGlobalFaceExtractionGateStats {
+            edge_count: 4,
+            cycle_count: 2,
+            extraction_ready: true,
+            ..Default::default()
+        };
+        let topology_stats = PartitionBorderGlobalFaceTopologyStats {
+            edge_count: 4,
+            topology_ready: true,
+            ..Default::default()
+        };
+        let before = graph.clone();
+        let stats = graph
+            .validate_global_face_invariant_gate(
+                &ExecutionPolicy::default(),
+                identity_stats,
+                next_lineage_stats,
+                cycle_face_lineage_stats,
+                payload_lineage_stats,
+                geometry_stats,
+                extraction_gate_stats,
+                topology_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count, 4);
+        assert_eq!(stats.cycle_count, 2);
+        assert_eq!(stats.evidence_mismatch_count, 0);
+        assert!(stats.gate_ready);
+        assert_eq!(graph, before);
+
+        let stats = graph
+            .validate_global_face_invariant_gate(
+                &ExecutionPolicy::default(),
+                identity_stats,
+                next_lineage_stats,
+                cycle_face_lineage_stats,
+                PartitionBorderGlobalFacePayloadLineageStats {
+                    source_lineage_mismatch_count: 1,
+                    ..payload_lineage_stats
+                },
+                geometry_stats,
+                extraction_gate_stats,
+                topology_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.source_mismatch_count, 1);
+        assert!(!stats.gate_ready);
+
+        let error = graph
+            .validate_global_face_invariant_gate(
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                },
+                identity_stats,
+                next_lineage_stats,
+                cycle_face_lineage_stats,
+                payload_lineage_stats,
+                geometry_stats,
+                extraction_gate_stats,
+                topology_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 4,
+            } if stage == "partition_border_global_face_invariant_gate_edges"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_face_invariant_gate(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                identity_stats,
+                next_lineage_stats,
+                cycle_face_lineage_stats,
+                payload_lineage_stats,
+                geometry_stats,
+                extraction_gate_stats,
+                topology_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_face_invariant_gate"
         ));
     }
 
