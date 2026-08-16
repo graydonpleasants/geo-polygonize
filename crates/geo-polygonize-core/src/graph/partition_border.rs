@@ -898,6 +898,32 @@ pub(crate) struct PartitionBorderGlobalNonPolygonExtractionStats {
     pub(crate) payload_ready: bool,
 }
 
+/// Private extraction state committed only after the complete detached gate.
+/// It is intentionally separate from the public tiled polygon result.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalPrivateExtraction {
+    pub(crate) ring_payloads: Vec<PartitionBorderGlobalFaceRingExtractionPayload>,
+    pub(crate) non_polygon_payloads: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
+}
+
+/// Counts the atomic private extraction snapshot.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalPrivateExtractionStats {
+    pub(crate) ring_payload_count: usize,
+    pub(crate) hole_count: usize,
+    pub(crate) dangle_count: usize,
+    pub(crate) cut_edge_count: usize,
+    pub(crate) invalid_ring_count: usize,
+    pub(crate) coordinate_count: usize,
+    pub(crate) source_line_id_count: usize,
+    pub(crate) missing_ring_payload_count: usize,
+    pub(crate) missing_non_polygon_payload_count: usize,
+    pub(crate) invalid_ring_payload_count: usize,
+    pub(crate) invalid_non_polygon_payload_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) extraction_ready: bool,
+}
+
 /// Combines private global topology, shell/hole payload, and non-polygon
 /// evidence after each producer has committed atomically. This is a final
 /// readiness record only; it never promotes topology or public output.
@@ -1695,6 +1721,7 @@ pub struct PartitionBorderGraph {
     global_non_polygon_extraction_payload_candidates:
         Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
     global_non_polygon_extraction_payloads: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
+    global_private_extraction: Option<PartitionBorderGlobalPrivateExtraction>,
 }
 
 impl PartitionBorderGraph {
@@ -1755,6 +1782,7 @@ impl PartitionBorderGraph {
         self.global_non_polygon_extraction_payload_candidates
             .clear();
         self.global_non_polygon_extraction_payloads.clear();
+        self.global_private_extraction = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1805,6 +1833,7 @@ impl PartitionBorderGraph {
         self.global_non_polygon_extraction_payload_candidates
             .clear();
         self.global_non_polygon_extraction_payloads.clear();
+        self.global_private_extraction = None;
         self.global_face_edge_map.clear();
         self.global_face_nodes.clear();
         Ok(())
@@ -1844,6 +1873,7 @@ impl PartitionBorderGraph {
         self.global_non_polygon_extraction_payload_candidates
             .clear();
         self.global_non_polygon_extraction_payloads.clear();
+        self.global_private_extraction = None;
     }
 
     pub fn node_count(&self) -> usize {
@@ -4537,6 +4567,172 @@ impl PartitionBorderGraph {
         Ok(stats)
     }
 
+    /// Commits a private extraction snapshot only after the complete readiness
+    /// record and both payload producers agree. Public tiled output remains
+    /// unchanged.
+    pub(crate) fn materialize_global_private_extraction(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+        readiness_stats: PartitionBorderGlobalExtractionReadinessStats,
+        ring_payload_stats: PartitionBorderGlobalFaceRingExtractionPayloadStats,
+        non_polygon_stats: PartitionBorderGlobalNonPolygonExtractionStats,
+    ) -> crate::Result<PartitionBorderGlobalPrivateExtractionStats> {
+        execution_policy.check_cancelled("partition_border_global_private_extraction")?;
+        let mut stats = PartitionBorderGlobalPrivateExtractionStats {
+            ring_payload_count: ring_payload_stats.candidate_count,
+            ..Default::default()
+        };
+        if !readiness_stats.extraction_ready
+            || !ring_payload_stats.payload_ready
+            || !non_polygon_stats.payload_ready
+        {
+            stats.evidence_mismatch_count += 1;
+        }
+
+        if self.global_face_ring_extraction_payloads.len() != ring_payload_stats.candidate_count {
+            stats.missing_ring_payload_count += 1;
+        }
+        let expected_non_polygon_payload_count = non_polygon_stats
+            .dangle_count
+            .checked_add(non_polygon_stats.cut_edge_count)
+            .and_then(|count| count.checked_add(non_polygon_stats.invalid_ring_count))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global private extraction non-polygon payload count overflow".to_string(),
+            })?;
+        if self.global_non_polygon_extraction_payloads.len() != expected_non_polygon_payload_count {
+            stats.missing_non_polygon_payload_count += 1;
+        }
+
+        execution_policy.check(
+            "partition_border_global_private_extraction_polygons",
+            execution_policy.max_output_polygons,
+            ring_payload_stats.candidate_count,
+        )?;
+        let expected_coordinate_count = ring_payload_stats
+            .shell_coordinate_count
+            .checked_add(ring_payload_stats.hole_coordinate_count)
+            .and_then(|count| count.checked_add(non_polygon_stats.coordinate_count))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global private extraction coordinate count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            "partition_border_global_private_extraction_coordinates",
+            execution_policy.max_output_coordinates,
+            expected_coordinate_count,
+        )?;
+
+        let mut extracted_coordinate_count = 0usize;
+        let mut extracted_source_line_id_count = 0usize;
+        for (payload_index, payload) in self.global_face_ring_extraction_payloads.iter().enumerate()
+        {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_private_extraction_rings",
+                payload_index,
+            )?;
+            stats.hole_count = stats
+                .hole_count
+                .checked_add(payload.hole_coords.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global private extraction hole count overflow".to_string(),
+                })?;
+            extracted_source_line_id_count = extracted_source_line_id_count
+                .checked_add(payload.source_line_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global private extraction source count overflow".to_string(),
+                })?;
+            extracted_coordinate_count = extracted_coordinate_count
+                .checked_add(payload.exterior_coords.len())
+                .and_then(|count| {
+                    payload
+                        .hole_coords
+                        .iter()
+                        .try_fold(count, |count, hole| count.checked_add(hole.len()))
+                })
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global private extraction ring coordinate count overflow".to_string(),
+                })?;
+            let valid_ring = payload.exterior_coords.len() >= 4
+                && payload.exterior_coords.first() == payload.exterior_coords.last()
+                && payload
+                    .exterior_coords
+                    .iter()
+                    .all(|bits| bits.iter().all(|value| f64::from_bits(*value).is_finite()))
+                && payload.hole_candidate_global_face_ids.len() == payload.hole_coords.len()
+                && payload.hole_coords.iter().all(|hole| {
+                    hole.len() >= 4
+                        && hole.first() == hole.last()
+                        && hole
+                            .iter()
+                            .all(|bits| bits.iter().all(|value| f64::from_bits(*value).is_finite()))
+                })
+                && payload
+                    .source_line_ids
+                    .windows(2)
+                    .all(|window| window[0] < window[1]);
+            if !valid_ring {
+                stats.invalid_ring_payload_count += 1;
+            }
+        }
+
+        let non_polygon_payloads = &self.global_non_polygon_extraction_payloads;
+        for (payload_index, payload) in non_polygon_payloads.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_private_extraction_non_polygon",
+                payload_index,
+            )?;
+            match payload.kind {
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle => stats.dangle_count += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => stats.cut_edge_count += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => {
+                    stats.invalid_ring_count += 1
+                }
+            }
+            extracted_coordinate_count = extracted_coordinate_count
+                .checked_add(payload.coordinate_bits.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "global private extraction non-polygon coordinate count overflow"
+                        .to_string(),
+                })?;
+            if !payload
+                .coordinate_bits
+                .iter()
+                .all(|bits| bits.iter().all(|value| f64::from_bits(*value).is_finite()))
+                || (payload_index > 0
+                    && non_polygon_payloads[payload_index - 1].kind == payload.kind
+                    && non_polygon_payloads[payload_index - 1].coordinate_bits
+                        == payload.coordinate_bits)
+            {
+                stats.invalid_non_polygon_payload_count += 1;
+            }
+        }
+
+        stats.coordinate_count = extracted_coordinate_count;
+        stats.source_line_id_count = extracted_source_line_id_count;
+        stats.evidence_mismatch_count = stats
+            .evidence_mismatch_count
+            .checked_add(stats.missing_ring_payload_count)
+            .and_then(|count| count.checked_add(stats.missing_non_polygon_payload_count))
+            .and_then(|count| count.checked_add(stats.invalid_ring_payload_count))
+            .and_then(|count| count.checked_add(stats.invalid_non_polygon_payload_count))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global private extraction evidence count overflow".to_string(),
+            })?;
+        stats.extraction_ready = stats.evidence_mismatch_count == 0
+            && stats.ring_payload_count == self.global_face_ring_extraction_payloads.len()
+            && stats.dangle_count == non_polygon_stats.dangle_count
+            && stats.cut_edge_count == non_polygon_stats.cut_edge_count
+            && stats.invalid_ring_count == non_polygon_stats.invalid_ring_count
+            && stats.coordinate_count == expected_coordinate_count
+            && stats.source_line_id_count == ring_payload_stats.source_line_id_count;
+        if stats.extraction_ready {
+            self.global_private_extraction = Some(PartitionBorderGlobalPrivateExtraction {
+                ring_payloads: self.global_face_ring_extraction_payloads.clone(),
+                non_polygon_payloads: self.global_non_polygon_extraction_payloads.clone(),
+            });
+        }
+        Ok(stats)
+    }
+
     #[cfg(test)]
     pub(crate) fn global_face_ring_payloads(&self) -> &[PartitionBorderGlobalFaceRingPayload] {
         &self.global_face_ring_payloads
@@ -4575,6 +4771,13 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalNonPolygonExtractionPayload] {
         &self.global_non_polygon_extraction_payloads
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_private_extraction(
+        &self,
+    ) -> Option<&PartitionBorderGlobalPrivateExtraction> {
+        self.global_private_extraction.as_ref()
     }
 
     #[cfg(test)]
@@ -7418,6 +7621,7 @@ impl PartitionBorderGraph {
         self.global_non_polygon_extraction_payload_candidates
             .clear();
         self.global_non_polygon_extraction_payloads.clear();
+        self.global_private_extraction = None;
         Ok(stats)
     }
 
@@ -8162,6 +8366,7 @@ impl PartitionBorderGraph {
         self.global_non_polygon_extraction_payload_candidates
             .clear();
         self.global_non_polygon_extraction_payloads.clear();
+        self.global_private_extraction = None;
         self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
             next_global_dir_edge_ids,
             cycle_start_global_dir_edge_ids,
@@ -16922,6 +17127,132 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_ring_extraction_payloads"
+        ));
+    }
+
+    #[test]
+    fn global_private_extraction_commits_ready_payloads_atomically() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let readiness_stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        let ring_payload_stats = graph
+            .materialize_global_face_ring_extraction_payloads(
+                &ExecutionPolicy::default(),
+                readiness_stats,
+            )
+            .unwrap();
+        let non_polygon_stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        let extraction_readiness = PartitionBorderGlobalExtractionReadinessStats {
+            extraction_ready: true,
+            ..Default::default()
+        };
+
+        let stats = graph
+            .materialize_global_private_extraction(
+                &ExecutionPolicy::default(),
+                extraction_readiness,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.ring_payload_count, 1);
+        assert_eq!(stats.hole_count, 1);
+        assert_eq!(stats.coordinate_count, 10);
+        assert_eq!(stats.source_line_id_count, 1);
+        assert!(stats.extraction_ready);
+        let before = graph.global_private_extraction().cloned();
+        assert_eq!(
+            before
+                .as_ref()
+                .map(|extraction| extraction.ring_payloads.len()),
+            Some(1)
+        );
+
+        graph.global_face_ring_extraction_payloads[0].exterior_coords[0][2] = f64::NAN.to_bits();
+        let stats = graph
+            .materialize_global_private_extraction(
+                &ExecutionPolicy::default(),
+                extraction_readiness,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.invalid_ring_payload_count, 1);
+        assert!(!stats.extraction_ready);
+        assert_eq!(graph.global_private_extraction().cloned(), before);
+    }
+
+    #[test]
+    fn global_private_extraction_checks_limits_and_cancellation() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        let readiness_stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        let ring_payload_stats = graph
+            .materialize_global_face_ring_extraction_payloads(
+                &ExecutionPolicy::default(),
+                readiness_stats,
+            )
+            .unwrap();
+        let non_polygon_stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        let extraction_readiness = PartitionBorderGlobalExtractionReadinessStats {
+            extraction_ready: true,
+            ..Default::default()
+        };
+        let error = graph
+            .materialize_global_private_extraction(
+                &ExecutionPolicy {
+                    max_output_coordinates: Some(9),
+                    ..Default::default()
+                },
+                extraction_readiness,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 9,
+                observed: 10,
+            } if stage == "partition_border_global_private_extraction_coordinates"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .materialize_global_private_extraction(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                extraction_readiness,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_private_extraction"
         ));
     }
 
