@@ -898,6 +898,30 @@ pub(crate) struct PartitionBorderGlobalNonPolygonExtractionStats {
     pub(crate) payload_ready: bool,
 }
 
+/// Combines private global topology, shell/hole payload, and non-polygon
+/// evidence after each producer has committed atomically. This is a final
+/// readiness record only; it never promotes topology or public output.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionBorderGlobalExtractionReadinessStats {
+    pub(crate) edge_count: usize,
+    pub(crate) topology_edge_count: usize,
+    pub(crate) candidate_shell_count: usize,
+    pub(crate) candidate_hole_count: usize,
+    pub(crate) candidate_coordinate_count: usize,
+    pub(crate) materialized_candidate_count: usize,
+    pub(crate) non_polygon_payload_count: usize,
+    pub(crate) missing_topology_count: usize,
+    pub(crate) missing_ring_candidate_count: usize,
+    pub(crate) missing_ring_payload_count: usize,
+    pub(crate) missing_non_polygon_payload_count: usize,
+    pub(crate) evidence_mismatch_count: usize,
+    pub(crate) topology_ready: bool,
+    pub(crate) ring_candidate_ready: bool,
+    pub(crate) ring_payload_ready: bool,
+    pub(crate) non_polygon_payload_ready: bool,
+    pub(crate) extraction_ready: bool,
+}
+
 /// Counts the one atomic commit of detached global successor links. Face IDs
 /// remain a separate roadmap slice; no local face identity or output is
 /// changed by this mutation.
@@ -4252,6 +4276,93 @@ impl PartitionBorderGraph {
         } else {
             stats.evidence_mismatch_count += 1;
         }
+        Ok(stats)
+    }
+
+    /// Combines the committed private extraction evidence into one bounded,
+    /// fail-closed readiness record without changing graph or output state.
+    pub(crate) fn validate_global_extraction_readiness(
+        &self,
+        execution_policy: &ExecutionPolicy,
+        topology_stats: PartitionBorderGlobalFaceTopologyStats,
+        ring_candidate_stats: PartitionBorderGlobalFaceRingExtractionReadinessStats,
+        ring_payload_stats: PartitionBorderGlobalFaceRingExtractionPayloadStats,
+        non_polygon_stats: PartitionBorderGlobalNonPolygonExtractionStats,
+    ) -> crate::Result<PartitionBorderGlobalExtractionReadinessStats> {
+        execution_policy.check_cancelled("partition_border_global_extraction_readiness")?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(
+            "partition_border_global_extraction_readiness_edges",
+            execution_policy.max_graph_edges,
+            edge_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_extraction_readiness_candidates",
+            execution_policy.max_output_polygons,
+            ring_candidate_stats.candidate_shell_count,
+        )?;
+        execution_policy.check(
+            "partition_border_global_extraction_readiness_coordinates",
+            execution_policy.max_output_coordinates,
+            ring_candidate_stats.candidate_coordinate_count,
+        )?;
+
+        let topology_ready = topology_stats.topology_ready
+            && topology_stats.edge_count == edge_count
+            && self.global_face_topology_edges.len() == topology_stats.edge_count;
+        let ring_candidate_ready = ring_candidate_stats.candidate_ready
+            && self.global_face_ring_extraction_candidates.len()
+                == ring_candidate_stats.candidate_shell_count;
+        let ring_payload_ready = ring_payload_stats.payload_ready
+            && ring_payload_stats.candidate_count == ring_candidate_stats.candidate_shell_count
+            && ring_payload_stats.materialized_candidate_count
+                == ring_candidate_stats.candidate_shell_count
+            && self.global_face_ring_extraction_payloads.len()
+                == ring_payload_stats.candidate_count;
+        let non_polygon_payload_count = non_polygon_stats
+            .dangle_count
+            .checked_add(non_polygon_stats.cut_edge_count)
+            .and_then(|count| count.checked_add(non_polygon_stats.invalid_ring_count))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global extraction non-polygon payload count overflow".to_string(),
+            })?;
+        let non_polygon_payload_ready = non_polygon_stats.payload_ready
+            && self.global_non_polygon_extraction_payloads.len() == non_polygon_payload_count;
+        let mut stats = PartitionBorderGlobalExtractionReadinessStats {
+            edge_count,
+            topology_edge_count: topology_stats.edge_count,
+            candidate_shell_count: ring_candidate_stats.candidate_shell_count,
+            candidate_hole_count: ring_candidate_stats.candidate_hole_count,
+            candidate_coordinate_count: ring_candidate_stats.candidate_coordinate_count,
+            materialized_candidate_count: ring_payload_stats.materialized_candidate_count,
+            non_polygon_payload_count,
+            missing_topology_count: usize::from(!topology_ready),
+            missing_ring_candidate_count: usize::from(!ring_candidate_ready),
+            missing_ring_payload_count: usize::from(!ring_payload_ready),
+            missing_non_polygon_payload_count: usize::from(!non_polygon_payload_ready),
+            topology_ready,
+            ring_candidate_ready,
+            ring_payload_ready,
+            non_polygon_payload_ready,
+            ..Default::default()
+        };
+        stats.evidence_mismatch_count = topology_stats
+            .evidence_mismatch_count
+            .checked_add(ring_candidate_stats.evidence_mismatch_count)
+            .and_then(|count| count.checked_add(ring_payload_stats.evidence_mismatch_count))
+            .and_then(|count| count.checked_add(non_polygon_stats.evidence_mismatch_count))
+            .and_then(|count| count.checked_add(stats.missing_topology_count))
+            .and_then(|count| count.checked_add(stats.missing_ring_candidate_count))
+            .and_then(|count| count.checked_add(stats.missing_ring_payload_count))
+            .and_then(|count| count.checked_add(stats.missing_non_polygon_payload_count))
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "global extraction evidence mismatch count overflow".to_string(),
+            })?;
+        stats.extraction_ready = stats.topology_ready
+            && stats.ring_candidate_ready
+            && stats.ring_payload_ready
+            && stats.non_polygon_payload_ready
+            && stats.evidence_mismatch_count == 0;
         Ok(stats)
     }
 
@@ -14439,6 +14550,124 @@ mod tests {
             error,
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_face_topology"
+        ));
+    }
+
+    #[test]
+    fn global_extraction_readiness_combines_private_payloads_atomically() {
+        let (mut graph, payload_stats, classification_stats, assembly_stats) =
+            prepared_global_face_ring_extraction_graph();
+        graph.global_next_global_dir_edge_ids = graph
+            .global_topology_candidate
+            .as_ref()
+            .unwrap()
+            .next_global_dir_edge_ids
+            .clone();
+        let topology_stats = graph
+            .materialize_global_face_topology(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 12,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let ring_candidate_stats = graph
+            .materialize_global_face_ring_extraction_candidates(
+                &ExecutionPolicy::default(),
+                payload_stats,
+                classification_stats,
+                assembly_stats,
+            )
+            .unwrap();
+        let ring_payload_stats = graph
+            .materialize_global_face_ring_extraction_payloads(
+                &ExecutionPolicy::default(),
+                ring_candidate_stats,
+            )
+            .unwrap();
+        let non_polygon_stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        let observations_before = graph.observations.clone();
+        let edges_before = graph.global_face_edge_map.clone();
+        let topology_before = graph.global_face_topology_edges.clone();
+        let stats = graph
+            .validate_global_extraction_readiness(
+                &ExecutionPolicy::default(),
+                topology_stats,
+                ring_candidate_stats,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.edge_count, 12);
+        assert_eq!(stats.topology_edge_count, 12);
+        assert_eq!(stats.candidate_shell_count, 1);
+        assert_eq!(stats.candidate_hole_count, 1);
+        assert_eq!(stats.candidate_coordinate_count, 10);
+        assert_eq!(stats.materialized_candidate_count, 1);
+        assert_eq!(stats.non_polygon_payload_count, 0);
+        assert_eq!(stats.evidence_mismatch_count, 0);
+        assert!(stats.extraction_ready);
+        assert_eq!(graph.observations, observations_before);
+        assert_eq!(graph.global_face_edge_map, edges_before);
+        assert_eq!(graph.global_face_topology_edges, topology_before);
+
+        let mut incomplete = graph.clone();
+        incomplete.global_face_topology_edges.clear();
+        let stats = incomplete
+            .validate_global_extraction_readiness(
+                &ExecutionPolicy::default(),
+                topology_stats,
+                ring_candidate_stats,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap();
+        assert_eq!(stats.missing_topology_count, 1);
+        assert!(!stats.extraction_ready);
+
+        let error = graph
+            .validate_global_extraction_readiness(
+                &ExecutionPolicy {
+                    max_output_polygons: Some(0),
+                    ..Default::default()
+                },
+                topology_stats,
+                ring_candidate_stats,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 0,
+                observed: 1,
+            } if stage == "partition_border_global_extraction_readiness_candidates"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = graph
+            .validate_global_extraction_readiness(
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                },
+                topology_stats,
+                ring_candidate_stats,
+                ring_payload_stats,
+                non_polygon_stats,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::Cancelled { ref stage }
+                if stage == "partition_border_global_extraction_readiness"
         ));
     }
 
