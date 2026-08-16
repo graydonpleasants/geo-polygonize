@@ -704,6 +704,7 @@ pub(crate) struct PartitionBorderGlobalFaceTopologyEdge {
     pub(crate) global_dir_edge_id: usize,
     pub(crate) next_global_dir_edge_id: usize,
     pub(crate) global_face_id: usize,
+    pub(crate) unbounded: bool,
 }
 
 /// Counts atomic detached global edge-topology materialization.
@@ -718,7 +719,13 @@ pub(crate) struct PartitionBorderGlobalFaceTopologyStats {
     pub(crate) node_discontinuity_count: usize,
     pub(crate) missing_face_id_count: usize,
     pub(crate) non_contiguous_face_id_count: usize,
+    pub(crate) unbounded_edge_count: usize,
+    pub(crate) unbounded_face_id_count: usize,
+    pub(crate) unbounded_cycle_start_count: usize,
+    pub(crate) missing_unbounded_identity_count: usize,
+    pub(crate) unbounded_identity_mismatch_count: usize,
     pub(crate) evidence_mismatch_count: usize,
+    pub(crate) unbounded_face_ready: bool,
     pub(crate) topology_ready: bool,
 }
 
@@ -8377,6 +8384,79 @@ impl PartitionBorderGraph {
             stats.evidence_mismatch_count += 1;
         }
 
+        let mut unbounded_edge_ids = BTreeSet::new();
+        match self.global_unbounded_face_id_by_cycle_start {
+            Some((unbounded_face_id, unbounded_cycle_start)) => {
+                stats.unbounded_face_id_count = self
+                    .global_face_id_by_cycle_start
+                    .iter()
+                    .filter(|face_id| **face_id == Some(unbounded_face_id))
+                    .count();
+                stats.unbounded_cycle_start_count = self
+                    .global_topology_candidate
+                    .as_ref()
+                    .map(|candidate| {
+                        candidate
+                            .cycle_start_global_dir_edge_ids
+                            .iter()
+                            .filter(|cycle_start| **cycle_start == unbounded_cycle_start)
+                            .count()
+                    })
+                    .unwrap_or_default();
+                if stats.unbounded_face_id_count != 1
+                    || stats.unbounded_cycle_start_count != 1
+                    || unbounded_cycle_start >= edge_count
+                    || self.global_face_id_by_global_dir_edge_id.len() != edge_count
+                {
+                    stats.unbounded_identity_mismatch_count += 1;
+                } else {
+                    let mut current = unbounded_cycle_start;
+                    let mut closed = false;
+                    loop {
+                        execution_policy.check_cancelled_every(
+                            "partition_border_global_face_topology_unbounded_edges",
+                            unbounded_edge_ids.len(),
+                        )?;
+                        if current >= edge_count {
+                            break;
+                        }
+                        if !unbounded_edge_ids.insert(current) {
+                            closed = current == unbounded_cycle_start;
+                            break;
+                        }
+                        if self
+                            .global_face_id_by_global_dir_edge_id
+                            .get(current)
+                            .copied()
+                            .flatten()
+                            != Some(unbounded_face_id)
+                        {
+                            break;
+                        }
+                        let Some(successor) = self
+                            .global_next_global_dir_edge_ids
+                            .get(current)
+                            .copied()
+                            .flatten()
+                        else {
+                            break;
+                        };
+                        current = successor;
+                    }
+                    if !closed || unbounded_edge_ids.is_empty() {
+                        unbounded_edge_ids.clear();
+                        stats.unbounded_identity_mismatch_count += 1;
+                    }
+                }
+            }
+            None => stats.missing_unbounded_identity_count += 1,
+        }
+        stats.unbounded_face_ready = stats.unbounded_face_id_count == 1
+            && stats.unbounded_cycle_start_count == 1
+            && stats.missing_unbounded_identity_count == 0
+            && stats.unbounded_identity_mismatch_count == 0
+            && !unbounded_edge_ids.is_empty();
+
         let mut predecessor_counts = vec![0usize; edge_count];
         let mut face_ids = BTreeSet::new();
         let mut topology = Vec::with_capacity(edge_count);
@@ -8420,10 +8500,12 @@ impl PartitionBorderGraph {
             };
             stats.face_id_count += 1;
             face_ids.insert(global_face_id);
+            stats.unbounded_edge_count += usize::from(unbounded_edge_ids.contains(&edge_index));
             topology.push(PartitionBorderGlobalFaceTopologyEdge {
                 global_dir_edge_id: edge_index,
                 next_global_dir_edge_id,
                 global_face_id,
+                unbounded: unbounded_edge_ids.contains(&edge_index),
             });
         }
         let expected_face_ids = (0..face_ids.len()).collect::<BTreeSet<_>>();
@@ -8440,6 +8522,8 @@ impl PartitionBorderGraph {
             && stats.node_discontinuity_count == 0
             && stats.missing_face_id_count == 0
             && stats.non_contiguous_face_id_count == 0
+            && stats.unbounded_face_ready
+            && stats.unbounded_edge_count == unbounded_edge_ids.len()
             && topology.len() == edge_count;
         if stats.topology_ready {
             self.global_face_topology_edges = topology;
@@ -14218,7 +14302,16 @@ mod tests {
             .unwrap()
             .next_global_dir_edge_ids
             .clone();
-        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(0), Some(1), Some(1)];
+        let cycle_starts = graph
+            .global_topology_candidate
+            .as_ref()
+            .unwrap()
+            .cycle_start_global_dir_edge_ids
+            .clone();
+        graph.global_face_id_by_global_dir_edge_id = vec![Some(0), Some(1), Some(0), Some(1)];
+        graph.global_face_id_by_cycle_start = vec![Some(0), Some(1)];
+        let unbounded_cycle_start = cycle_starts[0];
+        graph.global_unbounded_face_id_by_cycle_start = Some((0, unbounded_cycle_start));
         let observations_before = graph.observations.clone();
         let edges_before = graph.global_face_edge_map.clone();
         let stats = graph
@@ -14241,6 +14334,12 @@ mod tests {
             .iter()
             .enumerate()
             .all(|(index, edge)| edge.global_dir_edge_id == index));
+        assert_eq!(stats.unbounded_edge_count, 2);
+        assert!(stats.unbounded_face_ready);
+        assert!(graph
+            .global_face_topology_edges()
+            .iter()
+            .all(|edge| edge.unbounded == (edge.global_face_id == 0)));
         assert_eq!(graph.observations, observations_before);
         assert_eq!(graph.global_face_edge_map, edges_before);
 
@@ -14273,6 +14372,23 @@ mod tests {
             )
             .unwrap();
         assert!(stats.node_discontinuity_count > 0);
+        assert!(!stats.topology_ready);
+        assert_eq!(graph.global_face_topology_edges(), before);
+
+        graph.global_face_edge_map[0].to_global_node_id = Some(1);
+        graph.global_unbounded_face_id_by_cycle_start = None;
+        let stats = graph
+            .materialize_global_face_topology(
+                &ExecutionPolicy::default(),
+                PartitionBorderGlobalFaceExtractionGateStats {
+                    edge_count: 4,
+                    extraction_ready: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(stats.missing_unbounded_identity_count, 1);
+        assert!(!stats.unbounded_face_ready);
         assert!(!stats.topology_ready);
         assert_eq!(graph.global_face_topology_edges(), before);
     }
