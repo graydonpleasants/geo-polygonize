@@ -607,8 +607,11 @@ Blocked by #1288.
   promotion deferred.
 - [x] Validate and consolidate detached twin, cycle, source, Euler, and
   face-walk invariant evidence in a private fail-closed gate.
-- [ ] Extract stitched shells, holes, dangles, cuts, invalid rings, provenance,
-  and Z only after validation.
+- [x] Commit a private atomic extraction snapshot of validated stitched
+  shells, holes, dangles, cuts, and invalid rings, retaining source IDs and
+  raw XYZ payloads without changing tiled output.
+- [ ] Promote stitched shells, holes, dangles, cuts, invalid rings, provenance,
+  and Z into public output only after validation.
 - [ ] Compare full canonical results with untiled execution.
 - [ ] Differential-fuzz tile origins, sizes, orders, precision profiles,
   provenance, and Z.

@@ -23,7 +23,7 @@ use crate::graph::partition_border::{
     PartitionBorderGlobalFaceRingPayloadStats, PartitionBorderGlobalFaceTopologyStats,
     PartitionBorderGlobalFaceTransitionPlanStats, PartitionBorderGlobalFaceTwinTransitionStats,
     PartitionBorderGlobalFaceWalkInvariantStats, PartitionBorderGlobalNextLineageIntegrationStats,
-    PartitionBorderGlobalNonPolygonExtractionStats,
+    PartitionBorderGlobalNonPolygonExtractionStats, PartitionBorderGlobalPrivateExtractionStats,
     PartitionBorderGlobalTopologyApplicationGateStats, PartitionBorderGlobalTopologyCandidateStats,
     PartitionBorderGlobalTopologyMutationGateStats, PartitionBorderGlobalTopologyMutationStats,
     PartitionBorderGlobalUnboundedFaceApplicationStats,
@@ -1661,6 +1661,33 @@ impl TraceRecorderV1 {
                 "ring_candidate_ready": stats.ring_candidate_ready,
                 "ring_payload_ready": stats.ring_payload_ready,
                 "non_polygon_payload_ready": stats.non_polygon_payload_ready,
+                "extraction_ready": stats.extraction_ready,
+            }),
+        )
+    }
+
+    pub(crate) fn record_partition_border_global_private_extraction(
+        &mut self,
+        stats: PartitionBorderGlobalPrivateExtractionStats,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Rings,
+            "partition_border_global_private_extraction",
+            serde_json::json!({
+                "ring_payload_count": stats.ring_payload_count,
+                "hole_count": stats.hole_count,
+                "dangle_count": stats.dangle_count,
+                "cut_edge_count": stats.cut_edge_count,
+                "invalid_ring_count": stats.invalid_ring_count,
+                "coordinate_count": stats.coordinate_count,
+                "source_line_id_count": stats.source_line_id_count,
+                "missing_ring_payload_count": stats.missing_ring_payload_count,
+                "missing_non_polygon_payload_count":
+                    stats.missing_non_polygon_payload_count,
+                "invalid_ring_payload_count": stats.invalid_ring_payload_count,
+                "invalid_non_polygon_payload_count":
+                    stats.invalid_non_polygon_payload_count,
+                "evidence_mismatch_count": stats.evidence_mismatch_count,
                 "extraction_ready": stats.extraction_ready,
             }),
         )
