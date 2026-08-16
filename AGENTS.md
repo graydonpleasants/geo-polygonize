@@ -1,5 +1,37 @@
 # AI Agent Instructions
 
+## Native Stacked Pull Requests
+
+GitHub supports native stacked pull requests in public preview. A stack is a
+same-repository chain where each pull request targets the head branch of the
+pull request below it. Matching base branches creates the eligible chain, but
+the GitHub stack metadata and stack map must also be created with `gh stack`
+or the website's **Create stack** action.
+
+Use the GitHub CLI stack extension for new work:
+
+1. Start from the trunk with `gh stack init BRANCH-NAME`.
+2. Add dependent layers with `gh stack add BRANCH-NAME`.
+3. Commit each focused layer, then run `gh stack submit` to push branches and
+   create/link the draft pull requests.
+
+For existing branches or pull requests, use `gh stack link` with the complete
+bottom-to-top sequence, for example `gh stack link 1376 1377`. Use
+`gh stack init BRANCH1 BRANCH2` followed by `gh stack submit` when local stack
+tracking is also needed. Creating pull requests through an API or connector
+with a dependent base branch alone is not sufficient to guarantee the stack
+object or stack map exists.
+
+Maintain stacks with `gh stack view`, `gh stack rebase`, `gh stack push`, and
+`gh stack sync --prune` after the bottom layer merges. Make lower-layer fixes
+on that branch, then rebase the upstack; merge from the bottom upward. Keep
+the working tree clean before restructuring with `gh stack modify`. All stack
+branches must live in this repository; cross-fork stacks are unsupported.
+
+Check the installed extension with `gh stack --help`; the current GitHub
+documentation requires GitHub CLI 2.90.0 or later and Git 2.20 or later.
+Reference: <https://docs.github.com/en/pull-requests/how-tos/create-pull-requests/creating-stacked-pull-requests>.
+
 ## Pull Request and Commit Standards
 
 ### PR Titles
