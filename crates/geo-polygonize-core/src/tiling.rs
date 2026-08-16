@@ -487,7 +487,13 @@ pub struct StitchingReport {
     pub partition_border_global_face_topology_node_discontinuity_count: usize,
     pub partition_border_global_face_topology_missing_face_id_count: usize,
     pub partition_border_global_face_topology_non_contiguous_face_id_count: usize,
+    pub partition_border_global_face_topology_unbounded_edge_count: usize,
+    pub partition_border_global_face_topology_unbounded_face_id_count: usize,
+    pub partition_border_global_face_topology_unbounded_cycle_start_count: usize,
+    pub partition_border_global_face_topology_missing_unbounded_identity_count: usize,
+    pub partition_border_global_face_topology_unbounded_identity_mismatch_count: usize,
     pub partition_border_global_face_topology_evidence_mismatch_count: usize,
+    pub partition_border_global_face_topology_unbounded_face_ready: bool,
     pub partition_border_global_face_topology_ready: bool,
     /// Final detached global face-identity invariant evidence.
     pub partition_border_global_face_identity_invariant_twin_count: usize,
@@ -3713,8 +3719,20 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_topology.missing_face_id_count,
                 partition_border_global_face_topology_non_contiguous_face_id_count:
                     partition_border_global_face_topology.non_contiguous_face_id_count,
+                partition_border_global_face_topology_unbounded_edge_count:
+                    partition_border_global_face_topology.unbounded_edge_count,
+                partition_border_global_face_topology_unbounded_face_id_count:
+                    partition_border_global_face_topology.unbounded_face_id_count,
+                partition_border_global_face_topology_unbounded_cycle_start_count:
+                    partition_border_global_face_topology.unbounded_cycle_start_count,
+                partition_border_global_face_topology_missing_unbounded_identity_count:
+                    partition_border_global_face_topology.missing_unbounded_identity_count,
+                partition_border_global_face_topology_unbounded_identity_mismatch_count:
+                    partition_border_global_face_topology.unbounded_identity_mismatch_count,
                 partition_border_global_face_topology_evidence_mismatch_count:
                     partition_border_global_face_topology.evidence_mismatch_count,
+                partition_border_global_face_topology_unbounded_face_ready:
+                    partition_border_global_face_topology.unbounded_face_ready,
                 partition_border_global_face_topology_ready:
                     partition_border_global_face_topology.topology_ready,
                 partition_border_global_face_identity_invariant_twin_count:

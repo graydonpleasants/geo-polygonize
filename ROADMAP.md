@@ -600,7 +600,8 @@ Blocked by #1288.
 - [x] Build private global `next` links and deterministic global face IDs from
   validated detached edge slots; keep local topology and tiled output
   untouched.
-- [ ] Identify exactly one global unbounded face.
+- [x] Identify exactly one global unbounded face and carry its private
+  cycle/edge identity into the detached global topology records.
 - [ ] Validate twin, cycle, source, Euler, and face-walk invariants.
 - [ ] Extract stitched shells, holes, dangles, cuts, invalid rings, provenance,
   and Z only after validation.

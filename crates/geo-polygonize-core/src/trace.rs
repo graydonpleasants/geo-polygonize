@@ -1239,7 +1239,13 @@ impl TraceRecorderV1 {
                 "node_discontinuity_count": stats.node_discontinuity_count,
                 "missing_face_id_count": stats.missing_face_id_count,
                 "non_contiguous_face_id_count": stats.non_contiguous_face_id_count,
+                "unbounded_edge_count": stats.unbounded_edge_count,
+                "unbounded_face_id_count": stats.unbounded_face_id_count,
+                "unbounded_cycle_start_count": stats.unbounded_cycle_start_count,
+                "missing_unbounded_identity_count": stats.missing_unbounded_identity_count,
+                "unbounded_identity_mismatch_count": stats.unbounded_identity_mismatch_count,
                 "evidence_mismatch_count": stats.evidence_mismatch_count,
+                "unbounded_face_ready": stats.unbounded_face_ready,
                 "topology_ready": stats.topology_ready,
             }),
         )
