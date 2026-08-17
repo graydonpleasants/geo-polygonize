@@ -53,6 +53,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tiled_untiled_differential"
+path = "fuzz_targets/tiled_untiled_differential.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "provenance_report_mode"
 path = "fuzz_targets/provenance_report_mode.rs"
 test = false
