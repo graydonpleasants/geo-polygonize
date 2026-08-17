@@ -1714,6 +1714,23 @@ impl TraceRecorderV1 {
         )
     }
 
+    pub(crate) fn record_tiled_untiled_equivalence(
+        &mut self,
+        checked: bool,
+        ready: bool,
+        mismatch_count: usize,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Output,
+            "tiled_untiled_equivalence",
+            serde_json::json!({
+                "checked": checked,
+                "ready": ready,
+                "mismatch_count": mismatch_count,
+            }),
+        )
+    }
+
     pub(crate) fn record_partition_border_global_face_validation(
         &mut self,
         stats: PartitionBorderGlobalFacePlanValidationStats,

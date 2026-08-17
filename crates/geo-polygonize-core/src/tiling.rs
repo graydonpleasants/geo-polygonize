@@ -56,6 +56,143 @@ fn canonical_polygon_key(poly: &Polygon3D) -> (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>
     (canonical_ring_key(&poly.exterior), interiors)
 }
 
+type CanonicalPolygonOutputKey = (
+    (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>),
+    Vec<u32>,
+    Option<(Vec<u64>, Option<String>)>,
+);
+
+fn canonical_polygon_output_key(poly: &Polygon3D) -> CanonicalPolygonOutputKey {
+    let mut source_line_ids = poly.boundary_source_line_ids.clone();
+    source_line_ids.sort_unstable();
+    source_line_ids.dedup();
+    let provenance = poly.provenance.as_ref().map(|provenance| {
+        let mut boundary_line_ids = provenance.boundary_line_ids.clone();
+        boundary_line_ids.sort_unstable();
+        boundary_line_ids.dedup();
+        (boundary_line_ids, provenance.input_profile_id.clone())
+    });
+    (canonical_polygon_key(poly), source_line_ids, provenance)
+}
+
+fn canonical_open_line_key(line: &[Coord3D]) -> Vec<[u64; 3]> {
+    let forward = line
+        .iter()
+        .map(|coord| {
+            [
+                canonical_coordinate_bits(coord.x),
+                canonical_coordinate_bits(coord.y),
+                canonical_coordinate_bits(coord.z),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut reverse = forward.clone();
+    reverse.reverse();
+    forward.min(reverse)
+}
+
+fn canonical_polygon_output_keys(
+    polygons: &[Polygon3D],
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<CanonicalPolygonOutputKey>> {
+    let mut keys = Vec::with_capacity(polygons.len());
+    for (index, polygon) in polygons.iter().enumerate() {
+        execution_policy.check_cancelled_every("tiled_untiled_equivalence_polygons", index)?;
+        keys.push(canonical_polygon_output_key(polygon));
+    }
+    keys.sort_unstable();
+    Ok(keys)
+}
+
+fn canonical_line_output_keys(
+    lines: &[Vec<Coord3D>],
+    closed: bool,
+    execution_policy: &ExecutionPolicy,
+    stage: &'static str,
+) -> Result<Vec<Vec<[u64; 3]>>> {
+    let mut keys = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        keys.push(if closed {
+            canonical_ring_key(line)
+        } else {
+            canonical_open_line_key(line)
+        });
+    }
+    keys.sort_unstable();
+    Ok(keys)
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct TiledUntiledEquivalenceStats {
+    checked: bool,
+    ready: bool,
+    mismatch_count: usize,
+}
+
+fn compare_stitched_output_with_untiled(
+    stitched_output: Option<&TiledStitchedOutput>,
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<TiledUntiledEquivalenceStats> {
+    let Some(stitched_output) = stitched_output else {
+        return Ok(TiledUntiledEquivalenceStats::default());
+    };
+    execution_policy.check_cancelled("tiled_untiled_equivalence")?;
+    let mut polygonizer =
+        Polygonizer::with_options(options.clone()).with_execution_policy(execution_policy.clone());
+    for (geometry, _) in geometries {
+        polygonizer.add_borrowed_geometry(geometry);
+    }
+    let untiled = polygonizer.polygonize()?;
+    let polygon_mismatch =
+        canonical_polygon_output_keys(&stitched_output.polygons, execution_policy)?
+            != canonical_polygon_output_keys(&untiled.polygons, execution_policy)?;
+    let dangle_mismatch = canonical_line_output_keys(
+        &stitched_output.dangles,
+        false,
+        execution_policy,
+        "tiled_untiled_equivalence_dangles",
+    )? != canonical_line_output_keys(
+        &untiled.dangles,
+        false,
+        execution_policy,
+        "tiled_untiled_equivalence_dangles",
+    )?;
+    let cut_edge_mismatch = canonical_line_output_keys(
+        &stitched_output.cut_edges,
+        false,
+        execution_policy,
+        "tiled_untiled_equivalence_cut_edges",
+    )? != canonical_line_output_keys(
+        &untiled.cut_edges,
+        false,
+        execution_policy,
+        "tiled_untiled_equivalence_cut_edges",
+    )?;
+    let invalid_ring_mismatch = canonical_line_output_keys(
+        &stitched_output.invalid_rings,
+        true,
+        execution_policy,
+        "tiled_untiled_equivalence_invalid_rings",
+    )? != canonical_line_output_keys(
+        &untiled.invalid_rings,
+        true,
+        execution_policy,
+        "tiled_untiled_equivalence_invalid_rings",
+    )?;
+    let mismatch_count = usize::from(polygon_mismatch)
+        .saturating_add(usize::from(dangle_mismatch))
+        .saturating_add(usize::from(cut_edge_mismatch))
+        .saturating_add(usize::from(invalid_ring_mismatch));
+    Ok(TiledUntiledEquivalenceStats {
+        checked: true,
+        ready: mismatch_count == 0,
+        mismatch_count,
+    })
+}
+
 fn coord3d_from_bits(bits: [u64; 3]) -> Coord3D {
     Coord3D::new(
         f64::from_bits(bits[0]),
@@ -853,6 +990,12 @@ pub struct StitchingReport {
     pub partition_border_global_private_extraction_ready: bool,
     /// Whether validated stitched output was exposed in the additive sidecar.
     pub partition_border_global_stitched_output_ready: bool,
+    /// Whether the opt-in validated stitched versus untiled comparison ran.
+    pub partition_border_global_untiled_equivalence_checked: bool,
+    /// Whether every canonical output family matched the untiled result.
+    pub partition_border_global_untiled_equivalence_ready: bool,
+    /// Number of canonical output families that differed from untiled output.
+    pub partition_border_global_untiled_equivalence_mismatch_count: usize,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -1483,6 +1626,7 @@ pub struct TiledPolygonizer<'a> {
     retry_policy: Option<TileRetryPolicy>,
     component_fallback: bool,
     untiled_fallback: bool,
+    untiled_equivalence_check: bool,
 }
 
 impl<'a> TiledPolygonizer<'a> {
@@ -1504,6 +1648,7 @@ impl<'a> TiledPolygonizer<'a> {
             retry_policy: None,
             component_fallback: false,
             untiled_fallback: false,
+            untiled_equivalence_check: false,
         }
     }
 
@@ -1559,6 +1704,13 @@ impl<'a> TiledPolygonizer<'a> {
     /// recovered by appending independently polygonized components.
     pub fn with_untiled_fallback(mut self) -> Self {
         self.untiled_fallback = true;
+        self
+    }
+
+    /// Enables an experimental full canonical comparison of validated
+    /// stitched output against one same-options untiled pass.
+    pub fn with_untiled_equivalence_check(mut self) -> Self {
+        self.untiled_equivalence_check = true;
         self
     }
 
@@ -3304,6 +3456,16 @@ impl<'a> TiledPolygonizer<'a> {
         } else {
             None
         };
+        let untiled_equivalence = if self.untiled_equivalence_check {
+            compare_stitched_output_with_untiled(
+                stitched_output.as_ref(),
+                &self.geometries,
+                &self.options,
+                &self.execution_policy,
+            )?
+        } else {
+            TiledUntiledEquivalenceStats::default()
+        };
         if let Some(trace) = trace.as_deref_mut() {
             let (
                 stitched_polygon_count,
@@ -3324,6 +3486,11 @@ impl<'a> TiledPolygonizer<'a> {
                 stitched_dangle_count,
                 stitched_cut_edge_count,
                 stitched_invalid_ring_count,
+            );
+            trace.record_tiled_untiled_equivalence(
+                untiled_equivalence.checked,
+                untiled_equivalence.ready,
+                untiled_equivalence.mismatch_count,
             );
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
@@ -4463,6 +4630,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_private_extraction_ready:
                     partition_border_global_private_extraction.extraction_ready,
                 partition_border_global_stitched_output_ready: stitched_output_ready,
+                partition_border_global_untiled_equivalence_checked:
+                    untiled_equivalence.checked,
+                partition_border_global_untiled_equivalence_ready: untiled_equivalence.ready,
+                partition_border_global_untiled_equivalence_mismatch_count:
+                    untiled_equivalence.mismatch_count,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

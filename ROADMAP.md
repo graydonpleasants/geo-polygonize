@@ -613,7 +613,9 @@ Blocked by #1288.
 - [x] Expose validated stitched shells, holes, dangles, cuts, invalid rings,
   provenance, and Z through an additive experimental output sidecar; keep the
   existing tiled polygons unchanged until full untiled equivalence is proven.
-- [ ] Compare full canonical results with untiled execution.
+- [x] Add an opt-in full canonical comparison of validated stitched output
+  against the same-options untiled result; record fail-closed equivalence
+  evidence without replacing tiled output or promoting on the comparison alone.
 - [ ] Differential-fuzz tile origins, sizes, orders, precision profiles,
   provenance, and Z.
 - [ ] Publish performance and peak-memory evidence.
