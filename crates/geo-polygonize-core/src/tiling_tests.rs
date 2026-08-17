@@ -3306,6 +3306,16 @@ mod tests {
                 .stitching_report
                 .partition_border_global_stitched_output_ready
         );
+        // The internal grid borders produce ambiguous four-observation
+        // buckets. Keep the tiled result usable, but fail closed until a
+        // face-qualified pairing contract exists for those spans.
+        assert!(result.stitched_output.is_none());
+        assert_eq!(result.stitching_report.partition_border_twin_count, 0);
+        assert!(
+            !result
+                .stitching_report
+                .partition_border_global_extraction_readiness_ready
+        );
         assert_eq!(
             stitched_event.payload["ready"],
             result.stitched_output.is_some()
