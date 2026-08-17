@@ -17783,5 +17783,72 @@ mod tests {
             )
             .unwrap();
         assert!(ambiguous.twin_pairs().is_empty());
+
+        let mut face_qualified = PartitionBorderGraph::default();
+        face_qualified.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        for (partition_id, local_dir_edge_id, face_ref, side, from, to, is_unbounded) in [
+            (
+                1,
+                1,
+                face(1, 0, 1),
+                PartitionBorderSide::MinY,
+                start,
+                end,
+                false,
+            ),
+            (
+                1,
+                2,
+                face(1, 0, 0),
+                PartitionBorderSide::MinY,
+                end,
+                start,
+                true,
+            ),
+            (
+                2,
+                3,
+                face(2, 0, 2),
+                PartitionBorderSide::MaxY,
+                end,
+                start,
+                false,
+            ),
+            (
+                2,
+                4,
+                face(2, 0, 0),
+                PartitionBorderSide::MaxY,
+                start,
+                end,
+                true,
+            ),
+        ] {
+            let mut observation = PartitionBorderHalfEdge::new_with_face_ref(
+                partition_id,
+                local_dir_edge_id,
+                Some(face_ref),
+                side,
+                from,
+                to,
+                [],
+            )
+            .unwrap();
+            observation.local_face_is_unbounded = is_unbounded;
+            face_qualified.insert(observation).unwrap();
+        }
+        // The detached topology currently keys each physical edge to one twin;
+        // two face pairs on one span remain ambiguous until that identity model
+        // is extended.
+        assert!(face_qualified.twin_pairs().is_empty());
     }
 }
