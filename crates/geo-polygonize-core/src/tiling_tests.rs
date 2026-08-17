@@ -10,7 +10,7 @@ mod tests {
         PolygonizerOptions, PrecisionModel, ProvenanceOptions, TileBoundarySide,
         TileComponentConnection, TileCoverageGuarantee, TileCoverageIssue,
         TileCoverageResolutionKind, TileExcludedComponentIssue, TileExecutionPolicy, TileReport,
-        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer, ZOptions,
+        TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer, TiledStitchedOutput, ZOptions,
     };
     use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
     use std::collections::BTreeSet;
@@ -3326,6 +3326,176 @@ mod tests {
         for p in polys {
             assert!((p.unsigned_area_2d() - 100.0).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn opt_in_untiled_equivalence_is_gated_by_ready_stitched_output() {
+        let geometries = vec![
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 2.0 },
+                Coord { x: 18.0, y: 2.0 },
+                Coord { x: 18.0, y: 18.0 },
+                Coord { x: 2.0, y: 18.0 },
+                Coord { x: 2.0, y: 2.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 6.0, y: 6.0 },
+                Coord { x: 14.0, y: 6.0 },
+                Coord { x: 14.0, y: 14.0 },
+                Coord { x: 6.0, y: 14.0 },
+                Coord { x: 6.0, y: 6.0 },
+            ])),
+        ];
+        let mut tiler = TiledPolygonizer::new(
+            Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 }),
+            10.0,
+        )
+        .with_buffer(40.0)
+        .with_options(PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        })
+        .with_untiled_equivalence_check();
+        for geometry in &geometries {
+            tiler.add_geometry(geometry);
+        }
+
+        let traced = tiler
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let result = traced.result;
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_untiled_equivalence_checked,
+            result.stitched_output.is_some()
+        );
+        if result.stitched_output.is_none() {
+            assert!(
+                !result
+                    .stitching_report
+                    .partition_border_global_untiled_equivalence_ready
+            );
+            assert_eq!(
+                result
+                    .stitching_report
+                    .partition_border_global_untiled_equivalence_mismatch_count,
+                0
+            );
+        }
+        let event = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tiled_untiled_equivalence")
+            .unwrap();
+        assert_eq!(
+            event.payload["checked"],
+            result
+                .stitching_report
+                .partition_border_global_untiled_equivalence_checked
+        );
+        assert_eq!(
+            event.payload["ready"],
+            result
+                .stitching_report
+                .partition_border_global_untiled_equivalence_ready
+        );
+        assert_eq!(
+            event.payload["mismatch_count"],
+            result
+                .stitching_report
+                .partition_border_global_untiled_equivalence_mismatch_count
+        );
+    }
+
+    #[test]
+    fn untiled_equivalence_compares_canonical_output_and_detects_mismatch() {
+        let geometries = vec![
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 10.0, y: 0.0 },
+                Coord { x: 10.0, y: 10.0 },
+                Coord { x: 0.0, y: 10.0 },
+                Coord { x: 0.0, y: 0.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 2.0 },
+                Coord { x: 8.0, y: 2.0 },
+                Coord { x: 8.0, y: 8.0 },
+                Coord { x: 2.0, y: 8.0 },
+                Coord { x: 2.0, y: 2.0 },
+            ])),
+        ];
+        let geometry_refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let options = PolygonizerOptions {
+            node_input: true,
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            input_profile_id: Some("equivalence-test".to_string()),
+            ..Default::default()
+        };
+        let mut polygonizer = Polygonizer::with_options(options.clone());
+        for geometry in &geometries {
+            polygonizer.add_borrowed_geometry(geometry);
+        }
+        let expected = polygonizer.polygonize().unwrap();
+        let stitched_output = TiledStitchedOutput {
+            polygons: expected.polygons.clone(),
+            dangles: expected.dangles.clone(),
+            cut_edges: expected.cut_edges.clone(),
+            invalid_rings: expected.invalid_rings.clone(),
+        };
+        let stats = crate::tiling::compare_stitched_output_with_untiled(
+            Some(&stitched_output),
+            &geometry_refs,
+            &options,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            stats,
+            crate::tiling::TiledUntiledEquivalenceStats {
+                checked: true,
+                ready: true,
+                mismatch_count: 0,
+            }
+        );
+
+        let mut mismatch = stitched_output;
+        mismatch.polygons[0].exterior[0].x += 1.0;
+        let stats = crate::tiling::compare_stitched_output_with_untiled(
+            Some(&mismatch),
+            &geometry_refs,
+            &options,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+        assert!(stats.checked);
+        assert!(!stats.ready);
+        assert_eq!(stats.mismatch_count, 1);
+
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let execution_policy = ExecutionPolicy {
+            cancellation_token: Some(cancellation),
+            ..Default::default()
+        };
+        assert!(matches!(
+            crate::tiling::compare_stitched_output_with_untiled(
+                Some(&mismatch),
+                &geometry_refs,
+                &options,
+                &execution_policy,
+            ),
+            Err(PolygonizeError::Cancelled { stage })
+                if stage == "tiled_untiled_equivalence"
+        ));
     }
 
     #[test]
