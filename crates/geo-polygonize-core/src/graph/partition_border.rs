@@ -4773,7 +4773,6 @@ impl PartitionBorderGraph {
         &self.global_non_polygon_extraction_payloads
     }
 
-    #[cfg(test)]
     pub(crate) fn global_private_extraction(
         &self,
     ) -> Option<&PartitionBorderGlobalPrivateExtraction> {
