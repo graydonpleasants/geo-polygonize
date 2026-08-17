@@ -610,8 +610,9 @@ Blocked by #1288.
 - [x] Commit a private atomic extraction snapshot of validated stitched
   shells, holes, dangles, cuts, and invalid rings, retaining source IDs and
   raw XYZ payloads without changing tiled output.
-- [ ] Promote stitched shells, holes, dangles, cuts, invalid rings, provenance,
-  and Z into public output only after validation.
+- [x] Expose validated stitched shells, holes, dangles, cuts, invalid rings,
+  provenance, and Z through an additive experimental output sidecar; keep the
+  existing tiled polygons unchanged until full untiled equivalence is proven.
 - [ ] Compare full canonical results with untiled execution.
 - [ ] Differential-fuzz tile origins, sizes, orders, precision profiles,
   provenance, and Z.

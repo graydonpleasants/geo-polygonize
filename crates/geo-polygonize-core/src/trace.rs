@@ -1693,6 +1693,27 @@ impl TraceRecorderV1 {
         )
     }
 
+    pub(crate) fn record_tiled_stitched_output(
+        &mut self,
+        ready: bool,
+        polygon_count: usize,
+        dangle_count: usize,
+        cut_edge_count: usize,
+        invalid_ring_count: usize,
+    ) -> bool {
+        self.record(
+            TraceStageV1::Output,
+            "tiled_stitched_output",
+            serde_json::json!({
+                "ready": ready,
+                "polygon_count": polygon_count,
+                "dangle_count": dangle_count,
+                "cut_edge_count": cut_edge_count,
+                "invalid_ring_count": invalid_ring_count,
+            }),
+        )
+    }
+
     pub(crate) fn record_partition_border_global_face_validation(
         &mut self,
         stats: PartitionBorderGlobalFacePlanValidationStats,

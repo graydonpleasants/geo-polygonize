@@ -12,7 +12,7 @@ use crate::trace::{
     TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
     TraceStageV1,
 };
-use crate::types::{Coord3D, Line3D, Polygon3D};
+use crate::types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
 use crate::utils::canonical_coordinate_bits;
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
 use geo::algorithm::line_intersection::line_intersection;
@@ -54,6 +54,110 @@ fn canonical_polygon_key(poly: &Polygon3D) -> (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>
         .collect::<Vec<_>>();
     interiors.sort_unstable();
     (canonical_ring_key(&poly.exterior), interiors)
+}
+
+fn coord3d_from_bits(bits: [u64; 3]) -> Coord3D {
+    Coord3D::new(
+        f64::from_bits(bits[0]),
+        f64::from_bits(bits[1]),
+        f64::from_bits(bits[2]),
+    )
+}
+
+fn promote_global_private_extraction(
+    partition_border_graph: &PartitionBorderGraph,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<TiledStitchedOutput>> {
+    let Some(extraction) = partition_border_graph.global_private_extraction() else {
+        return Ok(None);
+    };
+    execution_policy.check_cancelled("tiled_stitched_output")?;
+    let mut polygons = Vec::with_capacity(extraction.ring_payloads.len());
+    let mut output_polygon_count = 0;
+    let mut output_coordinate_count = 0;
+    for (payload_index, payload) in extraction.ring_payloads.iter().enumerate() {
+        execution_policy.check_cancelled_every("tiled_stitched_output_polygons", payload_index)?;
+        let exterior = payload
+            .exterior_coords
+            .iter()
+            .copied()
+            .map(coord3d_from_bits)
+            .collect::<Vec<_>>();
+        let interiors = payload
+            .hole_coords
+            .iter()
+            .map(|hole| hole.iter().copied().map(coord3d_from_bits).collect())
+            .collect::<Vec<Vec<_>>>();
+        let mut polygon = Polygon3D::new(exterior, interiors, vec![], vec![]);
+        polygon.set_boundary_source_line_ids(payload.source_line_ids.clone());
+        if options.provenance.enabled {
+            let boundary_line_ids = if options.provenance.include_boundary_line_ids {
+                payload
+                    .source_line_ids
+                    .iter()
+                    .copied()
+                    .filter(|line_id| *line_id != 0)
+                    .map(u64::from)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            polygon.provenance = Some(PolygonProvenance {
+                boundary_line_ids,
+                input_profile_id: options.input_profile_id.clone(),
+            });
+        }
+        let area = polygon.unsigned_area_2d();
+        if area.is_finite()
+            && area > 0.0
+            && options
+                .output_filter
+                .minimum_face_area
+                .is_none_or(|minimum| area >= minimum)
+        {
+            account_polygon_output(
+                execution_policy,
+                &mut output_polygon_count,
+                &mut output_coordinate_count,
+                &polygon,
+            )?;
+            polygons.push(polygon);
+        }
+    }
+
+    let mut dangles = Vec::new();
+    let mut cut_edges = Vec::new();
+    let mut invalid_rings = Vec::new();
+    if !options.extract_only_polygonal {
+        for (payload_index, payload) in extraction.non_polygon_payloads.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("tiled_stitched_output_non_polygon", payload_index)?;
+            let coordinates = payload
+                .coordinate_bits
+                .iter()
+                .copied()
+                .map(coord3d_from_bits)
+                .collect::<Vec<_>>();
+            match payload.kind {
+                crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::Dangle => {
+                    dangles.push(coordinates)
+                }
+                crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => {
+                    cut_edges.push(coordinates)
+                }
+                crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => {
+                    invalid_rings.push(coordinates)
+                }
+            }
+        }
+    }
+    Ok(Some(TiledStitchedOutput {
+        polygons,
+        dangles,
+        cut_edges,
+        invalid_rings,
+    }))
 }
 
 /// An internal buffered-tile boundary reached by an owned face.
@@ -747,6 +851,8 @@ pub struct StitchingReport {
     pub partition_border_global_private_extraction_invalid_non_polygon_payload_count: usize,
     pub partition_border_global_private_extraction_evidence_mismatch_count: usize,
     pub partition_border_global_private_extraction_ready: bool,
+    /// Whether validated stitched output was exposed in the additive sidecar.
+    pub partition_border_global_stitched_output_ready: bool,
     /// Unbounded-face candidates whose local cycles are closed.
     pub partition_border_global_unbounded_face_proof_closed_count: usize,
     /// Unbounded-face twins absent from the retained twin-position map.
@@ -886,6 +992,10 @@ pub struct StitchingReport {
 #[derive(Debug)]
 pub struct TiledPolygonizeResult {
     pub polygons: Vec<Polygon3D>,
+    /// Validated stitched output, when the private extraction gate passes.
+    /// The existing `polygons` field remains the replicate-and-own tiled
+    /// output until full untiled equivalence is proven.
+    pub stitched_output: Option<TiledStitchedOutput>,
     pub tile_reports: Vec<TileReport>,
     pub stitching_report: StitchingReport,
     /// Canonical observations captured from physical tile arrangements. A
@@ -894,6 +1004,16 @@ pub struct TiledPolygonizeResult {
     /// replicate-and-own polygons with stitched output.
     #[doc(hidden)]
     pub partition_border_graph: PartitionBorderGraph,
+}
+
+/// Experimental stitched output produced from the validated private global
+/// extraction snapshot. It is additive and does not replace tiled output.
+#[derive(Clone, Debug)]
+pub struct TiledStitchedOutput {
+    pub polygons: Vec<Polygon3D>,
+    pub dangles: Vec<Vec<Coord3D>>,
+    pub cut_edges: Vec<Vec<Coord3D>>,
+    pub invalid_rings: Vec<Vec<Coord3D>>,
 }
 
 /// Coverage contract requested for experimental tiled polygonization.
@@ -3175,7 +3295,36 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_ring_extraction_payloads,
                 partition_border_global_non_polygon_extraction,
             )?;
+        let stitched_output = if partition_border_global_private_extraction.extraction_ready {
+            promote_global_private_extraction(
+                &partition_border_graph,
+                &self.options,
+                &self.execution_policy,
+            )?
+        } else {
+            None
+        };
         if let Some(trace) = trace.as_deref_mut() {
+            let (
+                stitched_polygon_count,
+                stitched_dangle_count,
+                stitched_cut_edge_count,
+                stitched_invalid_ring_count,
+            ) = stitched_output.as_ref().map_or((0, 0, 0, 0), |output| {
+                (
+                    output.polygons.len(),
+                    output.dangles.len(),
+                    output.cut_edges.len(),
+                    output.invalid_rings.len(),
+                )
+            });
+            trace.record_tiled_stitched_output(
+                stitched_output.is_some(),
+                stitched_polygon_count,
+                stitched_dangle_count,
+                stitched_cut_edge_count,
+                stitched_invalid_ring_count,
+            );
             trace.record_partition_border_reconciliation(partition_border_reconciliation);
             trace.record_partition_border_twin_application(partition_border_twin_application);
             trace.record_partition_border_global_face_edge_map(
@@ -3509,8 +3658,10 @@ impl<'a> TiledPolygonizer<'a> {
             .iter()
             .filter(|report| report.retry_exhausted)
             .count();
+        let stitched_output_ready = stitched_output.is_some();
         let result = TiledPolygonizeResult {
             polygons,
+            stitched_output,
             tile_reports,
             partition_border_graph,
             stitching_report: StitchingReport {
@@ -4311,6 +4462,7 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_private_extraction.evidence_mismatch_count,
                 partition_border_global_private_extraction_ready:
                     partition_border_global_private_extraction.extraction_ready,
+                partition_border_global_stitched_output_ready: stitched_output_ready,
                 partition_border_global_unbounded_face_proof_closed_count:
                     partition_border_global_unbounded_face_proof.closed_unbounded_face_count,
                 partition_border_global_unbounded_face_proof_unmapped_twin_count:

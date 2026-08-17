@@ -78,6 +78,6 @@ pub use tiling::{
     TileCoverageIssue, TileCoverageResolution, TileCoverageResolutionKind,
     TileExcludedComponentIssue, TileExecutionPolicy, TileInputBoundaryIssue,
     TileOwnershipDomainIssue, TileReport, TileRetryAttempt, TileRetryPolicy, TiledPolygonizeError,
-    TiledPolygonizeResult, TiledPolygonizer, TracedTiledPolygonizeResultV1,
+    TiledPolygonizeResult, TiledPolygonizer, TiledStitchedOutput, TracedTiledPolygonizeResultV1,
 };
 pub use types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};

@@ -3289,7 +3289,35 @@ mod tests {
             tiler.add_geometry(g);
         }
 
-        let polys = tiler.polygonize().unwrap().polygons;
+        let traced = tiler
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let result = traced.result;
+        let stitched_event = traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "tiled_stitched_output")
+            .unwrap();
+        assert_eq!(result.polygons.len(), 4);
+        assert_eq!(
+            result.stitched_output.is_some(),
+            result
+                .stitching_report
+                .partition_border_global_stitched_output_ready
+        );
+        assert_eq!(
+            stitched_event.payload["ready"],
+            result.stitched_output.is_some()
+        );
+        if let Some(stitched_output) = result.stitched_output.as_ref() {
+            assert_eq!(stitched_output.polygons.len(), 4);
+            assert!(stitched_output
+                .polygons
+                .iter()
+                .all(|polygon| polygon.exterior.iter().all(|coord| coord.z == 0.0)));
+        }
+        let polys = result.polygons;
 
         // Should find 4 polygons
         assert_eq!(polys.len(), 4);
