@@ -620,7 +620,21 @@ Blocked by #1288.
   profiles, provenance, and Z-policy profiles against same-options untiled
   output; retain coverage evidence as the fail-closed exception.
 - [ ] Publish performance and peak-memory evidence.
-- [ ] Document the exact input class eligible for promotion.
+- [x] Document the exact per-call eligibility boundary for a future promotion:
+  an input is eligible only when the same `TiledPolygonizer::polygonize` call
+  returns `stitched_output: Some(_)`,
+  `partition_border_global_stitched_output_ready` is true,
+  `partition_border_global_untiled_equivalence_checked` is true,
+  `partition_border_global_untiled_equivalence_ready` is true, and the
+  mismatch count is zero. The comparison must cover canonical polygon
+  geometry, Z, source IDs, provenance, dangles, cut edges, and invalid rings
+  under the same options. Missing stitched output, incomplete private
+  evidence, unresolved coverage, or a fuzz match is not promotion evidence;
+  this is a per-input/per-options gate, not a broad geometric-class claim.
+
+This eligibility boundary is documented only. No public selector promotes the
+sidecar, and performance or peak-memory evidence is still required before any
+promotion decision.
 
 **Promotion gate:** exact untiled equivalence or an explicit deterministic
 fallback for every documented supported case.
