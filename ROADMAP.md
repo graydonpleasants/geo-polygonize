@@ -616,8 +616,9 @@ Blocked by #1288.
 - [x] Add an opt-in full canonical comparison of validated stitched output
   against the same-options untiled result; record fail-closed equivalence
   evidence without replacing tiled output or promoting on the comparison alone.
-- [ ] Differential-fuzz tile origins, sizes, orders, precision profiles,
-  provenance, and Z.
+- [x] Differential-fuzz bounded tile origins, sizes, orders, precision
+  profiles, provenance, and Z-policy profiles against same-options untiled
+  output; retain coverage evidence as the fail-closed exception.
 - [ ] Publish performance and peak-memory evidence.
 - [ ] Document the exact input class eligible for promotion.
 
