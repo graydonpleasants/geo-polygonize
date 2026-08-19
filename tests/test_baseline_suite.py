@@ -210,6 +210,7 @@ def test_scratch_instance_count_is_retained_but_not_identity(tmp_path):
     for index in range(1, 6):
         value = record(entry["workload_id"], entry["lane"], index, entry["minimum_input_segments"])
         value["work"]["component_memory"]["scratch_instance_count"] = 50 + index
+        value["work"]["component_memory"]["max_scratch_node_capacity"] = 100 + index
         path = tmp_path / f"record-{index}.json"
         path.write_text(json.dumps(value))
         records.append(path)

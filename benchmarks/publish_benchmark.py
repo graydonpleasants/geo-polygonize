@@ -15,18 +15,15 @@ ROOT = Path(__file__).parent
 def stable_record_value(record, field):
     """Return the portion of a record that identifies its workload context.
 
-    Scratch instances are allocated by Rayon workers, so their count can vary
-    with scheduling even when the workload and environment are unchanged.
-    Keep the measurement in the published record, but do not treat it as
-    record identity.
+    Component-memory evidence includes allocator and worker-scheduling
+    effects. Keep it in the published record, but do not treat it as record
+    identity.
     """
     value = record[field]
     if field != "work":
         return value
     work = dict(value)
-    component_memory = dict(work["component_memory"])
-    component_memory.pop("scratch_instance_count", None)
-    work["component_memory"] = component_memory
+    work.pop("component_memory", None)
     return work
 
 
