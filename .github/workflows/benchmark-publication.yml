@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 60
     env:
       MAVEN_IMAGE: maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237
-      PYTHON_IMAGE: python:3.12.11-bookworm@sha256:1b48a1b13ec678be8d84974541cc007d4367aaf01f985231daad1a940106efc0
+      PYTHON_IMAGE: python:3.12.11-bookworm@sha256:13c9584604a99ca134c4f41800f74ffc64ee6ac8cf555cf1e704a6087fc84f12
       MANIFEST_PATH: ${{ inputs.manifest_path }}
     steps:
       - uses: actions/checkout@v4

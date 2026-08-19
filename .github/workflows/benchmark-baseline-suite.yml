@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, benchmark-dedicated, linux, x64]
     timeout-minutes: 15
     env:
-      PYTHON_IMAGE: python:3.12.11-bookworm@sha256:1b48a1b13ec678be8d84974541cc007d4367aaf01f985231daad1a940106efc0
+      PYTHON_IMAGE: python:3.12.11-bookworm@sha256:13c9584604a99ca134c4f41800f74ffc64ee6ac8cf555cf1e704a6087fc84f12
       PUBLICATION_DIR: ${{ inputs.publication_dir }}
     steps:
       - uses: actions/checkout@v4
