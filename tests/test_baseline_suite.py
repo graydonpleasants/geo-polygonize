@@ -202,3 +202,24 @@ def test_suite_rejects_missing_duplicate_mixed_and_under_sized_publications(tmp_
     undersized_path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="fewer than 100000 segments"):
         SUITE.validate_baseline_suite(suite_path, undersized_paths)
+
+
+def test_scratch_instance_count_is_retained_but_not_identity(tmp_path):
+    entry = entries()[0]
+    records = []
+    for index in range(1, 6):
+        value = record(entry["workload_id"], entry["lane"], index, entry["minimum_input_segments"])
+        value["work"]["component_memory"]["scratch_instance_count"] = 50 + index
+        path = tmp_path / f"record-{index}.json"
+        path.write_text(json.dumps(value))
+        records.append(path)
+
+    publication = PUBLISHER.publish(records, "dedicated", 5)
+    assert [
+        record["work"]["component_memory"]["scratch_instance_count"]
+        for record in publication["records"]
+    ] == [51, 52, 53, 54, 55]
+
+    publication_path = tmp_path / "publication.json"
+    publication_path.write_text(json.dumps(publication))
+    SUITE._validate_record_set(publication, publication_path)

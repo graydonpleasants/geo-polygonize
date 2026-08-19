@@ -45,6 +45,24 @@ def load_schema(name):
     return load_json(ROOT / name)
 
 
+def stable_record_value(record, field):
+    """Return the portion of a record that identifies its workload context.
+
+    Scratch instances are allocated by Rayon workers, so their count can vary
+    with scheduling even when the workload and environment are unchanged.
+    Keep the measurement in the published record, but do not treat it as
+    record identity.
+    """
+    value = record[field]
+    if field != "work":
+        return value
+    work = dict(value)
+    component_memory = dict(work["component_memory"])
+    component_memory.pop("scratch_instance_count", None)
+    work["component_memory"] = component_memory
+    return work
+
+
 def validate_document(document, schema, name, registry=None):
     validator = (
         Draft202012Validator(schema)
@@ -100,7 +118,11 @@ def _validate_record_set(publication, path):
 
     baseline = records[0]
     for record in records[1:]:
-        if any(record[field] != baseline[field] for field in STABLE_RECORD_FIELDS):
+        if any(
+            stable_record_value(record, field)
+            != stable_record_value(baseline, field)
+            for field in STABLE_RECORD_FIELDS
+        ):
             raise ValueError(f"{path}: records do not describe one stable workload and environment")
 
     for record in records:
