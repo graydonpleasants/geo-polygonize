@@ -70,10 +70,14 @@ jobs:
           if-no-files-found: error
 
       - name: Attach complete report to the GitHub release
-        if: steps.verify.outcome == 'success' && github.event_name == 'push'
+        if: steps.verify.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" release-publication-report.json --clobber
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          gh release upload "$tag" release-publication-report.json --repo "$REPOSITORY" --clobber
 
       - name: Fail the release when the report is incomplete
         if: steps.verify.outcome != 'success'
