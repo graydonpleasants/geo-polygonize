@@ -670,23 +670,13 @@ mod tests {
         }
 
         let result = poly.polygonize().unwrap();
-        let diagnostics = result.diagnostics.unwrap();
+        let stats = poly.component_memory_stats();
         assert_eq!(result.polygons.len(), 2);
-        assert_eq!(diagnostics.component_memory_stats.component_count, 2);
-        assert_eq!(diagnostics.component_memory_stats.active_node_count, 8);
-        assert_eq!(
-            diagnostics
-                .component_memory_stats
-                .largest_component_edge_count,
-            4
-        );
-        assert!(diagnostics.component_memory_stats.scratch_instance_count >= 1);
-        assert!(
-            diagnostics
-                .component_memory_stats
-                .max_merged_output_item_count
-                > 0
-        );
+        assert_eq!(stats.component_count, 2);
+        assert_eq!(stats.active_node_count, 8);
+        assert_eq!(stats.largest_component_edge_count, 4);
+        assert!(stats.scratch_instance_count >= 1);
+        assert!(stats.max_merged_output_item_count > 0);
     }
 
     #[test]
@@ -711,7 +701,7 @@ mod tests {
         }
 
         let result = poly.polygonize().unwrap();
-        let stats = result.diagnostics.unwrap().component_memory_stats;
+        let stats = poly.component_memory_stats();
         assert_eq!(result.polygons.len(), 2);
         assert_eq!(stats.component_count, 2);
         assert_eq!(stats.active_node_count, 8);

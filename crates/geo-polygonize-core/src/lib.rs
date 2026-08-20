@@ -46,9 +46,11 @@ pub mod utils;
 #[cfg(test)]
 mod polygonizer_tests;
 
+#[doc(hidden)]
+pub use diagnostics::ComponentMemoryStats;
 pub use diagnostics::{
-    ComponentMemoryStats, ContainmentStats, IntersectionStats, NodingIterationStats,
-    NodingWorkStats, PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
+    ContainmentStats, IntersectionStats, NodingIterationStats, NodingWorkStats,
+    PolygonizerDiagnostics, PolygonizerPhaseTimes, SnapStats, ZConflictStats,
     POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION,
 };
 pub use error::{NodingValidationKind, PolygonizeError, PolygonizeErrorKind, Result};

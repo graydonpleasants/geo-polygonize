@@ -316,8 +316,6 @@ pub struct PolygonizerDiagnostics {
     pub z_conflicts: ZConflictStats,
     pub containment_stats: ContainmentStats,
     pub noding_work_stats: NodingWorkStats,
-    #[serde(default)]
-    pub component_memory_stats: ComponentMemoryStats,
 }
 
 fn diagnostics_schema_version() -> u32 {
@@ -346,7 +344,6 @@ impl Default for PolygonizerDiagnostics {
             z_conflicts: ZConflictStats::default(),
             containment_stats: ContainmentStats::default(),
             noding_work_stats: NodingWorkStats::default(),
-            component_memory_stats: ComponentMemoryStats::default(),
         }
     }
 }
@@ -362,7 +359,7 @@ mod tests {
             value["schema_version"],
             POLYGONIZER_DIAGNOSTICS_V1_SCHEMA_VERSION
         );
-        assert!(value.get("component_memory_stats").is_some());
+        assert!(value.get("component_memory_stats").is_none());
     }
 
     #[test]

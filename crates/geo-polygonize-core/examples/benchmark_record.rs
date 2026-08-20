@@ -3,9 +3,9 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::{
-    normalize_polygonize_error, polygonize, Coord3D, CoordinateFingerprintV1, Line3D,
-    NodingGuarantee, NormalizedPolygonizeErrorV1, PolygonizerOptions, PolygonizerResult,
-    PrecisionModel, TopologyFingerprintV1,
+    normalize_polygonize_error, polygonize, ComponentMemoryStats, Coord3D, CoordinateFingerprintV1,
+    Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1, Polygonizer, PolygonizerOptions,
+    PolygonizerResult, PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::{Deserialize, Serialize};
@@ -366,11 +366,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut correctness_options = options.clone();
     correctness_options.diagnostics.enabled = true;
-    let (actual_outcome, correctness) = reduced_rust_outcome(
-        polygonize(lines.clone(), &correctness_options),
-        &correctness_options,
-        "correctness",
-    );
+    let (actual_outcome, correctness, component_memory) =
+        reduced_rust_outcome_with_component_memory(
+            polygonize_with_component_memory(lines.clone(), &correctness_options),
+            &correctness_options,
+            "correctness",
+        );
     let Some(correctness) = correctness else {
         write_candidate(&correctness_options, &actual_outcome)?;
         return Err(format!(
@@ -379,6 +380,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     };
+    let component_memory = component_memory.ok_or("correctness run omitted component memory")?;
     let BenchmarkReducedOutcomeV1::Success(actual_topology) = &actual_outcome else {
         unreachable!("successful correctness result has a success outcome");
     };
@@ -403,6 +405,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 args.lane,
                 &lines,
                 &correctness,
+                &component_memory,
                 actual_topology,
             )?;
         }
@@ -423,7 +426,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..args.samples {
         let before = dhat::HeapStats::get();
         let started = Instant::now();
-        let result = polygonize(lines.clone(), &timed_options)?;
+        let (result, _) = polygonize_with_component_memory(lines.clone(), &timed_options)?;
         samples.elapsed.push(started.elapsed());
         let after = dhat::HeapStats::get();
         samples.allocations += after.total_blocks - before.total_blocks;
@@ -516,7 +519,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "noded_segments": diagnostics.noded_segment_count,
                 "ratio": diagnostics.noded_segment_count as f64 / diagnostics.input_segment_count.max(1) as f64,
             },
-            "component_memory": &diagnostics.component_memory_stats,
+            "component_memory": &component_memory,
         },
         "environment": {
             "architecture": std::env::consts::ARCH,
@@ -662,6 +665,52 @@ fn reduced_rust_outcome(
     }
 }
 
+fn reduced_rust_outcome_with_component_memory(
+    result: geo_polygonize_core::Result<(PolygonizerResult, ComponentMemoryStats)>,
+    options: &PolygonizerOptions,
+    stage: &str,
+) -> (
+    BenchmarkReducedOutcomeV1,
+    Option<PolygonizerResult>,
+    Option<ComponentMemoryStats>,
+) {
+    match result {
+        Ok((result, component_memory)) => match benchmark_topology(&result, options) {
+            Ok(topology) => (
+                BenchmarkReducedOutcomeV1::Success(topology),
+                Some(result),
+                Some(component_memory),
+            ),
+            Err(error) => (
+                BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                    stage: format!("{stage}_fingerprint"),
+                    error: normalize_polygonize_error(&error),
+                })),
+                None,
+                None,
+            ),
+        },
+        Err(error) => (
+            BenchmarkReducedOutcomeV1::Error(Box::new(BenchmarkFailureV1 {
+                stage: stage.to_string(),
+                error: normalize_polygonize_error(&error),
+            })),
+            None,
+            None,
+        ),
+    }
+}
+
+fn polygonize_with_component_memory(
+    lines: Vec<Line3D>,
+    options: &PolygonizerOptions,
+) -> geo_polygonize_core::Result<(PolygonizerResult, ComponentMemoryStats)> {
+    let mut polygonizer = Polygonizer::with_options(options.clone());
+    polygonizer.add_lines(lines);
+    let result = polygonizer.polygonize()?;
+    Ok((result, polygonizer.component_memory_stats()))
+}
+
 fn reduced_reference_outcome(reference: &ReferenceResult) -> BenchmarkReducedOutcomeV1 {
     BenchmarkReducedOutcomeV1::Success(reference.topology.clone())
 }
@@ -805,6 +854,7 @@ fn write_check_only_output(
     lane: Lane,
     lines: &[Line3D],
     result: &PolygonizerResult,
+    component_memory: &ComponentMemoryStats,
     topology: &BenchmarkTopologyFingerprintV1,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let diagnostics = result
@@ -839,7 +889,7 @@ fn write_check_only_output(
                 "noded_segments": diagnostics.noded_segment_count,
                 "ratio": diagnostics.noded_segment_count as f64 / diagnostics.input_segment_count.max(1) as f64,
             },
-            "component_memory": &diagnostics.component_memory_stats,
+            "component_memory": component_memory,
         },
     });
     std::fs::write(path, serde_json::to_vec_pretty(&output)?)?;
