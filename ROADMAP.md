@@ -335,8 +335,8 @@ Tracked by
 [#1287](https://github.com/graydonpleasants/geo-polygonize/issues/1287).
 
 - [x] Build a persistent/flat monotone-chain tree with cached envelopes.
-- [ ] Stream candidates through the common visitor.
-- [ ] Observe execution limits and cancellation during physical traversal.
+- [x] Stream candidates through the common visitor.
+- [x] Observe execution limits and cancellation during physical traversal.
 - [x] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
   pairs without misses or duplicate exact work.
 - [x] Preserve source-chain/segment/parametric identity through preprocessing.
@@ -349,9 +349,9 @@ Tracked by
 
 The research prototype now owns cached flat-tree traversal and a
 `CandidatePair`-compatible visitor with bounded policy accounting and
-cancellation checks. It remains disconnected from the shared exact/split path
-until cross-kind fallback, identity preservation, conformance, and dedicated
-runner evidence are complete.
+cancellation checks. It remains disconnected from split/dissolve/validation
+and production dispatch until the remaining conformance and dedicated-runner
+evidence gates are complete.
 
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
