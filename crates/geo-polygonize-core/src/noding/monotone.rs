@@ -33,13 +33,76 @@ impl Bounds {
     fn aabb(self) -> AABB<[f64; 2]> {
         AABB::from_corners([self.min_x, self.min_y], [self.max_x, self.max_y])
     }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            min_x: self.min_x.min(other.min_x),
+            min_y: self.min_y.min(other.min_y),
+            max_x: self.max_x.max(other.max_x),
+            max_y: self.max_y.max(other.max_y),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
-struct MonotoneChain {
+struct MonotoneChainNode {
     start: usize,
     end: usize,
     bounds: Bounds,
+    left: Option<usize>,
+    right: Option<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct MonotoneChainRoot {
+    node: usize,
+    bounds: Bounds,
+}
+
+struct MonotoneChainTree {
+    nodes: Vec<MonotoneChainNode>,
+    roots: Vec<MonotoneChainRoot>,
+}
+
+impl MonotoneChainTree {
+    fn from_ranges(segment_bounds: &[Bounds], ranges: &[(usize, usize)]) -> Self {
+        let mut tree = Self {
+            nodes: Vec::new(),
+            roots: Vec::with_capacity(ranges.len()),
+        };
+        for &(start, end) in ranges {
+            let node = tree.push_node(segment_bounds, start, end);
+            tree.roots.push(MonotoneChainRoot {
+                node,
+                bounds: tree.nodes[node].bounds,
+            });
+        }
+        tree
+    }
+
+    fn push_node(&mut self, segment_bounds: &[Bounds], start: usize, end: usize) -> usize {
+        let node = self.nodes.len();
+        self.nodes.push(MonotoneChainNode {
+            start,
+            end,
+            bounds: segment_bounds[start],
+            left: None,
+            right: None,
+        });
+        if end - start > 1 {
+            let middle = start + (end - start) / 2;
+            let left = self.push_node(segment_bounds, start, middle);
+            let right = self.push_node(segment_bounds, middle, end);
+            self.nodes[node] = MonotoneChainNode {
+                start,
+                end,
+                bounds: self.nodes[left].bounds.union(self.nodes[right].bounds),
+                left: Some(left),
+                right: Some(right),
+            };
+        }
+        node
+    }
 }
 
 /// Benchmark-only compatibility entrypoint for detached source ranges.
@@ -92,37 +155,30 @@ fn enumerate_candidates_from_ranges(
             }
         })
         .collect::<Result<Vec<_>>>()?;
-    let chains = build_chains(lines, &segment_bounds, source_ranges)?;
+    let chain_ranges = build_chain_ranges(lines, source_ranges)?;
+    let tree = MonotoneChainTree::from_ranges(&segment_bounds, &chain_ranges);
     let chain_index = RStarBackend::new(
-        chains
+        tree.roots
             .iter()
             .enumerate()
-            .map(|(index, chain)| IndexedEnvelope {
-                aabb: chain.bounds.aabb(),
+            .map(|(index, root)| IndexedEnvelope {
+                aabb: root.bounds.aabb(),
                 index,
             })
             .collect(),
     );
     let mut candidates = Vec::new();
 
-    for (first_chain_index, first_chain) in chains.iter().enumerate() {
-        collect_within_chain(
-            first_chain.start,
-            first_chain.end,
-            &segment_bounds,
-            &mut candidates,
-        );
+    for (first_chain_index, first_root) in tree.roots.iter().enumerate() {
+        collect_within_tree(&tree, first_root.node, &mut candidates);
         for second_chain_index in chain_index
-            .locate_in_envelope_intersecting(&first_chain.bounds.aabb())
+            .locate_in_envelope_intersecting(&first_root.bounds.aabb())
             .filter(|&index| index > first_chain_index)
         {
-            let second_chain = chains[second_chain_index];
-            collect_between_chains(
-                first_chain.start,
-                first_chain.end,
-                second_chain.start,
-                second_chain.end,
-                &segment_bounds,
+            collect_between_nodes(
+                &tree,
+                first_root.node,
+                tree.roots[second_chain_index].node,
                 &mut candidates,
             );
         }
@@ -133,12 +189,11 @@ fn enumerate_candidates_from_ranges(
     Ok(candidates)
 }
 
-fn build_chains(
+fn build_chain_ranges(
     lines: &[Line3D],
-    segment_bounds: &[Bounds],
     source_ranges: &[(usize, usize)],
-) -> Result<Vec<MonotoneChain>> {
-    let mut chains = Vec::new();
+) -> Result<Vec<(usize, usize)>> {
+    let mut ranges = Vec::new();
     let mut previous_end = 0;
 
     for &(start, count) in source_ranges {
@@ -158,22 +213,14 @@ fn build_chains(
         for (segment, line) in lines.iter().enumerate().take(end).skip(start + 1) {
             let next_direction = segment_direction(*line);
             if next_direction != direction {
-                chains.push(make_chain(segment_bounds, chain_start, segment));
+                ranges.push((chain_start, segment));
                 chain_start = segment;
                 direction = next_direction;
             }
         }
-        chains.push(make_chain(segment_bounds, chain_start, end));
+        ranges.push((chain_start, end));
     }
-    Ok(chains)
-}
-
-fn make_chain(segment_bounds: &[Bounds], start: usize, end: usize) -> MonotoneChain {
-    MonotoneChain {
-        start,
-        end,
-        bounds: range_bounds(segment_bounds, start, end),
-    }
+    Ok(ranges)
 }
 
 fn segment_direction(line: Line3D) -> (i8, i8) {
@@ -193,100 +240,54 @@ fn sign(value: f64) -> i8 {
     }
 }
 
-fn range_bounds(segment_bounds: &[Bounds], start: usize, end: usize) -> Bounds {
-    segment_bounds[start..end]
-        .iter()
-        .copied()
-        .reduce(|first, second| Bounds {
-            min_x: first.min_x.min(second.min_x),
-            min_y: first.min_y.min(second.min_y),
-            max_x: first.max_x.max(second.max_x),
-            max_y: first.max_y.max(second.max_y),
-        })
-        .expect("monotone chain range is non-empty")
-}
-
-fn collect_within_chain(
-    start: usize,
-    end: usize,
-    segment_bounds: &[Bounds],
+fn collect_within_tree(
+    tree: &MonotoneChainTree,
+    node_index: usize,
     candidates: &mut Vec<(usize, usize)>,
 ) {
-    if end - start < 2 {
+    let node = tree.nodes[node_index];
+    let (Some(left), Some(right)) = (node.left, node.right) else {
         return;
-    }
-    let middle = start + (end - start) / 2;
-    collect_between_chains(start, middle, middle, end, segment_bounds, candidates);
-    collect_within_chain(start, middle, segment_bounds, candidates);
-    collect_within_chain(middle, end, segment_bounds, candidates);
+    };
+    collect_between_nodes(tree, left, right, candidates);
+    collect_within_tree(tree, left, candidates);
+    collect_within_tree(tree, right, candidates);
 }
 
-fn collect_between_chains(
-    first_start: usize,
-    first_end: usize,
-    second_start: usize,
-    second_end: usize,
-    segment_bounds: &[Bounds],
+fn collect_between_nodes(
+    tree: &MonotoneChainTree,
+    first_index: usize,
+    second_index: usize,
     candidates: &mut Vec<(usize, usize)>,
 ) {
-    if !range_bounds(segment_bounds, first_start, first_end).overlaps(range_bounds(
-        segment_bounds,
-        second_start,
-        second_end,
-    )) {
+    let first = tree.nodes[first_index];
+    let second = tree.nodes[second_index];
+    if !first.bounds.overlaps(second.bounds) {
         return;
     }
-    let first_len = first_end - first_start;
-    let second_len = second_end - second_start;
-    if first_len == 1 && second_len == 1 {
-        let first = first_start;
-        let second = second_start;
-        if first != second && segment_bounds[first].overlaps(segment_bounds[second]) {
-            candidates.push(if first < second {
-                (first, second)
-            } else {
-                (second, first)
-            });
-        }
+    if first.left.is_none() && second.left.is_none() {
+        candidates.push(if first.start < second.start {
+            (first.start, second.start)
+        } else {
+            (second.start, first.start)
+        });
         return;
     }
 
-    if first_len >= second_len && first_len > 1 {
-        let middle = first_start + first_len / 2;
-        collect_between_chains(
-            first_start,
-            middle,
-            second_start,
-            second_end,
-            segment_bounds,
-            candidates,
-        );
-        collect_between_chains(
-            middle,
-            first_end,
-            second_start,
-            second_end,
-            segment_bounds,
-            candidates,
-        );
+    let first_len = first.end - first.start;
+    let second_len = second.end - second.start;
+    if first.left.is_some() && (second.right.is_none() || first_len >= second_len) {
+        let (Some(left), Some(right)) = (first.left, first.right) else {
+            unreachable!("internal monotone-chain node has two children")
+        };
+        collect_between_nodes(tree, left, second_index, candidates);
+        collect_between_nodes(tree, right, second_index, candidates);
     } else {
-        let middle = second_start + second_len / 2;
-        collect_between_chains(
-            first_start,
-            first_end,
-            second_start,
-            middle,
-            segment_bounds,
-            candidates,
-        );
-        collect_between_chains(
-            first_start,
-            first_end,
-            middle,
-            second_end,
-            segment_bounds,
-            candidates,
-        );
+        let (Some(left), Some(right)) = (second.left, second.right) else {
+            unreachable!("internal monotone-chain node has two children")
+        };
+        collect_between_nodes(tree, first_index, left, candidates);
+        collect_between_nodes(tree, first_index, right, candidates);
     }
 }
 
