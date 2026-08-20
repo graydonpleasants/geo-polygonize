@@ -108,10 +108,20 @@ Physical partition-boundary noding
   ↓
 Validated stitched arrangement and untiled equivalence
 #1289
+
+Independent bulk-versus-single-partition oracle
+#1389
+  ├──→ streamed source-segment routing #1392
+  └──→ transactional partition snapshots and mosaic #1390
+          ├──→ physical-edge consistency versus topology readiness #1391
+          └──→ flat snapshots and checked integer partition space #1393
 ```
 
 Work may proceed in parallel across these tracks, but promotion decisions must
-respect the dependencies above.
+respect the dependencies above. The partition-mosaic research is inspired by
+`nyurik/map-tile-toolkit`; it is not a runtime dependency and its polyline
+edge-set guarantees are not a substitute for global arrangement, containment,
+provenance, Z, and untiled-equivalence proof.
 
 # P0 — Release integrity and 1.x governance
 
@@ -399,6 +409,53 @@ Replicate-and-own tiling remains experimental and distinct from graph stitching.
 - [ ] Do not add more recovery heuristics when physical stitching is the correct
   dependency.
 
+## P4.3 Independent bulk-versus-single-partition oracle
+
+Tracked by
+[#1389](https://github.com/graydonpleasants/geo-polygonize/issues/1389).
+
+Inspired by `map-tile-toolkit` requiring its all-tiles and one-tile-at-a-time
+slicers to produce identical per-tile results. Adopt the independent-oracle
+pattern, not its no-new-vertices clipping contract.
+
+- [ ] Define a versioned deterministic local partition snapshot/fingerprint.
+- [ ] Reprocess one partition from original linework without reusing the bulk
+  path's selected-input cache or mutable graph.
+- [ ] Compare selected source segments, local noding, graph/face state, boundary
+  nodes, atomic observations, provenance, representative IDs, Z, non-polygon
+  families, and normalized errors.
+- [ ] Exhaustively scan bounded neighboring empty partitions so missed and
+  invented partition assignments are observable.
+- [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
+  tile-origin, tile-size, buffer, and precision metamorphic tests.
+- [ ] Add a bounded fuzz target that names the first differing partition and
+  stage.
+- [ ] Retain final tiled-versus-untiled comparison as the stronger global gate.
+
+## P4.4 Stream source segments into partition sinks
+
+Tracked by
+[#1392](https://github.com/graydonpleasants/geo-polygonize/issues/1392).
+Blocked on the #1389 oracle for promotion.
+
+Inspired by `map-tile-toolkit`'s one-pass `Grid::route`/`RouteSink` architecture.
+Routing remains separate from topology mutation: emit original source segments,
+then let the existing physical boundary-noding stage create atomic halfedges.
+
+- [ ] Define a source-aware partition sink retaining chain, segment, parametric,
+  provenance, representative-ID, and raw endpoint-Z identity.
+- [ ] Add a documented same-partition inner-box fast path for segments safely
+  farther than the halo from every border.
+- [ ] Stream boundary-near segment/partition candidates without a
+  candidate-count-proportional temporary vector.
+- [ ] Charge every physical candidate visit to explicit limits and poll
+  cancellation inside the scan.
+- [ ] Compare assignments and local snapshots against #1389.
+- [ ] Measure geometry-envelope false positives, allocations, peak memory,
+  routing time, native/Wasm cost, and long sparse CAD/road/contour workloads.
+- [ ] Keep the implementation private and accept, narrow, or reject it through
+  a durable evidence record.
+
 # P5 — True partition graph stitching
 
 ## P5.1 Delivered stitching prerequisites
@@ -639,19 +696,77 @@ promotion decision.
 **Promotion gate:** exact untiled equivalence or an explicit deterministic
 fallback for every documented supported case.
 
+## P5.4 Transactional partition mosaic and staged consistency
+
+Tracked by
+[#1390](https://github.com/graydonpleasants/geo-polygonize/issues/1390) and
+[#1391](https://github.com/graydonpleasants/geo-polygonize/issues/1391).
+
+Inspired by `map-tile-toolkit`'s transactional `Mosaic`: stage and validate one
+tile before mutating shared state, reject inconsistencies atomically, support
+replacement/purge, and prove insertion-order independence. Generalize that idea
+to full partition arrangements rather than polyline edge sets.
+
+- [ ] Define an immutable versioned `PartitionSnapshotV1` containing local graph,
+  face, border, source, representative-ID, Z, non-polygon, options, and execution
+  evidence.
+- [ ] Add atomic `replace_partition` and `purge_partition` operations; rejection
+  must preserve the previous mosaic fingerprint exactly.
+- [ ] Prove identical replacement is idempotent and arbitrary insertion order
+  produces one deterministic mosaic.
+- [ ] Use the transaction boundary for larger-halo retries and independently
+  regenerated partitions.
+- [ ] Separate physical mosaic consistency from topology mosaic readiness.
+- [ ] Retain all face-side claims on one physical span rather than forcing one
+  physical edge to have one semantic twin.
+- [ ] Classify physical spans as `valid`, `incomplete`, or `conflict`, with typed
+  witnesses naming partitions, coordinates, claim multiplicity, and payload
+  class.
+- [ ] Define deterministic core-ownership/corroboration obligations without
+  using ownership to select final polygon output.
+- [ ] Allow only physically valid, face-qualified claims into global twin,
+  successor, component, face, unbounded-face, and extraction gates.
+- [ ] Keep physically valid but topologically ambiguous cases fail-closed and
+  distinct from physical conflicts.
+- [ ] Retain full global arrangement, Euler, containment, provenance, Z,
+  cancellation, limits, trace, and untiled-equivalence validation.
+
 # P6 — Later evidence-gated research
 
 These programs begin only after their stated predecessors.
 
-## P6.1 Checked integer fixed-grid topology
+## P6.1 Flat partition snapshots and checked integer fixed-grid topology
 
-- [ ] Define origin/scale and checked `i64` conversion.
-- [ ] Reject overflow before topology work.
-- [ ] Benchmark equality, hashing, ordering, graph construction, and hot-pixel
-  operations.
-- [ ] Prove round-trip behavior over supported coordinate/grid ranges.
+Tracked by
+[#1393](https://github.com/graydonpleasants/geo-polygonize/issues/1393).
+
+Inspired by `map-tile-toolkit`'s flat vertex/offset arenas and exact integer tile
+space. Treat both as private removable experiments, not universal input or
+precision changes.
+
+- [ ] Prototype contiguous arenas and checked offset tables for coordinates,
+  edges, successors, faces, source/Z payloads, border observations, and
+  non-polygon output.
+- [ ] Provide borrowed views with lifetimes tied to immutable committed
+  snapshots.
+- [ ] Preserve deterministic fingerprints, transactional replacement, purge,
+  limits, cancellation, and serialization/reconstruction bounds.
+- [ ] Define explicit origin/scale and checked `i64` conversion for caller-selected
+  fixed-grid/certified-fixed precision only.
+- [ ] Use Euclidean division for negative partition coordinates and exact
+  local/global round trips.
+- [ ] Reject overflow before topology work and retain `i128` predicate fallback
+  where the documented integer domain requires it.
+- [ ] Keep floating coordinate behavior and bits unchanged; never quantize
+  floating mode silently.
 - [ ] Keep Z and source payloads separate from XY topology identity.
-- [ ] Record an accept/reject decision.
+- [ ] Benchmark equality, hashing, ordering, graph construction, boundary
+  predicates, snapshot size, allocation count, peak RSS, native/Wasm cost, and
+  serialization.
+- [ ] Pass #1389 local-partition and full global topology conformance before
+  timing.
+- [ ] Check in separate accept/reject decisions for the flat layout and integer
+  specialization; remove losing prototypes.
 
 ## P6.2 Explicit robustness fallback profile
 
@@ -737,14 +852,33 @@ but it cannot be promoted without #1290 evidence.
 └── #1289 stitched arrangement, validators, and untiled equivalence
 ```
 
+## Stack M — partition mosaic hardening
+
+```text
+#1389 bulk-versus-single-partition oracle
+├── #1392 streamed source-segment router
+└── #1390 transactional partition snapshots and mosaic
+    ├── #1391 physical consistency versus topology readiness
+    └── #1393 flat snapshot and checked integer research
+```
+
+#1393 additionally depends on #1290/#1291 evidence before any representation or
+performance decision. #1392 may prototype early but cannot replace current input
+selection until #1389 is green across representative workloads.
+
 ## After those stacks
 
-1. Decide component execution/layout from #1291.
-2. Decide MCIndex/sweep production status from #1287 and evidence.
-3. Decide whether stitched output is selectable for a documented input class.
-4. Revisit checked integer topology and explicit robustness fallback.
-5. Revisit wide SIMD only after candidate and workload evidence stabilizes.
-6. Begin streaming/out-of-core work only after stitching and memory evidence.
+1. Close the local partition oracle before changing input routing.
+2. Make partition replacement transactional before adding resumable/streaming
+   topology state.
+3. Separate physical consistency from face topology before relaxing any
+   ambiguous-border readiness gate.
+4. Decide component execution/layout from #1291.
+5. Decide MCIndex/sweep production status from #1287 and evidence.
+6. Decide whether stitched output is selectable for a documented input class.
+7. Revisit flat/integer partition representation from #1393.
+8. Revisit wide SIMD only after candidate and workload evidence stabilizes.
+9. Begin streaming/out-of-core work only after stitching and memory evidence.
 
 # Stacked PR rules
 
@@ -788,7 +922,10 @@ A backend is production-visible only when:
 
 Stitched output is selectable only when:
 
+- bulk and independent one-partition snapshots agree for the documented class;
 - local arrangements are physically boundary-noded;
+- committed partition snapshots are transactionally consistent;
+- physical edge claims are valid and face-topology readiness is unambiguous;
 - border twins and payloads reconcile deterministically;
 - one valid global arrangement and unbounded face exist;
 - full canonical output equals untiled execution for the documented class;
@@ -796,6 +933,33 @@ Stitched output is selectable only when:
 - resource, cancellation, trace, fuzz, and memory gates pass.
 
 # Research references
+
+## Partition tiling inspiration
+
+[`nyurik/map-tile-toolkit`](https://github.com/nyurik/map-tile-toolkit) inspired
+the partition-oracle, transactional-mosaic, streamed-sink, flat-arena, and exact
+integer-space research in #1389–#1393:
+
+- [`Grid::route` and `RouteSink`](https://github.com/nyurik/map-tile-toolkit/blob/main/src/grid.rs)
+  for one-pass bounded segment-to-tile routing;
+- [`SlicerAll`/`SlicerOne`](https://github.com/nyurik/map-tile-toolkit/blob/main/src/slicer.rs)
+  for independent all-tiles versus one-tile equivalence and flat offset arenas;
+- [`Mosaic`](https://github.com/nyurik/map-tile-toolkit/blob/main/src/mosaic.rs)
+  for atomic replacement, purge, insertion-order independence, and shared-edge
+  consistency checks;
+- [slicing equivalence fuzzing](https://github.com/nyurik/map-tile-toolkit/blob/main/fuzz/fuzz_targets/slice_equivalence.rs)
+  and [bad mosaic fixtures](https://github.com/nyurik/map-tile-toolkit/blob/main/tests/mosaic_bad.rs)
+  for executable cross-path and conflict oracles;
+- [exact integer predicates](https://github.com/nyurik/map-tile-toolkit/blob/main/src/geom.rs)
+  for checked integer partition-space research.
+
+These are research references only. Do not adopt `map-tile-toolkit` as a runtime
+dependency without a separate compatibility/evidence decision. Its deliberate
+“no new boundary vertices” polyline contract and directed-edge-set reassembly do
+not prove polygon face topology, global containment, representative edge IDs,
+Z reconciliation, or canonical untiled equivalence for `geo-polygonize`.
+
+## Topology and noding references
 
 - [JTS `SnapRoundingNoder`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/snapround/SnapRoundingNoder.html)
 - [JTS `ValidatingNoder`](https://locationtech.github.io/jts/javadoc/org/locationtech/jts/noding/ValidatingNoder.html)
