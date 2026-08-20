@@ -140,10 +140,11 @@ jobs:
         if: needs.native.result == 'success' && needs.wasm.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           zip -qr "benchmark-results-${TAG}.zip" benchmark-results
-          gh release upload "$TAG" "benchmark-results-${TAG}.zip" --clobber
+          gh release upload "$TAG" "benchmark-results-${TAG}.zip" --repo "$REPOSITORY" --clobber
 
       - name: Add package and benchmark links
         env:
