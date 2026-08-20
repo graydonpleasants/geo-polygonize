@@ -1,6 +1,7 @@
 use crate::containment::ContainmentForest;
 use crate::diagnostics::{
-    ContainmentStats, NodingIterationStats, PolygonizerDiagnostics, ZConflictStats,
+    ComponentMemoryStats, ContainmentStats, NodingIterationStats, PolygonizerDiagnostics,
+    ZConflictStats,
 };
 use crate::error::{PolygonizeError, Result};
 use crate::graph::partition_border::{PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph};
@@ -55,6 +56,7 @@ pub struct Polygonizer {
     partition_border_observations: Vec<PartitionBorderHalfEdge>,
     partition_border_local_face_graphs: Vec<PartitionBorderLocalFaceGraph>,
     boundary_noding_stats: PartitionBoundaryNodingStats,
+    component_memory_stats: ComponentMemoryStats,
 }
 
 /// Reusable allocation storage for stateless polygonization calls.
@@ -358,6 +360,7 @@ pub fn polygonize_with_workspace_and_execution_policy(
         partition_border_observations: Vec::new(),
         partition_border_local_face_graphs: Vec::new(),
         boundary_noding_stats: PartitionBoundaryNodingStats::default(),
+        component_memory_stats: ComponentMemoryStats::default(),
     };
     runner.input_line_strings = source_line_strings_for_segments(lines);
     let result = runner.polygonize_owned(lines.to_vec());
@@ -380,6 +383,7 @@ impl Polygonizer {
             partition_border_observations: Vec::new(),
             partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
+            component_memory_stats: ComponentMemoryStats::default(),
         }
     }
     /// Creates a new `Polygonizer` with specific options.
@@ -395,6 +399,7 @@ impl Polygonizer {
             partition_border_observations: Vec::new(),
             partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
+            component_memory_stats: ComponentMemoryStats::default(),
         }
     }
 
@@ -416,6 +421,11 @@ impl Polygonizer {
     pub fn with_execution_policy(mut self, execution_policy: ExecutionPolicy) -> Self {
         self.execution_policy = execution_policy;
         self
+    }
+
+    #[doc(hidden)]
+    pub fn component_memory_stats(&self) -> ComponentMemoryStats {
+        self.component_memory_stats.clone()
     }
 
     fn with_trace(mut self, trace: TraceRecorderV1) -> Self {
@@ -813,6 +823,7 @@ impl Polygonizer {
 
     fn polygonize_owned(&mut self, input_lines: Vec<Line3D>) -> Result<PolygonizerResult> {
         self.options.validate()?;
+        self.component_memory_stats = ComponentMemoryStats::default();
         self.execution_policy.check_cancelled("ingest")?;
         if self.input_line_strings.is_empty() && !input_lines.is_empty() {
             self.input_line_strings = source_line_strings_for_segments(&input_lines);
@@ -953,8 +964,8 @@ impl Polygonizer {
             d.ring_count = rings_with_ids.len();
             d.cut_edge_count = cut_edges.len();
             d.dangle_count = dangles.len();
-            d.component_memory_stats = component_memory_stats;
         }
+        self.component_memory_stats = component_memory_stats;
 
         // 4. Classify Rings (Shell vs Hole)
         let t_ring_extraction_start = get_time();
