@@ -1,6 +1,8 @@
 //! Research-only MCIndex-style monotone-chain candidate prototype.
 
+use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
+use crate::noding::CandidatePair;
 use crate::types::{Line3D, SourceChainKind, SourceLineString};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
@@ -126,18 +128,64 @@ pub(crate) fn enumerate_source_chain_candidates(
     lines: &[Line3D],
     source_chains: &[SourceLineString],
 ) -> Result<Vec<(usize, usize)>> {
-    let source_ranges: Vec<_> = source_chains
-        .iter()
-        .filter(|chain| chain.kind == SourceChainKind::Original)
-        .map(|chain| (chain.segment_start, chain.segment_count))
-        .collect();
+    let source_ranges = original_source_ranges(source_chains);
     enumerate_candidates_from_ranges(lines, &source_ranges)
+}
+
+/// Stream MCIndex envelope candidates through the shared candidate callback shape.
+///
+/// This remains a benchmark-only prototype: only original source chains are indexed,
+/// and the callback must still route candidates through the shared exact path.
+pub(crate) fn visit_source_chain_candidates<F>(
+    lines: &[Line3D],
+    source_chains: &[SourceLineString],
+    tracker: &mut ExecutionWorkTracker<'_>,
+    visit: F,
+) -> Result<()>
+where
+    F: FnMut(CandidatePair) -> Result<()>,
+{
+    visit_candidates_from_ranges(
+        lines,
+        &original_source_ranges(source_chains),
+        tracker,
+        visit,
+    )
 }
 
 fn enumerate_candidates_from_ranges(
     lines: &[Line3D],
     source_ranges: &[(usize, usize)],
 ) -> Result<Vec<(usize, usize)>> {
+    let mut tracker = ExecutionWorkTracker::new(None, None);
+    let mut candidates = Vec::new();
+    visit_candidates_from_ranges(lines, source_ranges, &mut tracker, |candidate| {
+        candidates.push((candidate.first, candidate.second));
+        Ok(())
+    })?;
+    candidates.sort_unstable();
+    candidates.dedup();
+    Ok(candidates)
+}
+
+fn original_source_ranges(source_chains: &[SourceLineString]) -> Vec<(usize, usize)> {
+    source_chains
+        .iter()
+        .filter(|chain| chain.kind == SourceChainKind::Original)
+        .map(|chain| (chain.segment_start, chain.segment_count))
+        .collect()
+}
+
+fn visit_candidates_from_ranges<F>(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
+    tracker: &mut ExecutionWorkTracker<'_>,
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(CandidatePair) -> Result<()>,
+{
+    tracker.check_cancelled()?;
     let segment_bounds: Vec<_> = lines
         .iter()
         .copied()
@@ -167,10 +215,8 @@ fn enumerate_candidates_from_ranges(
             })
             .collect(),
     );
-    let mut candidates = Vec::new();
-
     for (first_chain_index, first_root) in tree.roots.iter().enumerate() {
-        collect_within_tree(&tree, first_root.node, &mut candidates);
+        collect_within_tree(&tree, first_root.node, tracker, &mut visit)?;
         for second_chain_index in chain_index
             .locate_in_envelope_intersecting(&first_root.bounds.aabb())
             .filter(|&index| index > first_chain_index)
@@ -179,14 +225,12 @@ fn enumerate_candidates_from_ranges(
                 &tree,
                 first_root.node,
                 tree.roots[second_chain_index].node,
-                &mut candidates,
-            );
+                tracker,
+                &mut visit,
+            )?;
         }
     }
-
-    candidates.sort_unstable();
-    candidates.dedup();
-    Ok(candidates)
+    Ok(())
 }
 
 fn build_chain_ranges(
@@ -243,35 +287,38 @@ fn sign(value: f64) -> i8 {
 fn collect_within_tree(
     tree: &MonotoneChainTree,
     node_index: usize,
-    candidates: &mut Vec<(usize, usize)>,
-) {
+    tracker: &mut ExecutionWorkTracker<'_>,
+    visit: &mut impl FnMut(CandidatePair) -> Result<()>,
+) -> Result<()> {
     let node = tree.nodes[node_index];
     let (Some(left), Some(right)) = (node.left, node.right) else {
-        return;
+        return Ok(());
     };
-    collect_between_nodes(tree, left, right, candidates);
-    collect_within_tree(tree, left, candidates);
-    collect_within_tree(tree, right, candidates);
+    collect_between_nodes(tree, left, right, tracker, visit)?;
+    collect_within_tree(tree, left, tracker, visit)?;
+    collect_within_tree(tree, right, tracker, visit)
 }
 
 fn collect_between_nodes(
     tree: &MonotoneChainTree,
     first_index: usize,
     second_index: usize,
-    candidates: &mut Vec<(usize, usize)>,
-) {
+    tracker: &mut ExecutionWorkTracker<'_>,
+    visit: &mut impl FnMut(CandidatePair) -> Result<()>,
+) -> Result<()> {
     let first = tree.nodes[first_index];
     let second = tree.nodes[second_index];
     if !first.bounds.overlaps(second.bounds) {
-        return;
+        tracker.candidate(false)?;
+        return Ok(());
     }
     if first.left.is_none() && second.left.is_none() {
-        candidates.push(if first.start < second.start {
-            (first.start, second.start)
-        } else {
-            (second.start, first.start)
-        });
-        return;
+        tracker.candidate(true)?;
+        visit(CandidatePair {
+            first: first.start.min(second.start),
+            second: first.start.max(second.start),
+        })?;
+        return Ok(());
     }
 
     let first_len = first.end - first.start;
@@ -280,15 +327,16 @@ fn collect_between_nodes(
         let (Some(left), Some(right)) = (first.left, first.right) else {
             unreachable!("internal monotone-chain node has two children")
         };
-        collect_between_nodes(tree, left, second_index, candidates);
-        collect_between_nodes(tree, right, second_index, candidates);
+        collect_between_nodes(tree, left, second_index, tracker, visit)?;
+        collect_between_nodes(tree, right, second_index, tracker, visit)?;
     } else {
         let (Some(left), Some(right)) = (second.left, second.right) else {
             unreachable!("internal monotone-chain node has two children")
         };
-        collect_between_nodes(tree, first_index, left, candidates);
-        collect_between_nodes(tree, first_index, right, candidates);
+        collect_between_nodes(tree, first_index, left, tracker, visit)?;
+        collect_between_nodes(tree, first_index, right, tracker, visit)?;
     }
+    Ok(())
 }
 
 fn invalid_range(start: usize, count: usize) -> PolygonizeError {
@@ -301,6 +349,7 @@ fn invalid_range(start: usize, count: usize) -> PolygonizeError {
 mod tests {
     use super::*;
     use crate::types::{Coord3D, SourceChainKind};
+    use crate::{CancellationToken, ExecutionPolicy};
 
     fn line(start: (f64, f64), end: (f64, f64)) -> Line3D {
         Line3D::new(
@@ -426,6 +475,37 @@ mod tests {
         assert!(enumerate_source_chain_candidates(&lines, &chains)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn candidate_visitor_matches_materialized_output_and_checks_cancellation() {
+        let (lines, chains) =
+            original_chains(&[&[(0.0, 0.0), (2.0, 0.0)], &[(1.0, -1.0), (1.0, 1.0)]]);
+        let mut tracker = ExecutionWorkTracker::new(None, None);
+        let mut visited = Vec::new();
+        visit_source_chain_candidates(&lines, &chains, &mut tracker, |candidate| {
+            visited.push((candidate.first, candidate.second));
+            Ok(())
+        })
+        .unwrap();
+        visited.sort_unstable();
+
+        assert_eq!(
+            visited,
+            enumerate_source_chain_candidates(&lines, &chains).unwrap()
+        );
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        let mut tracker = ExecutionWorkTracker::new(Some(&policy), None);
+        assert!(matches!(
+            visit_source_chain_candidates(&lines, &chains, &mut tracker, |_| Ok(())),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
+        ));
     }
 
     #[test]
