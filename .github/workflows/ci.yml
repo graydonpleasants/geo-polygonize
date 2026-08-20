@@ -192,9 +192,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check release versions
         run: ./scripts/check-release-versions.sh
+
+      - name: Check stable Rust API
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: geo-polygonize-core
+          baseline-rev: geo-polygonize-v1.0.0
+          release-type: minor
 
   supply-chain:
     name: Supply Chain
