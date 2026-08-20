@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.0.0...geo-polygonize-v1.1.0) (2026-08-20)
+
+
+### Features
+
+* **core:** add detached extraction gate ([#1367](https://github.com/graydonpleasants/geo-polygonize/issues/1367)) ([879db48](https://github.com/graydonpleasants/geo-polygonize/commit/879db48ce0b3b8915385668d2b7bb0616883e8dd))
+* **core:** add private extraction readiness gate ([#1377](https://github.com/graydonpleasants/geo-polygonize/issues/1377)) ([541e710](https://github.com/graydonpleasants/geo-polygonize/commit/541e710d4a57aacebffe3b48651ae9f815883c86))
+* **core:** add private face invariant gate ([#1379](https://github.com/graydonpleasants/geo-polygonize/issues/1379)) ([73a14f7](https://github.com/graydonpleasants/geo-polygonize/commit/73a14f77952b0b2b4eac0e32c79303ed977806a9))
+* **core:** apply qualified partition twin links ([7cc03c1](https://github.com/graydonpleasants/geo-polygonize/commit/7cc03c1e130cb39d32ddfaa189b69f0b5ab2c439))
+* **core:** assemble detached ring candidates ([#1370](https://github.com/graydonpleasants/geo-polygonize/issues/1370)) ([6ec89a6](https://github.com/graydonpleasants/geo-polygonize/commit/6ec89a608d7338889f9b0defa83c8ddcfe74481e))
+* **core:** classify detached ring evidence ([#1369](https://github.com/graydonpleasants/geo-polygonize/issues/1369)) ([46ef86c](https://github.com/graydonpleasants/geo-polygonize/commit/46ef86c00bb211cef35f0d8168b219b3b966e04f))
+* **core:** combine global topology evidence gates ([292baa8](https://github.com/graydonpleasants/geo-polygonize/commit/292baa86410c96726cc23e22779622cba7ca6a3f))
+* **core:** commit detached global face IDs ([a1a284e](https://github.com/graydonpleasants/geo-polygonize/commit/a1a284ecc1509db14b486fa468fb49946a9f5551))
+* **core:** commit gated detached successor links ([3d48355](https://github.com/graydonpleasants/geo-polygonize/commit/3d483553c35cd66f1eecc7dc75735de8e2bd8ef5))
+* **core:** commit private extraction snapshot ([#1380](https://github.com/graydonpleasants/geo-polygonize/issues/1380)) ([d23fec3](https://github.com/graydonpleasants/geo-polygonize/commit/d23fec39b9d630947c5be939b2a43f27f38a6d9c))
+* **core:** compare stitched output with untiled ([#1383](https://github.com/graydonpleasants/geo-polygonize/issues/1383)) ([a9ccad3](https://github.com/graydonpleasants/geo-polygonize/commit/a9ccad39b0eb2a7c98dd1efc5c604d31db012e2a))
+* **core:** differential-fuzz tiled equivalence ([#1384](https://github.com/graydonpleasants/geo-polygonize/issues/1384)) ([72584c7](https://github.com/graydonpleasants/geo-polygonize/commit/72584c7af24f3591f4f30ea1aa6485d0f484642e))
+* **core:** export atomic border observations ([40c7d71](https://github.com/graydonpleasants/geo-polygonize/commit/40c7d7163948fb6a201c3d8a5aefd3c594cbe264))
+* **core:** export tile border observations ([#1279](https://github.com/graydonpleasants/geo-polygonize/issues/1279)) ([bad8182](https://github.com/graydonpleasants/geo-polygonize/commit/bad8182a3e98e013072635edafb81a0510515388))
+* **core:** expose validated stitched output ([#1382](https://github.com/graydonpleasants/geo-polygonize/issues/1382)) ([4f02929](https://github.com/graydonpleasants/geo-polygonize/commit/4f0292904d20999b5b78ad2e142eb0801f7e1516))
+* **core:** gate detached cycle face promotion ([#1361](https://github.com/graydonpleasants/geo-polygonize/issues/1361)) ([39e458f](https://github.com/graydonpleasants/geo-polygonize/commit/39e458ff96b16799ac14c34033b07d0f8d5cded9))
+* **core:** gate detached ring extraction readiness ([#1372](https://github.com/graydonpleasants/geo-polygonize/issues/1372)) ([b925c90](https://github.com/graydonpleasants/geo-polygonize/commit/b925c902d2ecf83c923ad22997fac056bad35e20))
+* **core:** gate global face next application ([f1413b9](https://github.com/graydonpleasants/geo-polygonize/commit/f1413b96ae4689d1226cc9e6dec66c3a00ca8ec9))
+* **core:** gate global face transitions ([e44fca7](https://github.com/graydonpleasants/geo-polygonize/commit/e44fca705aa9934ec412f2ad0f79279a14a9714e))
+* **core:** gate global topology application ([f4bdf6a](https://github.com/graydonpleasants/geo-polygonize/commit/f4bdf6a29a41f7a601adb463d59f1f2cc61c1bf8))
+* **core:** gate global unbounded face evidence ([d587e41](https://github.com/graydonpleasants/geo-polygonize/commit/d587e41d942fd228ef485c23d810f64829c18463))
+* **core:** gate global unbounded face proof ([e8b38fa](https://github.com/graydonpleasants/geo-polygonize/commit/e8b38fac3dc599b65461c3e45db7005674a85c4c))
+* **core:** integrate detached face identity invariants ([#1356](https://github.com/graydonpleasants/geo-polygonize/issues/1356)) ([6e65db7](https://github.com/graydonpleasants/geo-polygonize/commit/6e65db71721216e8f2e16f5e3b3ba64c5b8a0193))
+* **core:** integrate detached global next lineage ([#1357](https://github.com/graydonpleasants/geo-polygonize/issues/1357)) ([5a4acd2](https://github.com/graydonpleasants/geo-polygonize/commit/5a4acd2e01816656395535973ffba53a9f873cdf))
+* **core:** map cross-partition face transitions ([f02dff0](https://github.com/graydonpleasants/geo-polygonize/commit/f02dff06656ab070ebf9409fc129dbde5a2bae41))
+* **core:** map global face edge lineage ([cbc32f7](https://github.com/graydonpleasants/geo-polygonize/commit/cbc32f7988934d7f0ff5d708e8fd6a24d2d71a6c))
+* **core:** materialize detached global face identity ([a3e8757](https://github.com/graydonpleasants/geo-polygonize/commit/a3e875796f16b30a2e1ac5dd53174cb605557e4d))
+* **core:** materialize detached ring payloads ([#1368](https://github.com/graydonpleasants/geo-polygonize/issues/1368)) ([bfcde0a](https://github.com/graydonpleasants/geo-polygonize/commit/bfcde0a3921f5f7898cb0a1be8a6debb57c49da2))
+* **core:** materialize private global face topology ([#1375](https://github.com/graydonpleasants/geo-polygonize/issues/1375)) ([8db5bce](https://github.com/graydonpleasants/geo-polygonize/commit/8db5bce1342a67687c70ef7947d736c876f0bcd0))
+* **core:** materialize private ring payloads ([#1373](https://github.com/graydonpleasants/geo-polygonize/issues/1373)) ([d68e950](https://github.com/graydonpleasants/geo-polygonize/commit/d68e950261aa26e35097d60375e846274877591d))
+* **core:** materialize private unbounded face topology ([#1376](https://github.com/graydonpleasants/geo-polygonize/issues/1376)) ([b108869](https://github.com/graydonpleasants/geo-polygonize/commit/b108869aecfe3795238cdded2eb725338d54a488))
+* **core:** physically node partition boundaries ([51abedc](https://github.com/graydonpleasants/geo-polygonize/commit/51abedc9f3959d8e4236fbc7bef5de31618c0801))
+* **core:** plan deterministic global face ids ([ad46d2e](https://github.com/graydonpleasants/geo-polygonize/commit/ad46d2e065b7ea1cffab24c281fe17df5a0f19e7))
+* **core:** plan global face boundaries ([3fd0f0f](https://github.com/graydonpleasants/geo-polygonize/commit/3fd0f0faa1a4d8a335c1fc0c7a5da397def9d0c8))
+* **core:** plan global face identities ([33f5e94](https://github.com/graydonpleasants/geo-polygonize/commit/33f5e9426ae8b77e50eee93b89847ecf184969e9))
+* **core:** plan global face next application ([9ca460a](https://github.com/graydonpleasants/geo-polygonize/commit/9ca460a0a4eb4f367cb39d2f71d172f2c4a6bdc9))
+* **core:** plan global face next candidates ([ffab129](https://github.com/graydonpleasants/geo-polygonize/commit/ffab12994f278cec9af33cbd26126c858d6f1d59))
+* **core:** plan global face payload merges ([bebfd41](https://github.com/graydonpleasants/geo-polygonize/commit/bebfd417d93d920993308a541caeb734f09c00f6))
+* **core:** plan global face transitions ([fc488e9](https://github.com/graydonpleasants/geo-polygonize/commit/fc488e9cc2891bb8a03446aab0d49523ab21d5f0))
+* **core:** promote detached unbounded face identity ([1ac41ae](https://github.com/graydonpleasants/geo-polygonize/commit/1ac41ae6c1e71ac44aebd1344cf66668e8377483))
+* **core:** reconcile global border components ([65cf5a0](https://github.com/graydonpleasants/geo-polygonize/commit/65cf5a00648faa9e885e65a14f9296281ed404a3))
+* **core:** reconcile global face nodes ([3f54bfd](https://github.com/graydonpleasants/geo-polygonize/commit/3f54bfdeeeaaeae1f6a4d310809ed383bd8f36b8))
+* **core:** reconcile partition border nodes ([9d4969f](https://github.com/graydonpleasants/geo-polygonize/commit/9d4969f225eff0980b07ef57370115367a094a3a))
+* **core:** report declared partition twins ([85dc102](https://github.com/graydonpleasants/geo-polygonize/commit/85dc1024d706a6642a2c795f61c053eaf3849d7b))
+* **core:** retain executable source-chain identity ([#1276](https://github.com/graydonpleasants/geo-polygonize/issues/1276)) ([7eb2b63](https://github.com/graydonpleasants/geo-polygonize/commit/7eb2b6311607b1205755918f7036f632b931618f))
+* **core:** retain non-polygon extraction evidence ([#1374](https://github.com/graydonpleasants/geo-polygonize/issues/1374)) ([1d26adb](https://github.com/graydonpleasants/geo-polygonize/commit/1d26adb40acf1145f51b70661b697b0e76c79383))
+* **core:** retain partition border payload identities ([109cae1](https://github.com/graydonpleasants/geo-polygonize/commit/109cae16b21061623a0d25e6b1db15d3b3c5f537))
+* **core:** trace partition boundary evidence ([aef6be5](https://github.com/graydonpleasants/geo-polygonize/commit/aef6be537751f7db0fd4ca904b2e5163abb3ed36))
+* **core:** validate canonical border node payloads ([84e7943](https://github.com/graydonpleasants/geo-polygonize/commit/84e7943638633266b79dc4f5153cea2da3461fca))
+* **core:** validate detached cycle face lineage ([#1360](https://github.com/graydonpleasants/geo-polygonize/issues/1360)) ([ac7b82f](https://github.com/graydonpleasants/geo-polygonize/commit/ac7b82f55416ce541c0620e97cf007ac4f068a96))
+* **core:** validate detached cycle geometry ([#1363](https://github.com/graydonpleasants/geo-polygonize/issues/1363)) ([9911348](https://github.com/graydonpleasants/geo-polygonize/commit/99113487e6a1529c12a60d42b5b08327e9b2dfe1))
+* **core:** validate detached cycle interactions ([9caa34b](https://github.com/graydonpleasants/geo-polygonize/commit/9caa34b24394463492d092dbc2abc5ef9d392fd1))
+* **core:** validate detached face payload lineage ([#1362](https://github.com/graydonpleasants/geo-polygonize/issues/1362)) ([08346fa](https://github.com/graydonpleasants/geo-polygonize/commit/08346fa4c7f61daeee5d1a0da531a51452a419bc))
+* **core:** validate detached ring payloads ([#1366](https://github.com/graydonpleasants/geo-polygonize/issues/1366)) ([c590d33](https://github.com/graydonpleasants/geo-polygonize/commit/c590d3319ee57bd5f4a13a6fa73b6803ec0107c4))
+* **core:** validate global component coverage ([6ab7549](https://github.com/graydonpleasants/geo-polygonize/commit/6ab7549e32839d9d3665adfaf507aa91b3add074))
+* **core:** validate global face boundaries ([f38d826](https://github.com/graydonpleasants/geo-polygonize/commit/f38d826dbc73294961f234d737d0244dd1174703))
+* **core:** validate global face ID application ([eb8f975](https://github.com/graydonpleasants/geo-polygonize/commit/eb8f9750f76c89ffa61191dfcbe6438708d26c0c))
+* **core:** validate global face walk invariants ([f39207a](https://github.com/graydonpleasants/geo-polygonize/commit/f39207a9f74f88fafbb4f56ceb8a4f7d06d378d3))
+* **core:** validate global topology candidate ([5864f26](https://github.com/graydonpleasants/geo-polygonize/commit/5864f26780e442b6eb006659cecd0d3c35acd13a))
+* **core:** witness global face Euler boundary ([a9240ef](https://github.com/graydonpleasants/geo-polygonize/commit/a9240efdf4e7c3d4e20e1d8b03e8965ec617c833))
+* **github:** verify cross-registry release publication ([#1293](https://github.com/graydonpleasants/geo-polygonize/issues/1293)) ([437a7c0](https://github.com/graydonpleasants/geo-polygonize/commit/437a7c0f2fa37f1049d8c4d625b7660a3af48a9a))
+
+
+### Bug Fixes
+
+* **core:** allowlist component memory diagnostics ([cda28d2](https://github.com/graydonpleasants/geo-polygonize/commit/cda28d21da7913844b692dbab0167b772949dc83))
+* **core:** keep boundary contract helper test-local ([975ef0a](https://github.com/graydonpleasants/geo-polygonize/commit/975ef0ae31db8b40de74e9ee80c3e9b607d863d5))
+* **core:** preserve diagnostics source compatibility ([#1395](https://github.com/graydonpleasants/geo-polygonize/issues/1395)) ([bdb4b5a](https://github.com/graydonpleasants/geo-polygonize/commit/bdb4b5a03433796998604dd250081c6adc041e37))
+* **core:** reject conflicting border observations ([#1271](https://github.com/graydonpleasants/geo-polygonize/issues/1271)) ([6b48cc8](https://github.com/graydonpleasants/geo-polygonize/commit/6b48cc85d3bb5fd51c09901109b7b4c030c1814b))
+* **core:** require partition border adjacency ([#1272](https://github.com/graydonpleasants/geo-polygonize/issues/1272)) ([af70e11](https://github.com/graydonpleasants/geo-polygonize/commit/af70e1180c2effd60e3780d568c2e204c5768e22))
+* **core:** satisfy boundary intersection lint ([2882dc6](https://github.com/graydonpleasants/geo-polygonize/commit/2882dc66f86bddecafe4e9a188d428235acf61d9))
+* **wasm:** verify wasm-opt is executable before use ([#1365](https://github.com/graydonpleasants/geo-polygonize/issues/1365)) ([c1d624c](https://github.com/graydonpleasants/geo-polygonize/commit/c1d624c56768c6276ee5351b64c4d69d33cb736f))
+
+
+### Performance Improvements
+
+* **core:** cache MCIndex monotone-chain envelopes ([43e49e7](https://github.com/graydonpleasants/geo-polygonize/commit/43e49e75236497310c6a96461f8c970f561e05c1))
+* **core:** cover hybrid MCIndex source chains ([612b01c](https://github.com/graydonpleasants/geo-polygonize/commit/612b01c889bba55f96001973d899131000668a69))
+* **core:** evaluate hybrid candidates exactly ([1b8eb60](https://github.com/graydonpleasants/geo-polygonize/commit/1b8eb601a944aff5b07cd19389ad16c5a005711b))
+* **core:** expose component memory evidence ([b13d4b4](https://github.com/graydonpleasants/geo-polygonize/commit/b13d4b42f22b10f0ad476ff2c183bffcc1d0a652))
+* **core:** preserve MCIndex segment identity ([3924f4d](https://github.com/graydonpleasants/geo-polygonize/commit/3924f4d6207a0777d6eb514be4bda3499d5571b3))
+* **core:** stream MCIndex candidates through visitor ([b8f7028](https://github.com/graydonpleasants/geo-polygonize/commit/b8f7028fe735b8d8f0087e7949a45e6dce9e1d6a))
+
 ## [1.0.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v0.76.2...geo-polygonize-v1.0.0) (2026-08-03)
 
 
