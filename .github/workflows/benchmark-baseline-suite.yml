@@ -15,6 +15,7 @@ jobs:
     runs-on: [self-hosted, benchmark-dedicated, linux, x64]
     timeout-minutes: 15
     env:
+      PYTHON_IMAGE: python:3.12.11-bookworm@sha256:13c9584604a99ca134c4f41800f74ffc64ee6ac8cf555cf1e704a6087fc84f12
       PUBLICATION_DIR: ${{ inputs.publication_dir }}
     steps:
       - uses: actions/checkout@v4
@@ -27,11 +28,14 @@ jobs:
           esac
           test -d "$PUBLICATION_DIR"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12.11"
-
-      - run: python -m pip install jsonschema==4.26.0
+      - name: Prepare pinned Python environment
+        run: |
+          mkdir -p target
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$PYTHON_IMAGE" \
+            python -m venv /workspace/target/benchmark-python
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$PYTHON_IMAGE" \
+            /workspace/target/benchmark-python/bin/pip install \
+            --disable-pip-version-check jsonschema==4.26.0
 
       - name: Validate the complete baseline suite
         run: |
@@ -42,7 +46,11 @@ jobs:
             publication_args+=(--publication "$publication_path")
           done
           mkdir -p target/benchmark-baseline
-          python benchmarks/validate_baseline_suite.py \
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$PUBLICATION_DIR:$PUBLICATION_DIR:ro" \
+            -w /workspace "$PYTHON_IMAGE" \
+            /workspace/target/benchmark-python/bin/python benchmarks/validate_baseline_suite.py \
             --suite benchmarks/production-baseline-suite-v1.json \
             "${publication_args[@]}" \
             --output target/benchmark-baseline/production-baseline-evidence-v1.json

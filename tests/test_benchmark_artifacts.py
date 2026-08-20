@@ -70,6 +70,9 @@ def test_publication_requires_a_dedicated_runner_and_retains_gated_outputs():
     assert "certified-fixed" in workflow
     assert "geo-polygonize-jts-reference-1.0.0.jar" in workflow
     assert "maven:3.9.11-eclipse-temurin-21@sha256:" in workflow
+    assert "python:3.12.11-bookworm@sha256:" in workflow
+    assert "Prepare pinned Python environment" in workflow
+    assert "actions/setup-python@v5" not in workflow
     assert "--publication target/benchmark-publication/publication.json" in workflow
     assert 'cat target/benchmark-publication/trends.md >> "$GITHUB_STEP_SUMMARY"' in workflow
     assert "retention-days: 90" in workflow
@@ -85,5 +88,8 @@ def test_baseline_suite_validation_is_dedicated_and_fail_closed():
     assert "benchmarks/validate_baseline_suite.py" in workflow
     assert "benchmarks/production-baseline-suite-v1.json" in workflow
     assert "production-baseline-evidence-v1.json" in workflow
+    assert "python:3.12.11-bookworm@sha256:" in workflow
+    assert "Prepare pinned Python environment" in workflow
+    assert "actions/setup-python@v5" not in workflow
     assert "retention-days: 90" in workflow
     assert "ubuntu-latest" not in workflow
