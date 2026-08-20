@@ -339,7 +339,7 @@ Tracked by
 - [ ] Observe execution limits and cancellation during physical traversal.
 - [x] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
   pairs without misses or duplicate exact work.
-- [ ] Preserve source-chain/segment/parametric identity through preprocessing.
+- [x] Preserve source-chain/segment/parametric identity through preprocessing.
 - [ ] Use the shared exact/split/dissolve/validation path.
 - [ ] Pass golden, compatibility, fuzz, real-world, provenance, Z,
   serial/parallel, and normalized-error conformance.
@@ -357,6 +357,10 @@ Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
 unavailable segments; the fallback is intentionally research-only and is not a
 production dispatch path.
+
+The experiment also retains a direct per-segment source-chain identity index
+covering source ID, chain position, segment position, chain length, and chain
+kind across the flattened input.
 
 ## P3.3 Sweep prototype boundary
 
