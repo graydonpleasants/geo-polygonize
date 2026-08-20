@@ -352,6 +352,10 @@ The experiment also retains a direct per-segment source-chain identity index
 covering source ID, chain position, segment position, chain length, and chain
 kind across the flattened input.
 
+Hybrid candidates can now be evaluated through the shared `ExactCandidate`
+path; split application, dissolve, full noding validation, and production
+dispatch remain separate promotion gates.
+
 ## P3.3 Sweep prototype boundary
 
 The sweep prototype currently returns exact intersections rather than
