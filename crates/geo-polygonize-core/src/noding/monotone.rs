@@ -2,7 +2,7 @@
 
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
-use crate::noding::CandidatePair;
+use crate::noding::{CandidatePair, ExactCandidate};
 use crate::types::{Line3D, SourceChainKind, SourceLineString, SourceSegmentIdentity};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
@@ -176,6 +176,21 @@ where
         }
     }
     Ok(())
+}
+
+/// Evaluate streamed hybrid candidates with the shared floating exact path.
+pub(crate) fn visit_hybrid_exact_candidates<F>(
+    lines: &[Line3D],
+    source_chains: &[SourceLineString],
+    tracker: &mut ExecutionWorkTracker<'_>,
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(ExactCandidate) -> Result<()>,
+{
+    visit_hybrid_source_chain_candidates(lines, source_chains, tracker, |candidate| {
+        visit(ExactCandidate::evaluate(lines, candidate))
+    })
 }
 
 fn enumerate_candidates_from_ranges(
@@ -658,6 +673,42 @@ mod tests {
         assert_eq!(
             actual.windows(2).filter(|pair| pair[0] == pair[1]).count(),
             0
+        );
+    }
+
+    #[test]
+    fn hybrid_exact_visitor_uses_shared_intersection_evaluation() {
+        let lines = [line((0.0, 0.0), (2.0, 2.0)), line((0.0, 2.0), (2.0, 0.0))];
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 1,
+                source_id: Some(1),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 1,
+                segment_count: 1,
+                source_id: Some(2),
+                kind: SourceChainKind::Original,
+            },
+        ];
+        let mut tracker = ExecutionWorkTracker::new(None, None);
+        let mut exact = Vec::new();
+        visit_hybrid_exact_candidates(&lines, &chains, &mut tracker, |candidate| {
+            exact.push(candidate);
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(exact.len(), 1);
+        assert!(exact[0].intersection.is_some());
+        assert_eq!(
+            exact[0].pair,
+            CandidatePair {
+                first: 0,
+                second: 1
+            }
         );
     }
 
