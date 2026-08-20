@@ -324,7 +324,7 @@ public backend or default dispatch path.
 Tracked by
 [#1287](https://github.com/graydonpleasants/geo-polygonize/issues/1287).
 
-- [ ] Build a persistent/flat monotone-chain tree with cached envelopes.
+- [x] Build a persistent/flat monotone-chain tree with cached envelopes.
 - [ ] Stream candidates through the common visitor.
 - [ ] Observe execution limits and cancellation during physical traversal.
 - [ ] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
@@ -336,6 +336,12 @@ Tracked by
 - [ ] Measure build cost, candidate reduction, allocations, peak RSS, end-to-end
   effect, Wasm cost, code size, and compile time.
 - [ ] Check in an accept/reject/promotion decision.
+
+The research prototype now owns cached flat-tree traversal and a
+`CandidatePair`-compatible visitor with bounded policy accounting and
+cancellation checks. It remains disconnected from the shared exact/split path
+until cross-kind fallback, identity preservation, conformance, and dedicated
+runner evidence are complete.
 
 ## P3.3 Sweep prototype boundary
 
