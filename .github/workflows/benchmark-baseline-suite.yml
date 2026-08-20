@@ -56,6 +56,22 @@ jobs:
             --output target/benchmark-baseline/production-baseline-evidence-v1.json
           cat target/benchmark-baseline/production-baseline-evidence-v1.json >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Emit component memory evidence
+        run: |
+          mapfile -t publication_paths < <(find "$PUBLICATION_DIR" -type f -name publication.json | sort)
+          publication_args=()
+          for publication_path in "${publication_paths[@]}"; do
+            publication_args+=(--publication "$publication_path")
+          done
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$PUBLICATION_DIR:$PUBLICATION_DIR:ro" \
+            -w /workspace "$PYTHON_IMAGE" \
+            /workspace/target/benchmark-python/bin/python benchmarks/analyze_component_memory.py \
+            "${publication_args[@]}" \
+            --output target/benchmark-baseline/component-memory-evidence-v1.json
+          cat target/benchmark-baseline/component-memory-evidence-v1.json >> "$GITHUB_STEP_SUMMARY"
+
       - name: Retain baseline suite evidence
         uses: actions/upload-artifact@v4
         with:
