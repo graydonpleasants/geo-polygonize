@@ -128,8 +128,8 @@ pub(crate) fn enumerate_source_chain_candidates(
     lines: &[Line3D],
     source_chains: &[SourceLineString],
 ) -> Result<Vec<(usize, usize)>> {
-    let source_ranges = original_source_ranges(source_chains);
-    enumerate_candidates_from_ranges(lines, &source_ranges)
+    let coverage = source_chain_coverage(lines.len(), source_chains)?;
+    enumerate_candidates_from_ranges(lines, &coverage.original_ranges)
 }
 
 /// Stream MCIndex envelope candidates through the shared candidate callback shape.
@@ -145,12 +145,37 @@ pub(crate) fn visit_source_chain_candidates<F>(
 where
     F: FnMut(CandidatePair) -> Result<()>,
 {
-    visit_candidates_from_ranges(
-        lines,
-        &original_source_ranges(source_chains),
-        tracker,
-        visit,
-    )
+    let coverage = source_chain_coverage(lines.len(), source_chains)?;
+    visit_candidates_from_ranges(lines, &coverage.original_ranges, tracker, visit)
+}
+
+/// Stream the hybrid research experiment: MCIndex for original chains and a
+/// fallback scan for every pair involving synthetic or unavailable segments.
+pub(crate) fn visit_hybrid_source_chain_candidates<F>(
+    lines: &[Line3D],
+    source_chains: &[SourceLineString],
+    tracker: &mut ExecutionWorkTracker<'_>,
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(CandidatePair) -> Result<()>,
+{
+    let coverage = source_chain_coverage(lines.len(), source_chains)?;
+    visit_candidates_from_ranges(lines, &coverage.original_ranges, tracker, &mut visit)?;
+    let bounds = build_segment_bounds(lines)?;
+    for first in 0..lines.len() {
+        for second in first + 1..lines.len() {
+            if coverage.original_segments[first] && coverage.original_segments[second] {
+                continue;
+            }
+            let overlaps = bounds[first].overlaps(bounds[second]);
+            tracker.candidate(overlaps)?;
+            if overlaps {
+                visit(CandidatePair { first, second })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn enumerate_candidates_from_ranges(
@@ -168,25 +193,46 @@ fn enumerate_candidates_from_ranges(
     Ok(candidates)
 }
 
-fn original_source_ranges(source_chains: &[SourceLineString]) -> Vec<(usize, usize)> {
-    source_chains
-        .iter()
-        .filter(|chain| chain.kind == SourceChainKind::Original)
-        .map(|chain| (chain.segment_start, chain.segment_count))
-        .collect()
+struct SourceChainCoverage {
+    original_ranges: Vec<(usize, usize)>,
+    original_segments: Vec<bool>,
 }
 
-fn visit_candidates_from_ranges<F>(
-    lines: &[Line3D],
-    source_ranges: &[(usize, usize)],
-    tracker: &mut ExecutionWorkTracker<'_>,
-    mut visit: F,
-) -> Result<()>
-where
-    F: FnMut(CandidatePair) -> Result<()>,
-{
-    tracker.check_cancelled()?;
-    let segment_bounds: Vec<_> = lines
+fn source_chain_coverage(
+    line_count: usize,
+    source_chains: &[SourceLineString],
+) -> Result<SourceChainCoverage> {
+    let mut original_ranges = Vec::new();
+    let mut original_segments = vec![false; line_count];
+    let mut previous_end = 0;
+    for chain in source_chains {
+        if chain.segment_count == 0 {
+            continue;
+        }
+        let end = chain
+            .segment_start
+            .checked_add(chain.segment_count)
+            .ok_or_else(|| invalid_range(chain.segment_start, chain.segment_count))?;
+        if chain.segment_start >= line_count
+            || end > line_count
+            || chain.segment_start < previous_end
+        {
+            return Err(invalid_range(chain.segment_start, chain.segment_count));
+        }
+        previous_end = end;
+        if chain.kind == SourceChainKind::Original {
+            original_ranges.push((chain.segment_start, chain.segment_count));
+            original_segments[chain.segment_start..end].fill(true);
+        }
+    }
+    Ok(SourceChainCoverage {
+        original_ranges,
+        original_segments,
+    })
+}
+
+fn build_segment_bounds(lines: &[Line3D]) -> Result<Vec<Bounds>> {
+    lines
         .iter()
         .copied()
         .map(|line| {
@@ -202,7 +248,20 @@ where
                 })
             }
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
+
+fn visit_candidates_from_ranges<F>(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
+    tracker: &mut ExecutionWorkTracker<'_>,
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(CandidatePair) -> Result<()>,
+{
+    tracker.check_cancelled()?;
+    let segment_bounds = build_segment_bounds(lines)?;
     let chain_ranges = build_chain_ranges(lines, source_ranges)?;
     let tree = MonotoneChainTree::from_ranges(&segment_bounds, &chain_ranges);
     let chain_index = RStarBackend::new(
@@ -506,6 +565,67 @@ mod tests {
             visit_source_chain_candidates(&lines, &chains, &mut tracker, |_| Ok(())),
             Err(PolygonizeError::Cancelled { stage }) if stage == "candidate_enumeration"
         ));
+    }
+
+    #[test]
+    fn hybrid_visitor_covers_non_original_pairs_without_duplicates() {
+        let lines = [
+            line((0.0, 0.0), (2.0, 0.0)),
+            line((1.0, -1.0), (1.0, 1.0)),
+            line((0.0, 0.0), (2.0, 0.0)),
+            line((1.0, -1.0), (1.0, 1.0)),
+        ];
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 1,
+                source_id: Some(1),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 1,
+                segment_count: 1,
+                source_id: Some(2),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 2,
+                segment_count: 1,
+                source_id: Some(3),
+                kind: SourceChainKind::Synthetic,
+            },
+            SourceLineString {
+                segment_start: 3,
+                segment_count: 1,
+                source_id: None,
+                kind: SourceChainKind::Unavailable,
+            },
+        ];
+        let mut tracker = ExecutionWorkTracker::new(None, None);
+        let mut actual = Vec::new();
+        visit_hybrid_source_chain_candidates(&lines, &chains, &mut tracker, |candidate| {
+            actual.push((candidate.first, candidate.second));
+            Ok(())
+        })
+        .unwrap();
+        actual.sort_unstable();
+
+        let mut expected = Vec::new();
+        let bounds: Vec<_> = lines.iter().copied().map(Bounds::from_line).collect();
+        for first in 0..lines.len() {
+            for second in first + 1..lines.len() {
+                if bounds[first].overlaps(bounds[second]) {
+                    expected.push((first, second));
+                }
+            }
+        }
+        expected.sort_unstable();
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual.windows(2).filter(|pair| pair[0] == pair[1]).count(),
+            0
+        );
     }
 
     #[test]
