@@ -337,7 +337,7 @@ Tracked by
 - [x] Build a persistent/flat monotone-chain tree with cached envelopes.
 - [ ] Stream candidates through the common visitor.
 - [ ] Observe execution limits and cancellation during physical traversal.
-- [ ] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
+- [x] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
   pairs without misses or duplicate exact work.
 - [ ] Preserve source-chain/segment/parametric identity through preprocessing.
 - [ ] Use the shared exact/split/dissolve/validation path.
@@ -352,6 +352,11 @@ The research prototype now owns cached flat-tree traversal and a
 cancellation checks. It remains disconnected from the shared exact/split path
 until cross-kind fallback, identity preservation, conformance, and dedicated
 runner evidence are complete.
+
+Hybrid candidate coverage uses the MCIndex traversal for original↔original
+pairs and a streaming fallback scan for any pair involving synthetic or
+unavailable segments; the fallback is intentionally research-only and is not a
+production dispatch path.
 
 ## P3.3 Sweep prototype boundary
 
