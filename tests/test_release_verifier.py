@@ -97,3 +97,22 @@ def test_report_requires_all_publish_workflows():
     )
     report["workflows"] = report["workflows"][:2]
     assert not VERIFY.report_complete(report)
+
+
+def test_previous_report_accepts_workflow_asset_name(monkeypatch, tmp_path):
+    tag = "geo-polygonize-v1.1.0"
+    monkeypatch.setattr(VERIFY, "latest_release_tag", lambda repository, token: tag)
+    monkeypatch.setattr(
+        VERIFY,
+        "github_release",
+        lambda repository, token, release_tag: {
+            "assets": [{"name": "release-publication-report.json", "browser_download_url": "report"}]
+        },
+    )
+    monkeypatch.setattr(
+        VERIFY,
+        "request_json",
+        lambda url, token: {"release_version": "1.1.0", "tag": tag, "complete": True},
+    )
+
+    VERIFY.check_previous_report("owner/repo", "token", tmp_path)
