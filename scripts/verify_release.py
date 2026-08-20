@@ -490,7 +490,14 @@ def check_previous_report(repository: str, token: str, root: Path) -> None:
     report: dict | None = None
     try:
         release = github_release(repository, token, tag)
-        asset = next((asset for asset in release.get("assets", []) if asset.get("name") == "publication-report.json"), None)
+        asset = next(
+            (
+                asset
+                for asset in release.get("assets", [])
+                if asset.get("name") in {"publication-report.json", "release-publication-report.json"}
+            ),
+            None,
+        )
         if asset:
             report = request_json(asset["browser_download_url"], token)
     except VerificationError:
