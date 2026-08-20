@@ -3,7 +3,7 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::CandidatePair;
-use crate::types::{Line3D, SourceChainKind, SourceLineString};
+use crate::types::{Line3D, SourceChainKind, SourceLineString, SourceSegmentIdentity};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
 
@@ -196,6 +196,7 @@ fn enumerate_candidates_from_ranges(
 struct SourceChainCoverage {
     original_ranges: Vec<(usize, usize)>,
     original_segments: Vec<bool>,
+    segment_identities: Vec<Option<SourceSegmentIdentity>>,
 }
 
 fn source_chain_coverage(
@@ -204,8 +205,9 @@ fn source_chain_coverage(
 ) -> Result<SourceChainCoverage> {
     let mut original_ranges = Vec::new();
     let mut original_segments = vec![false; line_count];
+    let mut segment_identities = vec![None; line_count];
     let mut previous_end = 0;
-    for chain in source_chains {
+    for (chain_index, chain) in source_chains.iter().enumerate() {
         if chain.segment_count == 0 {
             continue;
         }
@@ -220,6 +222,15 @@ fn source_chain_coverage(
             return Err(invalid_range(chain.segment_start, chain.segment_count));
         }
         previous_end = end;
+        for segment_index in 0..chain.segment_count {
+            segment_identities[chain.segment_start + segment_index] = Some(SourceSegmentIdentity {
+                source_id: chain.source_id,
+                chain_index,
+                segment_index,
+                chain_segment_count: chain.segment_count,
+                kind: chain.kind,
+            });
+        }
         if chain.kind == SourceChainKind::Original {
             original_ranges.push((chain.segment_start, chain.segment_count));
             original_segments[chain.segment_start..end].fill(true);
@@ -228,6 +239,7 @@ fn source_chain_coverage(
     Ok(SourceChainCoverage {
         original_ranges,
         original_segments,
+        segment_identities,
     })
 }
 
@@ -601,6 +613,27 @@ mod tests {
                 kind: SourceChainKind::Unavailable,
             },
         ];
+        let coverage = source_chain_coverage(lines.len(), &chains).unwrap();
+        assert_eq!(
+            coverage.segment_identities[1],
+            Some(SourceSegmentIdentity {
+                source_id: Some(2),
+                chain_index: 1,
+                segment_index: 0,
+                chain_segment_count: 1,
+                kind: SourceChainKind::Original,
+            })
+        );
+        assert_eq!(
+            coverage.segment_identities[3],
+            Some(SourceSegmentIdentity {
+                source_id: None,
+                chain_index: 3,
+                segment_index: 0,
+                chain_segment_count: 1,
+                kind: SourceChainKind::Unavailable,
+            })
+        );
         let mut tracker = ExecutionWorkTracker::new(None, None);
         let mut actual = Vec::new();
         visit_hybrid_source_chain_candidates(&lines, &chains, &mut tracker, |candidate| {
