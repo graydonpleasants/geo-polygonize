@@ -166,6 +166,24 @@ python3 benchmarks/render_benchmark_trends.py \
 The renderer refuses invalid or diagnostic artifacts and emits no fabricated
 rows when one evidence class is absent.
 
+Create a deterministic component-memory report from one or more published
+artifacts after the individual publication gates pass:
+
+```bash
+python3 benchmarks/analyze_component_memory.py \
+  --publication artifacts/production-network-1k/publication.json \
+  --publication artifacts/production-network-10k/publication.json \
+  --publication artifacts/production-network-100k/publication.json \
+  --output artifacts/component-memory-evidence-v1.json
+```
+
+The report keeps the raw component, partition-capacity, scratch, worker, peak
+RSS, and allocation evidence and adds only deterministic ratios for component
+balance, partition-capacity overhead, and scratch instances per worker. It
+requires one implementation, environment, dedicated runner, and decision-
+quality publication class. It is measurement evidence, not a layout or
+execution-policy promotion decision.
+
 Use `--lane floating` with a parity-class workload that permits the floating
 profile to measure floating noding plus polygonization. The runner performs an
 untimed full-noding validation of that pipeline before collecting samples.

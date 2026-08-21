@@ -1181,9 +1181,7 @@ impl PlanarGraph {
     /// Resets all traversal and marked flags so a new polygonization pass can run.
     pub fn reset_traversal_state(&mut self) {
         // Recalculate degrees based only on non-deleted edges
-        for d in &mut self.nodes_degree {
-            *d = 0;
-        }
+        self.nodes_degree.fill(0);
         for (i, outgoing) in self.nodes_outgoing.iter().enumerate() {
             for &de_idx in outgoing {
                 let de = &self.directed_edges[de_idx];
@@ -1193,9 +1191,7 @@ impl PlanarGraph {
             }
         }
 
-        for m in &mut self.nodes_marked {
-            *m = false;
-        }
+        self.nodes_marked.fill(false);
         self.clear_next_links();
         for de in &mut self.directed_edges {
             de.is_visited = false;
