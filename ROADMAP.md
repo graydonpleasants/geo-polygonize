@@ -298,9 +298,10 @@ Tracked by
 **Promotion gate:** exact canonical equivalence plus a predeclared end-to-end or
 peak-memory win on more than one representative workload.
 
-The evidence plumbing is complete, but the measurements, fast-path/threshold
-evaluation, layout comparison, and promotion decision remain open until
-dedicated-runner publications from #1290 exist.
+The evidence plumbing and the first dedicated-runner baseline suite are
+complete. The measurements, fast-path/threshold evaluation, layout comparison,
+and promotion decision remain open; use the seven-entry #1290 suite as the
+common baseline for this work.
 
 ## P2.3 Remaining arrangement payload work
 
@@ -354,8 +355,9 @@ Tracked by
 The research prototype now owns cached flat-tree traversal and a
 `CandidatePair`-compatible visitor with bounded policy accounting and
 cancellation checks. It remains disconnected from split/dissolve/validation
-and production dispatch until the remaining conformance and dedicated-runner
-evidence gates are complete.
+and production dispatch until the remaining conformance and decision-quality
+comparison gates are complete. Dedicated-runner baseline evidence is now
+available from #1290.
 
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
