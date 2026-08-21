@@ -23,6 +23,10 @@ on:
         description: JSON map of existing publication keys to successful run IDs
         required: true
         default: '{"coverage":"32331772685","nested":"32331772625","floating":"32331772624","certified-fixed":"32331772690"}'
+      california_runs:
+        description: JSON map of California workload:lane keys to successful run IDs
+        required: true
+        default: '{"osm-california-highways-1k-v1:floating":"32434385556","osm-california-highways-10k-v1:floating":"32434652869","osm-california-highways-100k-v1:floating":"32435412680"}'
       resume_run_id:
         description: Prior orchestrator run ID whose state artifact should be resumed
         required: false
@@ -71,6 +75,7 @@ jobs:
             --baseline-ref '${{ inputs.baseline_ref }}' \
             --manifest-path '${{ inputs.manifest_path }}' \
             --existing-runs '${{ inputs.existing_runs }}' \
+            --california-runs '${{ inputs.california_runs }}' \
             --resume-state target/resume/orchestrator-state.json
 
       - name: Retain baseline report

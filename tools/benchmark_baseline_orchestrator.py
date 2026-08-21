@@ -4,7 +4,6 @@
 import argparse
 import json
 import os
-import shutil
 import statistics
 import subprocess
 import sys
@@ -112,6 +111,7 @@ def summarize(path):
     component = baseline["work"]["component_memory"]
     input_segments = baseline["work"]["input_segments"]
     return {
+        "publication_id": publication.get("publication_id"),
         "workload_id": baseline["workload_id"],
         "lane": baseline["lane"],
         "input_segments": input_segments,
@@ -130,8 +130,32 @@ def summarize(path):
         "scratch_capacities": {
             key: value for key, value in component.items() if key.startswith("max_scratch_")
         },
+        "component_memory": component,
         "environment": baseline["environment"],
     }
+
+
+def write_component_evidence(summaries, output):
+    evidence = {
+        "schema_version": 1,
+        "evidence_type": "component-memory",
+        "measurement_class": "decision-quality",
+        "runner_class": "dedicated",
+        "publication_count": len(summaries),
+        "environment": summaries[0]["environment"],
+        "publications": [
+            {
+                "publication_id": summary["publication_id"],
+                "workload_id": summary["workload_id"],
+                "lane": summary["lane"],
+                "input_segments": summary["input_segments"],
+                "largest_component_fraction": summary["largest_component_fraction"],
+                "component_memory": summary["component_memory"],
+            }
+            for summary in summaries
+        ],
+    }
+    output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 
 
 def main():
@@ -142,6 +166,7 @@ def main():
     parser.add_argument("--baseline-ref", required=True)
     parser.add_argument("--manifest-path", required=True)
     parser.add_argument("--existing-runs", required=True, help="JSON object of artifact key to successful run ID")
+    parser.add_argument("--california-runs", default="{}", help="JSON object of California workload:lane to successful run ID")
     parser.add_argument("--poll-seconds", type=int, default=30)
     parser.add_argument("--root", type=Path, default=Path("target/benchmark-orchestrator"))
     parser.add_argument("--resume-state", type=Path)
@@ -159,6 +184,19 @@ def main():
 
     for key, run_id in json.loads(args.existing_runs).items():
         entry = state["runs"].setdefault(key, {"id": str(run_id)})
+        run = wait_for_run(args.repo, entry["id"], args.benchmark_sha, args.poll_seconds)
+        entry.update({"id": str(run["databaseId"]) if "databaseId" in run else str(entry["id"]), "url": run["url"], "status": "success"})
+        save_state(state_path, state)
+
+    expected_california = {f"{workload}:floating" for workload, _ in WORKLOADS}
+    california_runs = json.loads(args.california_runs)
+    unknown_california = set(california_runs) - expected_california
+    if unknown_california:
+        raise RuntimeError(f"unknown California run keys: {sorted(unknown_california)}")
+    for key, run_id in california_runs.items():
+        entry = state["runs"].setdefault(key, {})
+        entry.update({"id": str(run_id), "status": "pending"})
+        save_state(state_path, state)
         run = wait_for_run(args.repo, entry["id"], args.benchmark_sha, args.poll_seconds)
         entry.update({"id": str(run["databaseId"]) if "databaseId" in run else str(entry["id"]), "url": run["url"], "status": "success"})
         save_state(state_path, state)
@@ -204,6 +242,7 @@ def main():
          *sum((["--publication", str(path)] for path in publication_paths), []), "--output", str(baseline)],
         check=True,
     )
+    write_component_evidence(summaries, root / "component-memory-evidence-v1.json")
     report = {
         "schema_version": 1,
         "benchmark_sha": args.benchmark_sha,
