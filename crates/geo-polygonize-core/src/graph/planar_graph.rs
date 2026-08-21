@@ -2509,6 +2509,19 @@ impl PlanarGraph {
         Ok((partitions, memory_stats))
     }
 
+    fn active_component_count_with_execution_policy(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<usize> {
+        let component_ids =
+            self.active_component_ids_with_execution_policy(Some(execution_policy))?;
+        Ok(component_ids
+            .iter()
+            .flatten()
+            .max()
+            .map_or(0, |component| component + 1))
+    }
+
     fn load_component_scratch(
         &self,
         scratch: &mut ComponentScratch,
@@ -2578,8 +2591,67 @@ impl PlanarGraph {
         Ok(())
     }
 
+    fn process_single_component_with_execution_policy(
+        &mut self,
+        include_graph_ids: bool,
+        include_source_ids: bool,
+        execution_policy: &ExecutionPolicy,
+        noding_postcondition_validated: bool,
+    ) -> crate::Result<ComponentProcessingResult> {
+        self.sort_edges_with_execution_policy(execution_policy)?;
+        let is_active = |directed_idx: DirEdgeId| {
+            let directed = &self.directed_edges[directed_idx];
+            !directed.is_marked && !self.edges[directed.edge_idx].deleted
+        };
+        let active_node_count = self
+            .nodes_outgoing
+            .iter()
+            .filter(|outgoing| outgoing.iter().copied().any(is_active))
+            .count();
+        let active_edge_count = self
+            .edges
+            .iter()
+            .filter(|edge| {
+                let [forward_idx, reverse_idx] = edge.dir_edges;
+                !edge.deleted && is_active(forward_idx) && is_active(reverse_idx)
+            })
+            .count();
+        let mut memory_stats = ComponentMemoryStats {
+            component_count: 1,
+            active_node_count,
+            active_edge_count,
+            largest_component_node_count: active_node_count,
+            largest_component_edge_count: active_edge_count,
+            global_graph_node_capacity: self.nodes_x.capacity(),
+            global_graph_edge_capacity: self.edges.capacity(),
+            global_graph_directed_edge_capacity: self.directed_edges.capacity(),
+            global_graph_adjacency_capacity: self.nodes_outgoing.iter().map(Vec::capacity).sum(),
+            execution_worker_count: 1,
+            ..Default::default()
+        };
+        let output = (
+            self.prune_dangles_with_execution_policy(execution_policy)?,
+            self.delete_cut_edges_with_execution_policy(
+                execution_policy,
+                noding_postcondition_validated,
+            )?,
+            Vec::new(),
+            self.get_edge_rings_with_graph_ids_and_execution_policy(
+                include_graph_ids,
+                include_source_ids,
+                execution_policy,
+                noding_postcondition_validated,
+            )?,
+        );
+        memory_stats.observe_merged_output(
+            component_output_item_count(&output),
+            component_output_coordinate_capacity(&output),
+        );
+        Ok((output, Vec::new(), Vec::new(), false, memory_stats))
+    }
+
     pub(crate) fn process_components_with_execution_policy(
-        &self,
+        &mut self,
         include_graph_ids: bool,
         include_source_ids: bool,
         execution_policy: &ExecutionPolicy,
@@ -2587,6 +2659,17 @@ impl PlanarGraph {
         capture_byte_limit: Option<usize>,
         border_export: Option<PartitionBorderExport>,
     ) -> crate::Result<ComponentProcessingResult> {
+        if border_export.is_none()
+            && capture_byte_limit.is_none()
+            && self.active_component_count_with_execution_policy(execution_policy)? == 1
+        {
+            return self.process_single_component_with_execution_policy(
+                include_graph_ids,
+                include_source_ids,
+                execution_policy,
+                noding_postcondition_validated,
+            );
+        }
         let (partitions, mut memory_stats) = self.active_component_partitions(execution_policy)?;
         let mut merged = ComponentOutput::default();
         let mut border_observations = Vec::new();

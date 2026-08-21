@@ -680,6 +680,36 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_report_single_component_skips_partition_scratch_storage() {
+        let mut poly = Polygonizer::new();
+        poly.options_mut().node_input = false;
+        poly.options_mut().diagnostics.enabled = true;
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+
+        let result = poly.polygonize().unwrap();
+        let stats = poly.component_memory_stats();
+        assert_eq!(result.polygons.len(), 1);
+        assert_eq!(stats.component_count, 1);
+        assert_eq!(stats.active_node_count, 4);
+        assert_eq!(stats.active_edge_count, 4);
+        assert_eq!(stats.partition_node_capacity, 0);
+        assert_eq!(stats.partition_edge_capacity, 0);
+        assert_eq!(stats.scratch_instance_count, 0);
+        assert_eq!(stats.max_scratch_node_capacity, 0);
+        assert_eq!(stats.max_scratch_edge_capacity, 0);
+        assert!(stats.max_merged_output_item_count > 0);
+    }
+
+    #[test]
     fn component_memory_shape_contract_is_shared_by_feature_builds() {
         // This test intentionally runs in both the default (parallel) and
         // --no-default-features (serial) builds. Shape/capacity evidence must
