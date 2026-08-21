@@ -1,0 +1,83 @@
+name: Orchestrate dedicated benchmark baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark_ref:
+        description: Immutable tag or branch containing the benchmark implementation
+        required: true
+        default: geo-polygonize-v1.1.0
+      benchmark_sha:
+        description: Exact commit required in every publication
+        required: true
+        default: 8338213030347f086fe44baebf48779fcc448d9c
+      baseline_ref:
+        description: Ref containing the validator and reporting code
+        required: true
+        default: main
+      manifest_path:
+        description: Absolute manifest path on unraid-benchmark-01
+        required: true
+        default: /mnt/geo-polygonize/runner-manifest-v1.json
+      existing_runs:
+        description: JSON map of existing publication keys to successful run IDs
+        required: true
+        default: '{"coverage":"32331772685","nested":"32331772625","floating":"32331772624","certified-fixed":"32331772690"}'
+      resume_run_id:
+        description: Prior orchestrator run ID whose state artifact should be resumed
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 720
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.baseline_ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.11"
+
+      - name: Install validator dependency
+        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 referencing==0.36.2
+
+      - name: Restore prior orchestrator state
+        if: inputs.resume_run_id != ''
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          mkdir -p target/resume
+          gh run download "$RESUME_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            -n "benchmark-baseline-orchestrator-report-$RESUME_RUN_ID" \
+            -D target/resume
+          test -f target/resume/orchestrator-state.json
+
+      - name: Run resumable orchestrator
+        run: |
+          python tools/benchmark_baseline_orchestrator.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --benchmark-ref '${{ inputs.benchmark_ref }}' \
+            --benchmark-sha '${{ inputs.benchmark_sha }}' \
+            --baseline-ref '${{ inputs.baseline_ref }}' \
+            --manifest-path '${{ inputs.manifest_path }}' \
+            --existing-runs '${{ inputs.existing_runs }}' \
+            --resume-state target/resume/orchestrator-state.json
+
+      - name: Retain baseline report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline-orchestrator-report-${{ github.run_id }}
+          path: target/benchmark-orchestrator/
+          if-no-files-found: warn
+          retention-days: 90
