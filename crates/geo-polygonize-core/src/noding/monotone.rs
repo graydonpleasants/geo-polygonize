@@ -478,6 +478,8 @@ mod tests {
     use super::*;
     use crate::types::{Coord3D, SourceChainKind};
     use crate::{CancellationToken, ExecutionPolicy};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     fn line(start: (f64, f64), end: (f64, f64)) -> Line3D {
         Line3D::new(
@@ -917,6 +919,37 @@ mod tests {
                 ..
             }) if stage == "candidate_pairs"
         ));
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_bounded_differential_fuzz_corpus() {
+        let mut rng = StdRng::seed_from_u64(0x1287_2026);
+        for case_index in 0..12 {
+            let segment_count = 24 + case_index % 4 * 8;
+            let mut lines = Vec::with_capacity(segment_count);
+            let mut chains = Vec::with_capacity(segment_count);
+            for segment_index in 0..segment_count {
+                let start = (rng.gen_range(-100.0..100.0), rng.gen_range(-100.0..100.0));
+                let mut end = (rng.gen_range(-100.0..100.0), rng.gen_range(-100.0..100.0));
+                if start == end {
+                    end.0 += 1.0;
+                }
+                lines.push(Line3D::new(
+                    Coord3D::new(start.0, start.1, 0.0),
+                    Coord3D::new(end.0, end.1, 0.0),
+                    segment_index as u32,
+                ));
+                chains.push(SourceLineString {
+                    segment_start: segment_index,
+                    segment_count: 1,
+                    source_id: Some(segment_index as u32),
+                    kind: SourceChainKind::Original,
+                });
+            }
+
+            let stats = assert_hybrid_matches_snap(lines, &chains);
+            assert!(stats.exact_intersection_calls <= stats.candidate_pairs);
+        }
     }
 
     #[test]
