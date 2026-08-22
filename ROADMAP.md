@@ -307,7 +307,9 @@ parallel threshold and real-workload flat/CSR layout comparisons remain open.
 The private CSR shadow validates packed adjacency offsets, component discovery,
 and face-walk successors against the current layout, but it is not integrated
 into production; use the seven-entry #1290 suite as the common baseline for
-the timing decision.
+the timing decision. Production component-memory records now also carry the
+current row/inner capacities and an equivalent packed-CSR offset/edge word
+estimate; this is memory evidence only, not a timing or dispatch decision.
 
 ## P2.3 Remaining arrangement payload work
 

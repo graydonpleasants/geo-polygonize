@@ -744,6 +744,9 @@ mod tests {
         assert_eq!(stats.global_graph_edge_capacity, 8);
         assert_eq!(stats.global_graph_directed_edge_capacity, 16);
         assert_eq!(stats.global_graph_adjacency_capacity, 32);
+        assert_eq!(stats.global_graph_adjacency_row_capacity, 8);
+        assert_eq!(stats.global_graph_csr_offset_count, 9);
+        assert_eq!(stats.global_graph_csr_directed_edge_count, 16);
         assert_eq!(stats.max_scratch_node_capacity, 4);
         assert_eq!(stats.max_scratch_edge_capacity, 4);
         assert_eq!(stats.max_scratch_directed_edge_capacity, 8);
