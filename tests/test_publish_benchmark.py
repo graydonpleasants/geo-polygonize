@@ -51,6 +51,17 @@ def record(index, p50=100.0):
             "phase_times_ms": {"polygonize": p50},
             "allocations": {"count": 1, "bytes": 1},
             "peak_rss_bytes": 1,
+            "layout_candidate": {
+                "candidate_id": "packed-csr-adjacency-v1",
+                "conformance": True,
+                "samples": 30,
+                "node_count": 1,
+                "nested_storage_words": 4,
+                "csr_storage_words": 2,
+                "nested_traversal_p50_ns": 10,
+                "csr_materialization_ns": 5,
+                "csr_traversal_p50_ns": 4,
+            },
         },
         "work": {
             "input_line_strings": 1,

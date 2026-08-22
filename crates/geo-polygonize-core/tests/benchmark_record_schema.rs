@@ -93,6 +93,16 @@ fn benchmark_schema_requires_measurement_work_and_environment_evidence() {
             "peak_rss_bytes",
         ]))
     );
+    let layout_candidate = &properties["measurement"]["properties"]["layout_candidate"];
+    assert_eq!(layout_candidate["additionalProperties"], false);
+    assert!(required(layout_candidate).is_superset(&HashSet::from([
+        "candidate_id",
+        "conformance",
+        "samples",
+        "nested_traversal_p50_ns",
+        "csr_materialization_ns",
+        "csr_traversal_p50_ns",
+    ])));
     assert!(required(&properties["work"]).is_superset(&HashSet::from([
         "candidate_pairs",
         "exact_predicate_calls",

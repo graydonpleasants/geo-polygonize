@@ -170,7 +170,33 @@
             "bytes": {"type": "integer", "minimum": 0}
           }
         },
-        "peak_rss_bytes": {"type": "integer", "minimum": 0}
+        "peak_rss_bytes": {"type": "integer", "minimum": 0},
+        "layout_candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidate_id",
+            "conformance",
+            "samples",
+            "node_count",
+            "nested_storage_words",
+            "csr_storage_words",
+            "nested_traversal_p50_ns",
+            "csr_materialization_ns",
+            "csr_traversal_p50_ns"
+          ],
+          "properties": {
+            "candidate_id": {"const": "packed-csr-adjacency-v1"},
+            "conformance": {"const": true},
+            "samples": {"type": "integer", "minimum": 1},
+            "node_count": {"type": "integer", "minimum": 0},
+            "nested_storage_words": {"type": "integer", "minimum": 0},
+            "csr_storage_words": {"type": "integer", "minimum": 0},
+            "nested_traversal_p50_ns": {"type": "integer", "minimum": 0},
+            "csr_materialization_ns": {"type": "integer", "minimum": 0},
+            "csr_traversal_p50_ns": {"type": "integer", "minimum": 0}
+          }
+        }
       }
     },
     "work": {

@@ -1,105 +1,12 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use crate::graph::planar_graph::{DirEdgeId, PlanarGraph};
+    use crate::graph::layout_benchmark::CsrAdjacency;
+    use crate::graph::planar_graph::PlanarGraph;
     use crate::types::{Coord3D, Line3D};
     use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use geo_types::{Coord, LineString};
     use std::collections::BTreeSet;
-
-    // ponytail: shadow-only CSR oracle; integrate only after decision-quality
-    // layout timing proves it beats the current adjacency lists.
-    struct CsrAdjacency {
-        offsets: Vec<usize>,
-        directed_edges: Vec<DirEdgeId>,
-    }
-
-    impl CsrAdjacency {
-        fn from_graph(graph: &PlanarGraph) -> Self {
-            let mut offsets = Vec::with_capacity(graph.nodes_outgoing.len() + 1);
-            let mut directed_edges = Vec::new();
-            offsets.push(0);
-            for outgoing in &graph.nodes_outgoing {
-                directed_edges.extend_from_slice(outgoing);
-                offsets.push(directed_edges.len());
-            }
-            Self {
-                offsets,
-                directed_edges,
-            }
-        }
-
-        fn outgoing(&self, node: usize) -> &[DirEdgeId] {
-            &self.directed_edges[self.offsets[node]..self.offsets[node + 1]]
-        }
-
-        fn active_component_ids(&self, graph: &PlanarGraph) -> Vec<Option<usize>> {
-            let is_active = |directed_idx: DirEdgeId| {
-                let directed = &graph.directed_edges[directed_idx];
-                !directed.is_marked && !graph.edges[directed.edge_idx].deleted
-            };
-            let mut seeds = (0..graph.nodes_x.len())
-                .filter(|&node| self.outgoing(node).iter().copied().any(is_active))
-                .collect::<Vec<_>>();
-            seeds.sort_unstable_by(|&left, &right| {
-                graph.nodes_x[left]
-                    .total_cmp(&graph.nodes_x[right])
-                    .then_with(|| graph.nodes_y[left].total_cmp(&graph.nodes_y[right]))
-                    .then(left.cmp(&right))
-            });
-
-            let mut component_ids = vec![None; graph.nodes_x.len()];
-            let mut stack = Vec::new();
-            let mut next_component_id = 0;
-            for seed in seeds {
-                if component_ids[seed].is_some() {
-                    continue;
-                }
-                let component_id = next_component_id;
-                next_component_id += 1;
-                component_ids[seed] = Some(component_id);
-                stack.push(seed);
-                while let Some(node) = stack.pop() {
-                    for &directed_idx in self.outgoing(node) {
-                        if !is_active(directed_idx) {
-                            continue;
-                        }
-                        let neighbor = graph.directed_edges[directed_idx].dst;
-                        if component_ids[neighbor].is_none() {
-                            component_ids[neighbor] = Some(component_id);
-                            stack.push(neighbor);
-                        }
-                    }
-                }
-            }
-            component_ids
-        }
-
-        fn next_links(&self, graph: &PlanarGraph) -> Vec<Option<DirEdgeId>> {
-            let is_active = |directed_idx: DirEdgeId| {
-                let directed = &graph.directed_edges[directed_idx];
-                !directed.is_marked && !graph.edges[directed.edge_idx].deleted
-            };
-            let mut links = vec![None; graph.directed_edges.len()];
-            for node in 0..graph.nodes_x.len() {
-                let active = self
-                    .outgoing(node)
-                    .iter()
-                    .copied()
-                    .filter(|&directed_idx| is_active(directed_idx))
-                    .collect::<Vec<_>>();
-                let Some(&last) = active.last() else {
-                    continue;
-                };
-                let mut next = last;
-                for directed_idx in active {
-                    links[directed_idx] = Some(next);
-                    next = directed_idx;
-                }
-            }
-            links
-        }
-    }
 
     #[test]
     fn test_graph_construction() {
@@ -569,6 +476,10 @@ mod tests {
                 .map(|directed| directed.next_idx)
                 .collect::<Vec<_>>()
         );
+        let evidence = graph.benchmark_adjacency_layout(3).unwrap();
+        assert!(evidence.conformance);
+        assert_eq!(evidence.samples, 3);
+        assert!(evidence.csr_storage_words < evidence.nested_storage_words);
     }
 
     #[test]

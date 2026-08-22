@@ -59,6 +59,8 @@ pub use fingerprint::{
     normalize_polygonize_error, CoordinateFingerprintV1, ErrorWitnessV1, FingerprintDiffV1,
     NormalizedPolygonizeErrorV1, TopologyFingerprintV1, TOPOLOGY_FINGERPRINT_V1_SCHEMA_VERSION,
 };
+#[doc(hidden)]
+pub use graph::AdjacencyLayoutBenchmark;
 pub use options::{
     CancellationToken, ContainmentOptions, DeterminismOptions, DiagnosticsOptions, ExecutionPolicy,
     NodingBackend, NodingGuarantee, NodingOptions, OutputFilterOptions, PolygonizerOptions,

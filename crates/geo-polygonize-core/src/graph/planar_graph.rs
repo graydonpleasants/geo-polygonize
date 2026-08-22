@@ -432,6 +432,14 @@ impl PlanarGraph {
         }
     }
 
+    #[doc(hidden)]
+    pub fn benchmark_adjacency_layout(
+        &self,
+        samples: usize,
+    ) -> crate::Result<crate::graph::AdjacencyLayoutBenchmark> {
+        crate::graph::layout_benchmark::benchmark(self, samples)
+    }
+
     /// Creates a canonical partition-border observation for a directed local
     /// edge. The caller supplies the already-classified border side; this
     /// method only transfers arrangement identity, direction, provenance, and

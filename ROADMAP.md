@@ -310,6 +310,10 @@ into production; use the seven-entry #1290 suite as the common baseline for
 the timing decision. Production component-memory records now also carry the
 current row/inner capacities and an equivalent packed-CSR offset/edge word
 estimate; this is memory evidence only, not a timing or dispatch decision.
+The benchmark record now also carries a correctness-gated, shadow-only packed
+CSR traversal timing on the same graph snapshot; the end-to-end layout and
+execution comparison remains open until that candidate is measured as part of
+the seven-workload publication and compared against the promotion gate.
 
 ## P2.3 Remaining arrangement payload work
 
