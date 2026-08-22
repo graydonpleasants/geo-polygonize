@@ -477,7 +477,7 @@ fn invalid_range(start: usize, count: usize) -> PolygonizeError {
 mod tests {
     use super::*;
     use crate::types::{Coord3D, SourceChainKind};
-    use crate::{CancellationToken, ExecutionPolicy};
+    use crate::{normalize_polygonize_error, CancellationToken, ExecutionPolicy};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -848,6 +848,97 @@ mod tests {
             Err(PolygonizeError::InvalidGeometry { reason })
                 if reason.contains("complete source-chain coverage")
         ));
+    }
+
+    #[test]
+    fn hybrid_experiment_is_deterministic_under_input_permutation() {
+        let lines = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(4.0, 4.0, 0.0), 10),
+            Line3D::new(Coord3D::new(0.0, 4.0, 0.0), Coord3D::new(4.0, 0.0, 0.0), 11),
+            Line3D::new(
+                Coord3D::new(2.0, -1.0, 0.0),
+                Coord3D::new(2.0, 5.0, 0.0),
+                12,
+            ),
+            Line3D::new(
+                Coord3D::new(-1.0, 2.0, 0.0),
+                Coord3D::new(5.0, 2.0, 0.0),
+                13,
+            ),
+        ];
+        let chains: Vec<_> = lines
+            .iter()
+            .enumerate()
+            .map(|(segment_start, line)| SourceLineString {
+                segment_start,
+                segment_count: 1,
+                source_id: Some(line.line_id),
+                kind: SourceChainKind::Original,
+            })
+            .collect();
+        let permutation = [2, 0, 3, 1];
+        let permuted_lines: Vec<_> = permutation.iter().map(|&index| lines[index]).collect();
+        let permuted_chains: Vec<_> = permuted_lines
+            .iter()
+            .enumerate()
+            .map(|(segment_start, line)| SourceLineString {
+                segment_start,
+                segment_count: 1,
+                source_id: Some(line.line_id),
+                kind: SourceChainKind::Original,
+            })
+            .collect();
+        let snap_noder = SnapNoder::new(0.0);
+
+        let (expected, _) = node_hybrid_source_chains(
+            lines.clone(),
+            &chains,
+            &snap_noder,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+        let (actual, _) = node_hybrid_source_chains(
+            permuted_lines.clone(),
+            &permuted_chains,
+            &snap_noder,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(expected, snap_noder.node(lines));
+        assert_eq!(actual, snap_noder.node(permuted_lines));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn hybrid_experiment_normalizes_boundary_errors() {
+        let lines = vec![line((0.0, 0.0), (1.0, 0.0))];
+        let invalid_range = node_hybrid_source_chains(
+            lines.clone(),
+            &[SourceLineString {
+                segment_start: 1,
+                segment_count: 1,
+                source_id: Some(1),
+                kind: SourceChainKind::Original,
+            }],
+            &SnapNoder::new(0.0),
+            &ExecutionPolicy::default(),
+        )
+        .unwrap_err();
+        let incomplete_identity = node_hybrid_source_chains(
+            lines,
+            &[],
+            &SnapNoder::new(0.0),
+            &ExecutionPolicy::default(),
+        )
+        .unwrap_err();
+
+        let invalid_range = normalize_polygonize_error(&invalid_range);
+        let incomplete_identity = normalize_polygonize_error(&incomplete_identity);
+        assert_eq!(invalid_range, incomplete_identity);
+        assert_eq!(invalid_range.family, "invalid_geometry");
+        assert_eq!(invalid_range.code, "invalid_geometry");
+        assert_eq!(invalid_range.stage, "input_validation");
     }
 
     #[test]
