@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "decision_id": "component-single-component-v1",
+  "title": "Single-component direct processing remains research-retained",
+  "policy_id": "benchmark-decision-v1",
+  "hypothesis": "Processing a graph with one active component directly, without partition and scratch reconstruction, improves end-to-end time and allocation shape without changing observable results.",
+  "target_workloads": [
+    "already-noded-coverage-v1/already-noded-polygonization",
+    "dense-crossings-v1/floating-noding-plus-polygonization",
+    "dense-crossings-v1/certified-fixed-precision-noding-plus-polygonization"
+  ],
+  "non_targets": [
+    "Production network workloads retain the existing multi-component execution policy.",
+    "Disconnected nested rings retain the existing component decomposition and global containment path.",
+    "Flat or CSR adjacency was not published as a candidate in this experiment.",
+    "Sequential versus parallel threshold selection was not varied in this experiment."
+  ],
+  "semantic_invariants": [
+    "Canonical topology fingerprints remain equal to the reference.",
+    "Parity validation passes for every candidate publication.",
+    "Dangles, cut edges, rings, containment, provenance, Z decisions, traces, errors, cancellation, and limits retain their existing contracts.",
+    "Serial and parallel behavior remains covered by the existing conformance suite."
+  ],
+  "predeclared_thresholds": {
+    "primary_metric": "p50_ms",
+    "minimum_effect_size_percent": 5.0,
+    "regression_budget_percent": 2.0
+  },
+  "outcome": "retained-research",
+  "rationale": "The direct path is already implemented and passed the correctness-gated seven-publication suite on commit e3902bef3a1a8060ce5f5ed02f7f8d479854b698. On the three one-component target lanes, p50 improved by 20.0% to 31.2% and allocated bytes fell by 27.8% to 38.2%; partition and scratch capacities fell to zero. However, certified-fixed peak RSS increased 2.35%, exceeding the predeclared 2.0% secondary-metric regression budget. The direct path therefore remains in the implementation as a bounded research result, but is not promoted as a fully accepted policy decision until a repeat measurement resolves that gate. The production-scale evidence confirms the current multi-component path and scratch high-water marks but does not decide CSR layout or execution thresholds.",
+  "baseline_publications": [
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32447893165/artifacts/9434679713",
+      "sha256": "51d603174417302595dd2a975e521c04a7b5ee19756fafbf06988a282c927283"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32447893165/artifacts/9434679713",
+      "sha256": "01664cd92a6bf844b45e1ac63565ed2cf53cc780c2b15afb54ce8afadf204023"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32447893165/artifacts/9434679713",
+      "sha256": "8ca54ba4e4180086ae4d75a6fb73c1f8cd5c6c768a1c63affda69196e9a95faa"
+    }
+  ],
+  "candidate_publications": [
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32532307942/artifacts/9466547967",
+      "sha256": "6661deeb42aad3b91e17a606eef5e6529236f99444642a9e46396bf2b121d374"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32532307942/artifacts/9466547967",
+      "sha256": "a13921ff67b471e48046aebb8e85488c3f77f683deef2fe1c6aad632b77edfc2"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32532307942/artifacts/9466547967",
+      "sha256": "e3dbaedce3c837f09bdfd4654532fa84b6fa8750246f8db8dfcb1445cf9acfbd"
+    }
+  ],
+  "rejected_experiments": [],
+  "crossover": {
+    "status": "not-applicable",
+    "reason": "No flat/CSR layout or sequential/parallel threshold crossover was measured; those roadmap experiments remain open."
+  }
+}
