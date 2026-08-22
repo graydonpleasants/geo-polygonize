@@ -289,7 +289,7 @@ impl SnapNoder {
                 NodingStrategy::Scalar => false, // Fallback to SIMD logic which handles scalar internally
             };
 
-            let mut events = if !use_grid {
+            let events = if !use_grid {
                 // STRATEGY A: Small Input -> SIMD Brute Force
                 if trace.is_some() {
                     let mut tracker =
@@ -353,174 +353,22 @@ impl SnapNoder {
                 break;
             }
 
-            // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
-            if let Some(execution_policy) = execution_policy {
-                execution_policy.check_uncancellable_sort("noding_candidate_sort", events.len())?;
-            }
-            events.sort_unstable_by(|a, b| {
-                a.0.cmp(&b.0)
-                    .then(a.1.x.total_cmp(&b.1.x))
-                    .then(a.1.y.total_cmp(&b.1.y))
-            });
-            events.dedup_by(|a, b| {
-                a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y
-                // Note: We don't check Z for dedup because for a given line index and X,Y,
-                // Z should be consistent (interpolated from the same line).
-            });
-            let split_event_count = events.len();
-            split_events += split_event_count;
-            if let Some(execution_policy) = execution_policy {
-                execution_policy.check_cancelled("split_application")?;
-                execution_policy.check_split_events(split_events)?;
-            }
+            let split_event_count = self.apply_split_events(
+                &lines,
+                events,
+                execution_policy,
+                &mut split_events,
+                &mut new_lines,
+                iteration_index,
+                trace.as_deref_mut(),
+            )?;
             if let Some(work_stats) = work_stats.as_deref_mut() {
                 work_stats.split_events += split_event_count;
             }
 
             // Early bailout heuristic to avoid epsilon-thrashing on tiny residual updates.
             // Apply this iteration first, then exit before running another pass.
-            let should_bail_early = events.len() < 3;
-
-            // Apply splits. Copy untouched line ranges in bulk and only rebuild lines with split events.
-            new_lines.clear();
-            let estimated_len = lines.len().checked_add(events.len()).ok_or_else(|| {
-                PolygonizeError::InternalInvariantViolation {
-                    reason: "noded segment capacity overflow".to_string(),
-                }
-            })?;
-            new_lines.reserve(
-                execution_policy
-                    .and_then(|policy| policy.max_noded_segments)
-                    .map_or(estimated_len, |limit| estimated_len.min(limit)),
-            );
-
-            let mut event_idx = 0;
-            let mut src_idx = 0;
-            // Buffer to reuse for collecting points on the current split line.
-            let mut points = Vec::new();
-
-            while event_idx < events.len() {
-                let line_idx = events[event_idx].0;
-
-                // Copy untouched lines directly.
-                if src_idx < line_idx {
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy.check(
-                            "noded_segments",
-                            execution_policy.max_noded_segments,
-                            new_lines
-                                .len()
-                                .checked_add(line_idx - src_idx)
-                                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
-                                    reason: "noded segment count overflow".to_string(),
-                                })?,
-                        )?;
-                    }
-                    new_lines.extend_from_slice(&lines[src_idx..line_idx]);
-                }
-
-                points.clear();
-                while event_idx < events.len() && events[event_idx].0 == line_idx {
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy.check_cancelled_every("split_application", event_idx)?;
-                    }
-                    points.push(events[event_idx].1);
-                    event_idx += 1;
-                }
-
-                let line = lines[line_idx];
-                points.push(line.start);
-                points.push(line.end);
-
-                // Filter out invalid points (NaN/Inf)
-                points.retain(|p| p.x.is_finite() && p.y.is_finite());
-
-                // Sort by parametric t value (dot product of (p - start) with direction vector)
-                let start = line.start;
-                let dx = line.end.x - start.x;
-                let dy = line.end.y - start.y;
-                let len_sq = dx * dx + dy * dy;
-
-                if len_sq > 0.0 {
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy
-                            .check_uncancellable_sort("split_point_sort", points.len())?;
-                    }
-                    points.sort_unstable_by(|a, b| {
-                        let ta = ((a.x - start.x) * dx + (a.y - start.y) * dy) / len_sq;
-                        let tb = ((b.x - start.x) * dx + (b.y - start.y) * dy) / len_sq;
-                        ta.total_cmp(&tb)
-                    });
-                } else {
-                    // Fallback to sort by X, then Y if segment is a zero-length point
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy
-                            .check_uncancellable_sort("split_point_sort", points.len())?;
-                    }
-                    points.sort_unstable_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
-                }
-
-                // Dedup by 2D coordinates
-                points.dedup_by(|a, b| a.x == b.x && a.y == b.y);
-
-                // Create replacement segments for the split line.
-                for (replacement_index, w) in points.windows(2).enumerate() {
-                    if let Some(execution_policy) = execution_policy {
-                        execution_policy
-                            .check_cancelled_every("split_application", replacement_index)?;
-                    }
-                    let p0 = w[0];
-                    let p1 = w[1];
-                    // Check 2D equality
-                    if p0.x != p1.x || p0.y != p1.y {
-                        if let Some(execution_policy) = execution_policy {
-                            execution_policy.check(
-                                "noded_segments",
-                                execution_policy.max_noded_segments,
-                                new_lines.len().checked_add(1).ok_or_else(|| {
-                                    PolygonizeError::InternalInvariantViolation {
-                                        reason: "noded segment count overflow".to_string(),
-                                    }
-                                })?,
-                            )?;
-                        }
-                        new_lines.push(Line3D::new(p0, p1, line.line_id));
-                        if let Some(trace) = trace.as_deref_mut() {
-                            trace.budget.capture(
-                                &mut trace.splits,
-                                FloatingSplitTrace {
-                                    iteration_index,
-                                    source_segment: line_idx,
-                                    source_id: line.line_id,
-                                    start: p0,
-                                    end: p1,
-                                },
-                            );
-                        }
-                    }
-                }
-
-                src_idx = line_idx + 1;
-            }
-
-            // Copy any untouched trailing lines.
-            if src_idx < lines.len() {
-                if let Some(execution_policy) = execution_policy {
-                    execution_policy.check(
-                        "noded_segments",
-                        execution_policy.max_noded_segments,
-                        new_lines
-                            .len()
-                            .checked_add(lines.len() - src_idx)
-                            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
-                                reason: "noded segment count overflow".to_string(),
-                            })?,
-                    )?;
-                }
-                new_lines.extend_from_slice(&lines[src_idx..]);
-            }
-
-            self.normalize_and_dedup(&mut new_lines);
+            let should_bail_early = split_event_count < 3;
             std::mem::swap(&mut lines, &mut new_lines);
 
             if let Some(stats) = stats.as_deref_mut() {
@@ -537,6 +385,187 @@ impl SnapNoder {
         }
 
         Ok(lines)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_split_events(
+        &self,
+        lines: &[Line3D],
+        mut events: Vec<(usize, Coord3D)>,
+        execution_policy: Option<&ExecutionPolicy>,
+        split_events: &mut usize,
+        new_lines: &mut Vec<Line3D>,
+        iteration_index: usize,
+        mut trace: Option<&mut FloatingTraceCapture>,
+    ) -> crate::Result<usize> {
+        // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_uncancellable_sort("noding_candidate_sort", events.len())?;
+        }
+        events.sort_unstable_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then(a.1.x.total_cmp(&b.1.x))
+                .then(a.1.y.total_cmp(&b.1.y))
+        });
+        events.dedup_by(|a, b| {
+            a.0 == b.0 && a.1.x == b.1.x && a.1.y == b.1.y
+            // Note: We don't check Z for dedup because for a given line index and X,Y,
+            // Z should be consistent (interpolated from the same line).
+        });
+        let split_event_count = events.len();
+        *split_events += split_event_count;
+        if let Some(execution_policy) = execution_policy {
+            execution_policy.check_cancelled("split_application")?;
+            execution_policy.check_split_events(*split_events)?;
+        }
+
+        // Apply splits. Copy untouched line ranges in bulk and only rebuild lines with split events.
+        new_lines.clear();
+        let estimated_len = lines.len().checked_add(events.len()).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "noded segment capacity overflow".to_string(),
+            }
+        })?;
+        new_lines.reserve(
+            execution_policy
+                .and_then(|policy| policy.max_noded_segments)
+                .map_or(estimated_len, |limit| estimated_len.min(limit)),
+        );
+
+        let mut event_idx = 0;
+        let mut src_idx = 0;
+        let mut points = Vec::new();
+
+        while event_idx < events.len() {
+            let line_idx = events[event_idx].0;
+
+            if src_idx < line_idx {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check(
+                        "noded_segments",
+                        execution_policy.max_noded_segments,
+                        new_lines
+                            .len()
+                            .checked_add(line_idx - src_idx)
+                            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                                reason: "noded segment count overflow".to_string(),
+                            })?,
+                    )?;
+                }
+                new_lines.extend_from_slice(&lines[src_idx..line_idx]);
+            }
+
+            points.clear();
+            while event_idx < events.len() && events[event_idx].0 == line_idx {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy.check_cancelled_every("split_application", event_idx)?;
+                }
+                points.push(events[event_idx].1);
+                event_idx += 1;
+            }
+
+            let line = lines[line_idx];
+            points.push(line.start);
+            points.push(line.end);
+            points.retain(|p| p.x.is_finite() && p.y.is_finite());
+
+            let start = line.start;
+            let dx = line.end.x - start.x;
+            let dy = line.end.y - start.y;
+            let len_sq = dx * dx + dy * dy;
+
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check_uncancellable_sort("split_point_sort", points.len())?;
+            }
+            if len_sq > 0.0 {
+                points.sort_unstable_by(|a, b| {
+                    let ta = ((a.x - start.x) * dx + (a.y - start.y) * dy) / len_sq;
+                    let tb = ((b.x - start.x) * dx + (b.y - start.y) * dy) / len_sq;
+                    ta.total_cmp(&tb)
+                });
+            } else {
+                points.sort_unstable_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+            }
+
+            points.dedup_by(|a, b| a.x == b.x && a.y == b.y);
+
+            for (replacement_index, w) in points.windows(2).enumerate() {
+                if let Some(execution_policy) = execution_policy {
+                    execution_policy
+                        .check_cancelled_every("split_application", replacement_index)?;
+                }
+                let p0 = w[0];
+                let p1 = w[1];
+                if p0.x != p1.x || p0.y != p1.y {
+                    if let Some(execution_policy) = execution_policy {
+                        execution_policy.check(
+                            "noded_segments",
+                            execution_policy.max_noded_segments,
+                            new_lines.len().checked_add(1).ok_or_else(|| {
+                                PolygonizeError::InternalInvariantViolation {
+                                    reason: "noded segment count overflow".to_string(),
+                                }
+                            })?,
+                        )?;
+                    }
+                    new_lines.push(Line3D::new(p0, p1, line.line_id));
+                    if let Some(trace) = trace.as_deref_mut() {
+                        trace.budget.capture(
+                            &mut trace.splits,
+                            FloatingSplitTrace {
+                                iteration_index,
+                                source_segment: line_idx,
+                                source_id: line.line_id,
+                                start: p0,
+                                end: p1,
+                            },
+                        );
+                    }
+                }
+            }
+
+            src_idx = line_idx + 1;
+        }
+
+        if src_idx < lines.len() {
+            if let Some(execution_policy) = execution_policy {
+                execution_policy.check(
+                    "noded_segments",
+                    execution_policy.max_noded_segments,
+                    new_lines
+                        .len()
+                        .checked_add(lines.len() - src_idx)
+                        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                            reason: "noded segment count overflow".to_string(),
+                        })?,
+                )?;
+            }
+            new_lines.extend_from_slice(&lines[src_idx..]);
+        }
+
+        self.normalize_and_dedup(new_lines);
+        Ok(split_event_count)
+    }
+
+    pub(crate) fn apply_split_events_for_research(
+        &self,
+        lines: &[Line3D],
+        events: Vec<(usize, Coord3D)>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<(Vec<Line3D>, usize)> {
+        let mut split_events = 0;
+        let mut new_lines = Vec::new();
+        let split_event_count = self.apply_split_events(
+            lines,
+            events,
+            Some(execution_policy),
+            &mut split_events,
+            &mut new_lines,
+            0,
+            None,
+        )?;
+        debug_assert_eq!(split_events, split_event_count);
+        Ok((new_lines, split_event_count))
     }
 
     fn auto_prefers_simd(&self, lines: &[Line3D]) -> bool {

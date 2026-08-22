@@ -357,7 +357,7 @@ Tracked by
 - [x] Cover original ↔ original, original ↔ fallback, and fallback ↔ fallback
   pairs without misses or duplicate exact work.
 - [x] Preserve source-chain/segment/parametric identity through preprocessing.
-- [ ] Use the shared exact/split/dissolve/validation path.
+- [x] Use the shared exact/split/dissolve/validation path.
 - [ ] Pass golden, compatibility, fuzz, real-world, provenance, Z,
   serial/parallel, and normalized-error conformance.
 - [ ] Measure build cost, candidate reduction, allocations, peak RSS, end-to-end
@@ -366,10 +366,11 @@ Tracked by
 
 The research prototype now owns cached flat-tree traversal and a
 `CandidatePair`-compatible visitor with bounded policy accounting and
-cancellation checks. It remains disconnected from split/dissolve/validation
-and production dispatch until the remaining conformance and decision-quality
-comparison gates are complete. Dedicated-runner baseline evidence is now
-available from #1290.
+cancellation checks. Its source-chain-preserving hybrid adapter routes emitted
+pairs through the shared exact, split, normalization/dissolve, and independent
+validation path. It remains disconnected from production dispatch until the
+remaining conformance and decision-quality comparison gates are complete.
+Dedicated-runner baseline evidence is now available from #1290.
 
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
