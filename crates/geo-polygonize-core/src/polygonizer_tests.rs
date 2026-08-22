@@ -710,6 +710,28 @@ mod tests {
     }
 
     #[test]
+    fn adjacency_layout_benchmark_does_not_materialize_face_rings() {
+        let mut poly = Polygonizer::new();
+        poly.options_mut().node_input = false;
+        poly.add_geometry(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ])
+            .into(),
+        );
+        poly.add_geometry(LineString::from(vec![(10.0, 0.0), (20.0, 0.0)]).into());
+
+        let evidence = poly.benchmark_adjacency_layout(3).unwrap();
+        assert!(evidence.conformance);
+        assert_eq!(evidence.samples, 3);
+        assert!(evidence.csr_storage_words < evidence.nested_storage_words);
+    }
+
+    #[test]
     fn component_memory_shape_contract_is_shared_by_feature_builds() {
         // This test intentionally runs in both the default (parallel) and
         // --no-default-features (serial) builds. Shape/capacity evidence must
