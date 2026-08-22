@@ -1,8 +1,11 @@
 //! Research-only MCIndex-style monotone-chain candidate prototype.
 
-use crate::diagnostics::ExecutionWorkTracker;
+use crate::diagnostics::{ExecutionWorkTracker, NodingWorkStats};
 use crate::index::{IndexedEnvelope, RStarBackend};
+use crate::noding::snap::SnapNoder;
+use crate::noding::validate::ValidatingNoder;
 use crate::noding::{CandidatePair, ExactCandidate};
+use crate::options::ExecutionPolicy;
 use crate::types::{Line3D, SourceChainKind, SourceLineString, SourceSegmentIdentity};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
@@ -59,6 +62,45 @@ struct MonotoneChainNode {
 struct MonotoneChainRoot {
     node: usize,
     bounds: Bounds,
+}
+
+/// Run one source-chain-preserving MCIndex experiment through the shared split,
+/// normalization, and validation path.
+///
+/// The input must already be the immutable segment representation described by
+/// `source_chains`; preprocessing that reorders or replaces segments belongs
+/// outside this research-only adapter until its identity mapping is explicit.
+pub(crate) fn node_hybrid_source_chains(
+    lines: Vec<Line3D>,
+    source_chains: &[SourceLineString],
+    snap_noder: &SnapNoder,
+    execution_policy: &ExecutionPolicy,
+) -> Result<(Vec<Line3D>, NodingWorkStats)> {
+    let coverage = source_chain_coverage(lines.len(), source_chains)?;
+    if coverage.segment_identities.iter().any(Option::is_none) {
+        return Err(PolygonizeError::InvalidGeometry {
+            reason: "MCIndex experiment requires complete source-chain coverage".to_string(),
+        });
+    }
+
+    let mut events = Vec::new();
+    let mut work_stats = NodingWorkStats::default();
+    {
+        let mut tracker = ExecutionWorkTracker::new(Some(execution_policy), Some(&mut work_stats));
+        visit_hybrid_exact_candidates(&lines, source_chains, &mut tracker, |exact| {
+            snap_noder.append_exact_candidate_splits(exact, &mut events);
+            Ok(())
+        })?;
+    }
+
+    let (noded, split_events) = if events.is_empty() {
+        (lines, 0)
+    } else {
+        snap_noder.apply_split_events_for_research(&lines, events, execution_policy)?
+    };
+    work_stats.split_events = split_events;
+    ValidatingNoder::new().validate_with_execution_policy(&noded, execution_policy)?;
+    Ok((noded, work_stats))
 }
 
 struct MonotoneChainTree {
@@ -710,6 +752,83 @@ mod tests {
                 second: 1
             }
         );
+    }
+
+    #[test]
+    fn hybrid_experiment_uses_shared_split_and_validation_path() {
+        let lines = [
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 10.0), 1),
+            Line3D::new(
+                Coord3D::new(0.0, -1.0, 20.0),
+                Coord3D::new(2.0, 1.0, 40.0),
+                2,
+            ),
+            Line3D::new(
+                Coord3D::new(0.0, 1.0, 60.0),
+                Coord3D::new(2.0, -1.0, 80.0),
+                3,
+            ),
+        ];
+        let chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 1,
+                source_id: Some(1),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 1,
+                segment_count: 1,
+                source_id: Some(2),
+                kind: SourceChainKind::Synthetic,
+            },
+            SourceLineString {
+                segment_start: 2,
+                segment_count: 1,
+                source_id: None,
+                kind: SourceChainKind::Unavailable,
+            },
+        ];
+        let snap_noder = SnapNoder::new(0.0);
+        let expected = snap_noder.node(lines.to_vec());
+
+        let (actual, stats) = node_hybrid_source_chains(
+            lines.to_vec(),
+            &chains,
+            &snap_noder,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(actual, expected);
+        assert_eq!(stats.candidate_pairs, 3);
+        assert_eq!(stats.exact_intersection_calls, 3);
+        assert_eq!(stats.split_events, 3);
+        assert!(actual.iter().any(|segment| segment.start.z == 5.0));
+        assert!(actual.iter().any(|segment| segment.start.z == 30.0));
+        assert!(actual.iter().any(|segment| segment.start.z == 70.0));
+    }
+
+    #[test]
+    fn hybrid_experiment_rejects_incomplete_source_identity() {
+        let lines = [line((0.0, 0.0), (1.0, 0.0)), line((0.0, 1.0), (1.0, 1.0))];
+        let chains = [SourceLineString {
+            segment_start: 0,
+            segment_count: 1,
+            source_id: Some(1),
+            kind: SourceChainKind::Original,
+        }];
+
+        assert!(matches!(
+            node_hybrid_source_chains(
+                lines.to_vec(),
+                &chains,
+                &SnapNoder::new(0.0),
+                &ExecutionPolicy::default(),
+            ),
+            Err(PolygonizeError::InvalidGeometry { reason })
+                if reason.contains("complete source-chain coverage")
+        ));
     }
 
     #[test]
