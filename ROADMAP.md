@@ -280,28 +280,31 @@ global topology identities.
 Tracked by
 [#1291](https://github.com/graydonpleasants/geo-polygonize/issues/1291).
 
-- [ ] Measure peak RSS, allocations, partition vectors, scratch high-water
+- [x] Measure peak RSS, allocations, partition vectors, scratch high-water
   marks, output buffering, and worker multiplication.
 - [ ] Cover one connected graph, balanced components, skewed components,
   dangle/cut-heavy components, and nested disconnected rings.
-- [ ] Evaluate a direct single-component fast path.
+- [x] Evaluate a direct single-component fast path.
 - [ ] Evaluate deterministic sequential versus parallel component thresholds.
 - [ ] Prototype flat/CSR adjacency privately.
 - [x] Emit deterministic component distribution, adjacency-capacity, reusable
   scratch high-water, scratch-state/worker, and merged-output evidence in
   diagnostics and benchmark records.
-- [ ] Run arrangement and full topology conformance before timing.
+- [x] Run arrangement and full topology conformance before timing.
 - [ ] Compare layout and execution decisions on production-scale workloads.
-- [ ] Check in explicit accept/reject decision records.
+- [x] Check in explicit accept/reject decision records.
 - [ ] Remove losing prototypes.
 
 **Promotion gate:** exact canonical equivalence plus a predeclared end-to-end or
 peak-memory win on more than one representative workload.
 
 The evidence plumbing and the first dedicated-runner baseline suite are
-complete. The measurements, fast-path/threshold evaluation, layout comparison,
-and promotion decision remain open; use the seven-entry #1290 suite as the
-common baseline for this work.
+complete. The direct single-component path is retained as research because its
+primary timing and allocation wins are clear, but one peak-RSS result exceeds
+the strict secondary regression budget; see
+`benchmarks/decisions/component-single-component-v1.json`. The sequential /
+parallel threshold and flat/CSR layout comparisons remain open; use the
+seven-entry #1290 suite as the common baseline for those experiments.
 
 ## P2.3 Remaining arrangement payload work
 
