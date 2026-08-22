@@ -372,6 +372,11 @@ validation path. It remains disconnected from production dispatch until the
 remaining conformance and decision-quality comparison gates are complete.
 Dedicated-runner baseline evidence is now available from #1290.
 
+Focused differential coverage now compares the hybrid adapter with the current
+SnapNoder on self-intersecting, road/contour, mixed-chain, duplicate/reversed,
+Z, and bounded-resource cases. The full golden, compatibility, fuzz,
+real-world, serial/parallel, and normalized-error corpus gates remain open.
+
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
 unavailable segments; the fallback is intentionally research-only and is not a
