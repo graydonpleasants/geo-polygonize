@@ -1,11 +1,105 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use crate::graph::planar_graph::PlanarGraph;
+    use crate::graph::planar_graph::{DirEdgeId, PlanarGraph};
     use crate::types::{Coord3D, Line3D};
     use crate::{CancellationToken, ExecutionPolicy, PolygonizeError};
     use geo_types::{Coord, LineString};
     use std::collections::BTreeSet;
+
+    // ponytail: shadow-only CSR oracle; integrate only after decision-quality
+    // layout timing proves it beats the current adjacency lists.
+    struct CsrAdjacency {
+        offsets: Vec<usize>,
+        directed_edges: Vec<DirEdgeId>,
+    }
+
+    impl CsrAdjacency {
+        fn from_graph(graph: &PlanarGraph) -> Self {
+            let mut offsets = Vec::with_capacity(graph.nodes_outgoing.len() + 1);
+            let mut directed_edges = Vec::new();
+            offsets.push(0);
+            for outgoing in &graph.nodes_outgoing {
+                directed_edges.extend_from_slice(outgoing);
+                offsets.push(directed_edges.len());
+            }
+            Self {
+                offsets,
+                directed_edges,
+            }
+        }
+
+        fn outgoing(&self, node: usize) -> &[DirEdgeId] {
+            &self.directed_edges[self.offsets[node]..self.offsets[node + 1]]
+        }
+
+        fn active_component_ids(&self, graph: &PlanarGraph) -> Vec<Option<usize>> {
+            let is_active = |directed_idx: DirEdgeId| {
+                let directed = &graph.directed_edges[directed_idx];
+                !directed.is_marked && !graph.edges[directed.edge_idx].deleted
+            };
+            let mut seeds = (0..graph.nodes_x.len())
+                .filter(|&node| self.outgoing(node).iter().copied().any(is_active))
+                .collect::<Vec<_>>();
+            seeds.sort_unstable_by(|&left, &right| {
+                graph.nodes_x[left]
+                    .total_cmp(&graph.nodes_x[right])
+                    .then_with(|| graph.nodes_y[left].total_cmp(&graph.nodes_y[right]))
+                    .then(left.cmp(&right))
+            });
+
+            let mut component_ids = vec![None; graph.nodes_x.len()];
+            let mut stack = Vec::new();
+            let mut next_component_id = 0;
+            for seed in seeds {
+                if component_ids[seed].is_some() {
+                    continue;
+                }
+                let component_id = next_component_id;
+                next_component_id += 1;
+                component_ids[seed] = Some(component_id);
+                stack.push(seed);
+                while let Some(node) = stack.pop() {
+                    for &directed_idx in self.outgoing(node) {
+                        if !is_active(directed_idx) {
+                            continue;
+                        }
+                        let neighbor = graph.directed_edges[directed_idx].dst;
+                        if component_ids[neighbor].is_none() {
+                            component_ids[neighbor] = Some(component_id);
+                            stack.push(neighbor);
+                        }
+                    }
+                }
+            }
+            component_ids
+        }
+
+        fn next_links(&self, graph: &PlanarGraph) -> Vec<Option<DirEdgeId>> {
+            let is_active = |directed_idx: DirEdgeId| {
+                let directed = &graph.directed_edges[directed_idx];
+                !directed.is_marked && !graph.edges[directed.edge_idx].deleted
+            };
+            let mut links = vec![None; graph.directed_edges.len()];
+            for node in 0..graph.nodes_x.len() {
+                let active = self
+                    .outgoing(node)
+                    .iter()
+                    .copied()
+                    .filter(|&directed_idx| is_active(directed_idx))
+                    .collect::<Vec<_>>();
+                let Some(&last) = active.last() else {
+                    continue;
+                };
+                let mut next = last;
+                for directed_idx in active {
+                    links[directed_idx] = Some(next);
+                    next = directed_idx;
+                }
+            }
+            links
+        }
+    }
 
     #[test]
     fn test_graph_construction() {
@@ -415,6 +509,66 @@ mod tests {
         let rings = graph.get_edge_rings();
 
         assert_eq!(rings.len(), 2);
+    }
+
+    #[test]
+    fn csr_shadow_preserves_component_and_face_walk_adjacency() {
+        let mut graph = PlanarGraph::new();
+        for (offset, points) in [
+            [
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(4.0, 0.0, 0.0),
+                Coord3D::new(0.0, 4.0, 0.0),
+            ],
+            [
+                Coord3D::new(10.0, 0.0, 0.0),
+                Coord3D::new(14.0, 0.0, 0.0),
+                Coord3D::new(10.0, 4.0, 0.0),
+            ],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for edge in 0..3 {
+                graph.add_line(Line3D::new(
+                    points[edge],
+                    points[(edge + 1) % 3],
+                    (offset * 10 + edge) as u32,
+                ));
+            }
+        }
+        graph.add_line(Line3D::new(
+            Coord3D::new(4.0, 0.0, 0.0),
+            Coord3D::new(6.0, 0.0, 0.0),
+            99,
+        ));
+        graph.sort_edges();
+        graph.validate_arrangement_edge_invariants().unwrap();
+        assert_eq!(graph.prune_dangles().len(), 1);
+        let rings = graph.get_edge_rings();
+        assert_eq!(rings.len(), 4);
+
+        let csr = CsrAdjacency::from_graph(&graph);
+        assert_eq!(csr.offsets.len(), graph.nodes_outgoing.len() + 1);
+        assert_eq!(
+            csr.directed_edges.len(),
+            graph.nodes_outgoing.iter().map(Vec::len).sum::<usize>()
+        );
+        for node in 0..graph.nodes_outgoing.len() {
+            assert_eq!(csr.outgoing(node), graph.nodes_outgoing[node].as_slice());
+        }
+        assert_eq!(
+            csr.active_component_ids(&graph),
+            graph.active_component_ids()
+        );
+        assert_eq!(
+            csr.next_links(&graph),
+            graph
+                .directed_edges
+                .iter()
+                .map(|directed| directed.next_idx)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
