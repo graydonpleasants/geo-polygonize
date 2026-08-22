@@ -286,13 +286,13 @@ Tracked by
   dangle/cut-heavy components, and nested disconnected rings.
 - [x] Evaluate a direct single-component fast path.
 - [ ] Evaluate deterministic sequential versus parallel component thresholds.
-- [ ] Prototype flat/CSR adjacency privately.
+- [x] Prototype flat/CSR adjacency privately.
 - [x] Emit deterministic component distribution, adjacency-capacity, reusable
   scratch high-water, scratch-state/worker, and merged-output evidence in
   diagnostics and benchmark records.
 - [x] Run arrangement and full topology conformance before timing.
 - [ ] Compare layout and execution decisions on production-scale workloads.
-- [x] Check in explicit accept/reject decision records.
+- [x] Check in explicit decision records for evaluated paths.
 - [ ] Remove losing prototypes.
 
 **Promotion gate:** exact canonical equivalence plus a predeclared end-to-end or
@@ -303,8 +303,11 @@ complete. The direct single-component path is retained as research because its
 primary timing and allocation wins are clear, but one peak-RSS result exceeds
 the strict secondary regression budget; see
 `benchmarks/decisions/component-single-component-v1.json`. The sequential /
-parallel threshold and flat/CSR layout comparisons remain open; use the
-seven-entry #1290 suite as the common baseline for those experiments.
+parallel threshold and real-workload flat/CSR layout comparisons remain open.
+The private CSR shadow validates packed adjacency offsets, component discovery,
+and face-walk successors against the current layout, but it is not integrated
+into production; use the seven-entry #1290 suite as the common baseline for
+the timing decision.
 
 ## P2.3 Remaining arrangement payload work
 
