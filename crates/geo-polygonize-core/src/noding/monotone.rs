@@ -776,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_experiment_uses_shared_split_and_validation_path() {
+    fn hybrid_experiment_preserves_source_ids_z_and_shared_path() {
         let lines = [
             Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 10.0), 1),
             Line3D::new(
@@ -828,6 +828,9 @@ mod tests {
         assert!(actual.iter().any(|segment| segment.start.z == 5.0));
         assert!(actual.iter().any(|segment| segment.start.z == 30.0));
         assert!(actual.iter().any(|segment| segment.start.z == 70.0));
+        let mut source_line_ids: Vec<_> = actual.iter().map(|segment| segment.line_id).collect();
+        source_line_ids.sort_unstable();
+        assert_eq!(source_line_ids, vec![1, 1, 2, 2, 3, 3]);
     }
 
     #[test]
