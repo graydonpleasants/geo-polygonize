@@ -529,6 +529,23 @@ mod tests {
         );
     }
 
+    fn assert_hybrid_matches_snap(
+        lines: Vec<Line3D>,
+        source_chains: &[SourceLineString],
+    ) -> NodingWorkStats {
+        let snap_noder = SnapNoder::new(0.0);
+        let expected = snap_noder.node(lines.clone());
+        let (actual, stats) = node_hybrid_source_chains(
+            lines,
+            source_chains,
+            &snap_noder,
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        stats
+    }
+
     #[test]
     fn recursively_prunes_long_chain_candidates_without_misses() {
         let lines = [
@@ -828,6 +845,77 @@ mod tests {
             ),
             Err(PolygonizeError::InvalidGeometry { reason })
                 if reason.contains("complete source-chain coverage")
+        ));
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_differential_conformance_corpus() {
+        let (self_intersecting, self_intersecting_chains) =
+            original_chains(&[&[(0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)]]);
+        let self_stats = assert_hybrid_matches_snap(self_intersecting, &self_intersecting_chains);
+        assert!(self_stats.split_events > 0);
+
+        let (road_and_contours, road_and_contour_chains) = original_chains(&[
+            &[(0.0, 0.0), (3.0, 0.0), (6.0, 0.0)],
+            &[(1.0, -1.0), (1.0, 1.0), (1.0, 3.0)],
+            &[(0.0, 10.0), (2.0, 11.0), (4.0, 10.0), (6.0, 11.0)],
+            &[(0.0, 12.0), (2.0, 13.0), (4.0, 12.0), (6.0, 13.0)],
+        ]);
+        let road_stats = assert_hybrid_matches_snap(road_and_contours, &road_and_contour_chains);
+        assert!(road_stats.candidate_pairs >= road_stats.exact_intersection_calls);
+
+        let duplicate_and_reversed = vec![
+            Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(2.0, 0.0, 0.0), 10),
+            Line3D::new(Coord3D::new(2.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0), 11),
+            Line3D::new(
+                Coord3D::new(1.0, -1.0, 0.0),
+                Coord3D::new(1.0, 1.0, 0.0),
+                12,
+            ),
+        ];
+        let duplicate_and_reversed_chains = [
+            SourceLineString {
+                segment_start: 0,
+                segment_count: 2,
+                source_id: Some(10),
+                kind: SourceChainKind::Original,
+            },
+            SourceLineString {
+                segment_start: 2,
+                segment_count: 1,
+                source_id: Some(12),
+                kind: SourceChainKind::Synthetic,
+            },
+        ];
+        let duplicate_stats =
+            assert_hybrid_matches_snap(duplicate_and_reversed, &duplicate_and_reversed_chains);
+        assert!(duplicate_stats.exact_intersection_calls > 0);
+    }
+
+    #[test]
+    fn hybrid_experiment_preserves_bounded_error_contracts() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (2.0, 0.0)],
+            &[(1.0, -1.0), (1.0, 1.0)],
+            &[(0.0, -1.0), (2.0, 1.0)],
+        ]);
+        let policy = ExecutionPolicy {
+            max_candidate_pairs: Some(1),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            node_hybrid_source_chains(
+                lines,
+                &chains,
+                &SnapNoder::new(0.0),
+                &policy,
+            ),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                stage,
+                limit: 1,
+                ..
+            }) if stage == "candidate_pairs"
         ));
     }
 
