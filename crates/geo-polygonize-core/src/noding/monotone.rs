@@ -1042,6 +1042,48 @@ mod tests {
     }
 
     #[test]
+    fn hybrid_experiment_normalizes_operational_errors() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (2.0, 0.0)],
+            &[(1.0, -1.0), (1.0, 1.0)],
+            &[(0.0, -1.0), (2.0, 1.0)],
+        ]);
+        let limit_error = node_hybrid_source_chains(
+            lines.clone(),
+            &chains,
+            &SnapNoder::new(0.0),
+            &ExecutionPolicy {
+                max_candidate_pairs: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        let limit = normalize_polygonize_error(&limit_error);
+        assert_eq!(limit.family, "resource_limit");
+        assert_eq!(limit.code, "resource_limit_exceeded");
+        assert_eq!(limit.stage, "candidate_pairs");
+        assert_eq!(limit.limit.as_deref(), Some("1"));
+        assert!(limit.observed.is_some());
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled_error = node_hybrid_source_chains(
+            lines,
+            &chains,
+            &SnapNoder::new(0.0),
+            &ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        let cancelled = normalize_polygonize_error(&cancelled_error);
+        assert_eq!(cancelled.family, "cancelled");
+        assert_eq!(cancelled.code, "cancelled");
+        assert_eq!(cancelled.stage, "candidate_enumeration");
+    }
+
+    #[test]
     fn hybrid_experiment_matches_bounded_differential_fuzz_corpus() {
         let mut rng = StdRng::seed_from_u64(0x1287_2026);
         for case_index in 0..12 {
