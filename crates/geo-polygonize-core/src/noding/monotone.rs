@@ -94,7 +94,9 @@ pub(crate) fn node_hybrid_source_chains(
     }
 
     let (noded, split_events) = if events.is_empty() {
-        (lines, 0)
+        let mut noded = lines;
+        snap_noder.normalize_and_dedup(&mut noded);
+        (noded, 0)
     } else {
         snap_noder.apply_split_events_for_research(&lines, events, execution_policy)?
     };
@@ -983,6 +985,30 @@ mod tests {
         let duplicate_stats =
             assert_hybrid_matches_snap(duplicate_and_reversed, &duplicate_and_reversed_chains);
         assert!(duplicate_stats.exact_intersection_calls > 0);
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_overlap_and_nested_ring_cases() {
+        let (overlapping, overlapping_chains) = original_chains(&[
+            &[(0.0, 0.0), (4.0, 0.0)],
+            &[(1.0, 0.0), (3.0, 0.0)],
+            &[(2.0, -1.0), (2.0, 1.0)],
+        ]);
+        let overlap_stats = assert_hybrid_matches_snap(overlapping, &overlapping_chains);
+        assert!(overlap_stats.split_events > 0);
+
+        let (nested_rings, nested_ring_chains) = original_chains(&[
+            &[
+                (0.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 10.0),
+                (0.0, 10.0),
+                (0.0, 0.0),
+            ],
+            &[(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0), (2.0, 2.0)],
+        ]);
+        let nested_stats = assert_hybrid_matches_snap(nested_rings, &nested_ring_chains);
+        assert_eq!(nested_stats.split_events, 0);
     }
 
     #[test]
