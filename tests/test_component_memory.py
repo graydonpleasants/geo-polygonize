@@ -112,6 +112,9 @@ def test_component_memory_report_is_schema_valid_and_deterministic(tmp_path):
     assert summary["component_memory"]["component_count"] == 1
     assert summary["derived"]["largest_component_edge_fraction"] == 1
     assert summary["derived"]["scratch_instances_per_worker"] == 1
+    assert summary["derived"]["vec_vec_storage_words"] == 4
+    assert summary["derived"]["csr_storage_words"] == 2
+    assert summary["derived"]["csr_to_vec_vec_storage_ratio"] == 0.5
     validate(
         report,
         json.loads(

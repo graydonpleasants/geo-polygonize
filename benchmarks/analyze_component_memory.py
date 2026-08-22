@@ -26,6 +26,9 @@ COMPONENT_MEMORY_FIELDS = (
     "global_graph_edge_capacity",
     "global_graph_directed_edge_capacity",
     "global_graph_adjacency_capacity",
+    "global_graph_adjacency_row_capacity",
+    "global_graph_csr_offset_count",
+    "global_graph_csr_directed_edge_count",
     "scratch_instance_count",
     "execution_worker_count",
     "max_scratch_node_capacity",
@@ -48,6 +51,20 @@ def _median(records, field):
 
 def _ratio(numerator, denominator):
     return numerator / denominator if denominator else 0.0
+
+
+def _vec_vec_storage_words(component_memory):
+    return (
+        component_memory["global_graph_adjacency_row_capacity"] * 3
+        + component_memory["global_graph_adjacency_capacity"]
+    )
+
+
+def _csr_storage_words(component_memory):
+    return (
+        component_memory["global_graph_csr_offset_count"]
+        + component_memory["global_graph_csr_directed_edge_count"]
+    )
 
 
 def _component_summary(context):
@@ -92,6 +109,12 @@ def _component_summary(context):
             ),
             "scratch_instances_per_worker": _ratio(
                 component_memory["scratch_instance_count"], workers
+            ),
+            "vec_vec_storage_words": _vec_vec_storage_words(component_memory),
+            "csr_storage_words": _csr_storage_words(component_memory),
+            "csr_to_vec_vec_storage_ratio": _ratio(
+                _csr_storage_words(component_memory),
+                _vec_vec_storage_words(component_memory),
             ),
         },
     }

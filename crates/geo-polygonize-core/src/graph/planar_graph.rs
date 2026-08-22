@@ -197,6 +197,12 @@ fn component_output_coordinate_capacity(output: &ComponentOutput) -> usize {
             .sum::<usize>()
 }
 
+fn observe_csr_adjacency_shape(stats: &mut ComponentMemoryStats, graph: &PlanarGraph) {
+    stats.global_graph_adjacency_row_capacity = graph.nodes_outgoing.capacity();
+    stats.global_graph_csr_offset_count = graph.nodes_outgoing.len().saturating_add(1);
+    stats.global_graph_csr_directed_edge_count = graph.nodes_outgoing.iter().map(Vec::len).sum();
+}
+
 // Wrapper for Coord to be Hashable (since f64 is not Hash)
 #[derive(PartialEq, Eq, Hash, Ord, PartialOrd, Clone, Copy)]
 pub(crate) struct NodeKey(u64, u64);
@@ -2492,6 +2498,7 @@ impl PlanarGraph {
             global_graph_adjacency_capacity: self.nodes_outgoing.iter().map(Vec::capacity).sum(),
             ..Default::default()
         };
+        observe_csr_adjacency_shape(&mut memory_stats, self);
         let partitions = nodes
             .into_iter()
             .zip(edges)
@@ -2629,6 +2636,7 @@ impl PlanarGraph {
             execution_worker_count: 1,
             ..Default::default()
         };
+        observe_csr_adjacency_shape(&mut memory_stats, self);
         let output = (
             self.prune_dangles_with_execution_policy(execution_policy)?,
             self.delete_cut_edges_with_execution_policy(
