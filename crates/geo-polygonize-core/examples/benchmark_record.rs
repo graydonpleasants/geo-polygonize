@@ -3,9 +3,9 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::{
-    normalize_polygonize_error, polygonize, ComponentMemoryStats, Coord3D, CoordinateFingerprintV1,
-    Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1, Polygonizer, PolygonizerOptions,
-    PolygonizerResult, PrecisionModel, TopologyFingerprintV1,
+    normalize_polygonize_error, polygonize, AdjacencyLayoutBenchmark, ComponentMemoryStats,
+    Coord3D, CoordinateFingerprintV1, Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1,
+    Polygonizer, PolygonizerOptions, PolygonizerResult, PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::{Deserialize, Serialize};
@@ -412,6 +412,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let layout_candidate = benchmark_adjacency_layout(&lines, &correctness_options, args.samples)
+        .map_err(|error| format!("CSR layout candidate failed: {error}"))?;
+
     let mut timed_options = options.clone();
     timed_options.diagnostics.timings = true;
     for _ in 0..args.warmup_iterations {
@@ -504,6 +507,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "bytes": samples.allocated_bytes / args.samples as u64,
             },
             "peak_rss_bytes": args.peak_rss_bytes.expect("required before timing"),
+            "layout_candidate": layout_candidate,
         },
         "work": {
             "input_line_strings": workload.size.line_strings,
@@ -709,6 +713,16 @@ fn polygonize_with_component_memory(
     polygonizer.add_lines(lines);
     let result = polygonizer.polygonize()?;
     Ok((result, polygonizer.component_memory_stats()))
+}
+
+fn benchmark_adjacency_layout(
+    lines: &[Line3D],
+    options: &PolygonizerOptions,
+    samples: usize,
+) -> geo_polygonize_core::Result<AdjacencyLayoutBenchmark> {
+    let mut polygonizer = Polygonizer::with_options(options.clone());
+    polygonizer.add_lines(lines.to_vec());
+    polygonizer.benchmark_adjacency_layout(samples)
 }
 
 fn reduced_reference_outcome(reference: &ReferenceResult) -> BenchmarkReducedOutcomeV1 {

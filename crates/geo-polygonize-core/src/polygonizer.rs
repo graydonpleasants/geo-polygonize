@@ -428,6 +428,19 @@ impl Polygonizer {
         self.component_memory_stats.clone()
     }
 
+    #[doc(hidden)]
+    pub fn benchmark_adjacency_layout(
+        &mut self,
+        samples: usize,
+    ) -> Result<crate::graph::AdjacencyLayoutBenchmark> {
+        self.options.validate()?;
+        self.build_graph(self.input_lines.clone(), None)?;
+        self.graph.sort_edges();
+        self.graph.prune_dangles();
+        self.graph.get_edge_rings_with_graph_ids(false, false);
+        self.graph.benchmark_adjacency_layout(samples)
+    }
+
     fn with_trace(mut self, trace: TraceRecorderV1) -> Self {
         self.trace = Some(trace);
         self

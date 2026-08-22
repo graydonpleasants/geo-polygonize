@@ -99,6 +99,10 @@ capacities, scratch-state instances, configured execution workers, and merged
 output buffering.
 Those fields are element capacities rather than byte estimates; use them with
 allocation and peak-RSS measurements when evaluating a layout change.
+Decision-quality records also carry an optional `measurement.layout_candidate`
+shadow result. It checks packed-CSR component and face-successor traversal
+against the current adjacency lists and times those shared operations; it does
+not change production dispatch or establish an end-to-end layout decision.
 
 Run the benchmark in five separate processes with unique `--repetition` values,
 then gate the records before publication:
