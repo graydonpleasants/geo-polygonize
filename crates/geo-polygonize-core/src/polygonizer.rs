@@ -436,8 +436,12 @@ impl Polygonizer {
         self.options.validate()?;
         self.build_graph(self.input_lines.clone(), None)?;
         self.graph.sort_edges();
-        self.graph.prune_dangles();
-        self.graph.get_edge_rings_with_graph_ids(false, false);
+        self.graph
+            .prune_dangles_with_execution_policy(&self.execution_policy)?;
+        self.graph.delete_cut_edges_with_execution_policy(
+            &self.execution_policy,
+            !matches!(self.options.noding.guarantee, NodingGuarantee::Unchecked),
+        )?;
         self.graph.benchmark_adjacency_layout(samples)
     }
 
