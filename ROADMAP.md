@@ -374,10 +374,11 @@ Dedicated-runner baseline evidence is now available from #1290.
 
 Focused differential coverage now compares the hybrid adapter with the current
 SnapNoder on self-intersecting, road/contour, mixed-chain, duplicate/reversed,
-Z, bounded-resource, input-permutation, and normalized-boundary-error cases.
-The full golden, compatibility, fuzz, real-world, serial/parallel, and
-normalized-error corpus gates remain open. A bounded seeded differential-fuzz
-corpus now exercises 12 generated cases against the same baseline.
+Z, bounded-resource, input-permutation, normalized-boundary-error,
+partial-overlap, and nested-ring cases. The full golden, compatibility, fuzz,
+real-world, serial/parallel, and normalized-error corpus gates remain open. A
+bounded seeded differential-fuzz corpus now exercises 12 generated cases
+against the same baseline.
 
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or
