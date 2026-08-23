@@ -1140,6 +1140,15 @@ mod tests {
     }
 
     #[test]
+    fn hybrid_experiment_matches_z_ignore_fixture_fingerprint() {
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/z/ignore_conflicts.json"),
+            1,
+            0,
+        );
+    }
+
+    #[test]
     fn hybrid_experiment_matches_overlap_and_nested_ring_cases() {
         let (overlapping, overlapping_chains) = original_chains(&[
             &[(0.0, 0.0), (4.0, 0.0)],
