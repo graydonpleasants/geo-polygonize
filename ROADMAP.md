@@ -383,6 +383,8 @@ fingerprint case. The focused fixture set also covers zero-length compatibility
 normalization and a profile-bearing provenance fingerprint case.
 The focused fixture set also covers the Z Ignore policy fingerprint.
 It also compares the Z conflict failure through the normalized-error contract.
+The square-with-hole parity case also verifies the native serial/parallel graph
+dispatch selected by the corresponding feature build.
 The focused comparisons execute under both default and no-default core builds;
 the full golden, compatibility, fuzz, real-world, serial/parallel, and
 normalized-error corpus gates remain open. A bounded seeded differential-fuzz

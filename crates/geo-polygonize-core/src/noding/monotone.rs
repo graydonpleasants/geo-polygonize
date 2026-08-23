@@ -479,6 +479,7 @@ fn invalid_range(start: usize, count: usize) -> PolygonizeError {
 mod tests {
     use super::*;
     use crate::types::{Coord3D, SourceChainKind};
+    use crate::utils::parallel::{par_flat_map_dispatches, reset_par_flat_map_dispatches};
     use crate::{
         normalize_polygonize_error, polygonize, CancellationToken, DiagnosticsOptions,
         ExecutionPolicy, PolygonizerOptions, ProvenanceOptions, TopologyFingerprintV1,
@@ -1101,11 +1102,17 @@ mod tests {
 
     #[test]
     fn hybrid_experiment_matches_square_with_hole_fixture_fingerprint() {
+        reset_par_flat_map_dispatches();
         assert_hybrid_matches_fixture_fingerprint(
             include_str!("../../tests/fixtures/basic/square_with_hole.json"),
             2,
             0,
         );
+        if cfg!(feature = "parallel") && !cfg!(target_arch = "wasm32") {
+            assert!(par_flat_map_dispatches() > 0);
+        } else {
+            assert_eq!(par_flat_map_dispatches(), 0);
+        }
     }
 
     #[test]
