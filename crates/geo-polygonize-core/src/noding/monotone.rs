@@ -512,6 +512,77 @@ mod tests {
         (lines, chains)
     }
 
+    #[derive(Deserialize)]
+    struct Fixture {
+        options: Option<PolygonizerOptions>,
+        inputs: Vec<FixtureLine>,
+    }
+
+    #[derive(Deserialize)]
+    struct FixtureLine {
+        start: FixtureCoordinate,
+        end: FixtureCoordinate,
+        id: u32,
+    }
+
+    #[derive(Deserialize)]
+    struct FixtureCoordinate {
+        x: f64,
+        y: f64,
+        z: f64,
+    }
+
+    fn assert_hybrid_matches_fixture_fingerprint(source: &str, expected_polygon_count: usize) {
+        let fixture: Fixture = serde_json::from_str(source).unwrap();
+        let mut options = fixture.options.unwrap_or_default();
+        options.diagnostics = DiagnosticsOptions {
+            enabled: true,
+            ..Default::default()
+        };
+        options.provenance = ProvenanceOptions {
+            enabled: true,
+            include_boundary_line_ids: true,
+        };
+        let lines: Vec<_> = fixture
+            .inputs
+            .into_iter()
+            .map(|input| {
+                Line3D::new(
+                    Coord3D::new(input.start.x, input.start.y, input.start.z),
+                    Coord3D::new(input.end.x, input.end.y, input.end.z),
+                    input.id,
+                )
+            })
+            .collect();
+        let chains: Vec<_> = lines
+            .iter()
+            .enumerate()
+            .map(|(segment_start, line)| SourceLineString {
+                segment_start,
+                segment_count: 1,
+                source_id: Some(line.line_id),
+                kind: SourceChainKind::Original,
+            })
+            .collect();
+        let snap_noder = SnapNoder::new(0.0);
+        let expected = snap_noder.node(lines.clone());
+        let (actual, _) =
+            node_hybrid_source_chains(lines, &chains, &snap_noder, &ExecutionPolicy::default())
+                .unwrap();
+        let expected_result = polygonize(expected, &options).unwrap();
+        let actual_result = polygonize(actual, &options).unwrap();
+        let expected_fingerprint =
+            TopologyFingerprintV1::try_from_result(&expected_result, &options).unwrap();
+        let actual_fingerprint =
+            TopologyFingerprintV1::try_from_result(&actual_result, &options).unwrap();
+
+        assert_eq!(actual_result.polygons.len(), expected_polygon_count);
+        assert!(actual_result.dangles.is_empty());
+        assert!(actual_result.cut_edges.is_empty());
+        assert!(actual_result.invalid_rings.is_empty());
+        assert_eq!(actual_fingerprint, expected_fingerprint);
+    }
+
     fn assert_matches_envelope_oracle(lines: &[Line3D], chains: &[SourceLineString]) {
         let mut eligible = vec![false; lines.len()];
         for chain in chains
@@ -1019,77 +1090,18 @@ mod tests {
 
     #[test]
     fn hybrid_experiment_matches_square_with_hole_fixture_fingerprint() {
-        #[derive(Deserialize)]
-        struct Fixture {
-            options: Option<PolygonizerOptions>,
-            inputs: Vec<FixtureLine>,
-        }
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/basic/square_with_hole.json"),
+            2,
+        );
+    }
 
-        #[derive(Deserialize)]
-        struct FixtureLine {
-            start: FixtureCoordinate,
-            end: FixtureCoordinate,
-            id: u32,
-        }
-
-        #[derive(Deserialize)]
-        struct FixtureCoordinate {
-            x: f64,
-            y: f64,
-            z: f64,
-        }
-
-        let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../tests/fixtures/basic/square_with_hole.json"
-        ))
-        .unwrap();
-        let mut options = fixture.options.unwrap_or_default();
-        options.diagnostics = DiagnosticsOptions {
-            enabled: true,
-            ..Default::default()
-        };
-        options.provenance = ProvenanceOptions {
-            enabled: true,
-            include_boundary_line_ids: true,
-        };
-        let lines: Vec<_> = fixture
-            .inputs
-            .into_iter()
-            .map(|input| {
-                Line3D::new(
-                    Coord3D::new(input.start.x, input.start.y, input.start.z),
-                    Coord3D::new(input.end.x, input.end.y, input.end.z),
-                    input.id,
-                )
-            })
-            .collect();
-        let chains: Vec<_> = lines
-            .iter()
-            .enumerate()
-            .map(|(segment_start, line)| SourceLineString {
-                segment_start,
-                segment_count: 1,
-                source_id: Some(line.line_id),
-                kind: SourceChainKind::Original,
-            })
-            .collect();
-        let snap_noder = SnapNoder::new(0.0);
-        let expected = snap_noder.node(lines.clone());
-        let (actual, _) =
-            node_hybrid_source_chains(lines, &chains, &snap_noder, &ExecutionPolicy::default())
-                .unwrap();
-        let expected_result = polygonize(expected, &options).unwrap();
-        let actual_result = polygonize(actual, &options).unwrap();
-        let expected_fingerprint =
-            TopologyFingerprintV1::try_from_result(&expected_result, &options).unwrap();
-        let actual_fingerprint =
-            TopologyFingerprintV1::try_from_result(&actual_result, &options).unwrap();
-
-        assert_eq!(actual_result.polygons.len(), 2);
-        assert!(actual_result.dangles.is_empty());
-        assert!(actual_result.cut_edges.is_empty());
-        assert!(actual_result.invalid_rings.is_empty());
-        assert_eq!(actual_fingerprint, expected_fingerprint);
+    #[test]
+    fn hybrid_experiment_matches_bowtie_fixture_fingerprint() {
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/dirty/bowtie.json"),
+            2,
+        );
     }
 
     #[test]
