@@ -93,13 +93,13 @@ pub(crate) fn node_hybrid_source_chains(
         })?;
     }
 
-    let (noded, split_events) = if events.is_empty() {
-        let mut noded = lines;
-        snap_noder.normalize_and_dedup(&mut noded);
-        (noded, 0)
+    let (mut noded, split_events) = if events.is_empty() {
+        (lines, 0)
     } else {
         snap_noder.apply_split_events_for_research(&lines, events, execution_policy)?
     };
+    noded.retain(|line| line.start.to_coord_2d() != line.end.to_coord_2d());
+    snap_noder.normalize_and_dedup(&mut noded);
     work_stats.split_events = split_events;
     ValidatingNoder::new().validate_with_execution_policy(&noded, execution_policy)?;
     Ok((noded, work_stats))
@@ -1116,6 +1116,15 @@ mod tests {
             include_str!("../../tests/fixtures/compat/floating_microfaces.json"),
             2,
             4,
+        );
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_zero_length_fixture_fingerprint() {
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/compat/zero_length_segment.json"),
+            0,
+            0,
         );
     }
 
