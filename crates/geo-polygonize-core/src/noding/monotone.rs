@@ -532,7 +532,11 @@ mod tests {
         z: f64,
     }
 
-    fn assert_hybrid_matches_fixture_fingerprint(source: &str, expected_polygon_count: usize) {
+    fn assert_hybrid_matches_fixture_fingerprint(
+        source: &str,
+        expected_polygon_count: usize,
+        expected_dangle_count: usize,
+    ) {
         let fixture: Fixture = serde_json::from_str(source).unwrap();
         let mut options = fixture.options.unwrap_or_default();
         options.diagnostics = DiagnosticsOptions {
@@ -577,7 +581,7 @@ mod tests {
             TopologyFingerprintV1::try_from_result(&actual_result, &options).unwrap();
 
         assert_eq!(actual_result.polygons.len(), expected_polygon_count);
-        assert!(actual_result.dangles.is_empty());
+        assert_eq!(actual_result.dangles.len(), expected_dangle_count);
         assert!(actual_result.cut_edges.is_empty());
         assert!(actual_result.invalid_rings.is_empty());
         assert_eq!(actual_fingerprint, expected_fingerprint);
@@ -1093,6 +1097,7 @@ mod tests {
         assert_hybrid_matches_fixture_fingerprint(
             include_str!("../../tests/fixtures/basic/square_with_hole.json"),
             2,
+            0,
         );
     }
 
@@ -1101,6 +1106,16 @@ mod tests {
         assert_hybrid_matches_fixture_fingerprint(
             include_str!("../../tests/fixtures/dirty/bowtie.json"),
             2,
+            0,
+        );
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_floating_microfaces_fixture_fingerprint() {
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/compat/floating_microfaces.json"),
+            2,
+            4,
         );
     }
 
