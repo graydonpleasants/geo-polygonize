@@ -533,11 +533,7 @@ mod tests {
         z: f64,
     }
 
-    fn assert_hybrid_matches_fixture_fingerprint(
-        source: &str,
-        expected_polygon_count: usize,
-        expected_dangle_count: usize,
-    ) {
+    fn fixture_inputs(source: &str) -> (Vec<Line3D>, Vec<SourceLineString>, PolygonizerOptions) {
         let fixture: Fixture = serde_json::from_str(source).unwrap();
         let mut options = fixture.options.unwrap_or_default();
         options.input_profile_id = fixture.profile_id;
@@ -570,6 +566,15 @@ mod tests {
                 kind: SourceChainKind::Original,
             })
             .collect();
+        (lines, chains, options)
+    }
+
+    fn assert_hybrid_matches_fixture_fingerprint(
+        source: &str,
+        expected_polygon_count: usize,
+        expected_dangle_count: usize,
+    ) {
+        let (lines, chains, options) = fixture_inputs(source);
         let snap_noder = SnapNoder::new(0.0);
         let expected = snap_noder.node(lines.clone());
         let (actual, _) =
@@ -1146,6 +1151,27 @@ mod tests {
             1,
             0,
         );
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_z_conflict_normalized_error() {
+        let (lines, chains, mut options) =
+            fixture_inputs(include_str!("../../tests/fixtures/z/ignore_conflicts.json"));
+        options.z.policy = crate::ZPolicy::ErrorOnConflict;
+        options.z.conflict_tolerance = 0.0;
+        let snap_noder = SnapNoder::new(0.0);
+        let expected = snap_noder.node(lines.clone());
+        let (actual, _) =
+            node_hybrid_source_chains(lines, &chains, &snap_noder, &ExecutionPolicy::default())
+                .unwrap();
+        let expected_error =
+            normalize_polygonize_error(&polygonize(expected, &options).unwrap_err());
+        let actual_error = normalize_polygonize_error(&polygonize(actual, &options).unwrap_err());
+
+        assert_eq!(actual_error, expected_error);
+        assert_eq!(actual_error.family, "topology");
+        assert_eq!(actual_error.code, "z_conflict");
+        assert_eq!(actual_error.stage, "z_reconciliation");
     }
 
     #[test]
