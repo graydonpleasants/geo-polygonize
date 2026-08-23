@@ -1078,6 +1078,17 @@ mod tests {
     }
 
     #[test]
+    fn hybrid_experiment_records_grid_candidate_reduction() {
+        let (lines, chains, _) =
+            fixture_inputs(include_str!("../../tests/fixtures/benchmark/grid_10.json"));
+        let possible_pairs = lines.len() * lines.len().saturating_sub(1) / 2;
+        let stats = assert_hybrid_matches_snap(lines, &chains);
+
+        assert!(stats.exact_intersection_calls < possible_pairs);
+        assert!(stats.candidate_pairs >= stats.exact_intersection_calls);
+    }
+
+    #[test]
     fn hybrid_experiment_matches_canonical_feature_build_fingerprint() {
         let (lines, chains) = original_chains(&[
             &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)],

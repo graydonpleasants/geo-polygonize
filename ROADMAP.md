@@ -385,6 +385,9 @@ The focused fixture set also covers the Z Ignore policy fingerprint.
 It also compares the Z conflict failure through the normalized-error contract.
 The square-with-hole parity case also verifies the native serial/parallel graph
 dispatch selected by the corresponding feature build.
+The existing grid_10 fixture now records exact-intersection candidate reduction
+against all possible segment pairs; dedicated production-scale measurement gates
+remain open.
 The focused comparisons execute under both default and no-default core builds;
 the full golden, compatibility, fuzz, real-world, serial/parallel, and
 normalized-error corpus gates remain open. A bounded seeded differential-fuzz
