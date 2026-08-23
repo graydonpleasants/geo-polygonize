@@ -378,7 +378,8 @@ Z interpolation/source-ID preservation, bounded-resource, normalized
 operational-error, input-permutation, normalized-boundary-error,
 partial-overlap, nested-ring, and canonical feature-build fingerprint cases.
 The focused corpus also includes a fixture-backed square-with-hole fingerprint
-case and a dirty-bowtie fingerprint case.
+case, a dirty-bowtie fingerprint case, and a floating-microfaces compatibility
+fingerprint case.
 The focused comparisons execute under both default and no-default core builds;
 the full golden, compatibility, fuzz, real-world, serial/parallel, and
 normalized-error corpus gates remain open. A bounded seeded differential-fuzz
