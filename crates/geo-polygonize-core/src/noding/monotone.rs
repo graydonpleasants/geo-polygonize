@@ -515,6 +515,7 @@ mod tests {
     #[derive(Deserialize)]
     struct Fixture {
         options: Option<PolygonizerOptions>,
+        profile_id: Option<String>,
         inputs: Vec<FixtureLine>,
     }
 
@@ -539,6 +540,7 @@ mod tests {
     ) {
         let fixture: Fixture = serde_json::from_str(source).unwrap();
         let mut options = fixture.options.unwrap_or_default();
+        options.input_profile_id = fixture.profile_id;
         options.diagnostics = DiagnosticsOptions {
             enabled: true,
             ..Default::default()
@@ -1124,6 +1126,15 @@ mod tests {
         assert_hybrid_matches_fixture_fingerprint(
             include_str!("../../tests/fixtures/compat/zero_length_segment.json"),
             0,
+            0,
+        );
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_provenance_fixture_fingerprint() {
+        assert_hybrid_matches_fixture_fingerprint(
+            include_str!("../../tests/fixtures/provenance/mixed_boundary_with_profile.json"),
+            2,
             0,
         );
     }
