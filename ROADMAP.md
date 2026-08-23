@@ -376,10 +376,11 @@ Focused differential coverage now compares the hybrid adapter with the current
 SnapNoder on self-intersecting, road/contour, mixed-chain, duplicate/reversed,
 Z interpolation/source-ID preservation, bounded-resource, normalized
 operational-error, input-permutation, normalized-boundary-error,
-partial-overlap, and nested-ring cases. The full golden, compatibility, fuzz,
-real-world, serial/parallel, and normalized-error corpus gates remain open. A
-bounded seeded differential-fuzz corpus now exercises 12 generated cases
-against the same baseline.
+partial-overlap, nested-ring, and canonical feature-build fingerprint cases.
+The focused comparisons execute under both default and no-default core builds;
+the full golden, compatibility, fuzz, real-world, serial/parallel, and
+normalized-error corpus gates remain open. A bounded seeded differential-fuzz
+corpus now exercises 12 generated cases against the same baseline.
 
 Hybrid candidate coverage uses the MCIndex traversal for original↔original
 pairs and a streaming fallback scan for any pair involving synthetic or

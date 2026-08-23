@@ -479,7 +479,10 @@ fn invalid_range(start: usize, count: usize) -> PolygonizeError {
 mod tests {
     use super::*;
     use crate::types::{Coord3D, SourceChainKind};
-    use crate::{normalize_polygonize_error, CancellationToken, ExecutionPolicy};
+    use crate::{
+        normalize_polygonize_error, polygonize, CancellationToken, ExecutionPolicy,
+        PolygonizerOptions, TopologyFingerprintV1,
+    };
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -988,6 +991,29 @@ mod tests {
         let duplicate_stats =
             assert_hybrid_matches_snap(duplicate_and_reversed, &duplicate_and_reversed_chains);
         assert!(duplicate_stats.exact_intersection_calls > 0);
+    }
+
+    #[test]
+    fn hybrid_experiment_matches_canonical_feature_build_fingerprint() {
+        let (lines, chains) = original_chains(&[
+            &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)],
+            &[(0.0, 0.0), (4.0, 4.0)],
+            &[(0.0, 4.0), (4.0, 0.0)],
+        ]);
+        let snap_noder = SnapNoder::new(0.0);
+        let expected = snap_noder.node(lines.clone());
+        let (actual, _) =
+            node_hybrid_source_chains(lines, &chains, &snap_noder, &ExecutionPolicy::default())
+                .unwrap();
+        let options = PolygonizerOptions::default();
+        let expected_result = polygonize(expected, &options).unwrap();
+        let actual_result = polygonize(actual, &options).unwrap();
+        let expected_fingerprint =
+            TopologyFingerprintV1::try_from_result(&expected_result, &options).unwrap();
+        let actual_fingerprint =
+            TopologyFingerprintV1::try_from_result(&actual_result, &options).unwrap();
+
+        assert_eq!(actual_fingerprint, expected_fingerprint);
     }
 
     #[test]
