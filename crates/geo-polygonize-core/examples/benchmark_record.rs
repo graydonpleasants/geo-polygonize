@@ -2,9 +2,10 @@
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
+use geo_polygonize_core::noding::monotone::benchmark_node_hybrid_source_ranges;
 use geo_polygonize_core::{
-    normalize_polygonize_error, polygonize, AdjacencyLayoutBenchmark, ComponentMemoryStats,
-    Coord3D, CoordinateFingerprintV1, Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1,
+    normalize_polygonize_error, AdjacencyLayoutBenchmark, ComponentMemoryStats, Coord3D,
+    CoordinateFingerprintV1, ExecutionPolicy, Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1,
     Polygonizer, PolygonizerOptions, PolygonizerResult, PrecisionModel, TopologyFingerprintV1,
 };
 use geojson::{GeoJson, Value as GeoJsonValue};
@@ -23,6 +24,8 @@ use std::time::{Duration, Instant};
 struct Args {
     #[arg(long, value_enum)]
     lane: Lane,
+    #[arg(long, value_enum, default_value = "production")]
+    noding_path: NodingPath,
     #[arg(long)]
     workload: String,
     #[arg(long, default_value_t = 30)]
@@ -45,6 +48,28 @@ struct Args {
     output: Option<PathBuf>,
     #[arg(long)]
     mismatch_candidate: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum NodingPath {
+    Production,
+    McindexExperiment,
+}
+
+impl NodingPath {
+    fn implementation(self) -> &'static str {
+        match self {
+            Self::Production => "geo-polygonize-core",
+            Self::McindexExperiment => "geo-polygonize-core-mcindex-experiment",
+        }
+    }
+
+    fn record_name(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::McindexExperiment => "mcindex-experiment",
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -298,7 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let clip_path = manifest_dir.join(&workload.artifact.clip_path);
     verify_artifact_sha256(&clip_path, &workload.artifact.sha256)?;
-    let lines = load_lines(&clip_path)?;
+    let (lines, source_ranges) = load_lines(&clip_path)?;
     if lines.len() != workload.size.segments {
         return Err(format!(
             "{} declares {} segments but contains {}",
@@ -350,11 +375,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut validation_options = options.clone();
     validation_options.noding.guarantee = args.lane.validation_guarantee();
-    let (validation_outcome, _) = reduced_rust_outcome(
-        polygonize(lines.clone(), &validation_options),
+    let validation_result = polygonize_with_path(
+        lines.clone(),
+        &source_ranges,
         &validation_options,
-        "validation",
-    );
+        args.noding_path,
+    )
+    .map(|(result, _)| result);
+    let (validation_outcome, _) =
+        reduced_rust_outcome(validation_result, &validation_options, "validation");
     if matches!(validation_outcome, BenchmarkReducedOutcomeV1::Error(_)) {
         write_candidate(&validation_options, &validation_outcome)?;
         return Err(format!(
@@ -368,7 +397,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     correctness_options.diagnostics.enabled = true;
     let (actual_outcome, correctness, component_memory) =
         reduced_rust_outcome_with_component_memory(
-            polygonize_with_component_memory(lines.clone(), &correctness_options),
+            polygonize_with_path(
+                lines.clone(),
+                &source_ranges,
+                &correctness_options,
+                args.noding_path,
+            ),
             &correctness_options,
             "correctness",
         );
@@ -418,7 +452,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut timed_options = options.clone();
     timed_options.diagnostics.timings = true;
     for _ in 0..args.warmup_iterations {
-        polygonize(lines.clone(), &timed_options)?;
+        polygonize_with_path(
+            lines.clone(),
+            &source_ranges,
+            &timed_options,
+            args.noding_path,
+        )?;
     }
     let profile_path = std::env::temp_dir().join(format!(
         "geo-polygonize-benchmark-{}.json",
@@ -429,7 +468,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..args.samples {
         let before = dhat::HeapStats::get();
         let started = Instant::now();
-        let (result, _) = polygonize_with_component_memory(lines.clone(), &timed_options)?;
+        let (result, _) = polygonize_with_path(
+            lines.clone(),
+            &source_ranges,
+            &timed_options,
+            args.noding_path,
+        )?;
         samples.elapsed.push(started.elapsed());
         let after = dhat::HeapStats::get();
         samples.allocations += after.total_blocks - before.total_blocks;
@@ -457,7 +501,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p95 = percentile(&samples.elapsed, 95);
     let commit = command("git", &["rev-parse", "HEAD"])?;
     let output_coordinates = output_coordinates(&correctness);
-    let record_id = format!("{}-{}-{}", workload.id, &commit[..12], args.lane.profile());
+    let record_id = format!(
+        "{}-{}-{}-{}",
+        workload.id,
+        &commit[..12],
+        args.lane.profile(),
+        args.noding_path.record_name()
+    );
     let record = json!({
         "schema_version": 1,
         "record_id": args.repetition.map_or(record_id.clone(), |repetition| format!("{record_id}-r{repetition}")),
@@ -465,7 +515,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "artifact_sha256": workload.artifact.sha256,
         "lane": args.lane.record_name(),
         "implementation": {
-            "name": "geo-polygonize-core",
+            "name": args.noding_path.implementation(),
             "version": env!("CARGO_PKG_VERSION"),
             "features": if cfg!(feature = "parallel") { vec!["parallel"] } else { Vec::<&str>::new() },
         },
@@ -548,7 +598,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn load_lines(path: &Path) -> Result<Vec<Line3D>, Box<dyn std::error::Error>> {
+fn polygonize_with_path(
+    lines: Vec<Line3D>,
+    source_ranges: &[(usize, usize)],
+    options: &PolygonizerOptions,
+    path: NodingPath,
+) -> geo_polygonize_core::Result<(PolygonizerResult, ComponentMemoryStats)> {
+    match path {
+        NodingPath::Production => polygonize_with_component_memory(lines, options),
+        NodingPath::McindexExperiment => {
+            if !options.node_input {
+                return Err(
+                    geo_polygonize_core::PolygonizeError::UnsupportedOptionCombination {
+                        reason: "MCIndex experiment requires node_input=true".to_string(),
+                    },
+                );
+            }
+            if !matches!(options.precision_model, PrecisionModel::Floating)
+                || options.pre_snap_tolerance != 0.0
+                || matches!(
+                    options.noding.guarantee,
+                    NodingGuarantee::CertifiedFixedPrecision
+                )
+            {
+                return Err(
+                    geo_polygonize_core::PolygonizeError::UnsupportedOptionCombination {
+                        reason: "MCIndex experiment supports only floating, unsnapped input"
+                            .to_string(),
+                    },
+                );
+            }
+
+            let started = Instant::now();
+            let (noded, noding_work) = benchmark_node_hybrid_source_ranges(
+                lines.clone(),
+                source_ranges,
+                options.precision_model.grid_size(),
+                options.z.policy,
+                &ExecutionPolicy::default(),
+            )?;
+            let noding_elapsed = started.elapsed();
+            let mut polygonize_options = options.clone();
+            polygonize_options.node_input = false;
+            polygonize_options.diagnostics.enabled = true;
+            let (mut result, component_memory) =
+                polygonize_with_component_memory(noded, &polygonize_options)?;
+            let diagnostics = result.diagnostics.as_mut().ok_or(
+                geo_polygonize_core::PolygonizeError::InternalInvariantViolation {
+                    reason: "MCIndex benchmark omitted diagnostics".to_string(),
+                },
+            )?;
+            diagnostics.input_segment_count = lines.len();
+            diagnostics.noding_work_stats = noding_work;
+            diagnostics.phase_times.ingest_and_node += noding_elapsed;
+            Ok((result, component_memory))
+        }
+    }
+}
+
+fn load_lines(
+    path: &Path,
+) -> Result<(Vec<Line3D>, Vec<(usize, usize)>), Box<dyn std::error::Error>> {
     let geojson: GeoJson = std::fs::read_to_string(path)?.parse()?;
     let features = match geojson {
         GeoJson::FeatureCollection(collection) => collection.features,
@@ -564,8 +674,10 @@ fn load_lines(path: &Path) -> Result<Vec<Line3D>, Box<dyn std::error::Error>> {
         }
     }
     let mut segments = Vec::new();
+    let mut source_ranges = Vec::with_capacity(line_strings.len());
     for (index, line) in line_strings.into_iter().enumerate() {
         let line_id = u32::try_from(index + 1)?;
+        let segment_start = segments.len();
         for pair in line.windows(2) {
             segments.push(Line3D::new(
                 coordinate(&pair[0])?,
@@ -573,8 +685,9 @@ fn load_lines(path: &Path) -> Result<Vec<Line3D>, Box<dyn std::error::Error>> {
                 line_id,
             ));
         }
+        source_ranges.push((segment_start, segments.len() - segment_start));
     }
-    Ok(segments)
+    Ok((segments, source_ranges))
 }
 
 fn verify_artifact_sha256(path: &Path, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -984,6 +1097,7 @@ fn command(program: &str, args: &[&str]) -> Result<String, Box<dyn std::error::E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use geo_polygonize_core::polygonize;
 
     #[test]
     fn percentile_uses_nearest_rank() {

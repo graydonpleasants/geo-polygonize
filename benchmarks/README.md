@@ -36,6 +36,11 @@ gh workflow run benchmark-publication.yml --ref main \
   -f manifest_path=/mnt/geo-polygonize/runner-manifest-v1.json
 ```
 
+Its `noding_path` input defaults to `production`. Selecting
+`mcindex-experiment` is limited to the floating lane and emits a separate,
+correctness-gated record labeled `geo-polygonize-core-mcindex-experiment`; it
+does not change production dispatch.
+
 The selected clip path is resolved relative to that manifest and its declared
 SHA-256 is verified by the GEOS reference, Rust benchmark runner, and JTS
 reference before any correctness or timing work. Certified-fixed dispatches
