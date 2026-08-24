@@ -5,7 +5,7 @@ use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::snap::SnapNoder;
 use crate::noding::validate::ValidatingNoder;
 use crate::noding::{CandidatePair, ExactCandidate};
-use crate::options::ExecutionPolicy;
+use crate::options::{ExecutionPolicy, ZPolicy};
 use crate::types::{Line3D, SourceChainKind, SourceLineString, SourceSegmentIdentity};
 use crate::{PolygonizeError, Result};
 use rstar::AABB;
@@ -103,6 +103,39 @@ pub(crate) fn node_hybrid_source_chains(
     work_stats.split_events = split_events;
     ValidatingNoder::new().validate_with_execution_policy(&noded, execution_policy)?;
     Ok((noded, work_stats))
+}
+
+/// Run the research-only hybrid adapter for a benchmark input whose immutable
+/// source ranges are retained by the harness.
+///
+/// This is compiler-public for the native benchmark runner only. It is not a
+/// supported backend and must not be used for production dispatch.
+#[doc(hidden)]
+pub fn benchmark_node_hybrid_source_ranges(
+    lines: Vec<Line3D>,
+    source_ranges: &[(usize, usize)],
+    grid_size: f64,
+    z_policy: ZPolicy,
+    execution_policy: &ExecutionPolicy,
+) -> Result<(Vec<Line3D>, NodingWorkStats)> {
+    let source_chains: Vec<_> = source_ranges
+        .iter()
+        .enumerate()
+        .map(
+            |(source_id, &(segment_start, segment_count))| SourceLineString {
+                segment_start,
+                segment_count,
+                source_id: u32::try_from(source_id).ok(),
+                kind: SourceChainKind::Original,
+            },
+        )
+        .collect();
+    node_hybrid_source_chains(
+        lines,
+        &source_chains,
+        &SnapNoder::new(grid_size).with_z_policy(z_policy),
+        execution_policy,
+    )
 }
 
 struct MonotoneChainTree {

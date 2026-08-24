@@ -15,6 +15,14 @@ on:
           - already-noded
           - floating
           - certified-fixed
+      noding_path:
+        description: Production path or research-only MCIndex experiment
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+          - mcindex-experiment
       manifest_path:
         description: Absolute path to an out-of-tree runner-manifest-v1.json staged on the dedicated runner
         required: false
@@ -103,14 +111,16 @@ jobs:
             manifest_args+=(--manifest "$MANIFEST_PATH")
           fi
           /usr/bin/time -f '%M' -o target/benchmark-publication/peak-rss-kib.txt \
-            "$binary" --lane "${{ inputs.lane }}" --workload "${{ inputs.workload }}" \
+            "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
+            --workload "${{ inputs.workload }}" \
             "${manifest_args[@]}" \
             --reference-result "$reference" --check-only
           peak_kib=$(tr -d '[:space:]' < target/benchmark-publication/peak-rss-kib.txt)
           case "$peak_kib" in *[!0-9]*|'') exit 1 ;; esac
           peak_bytes=$((peak_kib * 1024))
           for repetition in 1 2 3 4 5; do
-            "$binary" --lane "${{ inputs.lane }}" --workload "${{ inputs.workload }}" \
+            "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
+              --workload "${{ inputs.workload }}" \
               "${manifest_args[@]}" \
               --samples 30 --warmup-iterations 5 --repetition "$repetition" \
               --peak-rss-bytes "$peak_bytes" --reference-result "$reference" \

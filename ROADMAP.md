@@ -406,6 +406,13 @@ Hybrid candidates can now be evaluated through the shared `ExactCandidate`
 path; split application, dissolve, full noding validation, and production
 dispatch remain separate promotion gates.
 
+The dedicated publication workflow now has an explicit, opt-in
+`mcindex-experiment` noding path for floating workloads. It retains source
+line-string ranges, runs the research adapter before the shared polygonizer,
+and emits the existing correctness-gated record shape under a distinct
+implementation name. This is evidence plumbing only; production-scale runs,
+cross-workload comparison, and the accept/reject decision remain open.
+
 ## P3.3 Sweep prototype boundary
 
 The sweep prototype currently returns exact intersections rather than
