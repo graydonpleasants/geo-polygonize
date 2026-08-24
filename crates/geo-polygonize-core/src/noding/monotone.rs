@@ -239,16 +239,18 @@ where
 {
     let coverage = source_chain_coverage(lines.len(), source_chains)?;
     visit_candidates_from_ranges(lines, &coverage.original_ranges, tracker, &mut visit)?;
-    let bounds = build_segment_bounds(lines)?;
-    for first in 0..lines.len() {
-        for second in first + 1..lines.len() {
-            if coverage.original_segments[first] && coverage.original_segments[second] {
-                continue;
-            }
-            let overlaps = bounds[first].overlaps(bounds[second]);
-            tracker.candidate(overlaps)?;
-            if overlaps {
-                visit(CandidatePair { first, second })?;
+    if coverage.original_segments.iter().any(|&original| !original) {
+        let bounds = build_segment_bounds(lines)?;
+        for first in 0..lines.len() {
+            for second in first + 1..lines.len() {
+                if coverage.original_segments[first] && coverage.original_segments[second] {
+                    continue;
+                }
+                let overlaps = bounds[first].overlaps(bounds[second]);
+                tracker.candidate(overlaps)?;
+                if overlaps {
+                    visit(CandidatePair { first, second })?;
+                }
             }
         }
     }
