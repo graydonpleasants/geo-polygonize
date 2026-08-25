@@ -185,6 +185,7 @@ jobs:
       - name: Run release tests
         run: |
           cargo test --release --locked -p geo-polygonize-core --test robustness --test regression_nan_panic
+          cargo test --release --locked -p geo-polygonize-core --test tiling_equivalence -- --ignored
           cargo test --release --locked -p geo-polygonize-arrow --test test_ffi_errors
 
   release-contract:
