@@ -36,6 +36,10 @@ gh workflow run benchmark-publication.yml --ref main \
   -f manifest_path=/mnt/geo-polygonize/runner-manifest-v1.json
 ```
 
+The workflow defaults to the `parallel` core feature set. Pass
+`-f feature_set=serial` for a matched no-default-features publication; the
+record retains the selected feature set in `implementation.features`.
+
 Its `noding_path` input defaults to `production`. Selecting
 `mcindex-experiment` is limited to the floating lane and emits a separate,
 correctness-gated record labeled `geo-polygonize-core-mcindex-experiment`; it
