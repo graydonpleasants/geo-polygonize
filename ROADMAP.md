@@ -427,7 +427,7 @@ measurements were not pursued after the native promotion gate failed.
 The sweep prototype currently returns exact intersections rather than
 policy-accounted broad-phase candidates.
 
-- [ ] Use it as a differential oracle while semantics and cost are characterized.
+- [x] Use it as a differential oracle while semantics and cost are characterized.
 - [ ] Add execution-policy accounting and cancellation only if evidence justifies
   a production experiment.
 - [ ] Reuse the common split/provenance/Z pipeline if it advances.
@@ -436,6 +436,11 @@ policy-accounted broad-phase candidates.
 
 Related historical audit:
 [#775](https://github.com/graydonpleasants/geo-polygonize/issues/775).
+
+The sweep prototype is now covered as a differential oracle for complete
+indexed exact-hit results, including collinear overlaps, against the pairwise
+`geo` intersection reference. It remains exact-hit-only research plumbing with
+no execution-policy accounting, cancellation, or production dispatch.
 
 ## P3.4 Backend promotion gate
 
