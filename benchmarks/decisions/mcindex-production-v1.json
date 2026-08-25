@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "decision_id": "mcindex-production-v1",
+  "title": "MCIndex remains research-only after production-scale evidence",
+  "policy_id": "benchmark-decision-v1",
+  "hypothesis": "A source-chain-preserving MCIndex-style candidate generator reduces broad-phase and exact-intersection work enough to improve floating noding plus polygonization on production-scale linework without changing observable results.",
+  "target_workloads": [
+    "osm-california-highways-1k-v1/floating-noding-plus-polygonization",
+    "osm-california-highways-10k-v1/floating-noding-plus-polygonization",
+    "osm-california-highways-100k-v1/floating-noding-plus-polygonization"
+  ],
+  "non_targets": [
+    "Certified-fixed-precision noding was not evaluated by this candidate path.",
+    "Wasm cost, code size, and compile-time impact were not measured after the native promotion gate failed.",
+    "No production backend selector, default dispatch rule, or runtime workload learning is authorized by this decision."
+  ],
+  "semantic_invariants": [
+    "All six dedicated publications passed their external correctness and full-noding validation gates.",
+    "Canonical reference fingerprints were equal for every baseline and candidate record.",
+    "The existing source-chain, provenance, Z, error, cancellation, and serial/parallel conformance contracts remain unchanged.",
+    "The MCIndex implementation remains disconnected from production dispatch."
+  ],
+  "predeclared_thresholds": {
+    "primary_metric": "p50_ms",
+    "minimum_effect_size_percent": 5.0,
+    "regression_budget_percent": 2.0
+  },
+  "outcome": "retained-research",
+  "rationale": "Matched dedicated production and MCIndex publications at commit 397ea8d passed correctness, with p50 relative MAD between 0.31% and 1.83%. MCIndex reduced broad-phase candidate pairs by 96.9%, 98.1%, and 97.1% at the 1k, 10k, and 100k tiers, respectively, but p50 end-to-end time regressed by 30.8%, 30.5%, and 35.2%. The p95 regressions were 28.5%, 29.7%, and 39.8%; allocation deltas were +29.0%, -13.0%, and +17.1%; peak RSS deltas were +5.0%, -12.9%, and +3.1%. No tier met the 5% primary win threshold, and multiple secondary metrics exceeded the 2% regression budget. Reject production promotion and retain the candidate only as a benchmark/research surface until a new design materially changes this evidence.",
+  "baseline_publications": [
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998203/artifacts/9548160120",
+      "sha256": "f4b059828707be1867a2b94c1e67d5ea3cb865416decdcf64743017e9af28987"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998266/artifacts/9545727499",
+      "sha256": "4f9de900842b8dde6350fe149d008e2c7f3b613db0bd43ec3fc0061275b24258"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998256/artifacts/9547839627",
+      "sha256": "51f1b761b08a3b1647c2c49da245fabd503456237bb6bd7c75340d8080819078"
+    }
+  ],
+  "candidate_publications": [
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998211/artifacts/9545809996",
+      "sha256": "fbd66a7c94a0a20d6fe3e880d0fda4e96760791d56930c4440c932f800b66549"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998226/artifacts/9548086061",
+      "sha256": "4ff5f77b24a4833b50f182417c59f9a921c9464ced4001d96313fc9e3b61b6bc"
+    },
+    {
+      "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998198/artifacts/9545442249",
+      "sha256": "5afd69404a4e5f44174ac4a593c0c8406e54ef65ddd4b4b727055e4a3bca01d7"
+    }
+  ],
+  "rejected_experiments": [
+    {
+      "name": "MCIndex production dispatch",
+      "reason": "The candidate failed the predeclared end-to-end win and secondary regression gates on all three matched production tiers.",
+      "publications": [
+        {
+          "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998211/artifacts/9545809996",
+          "sha256": "fbd66a7c94a0a20d6fe3e880d0fda4e96760791d56930c4440c932f800b66549"
+        },
+        {
+          "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998226/artifacts/9548086061",
+          "sha256": "4ff5f77b24a4833b50f182417c59f9a921c9464ced4001d96313fc9e3b61b6bc"
+        },
+        {
+          "uri": "https://github.com/graydonpleasants/geo-polygonize/actions/runs/32790998198/artifacts/9545442249",
+          "sha256": "5afd69404a4e5f44174ac4a593c0c8406e54ef65ddd4b4b727055e4a3bca01d7"
+        }
+      ]
+    }
+  ],
+  "crossover": {
+    "status": "not-applicable",
+    "reason": "No workload tier met the primary win threshold, so no measured crossover range exists."
+  }
+}
