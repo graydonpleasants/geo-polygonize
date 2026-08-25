@@ -23,6 +23,14 @@ on:
         options:
           - production
           - mcindex-experiment
+      feature_set:
+        description: Core feature set used for the benchmark binary
+        required: true
+        type: choice
+        default: parallel
+        options:
+          - parallel
+          - serial
       manifest_path:
         description: Absolute path to an out-of-tree runner-manifest-v1.json staged on the dedicated runner
         required: false
@@ -64,7 +72,20 @@ jobs:
             /workspace/target/benchmark-python/bin/pip install \
             --disable-pip-version-check -r benchmarks/reference-requirements.txt
 
-      - run: cargo build --locked --release -p geo-polygonize-core --example benchmark_record
+      - name: Build benchmark binary
+        run: |
+          case "${{ inputs.feature_set }}" in
+            parallel)
+              cargo build --locked --release -p geo-polygonize-core --example benchmark_record
+              ;;
+            serial)
+              cargo build --locked --no-default-features --release -p geo-polygonize-core --example benchmark_record
+              ;;
+            *)
+              echo "unsupported feature_set: ${{ inputs.feature_set }}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Generate external correctness reference
         run: |
