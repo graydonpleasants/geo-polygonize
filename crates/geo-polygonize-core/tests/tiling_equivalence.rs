@@ -179,6 +179,7 @@ fn in_domain_tiled_mismatches_have_observed_coverage_evidence() {
 }
 
 #[test]
+#[ignore = "exhaustive tiling sweep; exercised by Release Tests"]
 fn bounded_single_geometry_envelope_sweep_keeps_in_domain_mismatches_observed() {
     let bounds = world(32.0);
     let options = PolygonizerOptions {
@@ -261,6 +262,7 @@ fn bounded_single_geometry_envelope_sweep_keeps_in_domain_mismatches_observed() 
 }
 
 #[test]
+#[ignore = "exhaustive tiling sweep; exercised by Release Tests"]
 fn adversarial_in_domain_mismatches_keep_coverage_evidence_under_permutations() {
     let mut concave = ring(&[
         (3.0, 3.0),
