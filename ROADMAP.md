@@ -360,9 +360,9 @@ Tracked by
 - [x] Use the shared exact/split/dissolve/validation path.
 - [ ] Pass golden, compatibility, fuzz, real-world, provenance, Z,
   serial/parallel, and normalized-error conformance.
-- [ ] Measure build cost, candidate reduction, allocations, peak RSS, end-to-end
-  effect, Wasm cost, code size, and compile time.
-- [ ] Check in an accept/reject/promotion decision.
+- [x] Measure native production-scale candidate reduction, allocations, peak RSS,
+  and end-to-end effect.
+- [x] Check in an accept/reject/promotion decision.
 
 The research prototype now owns cached flat-tree traversal and a
 `CandidatePair`-compatible visitor with bounded policy accounting and
@@ -410,8 +410,17 @@ The dedicated publication workflow now has an explicit, opt-in
 `mcindex-experiment` noding path for floating workloads. It retains source
 line-string ranges, runs the research adapter before the shared polygonizer,
 and emits the existing correctness-gated record shape under a distinct
-implementation name. This is evidence plumbing only; production-scale runs,
-cross-workload comparison, and the accept/reject decision remain open.
+implementation name. This remains evidence plumbing only; the production-scale
+decision is recorded below.
+
+Matched dedicated production and MCIndex publications now cover the 1k, 10k,
+and 100k California highway tiers at commit `397ea8d`. Correctness passed on
+all six publications, but MCIndex regressed p50 end-to-end time by 30.5% to
+35.2% across the tiers and exceeded the secondary regression budget on multiple
+tiers. The durable decision in
+`benchmarks/decisions/mcindex-production-v1.json` rejects production promotion
+and retains the adapter as research-only. Wasm, code-size, and compile-time
+measurements were not pursued after the native promotion gate failed.
 
 ## P3.3 Sweep prototype boundary
 
