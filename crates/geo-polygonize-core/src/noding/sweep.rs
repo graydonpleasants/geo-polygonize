@@ -86,10 +86,7 @@ mod tests {
             .collect();
         let actual = enumerate_intersections(&lines);
 
-        assert_eq!(
-            actual.iter().map(|(pair, _)| *pair).collect::<Vec<_>>(),
-            expected.iter().map(|(pair, _)| *pair).collect::<Vec<_>>()
-        );
+        assert_eq!(actual, expected);
         assert!(matches!(actual[1].1, LineIntersection::Collinear { .. }));
     }
 }
