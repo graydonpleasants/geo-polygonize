@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 2;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -155,6 +155,70 @@ pub(crate) struct PartitionBoundaryNodingEvidenceV1 {
     pub(crate) split_event_count: usize,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionLocalFaceEdgeV1 {
+    pub(crate) local_dir_edge_id: usize,
+    pub(crate) symmetric_local_dir_edge_id: usize,
+    pub(crate) local_face_successor: Option<usize>,
+    pub(crate) from_xy_bits: [u64; 2],
+    pub(crate) to_xy_bits: [u64; 2],
+    pub(crate) from_z_bits: u64,
+    pub(crate) to_z_bits: u64,
+    pub(crate) face_ref: Option<[usize; 3]>,
+    pub(crate) local_face_is_unbounded: bool,
+    pub(crate) source_line_ids: Vec<u32>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionLocalFaceGraphV1 {
+    pub(crate) partition_id: usize,
+    pub(crate) component_id: usize,
+    pub(crate) directed_edges: Vec<PartitionLocalFaceEdgeV1>,
+}
+
+fn partition_local_face_graphs(
+    local_face_graphs: &[PartitionBorderLocalFaceGraph],
+) -> Vec<PartitionLocalFaceGraphV1> {
+    let mut graphs = local_face_graphs
+        .iter()
+        .map(|graph| {
+            let mut directed_edges = graph
+                .directed_edges
+                .iter()
+                .map(|edge| {
+                    let mut source_line_ids = edge.source_line_ids.clone();
+                    source_line_ids.sort_unstable();
+                    source_line_ids.dedup();
+                    PartitionLocalFaceEdgeV1 {
+                        local_dir_edge_id: edge.local_dir_edge_id,
+                        symmetric_local_dir_edge_id: edge.symmetric_local_dir_edge_id,
+                        local_face_successor: edge.local_face_successor,
+                        from_xy_bits: edge.from.xy_bits(),
+                        to_xy_bits: edge.to.xy_bits(),
+                        from_z_bits: edge.from_z_bits,
+                        to_z_bits: edge.to_z_bits,
+                        face_ref: edge
+                            .face_ref
+                            .map(|face| [face.partition_id, face.component_id, face.face_id]),
+                        local_face_is_unbounded: edge.local_face_is_unbounded,
+                        source_line_ids,
+                    }
+                })
+                .collect::<Vec<_>>();
+            directed_edges.sort_unstable();
+            directed_edges.dedup();
+            PartitionLocalFaceGraphV1 {
+                partition_id: graph.partition_id,
+                component_id: graph.component_id,
+                directed_edges,
+            }
+        })
+        .collect::<Vec<_>>();
+    graphs.sort_unstable();
+    graphs.dedup();
+    graphs
+}
+
 fn partition_snapshot_diff_field<T: Serialize>(
     path: &str,
     expected: &T,
@@ -177,6 +241,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
     pub(crate) boundary_noding: PartitionBoundaryNodingEvidenceV1,
     pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
+    pub(crate) local_face_graphs: Vec<PartitionLocalFaceGraphV1>,
     pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
 }
 
@@ -189,6 +254,7 @@ impl PartitionSnapshotV1 {
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
         border_observations: &[PartitionBorderHalfEdge],
+        local_face_graphs: &[PartitionBorderLocalFaceGraph],
         result: &PolygonizerResult,
         options: &PolygonizerOptions,
     ) -> Result<Self> {
@@ -212,6 +278,7 @@ impl PartitionSnapshotV1 {
                 split_event_count: boundary_noding_stats.split_event_count,
             },
             atomic_observations: partition_atomic_observations(border_observations),
+            local_face_graphs: partition_local_face_graphs(local_face_graphs),
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
         })
     }
@@ -294,6 +361,13 @@ impl PartitionSnapshotV1 {
                 "$.atomic_observations",
                 &self.atomic_observations,
                 &actual.atomic_observations,
+            ));
+        }
+        if self.local_face_graphs != actual.local_face_graphs {
+            return Some(partition_snapshot_diff_field(
+                "$.local_face_graphs",
+                &self.local_face_graphs,
+                &actual.local_face_graphs,
             ));
         }
         self.topology.diff(&actual.topology).map(|mut diff| {
@@ -2014,6 +2088,7 @@ impl<'a> TiledPolygonizer<'a> {
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
                 &[],
+                &[],
                 &PolygonizerResult {
                     polygons: Vec::new(),
                     dangles: Vec::new(),
@@ -2024,7 +2099,7 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.options,
             );
         }
-        let (result, border_observations, _, boundary_noding_stats) = local_poly
+        let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         PartitionSnapshotV1::from_result(
             partition_id,
@@ -2033,6 +2108,7 @@ impl<'a> TiledPolygonizer<'a> {
             selected_source_segments,
             boundary_noding_stats,
             &border_observations,
+            &local_face_graphs,
             &result,
             &self.options,
         )
@@ -2143,6 +2219,7 @@ impl<'a> TiledPolygonizer<'a> {
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
                 &[],
+                &[],
                 &empty_result,
                 &self.options,
             )?;
@@ -2171,6 +2248,7 @@ impl<'a> TiledPolygonizer<'a> {
             selected_source_segments,
             boundary_noding_stats,
             &border_observations,
+            &local_face_graphs,
             &result,
             &self.options,
         )?;

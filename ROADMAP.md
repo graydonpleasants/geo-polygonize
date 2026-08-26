@@ -506,7 +506,10 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Compare selected source segments with first-difference evidence.
 - [x] Compare boundary-noding statistics and atomic border observation geometry,
   source IDs, representative IDs, and Z with first-difference evidence.
-- [ ] Extend comparison to local noding, graph/face state, boundary nodes,
+- [x] Compare detached local face graphs, directed-edge successors, qualified
+  face identity, boundary geometry/Z, unbounded markers, and source IDs with
+  first-difference evidence.
+- [ ] Extend comparison to remaining local noding and graph/face state, boundary nodes,
   provenance, non-polygon families, and normalized errors.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.

@@ -3855,11 +3855,12 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 2);
+        assert_eq!(snapshot.schema_version, 3);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
         assert!(!snapshot.atomic_observations.is_empty());
+        assert!(!snapshot.local_face_graphs.is_empty());
         let independent = serial
             .process_one_partition(0, bbox, serial.buffer)
             .unwrap();
@@ -3888,6 +3889,14 @@ mod tests {
         assert_eq!(
             snapshot.diff(&atomic_observation_mismatch).unwrap().path,
             "$.atomic_observations"
+        );
+        let mut local_face_graph_mismatch = independent.clone();
+        local_face_graph_mismatch.local_face_graphs[0].directed_edges[0].local_face_is_unbounded =
+            !local_face_graph_mismatch.local_face_graphs[0].directed_edges[0]
+                .local_face_is_unbounded;
+        assert_eq!(
+            snapshot.diff(&local_face_graph_mismatch).unwrap().path,
+            "$.local_face_graphs"
         );
         let mut topology_mismatch = independent.clone();
         topology_mismatch.topology.schema_version += 1;
