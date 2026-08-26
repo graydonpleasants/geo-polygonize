@@ -181,6 +181,7 @@ pub(crate) struct PartitionSnapshotV1 {
 }
 
 impl PartitionSnapshotV1 {
+    #[allow(clippy::too_many_arguments)]
     fn from_result(
         partition_id: usize,
         tile_bbox: Rect<f64>,
