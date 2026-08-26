@@ -498,7 +498,7 @@ Inspired by `map-tile-toolkit` requiring its all-tiles and one-tile-at-a-time
 slicers to produce identical per-tile results. Adopt the independent-oracle
 pattern, not its no-new-vertices clipping contract.
 
-- [ ] Define a versioned deterministic local partition snapshot/fingerprint.
+- [x] Define a versioned deterministic local partition snapshot/fingerprint.
 - [ ] Reprocess one partition from original linework without reusing the bulk
   path's selected-input cache or mutable graph.
 - [ ] Compare selected source segments, local noding, graph/face state, boundary
