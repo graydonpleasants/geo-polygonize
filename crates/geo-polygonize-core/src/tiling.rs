@@ -25,7 +25,7 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 use rstar::AABB;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 3;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -219,6 +219,63 @@ fn partition_local_face_graphs(
     graphs
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionBoundaryNodeV1 {
+    pub(crate) xy_bits: [u64; 2],
+    pub(crate) z_bits: Vec<u64>,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_ids: Vec<u32>,
+    pub(crate) face_refs: Vec<[usize; 3]>,
+    pub(crate) incident_observation_count: usize,
+}
+
+fn partition_boundary_nodes(
+    border_observations: &[PartitionBorderHalfEdge],
+) -> Vec<PartitionBoundaryNodeV1> {
+    let mut nodes = BTreeMap::<[u64; 2], PartitionBoundaryNodeV1>::new();
+    for observation in border_observations {
+        for (key, z_bits) in [
+            (observation.from.xy_bits(), observation.from_z_bits),
+            (observation.to.xy_bits(), observation.to_z_bits),
+        ] {
+            let node = nodes.entry(key).or_insert_with(|| PartitionBoundaryNodeV1 {
+                xy_bits: key,
+                z_bits: Vec::new(),
+                source_line_ids: Vec::new(),
+                representative_line_ids: Vec::new(),
+                face_refs: Vec::new(),
+                incident_observation_count: 0,
+            });
+            node.z_bits.push(z_bits);
+            node.source_line_ids
+                .extend(observation.source_line_ids.iter().copied());
+            if let Some(representative_line_id) = observation.representative_line_id {
+                node.representative_line_ids.push(representative_line_id);
+            }
+            if let Some(face_ref) = observation.face_ref {
+                node.face_refs.push([
+                    face_ref.partition_id,
+                    face_ref.component_id,
+                    face_ref.face_id,
+                ]);
+            }
+            node.incident_observation_count += 1;
+        }
+    }
+    let mut nodes = nodes.into_values().collect::<Vec<_>>();
+    for node in &mut nodes {
+        node.z_bits.sort_unstable();
+        node.z_bits.dedup();
+        node.source_line_ids.sort_unstable();
+        node.source_line_ids.dedup();
+        node.representative_line_ids.sort_unstable();
+        node.representative_line_ids.dedup();
+        node.face_refs.sort_unstable();
+        node.face_refs.dedup();
+    }
+    nodes
+}
+
 fn partition_snapshot_diff_field<T: Serialize>(
     path: &str,
     expected: &T,
@@ -242,6 +299,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) boundary_noding: PartitionBoundaryNodingEvidenceV1,
     pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
     pub(crate) local_face_graphs: Vec<PartitionLocalFaceGraphV1>,
+    pub(crate) boundary_nodes: Vec<PartitionBoundaryNodeV1>,
     pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
 }
 
@@ -279,6 +337,7 @@ impl PartitionSnapshotV1 {
             },
             atomic_observations: partition_atomic_observations(border_observations),
             local_face_graphs: partition_local_face_graphs(local_face_graphs),
+            boundary_nodes: partition_boundary_nodes(border_observations),
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
         })
     }
@@ -368,6 +427,13 @@ impl PartitionSnapshotV1 {
                 "$.local_face_graphs",
                 &self.local_face_graphs,
                 &actual.local_face_graphs,
+            ));
+        }
+        if self.boundary_nodes != actual.boundary_nodes {
+            return Some(partition_snapshot_diff_field(
+                "$.boundary_nodes",
+                &self.boundary_nodes,
+                &actual.boundary_nodes,
             ));
         }
         self.topology.diff(&actual.topology).map(|mut diff| {

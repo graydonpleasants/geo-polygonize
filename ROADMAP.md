@@ -509,7 +509,10 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Compare detached local face graphs, directed-edge successors, qualified
   face identity, boundary geometry/Z, unbounded markers, and source IDs with
   first-difference evidence.
-- [ ] Extend comparison to remaining local noding and graph/face state, boundary nodes,
+- [x] Compare canonical boundary-node XY identity, Z candidates, source and
+  representative IDs, face references, and incident observation counts with
+  first-difference evidence.
+- [ ] Extend comparison to remaining local noding and graph/face state,
   provenance, non-polygon families, and normalized errors.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
