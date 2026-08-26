@@ -3837,7 +3837,7 @@ mod tests {
     }
 
     #[test]
-    fn partition_snapshot_fingerprint_is_deterministic() {
+    fn partition_snapshot_matches_independent_reprocess() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
         let square = Geometry::LineString(LineString::new(vec![
             Coord { x: 0.0, y: 0.0 },
@@ -3858,6 +3858,10 @@ mod tests {
         assert_eq!(snapshot.schema_version, 1);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
+        let independent = serial
+            .process_one_partition(0, bbox, serial.buffer)
+            .unwrap();
+        assert_eq!(snapshot, &independent);
         let repeated = serial.polygonize().unwrap();
         assert_eq!(
             snapshot.fingerprint_sha256(),
