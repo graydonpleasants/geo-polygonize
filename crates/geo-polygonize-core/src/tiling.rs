@@ -14,7 +14,7 @@ use crate::trace::{
 };
 use crate::types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
 use crate::utils::canonical_coordinate_bits;
-use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, Result};
+use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, PolygonizerResult, Result};
 use geo::algorithm::line_intersection::line_intersection;
 use geo::bounding_rect::BoundingRect;
 use geo::intersects::Intersects;
@@ -23,6 +23,8 @@ use geo_types::{Coord, Geometry, Line, LineString, Point, Rect};
 #[cfg(feature = "parallel")]
 use rayon::{prelude::*, ThreadPoolBuilder};
 use rstar::AABB;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -61,6 +63,50 @@ type CanonicalPolygonOutputKey = (
     Vec<u32>,
     Option<(Vec<u64>, Option<String>)>,
 );
+
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) struct PartitionSnapshotV1 {
+    pub(crate) schema_version: u32,
+    pub(crate) partition_id: usize,
+    pub(crate) tile_min: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) selected_input_geometry_indices: Vec<usize>,
+    pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
+}
+
+impl PartitionSnapshotV1 {
+    fn from_result(
+        partition_id: usize,
+        tile_bbox: Rect<f64>,
+        mut selected_input_geometry_indices: Vec<usize>,
+        result: &PolygonizerResult,
+        options: &PolygonizerOptions,
+    ) -> Result<Self> {
+        selected_input_geometry_indices.sort_unstable();
+        selected_input_geometry_indices.dedup();
+        let coordinate = |coord: Coord<f64>| {
+            crate::fingerprint::coordinate_fingerprint(Coord3D::new(coord.x, coord.y, 0.0))
+        };
+        Ok(Self {
+            schema_version: PARTITION_SNAPSHOT_V1_SCHEMA_VERSION,
+            partition_id,
+            tile_min: coordinate(tile_bbox.min())?,
+            tile_max: coordinate(tile_bbox.max())?,
+            selected_input_geometry_indices,
+            topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn fingerprint_sha256(&self) -> String {
+        format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(self).expect("snapshot serializes"))
+        )
+    }
+}
 
 fn canonical_polygon_output_key(poly: &Polygon3D) -> CanonicalPolygonOutputKey {
     let mut source_line_ids = poly.boundary_source_line_ids.clone();
@@ -1147,6 +1193,9 @@ pub struct TiledPolygonizeResult {
     /// replicate-and-own polygons with stitched output.
     #[doc(hidden)]
     pub partition_border_graph: PartitionBorderGraph,
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub(crate) partition_snapshots: Vec<PartitionSnapshotV1>,
 }
 
 /// Experimental stitched output produced from the validated private global
@@ -1224,6 +1273,7 @@ type TileProcessResult = (
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
+    PartitionSnapshotV1,
 );
 
 #[derive(Debug)]
@@ -1750,6 +1800,7 @@ impl<'a> TiledPolygonizer<'a> {
 
         // Filter geometries intersecting the BUFFERED tile
         let mut relevant_lines = 0;
+        let mut selected_input_geometry_indices = Vec::new();
         let mut input_boundary_issues = Vec::new();
         for (input_geometry_index, (geom, bbox)) in self.geometries.iter().enumerate() {
             self.execution_policy
@@ -1760,6 +1811,7 @@ impl<'a> TiledPolygonizer<'a> {
             {
                 local_poly.add_borrowed_geometry(geom);
                 relevant_lines += 1;
+                selected_input_geometry_indices.push(input_geometry_index);
                 let unresolved_sides = self.unresolved_sides(*geometry_bbox, buffered_bbox);
                 if !unresolved_sides.is_empty() {
                     input_boundary_issues.push(TileInputBoundaryIssue {
@@ -1819,6 +1871,20 @@ impl<'a> TiledPolygonizer<'a> {
             retry_exhausted: false,
         };
         if relevant_lines == 0 {
+            let empty_result = PolygonizerResult {
+                polygons: Vec::new(),
+                dangles: Vec::new(),
+                cut_edges: Vec::new(),
+                invalid_rings: Vec::new(),
+                diagnostics: None,
+            };
+            let snapshot = PartitionSnapshotV1::from_result(
+                partition_id,
+                tile_bbox,
+                selected_input_geometry_indices,
+                &empty_result,
+                &self.options,
+            )?;
             return Ok((
                 Vec::new(),
                 report,
@@ -1830,12 +1896,20 @@ impl<'a> TiledPolygonizer<'a> {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                snapshot,
             ));
         }
 
         // Run polygonization
         let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let snapshot = PartitionSnapshotV1::from_result(
+            partition_id,
+            tile_bbox,
+            selected_input_geometry_indices,
+            &result,
+            &self.options,
+        )?;
         let dangles = result.dangles;
         let cut_edges = result.cut_edges;
         let invalid_rings = result.invalid_rings;
@@ -1921,6 +1995,7 @@ impl<'a> TiledPolygonizer<'a> {
             dangles,
             cut_edges,
             invalid_rings,
+            snapshot,
         ))
     }
 
@@ -2999,6 +3074,7 @@ impl<'a> TiledPolygonizer<'a> {
 
         let mut tile_polygons = Vec::with_capacity(tiles.len());
         let mut tile_reports = Vec::with_capacity(tiles.len());
+        let mut partition_snapshots = Vec::with_capacity(tiles.len());
         let mut partition_border_graph = PartitionBorderGraph::default();
         let mut partition_border_local_face_graphs = Vec::new();
         if trace_ownership {
@@ -3019,6 +3095,7 @@ impl<'a> TiledPolygonizer<'a> {
                     dangles,
                     cut_edges,
                     invalid_rings,
+                    snapshot,
                 ) = self.process_tile_with_retries(
                     tile_index,
                     tile,
@@ -3095,6 +3172,7 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
+                partition_snapshots.push(snapshot);
             }
         } else {
             #[cfg(feature = "parallel")]
@@ -3163,6 +3241,7 @@ impl<'a> TiledPolygonizer<'a> {
                     dangles,
                     cut_edges,
                     invalid_rings,
+                    snapshot,
                 ) = result;
                 for observation in border_observations {
                     partition_border_graph.insert(observation)?;
@@ -3177,6 +3256,7 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
+                partition_snapshots.push(snapshot);
             }
         }
         for local_face_graph in partition_border_local_face_graphs {
@@ -3831,6 +3911,7 @@ impl<'a> TiledPolygonizer<'a> {
             stitched_output,
             tile_reports,
             partition_border_graph,
+            partition_snapshots,
             stitching_report: StitchingReport {
                 merged_polygon_count,
                 duplicate_polygon_count: merged_polygon_count - output_polygon_count,

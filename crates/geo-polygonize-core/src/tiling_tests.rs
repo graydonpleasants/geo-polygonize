@@ -3837,6 +3837,36 @@ mod tests {
     }
 
     #[test]
+    fn partition_snapshot_fingerprint_is_deterministic() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 1.0, y: 0.0 },
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 0.0, y: 1.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]));
+        let mut serial =
+            TiledPolygonizer::new(bbox, 2.0).with_tile_execution_policy(TileExecutionPolicy {
+                max_parallel_tiles: Some(1),
+                ..Default::default()
+            });
+        serial.add_geometry(&square);
+        let result = serial.polygonize().unwrap();
+        let snapshot = &result.partition_snapshots[0];
+
+        assert_eq!(snapshot.schema_version, 1);
+        assert_eq!(snapshot.partition_id, 0);
+        assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
+        let repeated = serial.polygonize().unwrap();
+        assert_eq!(
+            snapshot.fingerprint_sha256(),
+            repeated.partition_snapshots[0].fingerprint_sha256()
+        );
+        assert_eq!(result.partition_snapshots.len(), result.tile_reports.len());
+    }
+
+    #[test]
     fn reports_tile_topology_and_merge_counts() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
         let square = Geometry::LineString(LineString::new(vec![
