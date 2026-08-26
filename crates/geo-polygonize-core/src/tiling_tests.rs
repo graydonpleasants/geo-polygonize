@@ -3858,6 +3858,7 @@ mod tests {
         assert_eq!(snapshot.schema_version, 1);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
+        assert_eq!(snapshot.selected_source_segments.len(), 4);
         let independent = serial
             .process_one_partition(0, bbox, serial.buffer)
             .unwrap();
@@ -3868,6 +3869,12 @@ mod tests {
         assert_eq!(
             snapshot.diff(&mismatch).unwrap().path,
             "$.selected_input_geometry_indices"
+        );
+        let mut source_mismatch = independent.clone();
+        source_mismatch.selected_source_segments[0].segment_index += 1;
+        assert_eq!(
+            snapshot.diff(&source_mismatch).unwrap().path,
+            "$.selected_source_segments"
         );
         let mut topology_mismatch = independent.clone();
         topology_mismatch.topology.schema_version += 1;
