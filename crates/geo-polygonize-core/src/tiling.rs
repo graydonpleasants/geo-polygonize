@@ -66,6 +66,41 @@ type CanonicalPolygonOutputKey = (
 
 const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 1;
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionSourceSegmentV1 {
+    pub(crate) geometry_index: usize,
+    pub(crate) segment_index: usize,
+    pub(crate) start: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) end: crate::fingerprint::CoordinateFingerprintV1,
+}
+
+fn partition_source_segments(
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    selected_input_geometry_indices: &[usize],
+) -> Result<Vec<PartitionSourceSegmentV1>> {
+    let mut segments = Vec::new();
+    for &geometry_index in selected_input_geometry_indices {
+        let geometry = geometries
+            .get(geometry_index)
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "partition snapshot source geometry index is missing".to_string(),
+            })?
+            .0;
+        for (segment_index, segment) in crate::polygonizer::extract_geometry_segments(geometry)
+            .into_iter()
+            .enumerate()
+        {
+            segments.push(PartitionSourceSegmentV1 {
+                geometry_index,
+                segment_index,
+                start: crate::fingerprint::coordinate_fingerprint(segment.start)?,
+                end: crate::fingerprint::coordinate_fingerprint(segment.end)?,
+            });
+        }
+    }
+    Ok(segments)
+}
+
 fn partition_snapshot_diff_field<T: Serialize>(
     path: &str,
     expected: &T,
@@ -85,6 +120,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) tile_min: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) selected_input_geometry_indices: Vec<usize>,
+    pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
     pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
 }
 
@@ -93,11 +129,14 @@ impl PartitionSnapshotV1 {
         partition_id: usize,
         tile_bbox: Rect<f64>,
         mut selected_input_geometry_indices: Vec<usize>,
+        mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         result: &PolygonizerResult,
         options: &PolygonizerOptions,
     ) -> Result<Self> {
         selected_input_geometry_indices.sort_unstable();
         selected_input_geometry_indices.dedup();
+        selected_source_segments.sort_unstable();
+        selected_source_segments.dedup();
         let coordinate = |coord: Coord<f64>| {
             crate::fingerprint::coordinate_fingerprint(Coord3D::new(coord.x, coord.y, 0.0))
         };
@@ -107,6 +146,7 @@ impl PartitionSnapshotV1 {
             tile_min: coordinate(tile_bbox.min())?,
             tile_max: coordinate(tile_bbox.max())?,
             selected_input_geometry_indices,
+            selected_source_segments,
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
         })
     }
@@ -154,6 +194,13 @@ impl PartitionSnapshotV1 {
                 "$.selected_input_geometry_indices",
                 &self.selected_input_geometry_indices,
                 &actual.selected_input_geometry_indices,
+            ));
+        }
+        if self.selected_source_segments != actual.selected_source_segments {
+            return Some(partition_snapshot_diff_field(
+                "$.selected_source_segments",
+                &self.selected_source_segments,
+                &actual.selected_source_segments,
             ));
         }
         self.topology.diff(&actual.topology).map(|mut diff| {
@@ -1864,11 +1911,14 @@ impl<'a> TiledPolygonizer<'a> {
                 selected_input_geometry_indices.push(input_geometry_index);
             }
         }
+        let selected_source_segments =
+            partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
         if selected_input_geometry_indices.is_empty() {
             return PartitionSnapshotV1::from_result(
                 partition_id,
                 tile_bbox,
                 selected_input_geometry_indices,
+                selected_source_segments,
                 &PolygonizerResult {
                     polygons: Vec::new(),
                     dangles: Vec::new(),
@@ -1885,6 +1935,7 @@ impl<'a> TiledPolygonizer<'a> {
             partition_id,
             tile_bbox,
             selected_input_geometry_indices,
+            selected_source_segments,
             &result,
             &self.options,
         )
@@ -1930,6 +1981,8 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
+        let selected_source_segments =
+            partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
         let input_boundary_geometry_indices = input_boundary_issues
             .iter()
             .map(|issue| issue.input_geometry_index)
@@ -1990,6 +2043,7 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_id,
                 tile_bbox,
                 selected_input_geometry_indices,
+                selected_source_segments,
                 &empty_result,
                 &self.options,
             )?;
@@ -2015,6 +2069,7 @@ impl<'a> TiledPolygonizer<'a> {
             partition_id,
             tile_bbox,
             selected_input_geometry_indices,
+            selected_source_segments,
             &result,
             &self.options,
         )?;
