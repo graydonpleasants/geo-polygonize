@@ -1782,6 +1782,55 @@ impl<'a> TiledPolygonizer<'a> {
         )
     }
 
+    #[cfg(test)]
+    fn process_one_partition(
+        &self,
+        partition_id: usize,
+        tile_bbox: Rect<f64>,
+        buffer: f64,
+    ) -> Result<PartitionSnapshotV1> {
+        self.execution_policy.check_cancelled("partition_oracle")?;
+        let buffered_bbox = self.buffered_bbox(tile_bbox, buffer);
+        let mut local_poly = Polygonizer::with_options(self.options.clone())
+            .with_execution_policy(self.execution_policy.clone());
+        let mut selected_input_geometry_indices = Vec::new();
+        for (input_geometry_index, (geometry, bbox)) in self.geometries.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("partition_oracle", input_geometry_index)?;
+            if bbox
+                .as_ref()
+                .is_some_and(|geometry_bbox| geometry_bbox.intersects(&buffered_bbox))
+            {
+                local_poly.add_borrowed_geometry(geometry);
+                selected_input_geometry_indices.push(input_geometry_index);
+            }
+        }
+        if selected_input_geometry_indices.is_empty() {
+            return PartitionSnapshotV1::from_result(
+                partition_id,
+                tile_bbox,
+                selected_input_geometry_indices,
+                &PolygonizerResult {
+                    polygons: Vec::new(),
+                    dangles: Vec::new(),
+                    cut_edges: Vec::new(),
+                    invalid_rings: Vec::new(),
+                    diagnostics: None,
+                },
+                &self.options,
+            );
+        }
+        let (result, _, _, _) = local_poly
+            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        PartitionSnapshotV1::from_result(
+            partition_id,
+            tile_bbox,
+            selected_input_geometry_indices,
+            &result,
+            &self.options,
+        )
+    }
+
     fn process_tile(
         &self,
         partition_id: usize,
