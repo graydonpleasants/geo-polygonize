@@ -66,6 +66,18 @@ type CanonicalPolygonOutputKey = (
 
 const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 1;
 
+fn partition_snapshot_diff_field<T: Serialize>(
+    path: &str,
+    expected: &T,
+    actual: &T,
+) -> crate::fingerprint::FingerprintDiffV1 {
+    crate::fingerprint::FingerprintDiffV1 {
+        path: path.to_string(),
+        expected: serde_json::to_value(expected).expect("snapshot field serializes"),
+        actual: serde_json::to_value(actual).expect("snapshot field serializes"),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct PartitionSnapshotV1 {
     pub(crate) schema_version: u32,
@@ -105,6 +117,53 @@ impl PartitionSnapshotV1 {
             "{:x}",
             Sha256::digest(serde_json::to_vec(self).expect("snapshot serializes"))
         )
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn diff(&self, actual: &Self) -> Option<crate::fingerprint::FingerprintDiffV1> {
+        if self.schema_version != actual.schema_version {
+            return Some(partition_snapshot_diff_field(
+                "$.schema_version",
+                &self.schema_version,
+                &actual.schema_version,
+            ));
+        }
+        if self.partition_id != actual.partition_id {
+            return Some(partition_snapshot_diff_field(
+                "$.partition_id",
+                &self.partition_id,
+                &actual.partition_id,
+            ));
+        }
+        if self.tile_min != actual.tile_min {
+            return Some(partition_snapshot_diff_field(
+                "$.tile_min",
+                &self.tile_min,
+                &actual.tile_min,
+            ));
+        }
+        if self.tile_max != actual.tile_max {
+            return Some(partition_snapshot_diff_field(
+                "$.tile_max",
+                &self.tile_max,
+                &actual.tile_max,
+            ));
+        }
+        if self.selected_input_geometry_indices != actual.selected_input_geometry_indices {
+            return Some(partition_snapshot_diff_field(
+                "$.selected_input_geometry_indices",
+                &self.selected_input_geometry_indices,
+                &actual.selected_input_geometry_indices,
+            ));
+        }
+        self.topology.diff(&actual.topology).map(|mut diff| {
+            diff.path = if diff.path == "$" {
+                "$.topology".to_string()
+            } else {
+                format!("$.topology{}", &diff.path[1..])
+            };
+            diff
+        })
     }
 }
 

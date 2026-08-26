@@ -501,9 +501,11 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Define a versioned deterministic local partition snapshot/fingerprint.
 - [x] Reprocess one partition from original linework without reusing the bulk
   path's selected-input cache or mutable graph.
-- [ ] Compare selected source segments, local noding, graph/face state, boundary
-  nodes, atomic observations, provenance, representative IDs, Z, non-polygon
-  families, and normalized errors.
+- [x] Compare the current versioned snapshot's identity, selected input indexes,
+  bounds, and canonical topology with first-difference evidence.
+- [ ] Extend comparison to selected source segments, local noding, graph/face
+  state, boundary nodes, atomic observations, provenance, representative IDs, Z,
+  non-polygon families, and normalized errors.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
