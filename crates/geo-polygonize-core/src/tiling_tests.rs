@@ -3862,6 +3862,19 @@ mod tests {
             .process_one_partition(0, bbox, serial.buffer)
             .unwrap();
         assert_eq!(snapshot, &independent);
+        assert_eq!(snapshot.diff(&independent), None);
+        let mut mismatch = independent.clone();
+        mismatch.selected_input_geometry_indices.push(1);
+        assert_eq!(
+            snapshot.diff(&mismatch).unwrap().path,
+            "$.selected_input_geometry_indices"
+        );
+        let mut topology_mismatch = independent.clone();
+        topology_mismatch.topology.schema_version += 1;
+        assert_eq!(
+            snapshot.diff(&topology_mismatch).unwrap().path,
+            "$.topology.schema_version"
+        );
         let repeated = serial.polygonize().unwrap();
         assert_eq!(
             snapshot.fingerprint_sha256(),
