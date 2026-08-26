@@ -504,9 +504,10 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Compare the current versioned snapshot's identity, selected input indexes,
   bounds, and canonical topology with first-difference evidence.
 - [x] Compare selected source segments with first-difference evidence.
+- [x] Compare boundary-noding statistics and atomic border observation geometry,
+  source IDs, representative IDs, and Z with first-difference evidence.
 - [ ] Extend comparison to local noding, graph/face state, boundary nodes,
-  atomic observations, provenance, representative IDs, Z, non-polygon families,
-  and normalized errors.
+  provenance, non-polygon families, and normalized errors.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,

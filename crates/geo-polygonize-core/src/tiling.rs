@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 1;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -101,6 +101,60 @@ fn partition_source_segments(
     Ok(segments)
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionAtomicObservationV1 {
+    pub(crate) from_xy_bits: [u64; 2],
+    pub(crate) to_xy_bits: [u64; 2],
+    pub(crate) from_z_bits: u64,
+    pub(crate) to_z_bits: u64,
+    pub(crate) side: u8,
+    pub(crate) component_id: usize,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_id: Option<u32>,
+}
+
+fn partition_border_side_code(side: PartitionBorderSide) -> u8 {
+    match side {
+        PartitionBorderSide::MinX => 0,
+        PartitionBorderSide::MaxX => 1,
+        PartitionBorderSide::MinY => 2,
+        PartitionBorderSide::MaxY => 3,
+    }
+}
+
+fn partition_atomic_observations(
+    border_observations: &[PartitionBorderHalfEdge],
+) -> Vec<PartitionAtomicObservationV1> {
+    let mut observations = border_observations
+        .iter()
+        .map(|observation| {
+            let mut source_line_ids = observation.source_line_ids.clone();
+            source_line_ids.sort_unstable();
+            source_line_ids.dedup();
+            PartitionAtomicObservationV1 {
+                from_xy_bits: observation.from.xy_bits(),
+                to_xy_bits: observation.to.xy_bits(),
+                from_z_bits: observation.from_z_bits,
+                to_z_bits: observation.to_z_bits,
+                side: partition_border_side_code(observation.side),
+                component_id: observation.component_id,
+                source_line_ids,
+                representative_line_id: observation.representative_line_id,
+            }
+        })
+        .collect::<Vec<_>>();
+    observations.sort_unstable();
+    observations.dedup();
+    observations
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionBoundaryNodingEvidenceV1 {
+    pub(crate) added_node_count: usize,
+    pub(crate) added_edge_count: usize,
+    pub(crate) split_event_count: usize,
+}
+
 fn partition_snapshot_diff_field<T: Serialize>(
     path: &str,
     expected: &T,
@@ -121,6 +175,8 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) selected_input_geometry_indices: Vec<usize>,
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
+    pub(crate) boundary_noding: PartitionBoundaryNodingEvidenceV1,
+    pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
     pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
 }
 
@@ -130,6 +186,8 @@ impl PartitionSnapshotV1 {
         tile_bbox: Rect<f64>,
         mut selected_input_geometry_indices: Vec<usize>,
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
+        boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
+        border_observations: &[PartitionBorderHalfEdge],
         result: &PolygonizerResult,
         options: &PolygonizerOptions,
     ) -> Result<Self> {
@@ -147,6 +205,12 @@ impl PartitionSnapshotV1 {
             tile_max: coordinate(tile_bbox.max())?,
             selected_input_geometry_indices,
             selected_source_segments,
+            boundary_noding: PartitionBoundaryNodingEvidenceV1 {
+                added_node_count: boundary_noding_stats.added_node_count,
+                added_edge_count: boundary_noding_stats.added_edge_count,
+                split_event_count: boundary_noding_stats.split_event_count,
+            },
+            atomic_observations: partition_atomic_observations(border_observations),
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
         })
     }
@@ -201,6 +265,34 @@ impl PartitionSnapshotV1 {
                 "$.selected_source_segments",
                 &self.selected_source_segments,
                 &actual.selected_source_segments,
+            ));
+        }
+        if self.boundary_noding.added_node_count != actual.boundary_noding.added_node_count {
+            return Some(partition_snapshot_diff_field(
+                "$.boundary_noding.added_node_count",
+                &self.boundary_noding.added_node_count,
+                &actual.boundary_noding.added_node_count,
+            ));
+        }
+        if self.boundary_noding.added_edge_count != actual.boundary_noding.added_edge_count {
+            return Some(partition_snapshot_diff_field(
+                "$.boundary_noding.added_edge_count",
+                &self.boundary_noding.added_edge_count,
+                &actual.boundary_noding.added_edge_count,
+            ));
+        }
+        if self.boundary_noding.split_event_count != actual.boundary_noding.split_event_count {
+            return Some(partition_snapshot_diff_field(
+                "$.boundary_noding.split_event_count",
+                &self.boundary_noding.split_event_count,
+                &actual.boundary_noding.split_event_count,
+            ));
+        }
+        if self.atomic_observations != actual.atomic_observations {
+            return Some(partition_snapshot_diff_field(
+                "$.atomic_observations",
+                &self.atomic_observations,
+                &actual.atomic_observations,
             ));
         }
         self.topology.diff(&actual.topology).map(|mut diff| {
@@ -1919,6 +2011,8 @@ impl<'a> TiledPolygonizer<'a> {
                 tile_bbox,
                 selected_input_geometry_indices,
                 selected_source_segments,
+                crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
+                &[],
                 &PolygonizerResult {
                     polygons: Vec::new(),
                     dangles: Vec::new(),
@@ -1929,13 +2023,15 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.options,
             );
         }
-        let (result, _, _, _) = local_poly
+        let (result, border_observations, _, boundary_noding_stats) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
             selected_input_geometry_indices,
             selected_source_segments,
+            boundary_noding_stats,
+            &border_observations,
             &result,
             &self.options,
         )
@@ -2044,6 +2140,8 @@ impl<'a> TiledPolygonizer<'a> {
                 tile_bbox,
                 selected_input_geometry_indices,
                 selected_source_segments,
+                crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
+                &[],
                 &empty_result,
                 &self.options,
             )?;
@@ -2070,6 +2168,8 @@ impl<'a> TiledPolygonizer<'a> {
             tile_bbox,
             selected_input_geometry_indices,
             selected_source_segments,
+            boundary_noding_stats,
+            &border_observations,
             &result,
             &self.options,
         )?;
