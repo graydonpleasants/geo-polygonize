@@ -3846,9 +3846,17 @@ mod tests {
             Coord { x: 0.0, y: 1.0 },
             Coord { x: 0.0, y: 0.0 },
         ]));
-        let mut serial =
-            TiledPolygonizer::new(bbox, 2.0).with_tile_execution_policy(TileExecutionPolicy {
+        let mut serial = TiledPolygonizer::new(bbox, 2.0)
+            .with_tile_execution_policy(TileExecutionPolicy {
                 max_parallel_tiles: Some(1),
+                ..Default::default()
+            })
+            .with_options(PolygonizerOptions {
+                provenance: ProvenanceOptions {
+                    enabled: true,
+                    include_boundary_line_ids: true,
+                },
+                input_profile_id: Some("partition-oracle-v1".to_string()),
                 ..Default::default()
             });
         serial.add_geometry(&square);
@@ -3862,6 +3870,13 @@ mod tests {
         assert!(!snapshot.atomic_observations.is_empty());
         assert!(!snapshot.local_face_graphs.is_empty());
         assert!(!snapshot.boundary_nodes.is_empty());
+        assert_eq!(snapshot.topology.polygons.len(), 1);
+        let provenance = snapshot.topology.polygons[0].provenance.as_ref().unwrap();
+        assert!(provenance.boundary_line_ids.is_empty());
+        assert_eq!(
+            provenance.input_profile_id.as_deref(),
+            Some("partition-oracle-v1")
+        );
         let independent = serial
             .process_one_partition(0, bbox, serial.buffer)
             .unwrap();
@@ -3919,6 +3934,27 @@ mod tests {
         assert_eq!(
             snapshot.diff(&topology_mismatch).unwrap().path,
             "$.topology.schema_version"
+        );
+        let mut provenance_mismatch = independent.clone();
+        provenance_mismatch.topology.polygons[0]
+            .provenance
+            .as_mut()
+            .unwrap()
+            .input_profile_id = Some("different-profile".to_string());
+        assert_eq!(
+            snapshot.diff(&provenance_mismatch).unwrap().path,
+            "$.topology.polygons[0].provenance.input_profile_id"
+        );
+        let mut source_id_mismatch = independent.clone();
+        source_id_mismatch.topology.polygons[0]
+            .provenance
+            .as_mut()
+            .unwrap()
+            .boundary_line_ids
+            .push("0xdeadbeef".to_string());
+        assert_eq!(
+            snapshot.diff(&source_id_mismatch).unwrap().path,
+            "$.topology.polygons[0].provenance.boundary_line_ids[0]"
         );
         let repeated = serial.polygonize().unwrap();
         assert_eq!(
