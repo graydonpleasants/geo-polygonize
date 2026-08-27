@@ -512,8 +512,10 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Compare canonical boundary-node XY identity, Z candidates, source and
   representative IDs, face references, and incident observation counts with
   first-difference evidence.
+- [x] Compare canonical dangle, cut-edge, and invalid-ring families with
+  first-difference evidence.
 - [ ] Extend comparison to remaining local noding and graph/face state,
-  provenance, non-polygon families, and normalized errors.
+  provenance, and normalized errors.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
