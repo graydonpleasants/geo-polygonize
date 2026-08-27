@@ -3929,6 +3929,41 @@ mod tests {
     }
 
     #[test]
+    fn partition_oracle_normalizes_bulk_and_independent_errors() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 1.0, y: 0.0 },
+            Coord { x: 1.0, y: 1.0 },
+            Coord { x: 0.0, y: 1.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]));
+        let mut tiled = TiledPolygonizer::new(bbox, 2.0).with_execution_policy(ExecutionPolicy {
+            max_graph_nodes: Some(0),
+            ..Default::default()
+        });
+        tiled.add_geometry(&square);
+        let components = tiled.input_components().unwrap();
+        let bulk_error = tiled
+            .process_tile_with_retries(
+                0,
+                bbox,
+                &components,
+                None,
+                &std::sync::atomic::AtomicUsize::new(0),
+            )
+            .unwrap_err();
+        let independent_error = tiled
+            .process_one_partition(0, bbox, tiled.buffer)
+            .unwrap_err();
+        let bulk = crate::fingerprint::normalize_polygonize_error(&bulk_error);
+        let independent = crate::fingerprint::normalize_polygonize_error(&independent_error);
+        assert_eq!(bulk, independent);
+        assert_eq!(bulk.family, "resource_limit");
+        assert_eq!(bulk.code, "resource_limit_exceeded");
+    }
+
+    #[test]
     fn reports_tile_topology_and_merge_counts() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
         let square = Geometry::LineString(LineString::new(vec![

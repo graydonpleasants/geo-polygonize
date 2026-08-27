@@ -514,8 +514,10 @@ pattern, not its no-new-vertices clipping contract.
   first-difference evidence.
 - [x] Compare canonical dangle, cut-edge, and invalid-ring families with
   first-difference evidence.
+- [x] Compare bulk and independent partition failures through the normalized
+  error contract instead of user-facing message text.
 - [ ] Extend comparison to remaining local noding and graph/face state,
-  provenance, and normalized errors.
+  provenance.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
