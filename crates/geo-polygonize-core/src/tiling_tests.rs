@@ -3855,7 +3855,7 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 4);
+        assert_eq!(snapshot.schema_version, 5);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
@@ -3904,6 +3904,15 @@ mod tests {
         assert_eq!(
             snapshot.diff(&boundary_node_mismatch).unwrap().path,
             "$.boundary_nodes"
+        );
+        let mut non_polygon_mismatch = independent.clone();
+        non_polygon_mismatch
+            .non_polygon
+            .dangles
+            .push(vec![[0, 0, 0], [1, 1, 0]]);
+        assert_eq!(
+            snapshot.diff(&non_polygon_mismatch).unwrap().path,
+            "$.non_polygon"
         );
         let mut topology_mismatch = independent.clone();
         topology_mismatch.topology.schema_version += 1;

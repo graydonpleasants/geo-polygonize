@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 4;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -276,6 +276,39 @@ fn partition_boundary_nodes(
     nodes
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionNonPolygonEvidenceV1 {
+    pub(crate) dangles: Vec<Vec<[u64; 3]>>,
+    pub(crate) cut_edges: Vec<Vec<[u64; 3]>>,
+    pub(crate) invalid_rings: Vec<Vec<[u64; 3]>>,
+}
+
+fn partition_non_polygon_evidence(result: &PolygonizerResult) -> PartitionNonPolygonEvidenceV1 {
+    let mut dangles = result
+        .dangles
+        .iter()
+        .map(|line| canonical_open_line_key(line))
+        .collect::<Vec<_>>();
+    let mut cut_edges = result
+        .cut_edges
+        .iter()
+        .map(|line| canonical_open_line_key(line))
+        .collect::<Vec<_>>();
+    let mut invalid_rings = result
+        .invalid_rings
+        .iter()
+        .map(|ring| canonical_ring_key(ring))
+        .collect::<Vec<_>>();
+    dangles.sort_unstable();
+    cut_edges.sort_unstable();
+    invalid_rings.sort_unstable();
+    PartitionNonPolygonEvidenceV1 {
+        dangles,
+        cut_edges,
+        invalid_rings,
+    }
+}
+
 fn partition_snapshot_diff_field<T: Serialize>(
     path: &str,
     expected: &T,
@@ -300,6 +333,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
     pub(crate) local_face_graphs: Vec<PartitionLocalFaceGraphV1>,
     pub(crate) boundary_nodes: Vec<PartitionBoundaryNodeV1>,
+    pub(crate) non_polygon: PartitionNonPolygonEvidenceV1,
     pub(crate) topology: crate::fingerprint::TopologyFingerprintV1,
 }
 
@@ -338,6 +372,7 @@ impl PartitionSnapshotV1 {
             atomic_observations: partition_atomic_observations(border_observations),
             local_face_graphs: partition_local_face_graphs(local_face_graphs),
             boundary_nodes: partition_boundary_nodes(border_observations),
+            non_polygon: partition_non_polygon_evidence(result),
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
         })
     }
@@ -434,6 +469,13 @@ impl PartitionSnapshotV1 {
                 "$.boundary_nodes",
                 &self.boundary_nodes,
                 &actual.boundary_nodes,
+            ));
+        }
+        if self.non_polygon != actual.non_polygon {
+            return Some(partition_snapshot_diff_field(
+                "$.non_polygon",
+                &self.non_polygon,
+                &actual.non_polygon,
             ));
         }
         self.topology.diff(&actual.topology).map(|mut diff| {
