@@ -1,7 +1,7 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::graph::partition_border::{
     PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge,
-    PartitionBorderLocalFaceGraph, PartitionBorderSide,
+    PartitionBorderLocalFaceGraph, PartitionBorderObservationId, PartitionBorderSide,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 6;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -111,6 +111,27 @@ pub(crate) struct PartitionAtomicObservationV1 {
     pub(crate) component_id: usize,
     pub(crate) source_line_ids: Vec<u32>,
     pub(crate) representative_line_id: Option<u32>,
+    pub(crate) local_face_boundary_successor: Option<PartitionBorderObservationIdV1>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionBorderObservationIdV1 {
+    pub(crate) partition_id: usize,
+    pub(crate) local_dir_edge_id: usize,
+    pub(crate) edge_start_xy_bits: [u64; 2],
+    pub(crate) edge_end_xy_bits: [u64; 2],
+}
+
+fn partition_border_observation_id(
+    observation_id: PartitionBorderObservationId,
+) -> PartitionBorderObservationIdV1 {
+    let (start, end) = observation_id.edge_key.endpoints();
+    PartitionBorderObservationIdV1 {
+        partition_id: observation_id.partition_id,
+        local_dir_edge_id: observation_id.local_dir_edge_id,
+        edge_start_xy_bits: start.xy_bits(),
+        edge_end_xy_bits: end.xy_bits(),
+    }
 }
 
 fn partition_border_side_code(side: PartitionBorderSide) -> u8 {
@@ -140,6 +161,9 @@ fn partition_atomic_observations(
                 component_id: observation.component_id,
                 source_line_ids,
                 representative_line_id: observation.representative_line_id,
+                local_face_boundary_successor: observation
+                    .local_face_boundary_successor
+                    .map(partition_border_observation_id),
             }
         })
         .collect::<Vec<_>>();

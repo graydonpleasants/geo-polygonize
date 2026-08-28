@@ -520,6 +520,8 @@ pattern, not its no-new-vertices clipping contract.
   unavailable source-ID handling, with first-difference evidence.
 - [x] Compare local face-edge representative source IDs with first-difference
   evidence.
+- [x] Compare local face-boundary successors on canonical border observations
+  with qualified first-difference evidence.
 - [ ] Extend comparison to remaining local noding and graph/face state.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
