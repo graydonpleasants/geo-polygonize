@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 5;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -167,6 +167,7 @@ pub(crate) struct PartitionLocalFaceEdgeV1 {
     pub(crate) face_ref: Option<[usize; 3]>,
     pub(crate) local_face_is_unbounded: bool,
     pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_id: Option<u32>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -201,6 +202,7 @@ fn partition_local_face_graphs(
                             .face_ref
                             .map(|face| [face.partition_id, face.component_id, face.face_id]),
                         local_face_is_unbounded: edge.local_face_is_unbounded,
+                        representative_line_id: source_line_ids.first().copied(),
                         source_line_ids,
                     }
                 })

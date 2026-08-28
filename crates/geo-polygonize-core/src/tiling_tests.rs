@@ -3863,13 +3863,17 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 5);
+        assert_eq!(snapshot.schema_version, 6);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
         assert!(!snapshot.atomic_observations.is_empty());
         assert!(!snapshot.local_face_graphs.is_empty());
         assert!(!snapshot.boundary_nodes.is_empty());
+        assert_eq!(
+            snapshot.local_face_graphs[0].directed_edges[0].representative_line_id,
+            Some(0)
+        );
         assert_eq!(snapshot.topology.polygons.len(), 1);
         let provenance = snapshot.topology.polygons[0].provenance.as_ref().unwrap();
         assert!(provenance.boundary_line_ids.is_empty());
@@ -3912,6 +3916,16 @@ mod tests {
                 .local_face_is_unbounded;
         assert_eq!(
             snapshot.diff(&local_face_graph_mismatch).unwrap().path,
+            "$.local_face_graphs"
+        );
+        let mut local_face_representative_mismatch = independent.clone();
+        local_face_representative_mismatch.local_face_graphs[0].directed_edges[0]
+            .representative_line_id = Some(u32::MAX);
+        assert_eq!(
+            snapshot
+                .diff(&local_face_representative_mismatch)
+                .unwrap()
+                .path,
             "$.local_face_graphs"
         );
         let mut boundary_node_mismatch = independent.clone();
