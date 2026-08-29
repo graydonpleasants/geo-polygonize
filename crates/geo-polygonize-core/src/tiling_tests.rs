@@ -3863,7 +3863,7 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 8);
+        assert_eq!(snapshot.schema_version, 9);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
@@ -3890,6 +3890,10 @@ mod tests {
         assert_eq!(observation_with_face_state.face_ref.unwrap()[0], 0);
         assert!(!snapshot.local_face_graphs.is_empty());
         assert!(!snapshot.boundary_nodes.is_empty());
+        assert!(snapshot.local_face_graphs[0]
+            .nodes
+            .iter()
+            .any(|node| node.outgoing_local_dir_edge_ids.len() >= 2));
         assert_eq!(
             snapshot.local_face_graphs[0].directed_edges[0].representative_line_id,
             Some(0)
@@ -3966,6 +3970,14 @@ mod tests {
                 .diff(&local_face_representative_mismatch)
                 .unwrap()
                 .path,
+            "$.local_face_graphs"
+        );
+        let mut local_node_mismatch = independent.clone();
+        local_node_mismatch.local_face_graphs[0].nodes[0]
+            .outgoing_local_dir_edge_ids
+            .push(usize::MAX);
+        assert_eq!(
+            snapshot.diff(&local_node_mismatch).unwrap().path,
             "$.local_face_graphs"
         );
         let mut boundary_node_mismatch = independent.clone();

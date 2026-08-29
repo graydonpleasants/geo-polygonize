@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 8;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -203,10 +203,50 @@ pub(crate) struct PartitionLocalFaceEdgeV1 {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionLocalNodeV1 {
+    pub(crate) xy_bits: [u64; 2],
+    pub(crate) z_bits: Vec<u64>,
+    pub(crate) outgoing_local_dir_edge_ids: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionLocalFaceGraphV1 {
     pub(crate) partition_id: usize,
     pub(crate) component_id: usize,
+    pub(crate) nodes: Vec<PartitionLocalNodeV1>,
     pub(crate) directed_edges: Vec<PartitionLocalFaceEdgeV1>,
+}
+
+fn partition_local_nodes(edges: &[PartitionLocalFaceEdgeV1]) -> Vec<PartitionLocalNodeV1> {
+    let mut nodes = BTreeMap::<[u64; 2], PartitionLocalNodeV1>::new();
+    for edge in edges {
+        let from = nodes
+            .entry(edge.from_xy_bits)
+            .or_insert_with(|| PartitionLocalNodeV1 {
+                xy_bits: edge.from_xy_bits,
+                z_bits: Vec::new(),
+                outgoing_local_dir_edge_ids: Vec::new(),
+            });
+        from.z_bits.push(edge.from_z_bits);
+        from.outgoing_local_dir_edge_ids
+            .push(edge.local_dir_edge_id);
+
+        let to = nodes
+            .entry(edge.to_xy_bits)
+            .or_insert_with(|| PartitionLocalNodeV1 {
+                xy_bits: edge.to_xy_bits,
+                z_bits: Vec::new(),
+                outgoing_local_dir_edge_ids: Vec::new(),
+            });
+        to.z_bits.push(edge.to_z_bits);
+    }
+    for node in nodes.values_mut() {
+        node.z_bits.sort_unstable();
+        node.z_bits.dedup();
+        node.outgoing_local_dir_edge_ids.sort_unstable();
+        node.outgoing_local_dir_edge_ids.dedup();
+    }
+    nodes.into_values().collect()
 }
 
 fn partition_local_face_graphs(
@@ -244,6 +284,7 @@ fn partition_local_face_graphs(
             PartitionLocalFaceGraphV1 {
                 partition_id: graph.partition_id,
                 component_id: graph.component_id,
+                nodes: partition_local_nodes(&directed_edges),
                 directed_edges,
             }
         })
