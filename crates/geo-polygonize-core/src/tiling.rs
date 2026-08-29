@@ -75,6 +75,12 @@ pub(crate) struct PartitionSourceSegmentV1 {
     pub(crate) end: crate::fingerprint::CoordinateFingerprintV1,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartitionOracleDifferenceV1 {
+    pub partition_id: usize,
+    pub stage: String,
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionNodedSegmentV1 {
     pub(crate) start: crate::fingerprint::CoordinateFingerprintV1,
@@ -2337,7 +2343,6 @@ impl<'a> TiledPolygonizer<'a> {
         )
     }
 
-    #[cfg(test)]
     fn process_one_partition(
         &self,
         partition_id: usize,
@@ -3626,6 +3631,27 @@ impl<'a> TiledPolygonizer<'a> {
 
     pub fn polygonize(&self) -> Result<TiledPolygonizeResult> {
         self.polygonize_impl(None)
+    }
+
+    #[doc(hidden)]
+    pub fn partition_oracle_first_difference(&self) -> Result<Option<PartitionOracleDifferenceV1>> {
+        let result = self.polygonize()?;
+        for (partition_id, report) in result.tile_reports.iter().enumerate() {
+            let expected = result
+                .partition_snapshots
+                .get(partition_id)
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: format!("partition {partition_id} has no captured snapshot"),
+                })?;
+            let actual = self.process_one_partition(partition_id, report.tile_bbox, self.buffer)?;
+            if let Some(diff) = expected.diff(&actual) {
+                return Ok(Some(PartitionOracleDifferenceV1 {
+                    partition_id,
+                    stage: diff.path,
+                }));
+            }
+        }
+        Ok(None)
     }
 
     pub fn polygonize_with_coverage_guarantee(
