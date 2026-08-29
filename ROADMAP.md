@@ -522,6 +522,8 @@ pattern, not its no-new-vertices clipping contract.
   evidence.
 - [x] Compare local face-boundary successors on canonical border observations
   with qualified first-difference evidence.
+- [x] Compare atomic border face references, local face successors, and
+  unbounded markers with first-difference evidence.
 - [ ] Extend comparison to remaining local noding and graph/face state.
 - [ ] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.

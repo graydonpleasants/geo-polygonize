@@ -3863,7 +3863,7 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 7);
+        assert_eq!(snapshot.schema_version, 8);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
@@ -3880,6 +3880,14 @@ mod tests {
                 .partition_id,
             0
         );
+        let observation_with_face_state = snapshot
+            .atomic_observations
+            .iter()
+            .find(|observation| {
+                observation.face_ref.is_some() && observation.local_face_successor.is_some()
+            })
+            .unwrap();
+        assert_eq!(observation_with_face_state.face_ref.unwrap()[0], 0);
         assert!(!snapshot.local_face_graphs.is_empty());
         assert!(!snapshot.boundary_nodes.is_empty());
         assert_eq!(
@@ -3926,6 +3934,20 @@ mod tests {
         boundary_successor_mismatch.atomic_observations[0].local_face_boundary_successor = None;
         assert_eq!(
             snapshot.diff(&boundary_successor_mismatch).unwrap().path,
+            "$.atomic_observations"
+        );
+        let mut atomic_face_state_mismatch = independent.clone();
+        let face_state_index = atomic_face_state_mismatch
+            .atomic_observations
+            .iter()
+            .position(|observation| observation.face_ref.is_some())
+            .unwrap();
+        atomic_face_state_mismatch.atomic_observations[face_state_index].face_ref = None;
+        atomic_face_state_mismatch.atomic_observations[face_state_index].local_face_is_unbounded =
+            !atomic_face_state_mismatch.atomic_observations[face_state_index]
+                .local_face_is_unbounded;
+        assert_eq!(
+            snapshot.diff(&atomic_face_state_mismatch).unwrap().path,
             "$.atomic_observations"
         );
         let mut local_face_graph_mismatch = independent.clone();
