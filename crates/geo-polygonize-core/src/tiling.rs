@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 10;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 11;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -450,6 +450,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) selected_input_geometry_indices: Vec<usize>,
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
     pub(crate) local_noded_segments: Vec<PartitionNodedSegmentV1>,
+    pub(crate) boundary_noded_segments: Vec<PartitionNodedSegmentV1>,
     pub(crate) boundary_noding: PartitionBoundaryNodingEvidenceV1,
     pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
     pub(crate) local_face_graphs: Vec<PartitionLocalFaceGraphV1>,
@@ -467,6 +468,7 @@ impl PartitionSnapshotV1 {
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
         noded_segments: &[PartitionNodedSegment],
+        boundary_noded_segments: &[PartitionNodedSegment],
         border_observations: &[PartitionBorderHalfEdge],
         local_face_graphs: &[PartitionBorderLocalFaceGraph],
         result: &PolygonizerResult,
@@ -487,6 +489,7 @@ impl PartitionSnapshotV1 {
             selected_input_geometry_indices,
             selected_source_segments,
             local_noded_segments: partition_noded_segments(noded_segments)?,
+            boundary_noded_segments: partition_noded_segments(boundary_noded_segments)?,
             boundary_noding: PartitionBoundaryNodingEvidenceV1 {
                 added_node_count: boundary_noding_stats.added_node_count,
                 added_edge_count: boundary_noding_stats.added_edge_count,
@@ -557,6 +560,13 @@ impl PartitionSnapshotV1 {
                 "$.local_noded_segments",
                 &self.local_noded_segments,
                 &actual.local_noded_segments,
+            ));
+        }
+        if self.boundary_noded_segments != actual.boundary_noded_segments {
+            return Some(partition_snapshot_diff_field(
+                "$.boundary_noded_segments",
+                &self.boundary_noded_segments,
+                &actual.boundary_noded_segments,
             ));
         }
         if self.boundary_noding.added_node_count != actual.boundary_noding.added_node_count {
@@ -1785,6 +1795,7 @@ type TileProcessResult = (
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
     Vec<PartitionNodedSegment>,
+    Vec<PartitionNodedSegment>,
     PartitionSnapshotV1,
 );
 
@@ -2329,6 +2340,7 @@ impl<'a> TiledPolygonizer<'a> {
                 &[],
                 &[],
                 &[],
+                &[],
                 &PolygonizerResult {
                     polygons: Vec::new(),
                     dangles: Vec::new(),
@@ -2339,8 +2351,15 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.options,
             );
         }
-        let (result, border_observations, local_face_graphs, boundary_noding_stats, noded_segments) =
-            local_poly.polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let (
+            result,
+            border_observations,
+            local_face_graphs,
+            boundary_noding_stats,
+            noded_segments,
+            boundary_noded_segments,
+        ) = local_poly
+            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
@@ -2348,6 +2367,7 @@ impl<'a> TiledPolygonizer<'a> {
             selected_source_segments,
             boundary_noding_stats,
             &noded_segments,
+            &boundary_noded_segments,
             &border_observations,
             &local_face_graphs,
             &result,
@@ -2462,6 +2482,7 @@ impl<'a> TiledPolygonizer<'a> {
                 &[],
                 &[],
                 &[],
+                &[],
                 &empty_result,
                 &self.options,
             )?;
@@ -2477,13 +2498,21 @@ impl<'a> TiledPolygonizer<'a> {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 snapshot,
             ));
         }
 
         // Run polygonization
-        let (result, border_observations, local_face_graphs, boundary_noding_stats, noded_segments) =
-            local_poly.polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let (
+            result,
+            border_observations,
+            local_face_graphs,
+            boundary_noding_stats,
+            noded_segments,
+            boundary_noded_segments,
+        ) = local_poly
+            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         let snapshot = PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
@@ -2491,6 +2520,7 @@ impl<'a> TiledPolygonizer<'a> {
             selected_source_segments,
             boundary_noding_stats,
             &noded_segments,
+            &boundary_noded_segments,
             &border_observations,
             &local_face_graphs,
             &result,
@@ -2582,6 +2612,7 @@ impl<'a> TiledPolygonizer<'a> {
             cut_edges,
             invalid_rings,
             noded_segments,
+            boundary_noded_segments,
             snapshot,
         ))
     }
@@ -3683,6 +3714,7 @@ impl<'a> TiledPolygonizer<'a> {
                     cut_edges,
                     invalid_rings,
                     _noded_segments,
+                    _boundary_noded_segments,
                     snapshot,
                 ) = self.process_tile_with_retries(
                     tile_index,
@@ -3829,6 +3861,7 @@ impl<'a> TiledPolygonizer<'a> {
                     dangles,
                     cut_edges,
                     invalid_rings,
+                    _,
                     _,
                     snapshot,
                 ) = result;

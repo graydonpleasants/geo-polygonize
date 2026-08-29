@@ -1313,12 +1313,13 @@ mod tests {
                 44,
             ),
         ]);
-        let (_, observations, local_face_graphs, stats, _noded_segments) = polygonizer
-            .polygonize_with_partition_border_export_and_stats(
-                7,
-                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
-            )
-            .unwrap();
+        let (_, observations, local_face_graphs, stats, _noded_segments, _boundary_noded_segments) =
+            polygonizer
+                .polygonize_with_partition_border_export_and_stats(
+                    7,
+                    Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
+                )
+                .unwrap();
 
         assert_eq!(stats.added_node_count, 2);
         assert_eq!(stats.added_edge_count, 2);
@@ -3863,11 +3864,12 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 10);
+        assert_eq!(snapshot.schema_version, 11);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
         assert_eq!(snapshot.local_noded_segments.len(), 4);
+        assert_eq!(snapshot.boundary_noded_segments.len(), 4);
         assert!(!snapshot.atomic_observations.is_empty());
         let observation_with_boundary_successor = snapshot
             .atomic_observations
@@ -3937,6 +3939,17 @@ mod tests {
         assert_eq!(
             snapshot.diff(&noded_representative_mismatch).unwrap().path,
             "$.local_noded_segments"
+        );
+        let mut boundary_noded_segment_mismatch = independent.clone();
+        boundary_noded_segment_mismatch.boundary_noded_segments[0]
+            .source_line_ids
+            .push(u32::MAX);
+        assert_eq!(
+            snapshot
+                .diff(&boundary_noded_segment_mismatch)
+                .unwrap()
+                .path,
+            "$.boundary_noded_segments"
         );
         let mut boundary_noding_mismatch = independent.clone();
         boundary_noding_mismatch.boundary_noding.added_node_count += 1;
@@ -4105,15 +4118,16 @@ mod tests {
         });
         tiled.add_geometry(&square);
         let components = tiled.input_components().unwrap();
-        let bulk_error = tiled
-            .process_tile_with_retries(
-                0,
-                bbox,
-                &components,
-                None,
-                &std::sync::atomic::AtomicUsize::new(0),
-            )
-            .unwrap_err();
+        let bulk_error = match tiled.process_tile_with_retries(
+            0,
+            bbox,
+            &components,
+            None,
+            &std::sync::atomic::AtomicUsize::new(0),
+        ) {
+            Ok(_) => panic!("expected bulk partition processing to fail"),
+            Err(error) => error,
+        };
         let independent_error = tiled
             .process_one_partition(0, bbox, tiled.buffer)
             .unwrap_err();

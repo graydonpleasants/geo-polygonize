@@ -528,6 +528,8 @@ pattern, not its no-new-vertices clipping contract.
   incidence with first-difference evidence.
 - [x] Compare canonical local noded segment endpoints, Z, source IDs, and
   representative IDs with first-difference evidence.
+- [x] Compare canonical boundary-noded segment endpoints, Z, source IDs, and
+  representative IDs with first-difference evidence.
 - [ ] Extend comparison to remaining local noding and graph/face state.
 - [x] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
