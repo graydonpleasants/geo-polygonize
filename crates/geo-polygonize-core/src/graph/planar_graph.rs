@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use super::partition_border::{
     partition_boundary_intersections, PartitionBorderEdgeKey, PartitionBorderHalfEdge,
     PartitionBorderLocalDirectedEdge, PartitionBorderLocalFaceGraph, PartitionBorderNodeKey,
-    PartitionBorderSide,
+    PartitionBorderSide, PartitionLocalGraphState,
 };
 
 /// Index of a node in the graph.
@@ -429,6 +429,41 @@ impl PlanarGraph {
             node_map: HashMap::new(),
             face_count: 0,
             unbounded_face_ids: Vec::new(),
+        }
+    }
+
+    pub(crate) fn partition_local_graph_state(&self) -> PartitionLocalGraphState {
+        let is_active = |directed_idx: usize| {
+            let directed = &self.directed_edges[directed_idx];
+            !directed.is_marked && !self.edges[directed.edge_idx].deleted
+        };
+        PartitionLocalGraphState {
+            node_count: self.nodes_x.len(),
+            edge_count: self.edges.len(),
+            active_edge_count: self
+                .edges
+                .iter()
+                .filter(|edge| !edge.deleted && edge.dir_edges.iter().all(|&idx| is_active(idx)))
+                .count(),
+            directed_edge_count: self.directed_edges.len(),
+            active_directed_edge_count: self
+                .directed_edges
+                .iter()
+                .enumerate()
+                .filter(|&(idx, _)| is_active(idx))
+                .count(),
+            faced_directed_edge_count: self
+                .directed_edges
+                .iter()
+                .filter(|directed| directed.face_id.is_some())
+                .count(),
+            face_successor_count: self
+                .directed_edges
+                .iter()
+                .filter(|directed| directed.next_idx.is_some())
+                .count(),
+            face_count: self.face_count,
+            unbounded_face_count: self.unbounded_face_ids.len(),
         }
     }
 
@@ -3279,6 +3314,7 @@ impl ComponentScratch {
         Ok(PartitionBorderLocalFaceGraph {
             partition_id,
             component_id,
+            graph_state: self.graph.partition_local_graph_state(),
             directed_edges,
         })
     }

@@ -2,6 +2,7 @@ use crate::diagnostics::ExecutionWorkTracker;
 use crate::graph::partition_border::{
     PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge,
     PartitionBorderLocalFaceGraph, PartitionBorderObservationId, PartitionBorderSide,
+    PartitionLocalGraphState,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -64,7 +65,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 11;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -254,10 +255,40 @@ pub(crate) struct PartitionLocalNodeV1 {
     pub(crate) outgoing_local_dir_edge_ids: Vec<usize>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionLocalGraphStateV1 {
+    pub(crate) node_count: usize,
+    pub(crate) edge_count: usize,
+    pub(crate) active_edge_count: usize,
+    pub(crate) directed_edge_count: usize,
+    pub(crate) active_directed_edge_count: usize,
+    pub(crate) faced_directed_edge_count: usize,
+    pub(crate) face_successor_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) unbounded_face_count: usize,
+}
+
+impl From<PartitionLocalGraphState> for PartitionLocalGraphStateV1 {
+    fn from(state: PartitionLocalGraphState) -> Self {
+        Self {
+            node_count: state.node_count,
+            edge_count: state.edge_count,
+            active_edge_count: state.active_edge_count,
+            directed_edge_count: state.directed_edge_count,
+            active_directed_edge_count: state.active_directed_edge_count,
+            faced_directed_edge_count: state.faced_directed_edge_count,
+            face_successor_count: state.face_successor_count,
+            face_count: state.face_count,
+            unbounded_face_count: state.unbounded_face_count,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionLocalFaceGraphV1 {
     pub(crate) partition_id: usize,
     pub(crate) component_id: usize,
+    pub(crate) graph_state: PartitionLocalGraphStateV1,
     pub(crate) nodes: Vec<PartitionLocalNodeV1>,
     pub(crate) directed_edges: Vec<PartitionLocalFaceEdgeV1>,
 }
@@ -329,6 +360,7 @@ fn partition_local_face_graphs(
             PartitionLocalFaceGraphV1 {
                 partition_id: graph.partition_id,
                 component_id: graph.component_id,
+                graph_state: graph.graph_state.into(),
                 nodes: partition_local_nodes(&directed_edges),
                 directed_edges,
             }
