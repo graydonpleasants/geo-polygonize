@@ -3932,6 +3932,7 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot, &independent);
         assert_eq!(snapshot.diff(&independent), None);
+        assert_eq!(serial.partition_oracle_first_difference().unwrap(), None);
         let mut mismatch = independent.clone();
         mismatch.selected_input_geometry_indices.push(1);
         assert_eq!(

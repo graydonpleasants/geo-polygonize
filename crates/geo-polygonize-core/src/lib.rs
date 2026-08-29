@@ -78,8 +78,8 @@ pub use polygonizer::{
 };
 #[doc(hidden)]
 pub use tiling::{
-    StitchingReport, TileBoundarySide, TileComponentConnection, TileCoverageGuarantee,
-    TileCoverageIssue, TileCoverageResolution, TileCoverageResolutionKind,
+    PartitionOracleDifferenceV1, StitchingReport, TileBoundarySide, TileComponentConnection,
+    TileCoverageGuarantee, TileCoverageIssue, TileCoverageResolution, TileCoverageResolutionKind,
     TileExcludedComponentIssue, TileExecutionPolicy, TileInputBoundaryIssue,
     TileOwnershipDomainIssue, TileReport, TileRetryAttempt, TileRetryPolicy, TiledPolygonizeError,
     TiledPolygonizeResult, TiledPolygonizer, TiledStitchedOutput, TracedTiledPolygonizeResultV1,

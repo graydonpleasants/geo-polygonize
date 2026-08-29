@@ -537,9 +537,9 @@ pattern, not its no-new-vertices clipping contract.
   buffer, and fixed-grid precision.
 - [x] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
-- [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
+- [x] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
   tile-origin, tile-size, buffer, and precision metamorphic tests.
-- [ ] Add a bounded fuzz target that names the first differing partition and
+- [x] Add a bounded fuzz target that names the first differing partition and
   stage.
 - [ ] Retain final tiled-versus-untiled comparison as the stronger global gate.
 

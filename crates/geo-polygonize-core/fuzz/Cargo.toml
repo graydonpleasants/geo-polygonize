@@ -60,6 +60,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "partition_oracle"
+path = "fuzz_targets/partition_oracle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "provenance_report_mode"
 path = "fuzz_targets/provenance_report_mode.rs"
 test = false
