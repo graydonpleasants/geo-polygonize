@@ -4060,6 +4060,77 @@ mod tests {
     }
 
     #[test]
+    fn partition_oracle_survives_input_metamorphisms() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
+        let points = [
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 2.0, y: 0.0 },
+            Coord { x: 2.0, y: 2.0 },
+            Coord { x: 0.0, y: 2.0 },
+        ];
+        let ring = Geometry::LineString(LineString::new(vec![
+            points[0], points[1], points[2], points[3], points[0],
+        ]));
+        let reversed = Geometry::LineString(LineString::new(
+            [points[0], points[3], points[2], points[1], points[0]].to_vec(),
+        ));
+        let edges = [
+            LineString::new(vec![points[0], points[1]]),
+            LineString::new(vec![points[1], points[2]]),
+            LineString::new(vec![points[2], points[3]]),
+            LineString::new(vec![points[3], points[0]]),
+        ];
+        let permuted = edges
+            .iter()
+            .rev()
+            .cloned()
+            .map(Geometry::LineString)
+            .collect::<Vec<_>>();
+        let grouped = Geometry::MultiLineString(MultiLineString::new(edges.to_vec()));
+        let duplicate_vertex = Geometry::LineString(LineString::new(vec![
+            points[0], points[1], points[1], points[2], points[3], points[0],
+        ]));
+        let duplicate_edge = Geometry::MultiLineString(MultiLineString::new(vec![
+            edges[0].clone(),
+            edges[0].clone(),
+            edges[1].clone(),
+            edges[2].clone(),
+            edges[3].clone(),
+        ]));
+
+        let run = |label: &str, geometries: Vec<Geometry<f64>>| {
+            let mut tiled = TiledPolygonizer::new(bbox, 3.0).with_buffer(0.25);
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let result = tiled.polygonize().unwrap();
+            for (partition_id, report) in result.tile_reports.iter().enumerate() {
+                let independent = tiled
+                    .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
+                    .unwrap();
+                assert_eq!(
+                    result.partition_snapshots[partition_id], independent,
+                    "{label} partition {partition_id} differs from independent reprocess"
+                );
+            }
+            let mut output = result
+                .polygons
+                .iter()
+                .map(crate::tiling::canonical_polygon_key)
+                .collect::<Vec<_>>();
+            output.sort_unstable();
+            output
+        };
+
+        let expected = run("ring", vec![ring]);
+        assert_eq!(run("reversed", vec![reversed]), expected);
+        assert_eq!(run("permuted", permuted), expected);
+        assert_eq!(run("grouped", vec![grouped]), expected);
+        assert_eq!(run("duplicate vertex", vec![duplicate_vertex]), expected);
+        assert_eq!(run("duplicate edge", vec![duplicate_edge]), expected);
+    }
+
+    #[test]
     fn partition_snapshot_exhaustively_scans_bounded_empty_neighbors() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
         let square = Geometry::LineString(LineString::new(vec![
