@@ -3864,7 +3864,7 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 11);
+        assert_eq!(snapshot.schema_version, 12);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
@@ -3897,6 +3897,25 @@ mod tests {
             .nodes
             .iter()
             .any(|node| node.outgoing_local_dir_edge_ids.len() >= 2));
+        assert_eq!(snapshot.local_face_graphs[0].graph_state.node_count, 4);
+        assert_eq!(snapshot.local_face_graphs[0].graph_state.edge_count, 4);
+        assert_eq!(
+            snapshot.local_face_graphs[0].graph_state.active_edge_count,
+            4
+        );
+        assert_eq!(
+            snapshot.local_face_graphs[0]
+                .graph_state
+                .active_directed_edge_count,
+            8
+        );
+        assert!(snapshot.local_face_graphs[0].graph_state.face_count > 0);
+        assert!(
+            snapshot.local_face_graphs[0]
+                .graph_state
+                .unbounded_face_count
+                > 0
+        );
         assert_eq!(
             snapshot.local_face_graphs[0].directed_edges[0].representative_line_id,
             Some(0)
@@ -4007,6 +4026,14 @@ mod tests {
             .push(usize::MAX);
         assert_eq!(
             snapshot.diff(&local_node_mismatch).unwrap().path,
+            "$.local_face_graphs"
+        );
+        let mut local_graph_state_mismatch = independent.clone();
+        local_graph_state_mismatch.local_face_graphs[0]
+            .graph_state
+            .face_count += 1;
+        assert_eq!(
+            snapshot.diff(&local_graph_state_mismatch).unwrap().path,
             "$.local_face_graphs"
         );
         let mut boundary_node_mismatch = independent.clone();

@@ -429,10 +429,24 @@ pub(crate) struct PartitionBorderLocalDirectedEdge {
 /// Processed local face-edge lineage retained for a future global topology.
 /// It contains only active local arrangement edges; no global links are
 /// written while the snapshot is captured.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionLocalGraphState {
+    pub(crate) node_count: usize,
+    pub(crate) edge_count: usize,
+    pub(crate) active_edge_count: usize,
+    pub(crate) directed_edge_count: usize,
+    pub(crate) active_directed_edge_count: usize,
+    pub(crate) faced_directed_edge_count: usize,
+    pub(crate) face_successor_count: usize,
+    pub(crate) face_count: usize,
+    pub(crate) unbounded_face_count: usize,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PartitionBorderLocalFaceGraph {
     pub(crate) partition_id: usize,
     pub(crate) component_id: usize,
+    pub(crate) graph_state: PartitionLocalGraphState,
     pub(crate) directed_edges: Vec<PartitionBorderLocalDirectedEdge>,
 }
 
@@ -10991,6 +11005,7 @@ mod tests {
         PartitionBorderLocalFaceGraph {
             partition_id,
             component_id,
+            graph_state: PartitionLocalGraphState::default(),
             directed_edges: vec![
                 PartitionBorderLocalDirectedEdge {
                     local_dir_edge_id: first_local_dir_edge_id,

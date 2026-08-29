@@ -530,7 +530,7 @@ pattern, not its no-new-vertices clipping contract.
   representative IDs with first-difference evidence.
 - [x] Compare canonical boundary-noded segment endpoints, Z, source IDs, and
   representative IDs with first-difference evidence.
-- [ ] Extend comparison to remaining local noding and graph/face state.
+- [x] Extend comparison to remaining local noding and graph/face state.
 - [x] Add partition-oracle metamorphic checks for input ordering, reversal,
   grouping, duplicate vertices, and duplicate edges.
 - [x] Add partition-oracle metamorphic checks for tile origin, tile size,
