@@ -533,6 +533,8 @@ pattern, not its no-new-vertices clipping contract.
 - [ ] Extend comparison to remaining local noding and graph/face state.
 - [x] Add partition-oracle metamorphic checks for input ordering, reversal,
   grouping, duplicate vertices, and duplicate edges.
+- [x] Add partition-oracle metamorphic checks for tile origin, tile size,
+  buffer, and fixed-grid precision.
 - [x] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,

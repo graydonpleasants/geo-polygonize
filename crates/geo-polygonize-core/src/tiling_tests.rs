@@ -4131,6 +4131,138 @@ mod tests {
     }
 
     #[test]
+    fn partition_oracle_survives_tile_metamorphisms() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
+        let make_square = |offset: f64| {
+            Geometry::LineString(LineString::new(vec![
+                Coord {
+                    x: 1.0 + offset,
+                    y: 1.0 + offset,
+                },
+                Coord {
+                    x: 3.0 + offset,
+                    y: 1.0 + offset,
+                },
+                Coord {
+                    x: 3.0 + offset,
+                    y: 3.0 + offset,
+                },
+                Coord {
+                    x: 1.0 + offset,
+                    y: 3.0 + offset,
+                },
+                Coord {
+                    x: 1.0 + offset,
+                    y: 1.0 + offset,
+                },
+            ]))
+        };
+        let run = |label: &str,
+                   bbox: Rect<f64>,
+                   tile_size: f64,
+                   buffer: f64,
+                   options: PolygonizerOptions,
+                   geometry: Geometry<f64>,
+                   offset: f64| {
+            let mut tiled = TiledPolygonizer::new(bbox, tile_size)
+                .with_buffer(buffer)
+                .with_options(options);
+            tiled.add_geometry(&geometry);
+            let result = tiled.polygonize().unwrap();
+            for (partition_id, report) in result.tile_reports.iter().enumerate() {
+                let independent = tiled
+                    .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
+                    .unwrap();
+                assert_eq!(
+                    result.partition_snapshots[partition_id], independent,
+                    "{label} partition {partition_id} differs from independent reprocess"
+                );
+            }
+            let mut output = result
+                .polygons
+                .iter()
+                .map(|polygon| {
+                    let mut polygon = polygon.clone();
+                    for coordinate in polygon.exterior.iter_mut().chain(
+                        polygon
+                            .interiors
+                            .iter_mut()
+                            .flat_map(|ring| ring.iter_mut()),
+                    ) {
+                        coordinate.x -= offset;
+                        coordinate.y -= offset;
+                    }
+                    crate::tiling::canonical_polygon_key(&polygon)
+                })
+                .collect::<Vec<_>>();
+            output.sort_unstable();
+            output
+        };
+
+        let expected = run(
+            "base",
+            bbox,
+            2.0,
+            4.0,
+            PolygonizerOptions::default(),
+            make_square(0.0),
+            0.0,
+        );
+        assert_eq!(
+            run(
+                "tile size",
+                bbox,
+                3.0,
+                4.0,
+                PolygonizerOptions::default(),
+                make_square(0.0),
+                0.0,
+            ),
+            expected
+        );
+        assert_eq!(
+            run(
+                "buffer",
+                bbox,
+                4.0,
+                0.0,
+                PolygonizerOptions::default(),
+                make_square(0.0),
+                0.0,
+            ),
+            expected
+        );
+        assert_eq!(
+            run(
+                "precision",
+                bbox,
+                4.0,
+                0.0,
+                PolygonizerOptions {
+                    precision_model: PrecisionModel::FixedGrid { grid_size: 0.5 },
+                    ..Default::default()
+                },
+                make_square(0.0),
+                0.0,
+            ),
+            expected
+        );
+        let shifted_bbox = Rect::new(Coord { x: 1.0, y: 1.0 }, Coord { x: 5.0, y: 5.0 });
+        assert_eq!(
+            run(
+                "tile origin",
+                shifted_bbox,
+                2.0,
+                4.0,
+                PolygonizerOptions::default(),
+                make_square(1.0),
+                1.0,
+            ),
+            expected
+        );
+    }
+
+    #[test]
     fn partition_snapshot_exhaustively_scans_bounded_empty_neighbors() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
         let square = Geometry::LineString(LineString::new(vec![
