@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 7;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -111,6 +111,9 @@ pub(crate) struct PartitionAtomicObservationV1 {
     pub(crate) component_id: usize,
     pub(crate) source_line_ids: Vec<u32>,
     pub(crate) representative_line_id: Option<u32>,
+    pub(crate) face_ref: Option<[usize; 3]>,
+    pub(crate) local_face_successor: Option<usize>,
+    pub(crate) local_face_is_unbounded: bool,
     pub(crate) local_face_boundary_successor: Option<PartitionBorderObservationIdV1>,
 }
 
@@ -161,6 +164,11 @@ fn partition_atomic_observations(
                 component_id: observation.component_id,
                 source_line_ids,
                 representative_line_id: observation.representative_line_id,
+                face_ref: observation
+                    .face_ref
+                    .map(|face| [face.partition_id, face.component_id, face.face_id]),
+                local_face_successor: observation.local_face_successor,
+                local_face_is_unbounded: observation.local_face_is_unbounded,
                 local_face_boundary_successor: observation
                     .local_face_boundary_successor
                     .map(partition_border_observation_id),
