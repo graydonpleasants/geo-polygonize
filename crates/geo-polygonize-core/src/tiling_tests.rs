@@ -4019,6 +4019,49 @@ mod tests {
     }
 
     #[test]
+    fn partition_snapshot_exhaustively_scans_bounded_empty_neighbors() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
+        let square = Geometry::LineString(LineString::new(vec![
+            Coord { x: 1.25, y: 1.25 },
+            Coord { x: 1.75, y: 1.25 },
+            Coord { x: 1.75, y: 1.75 },
+            Coord { x: 1.25, y: 1.75 },
+            Coord { x: 1.25, y: 1.25 },
+        ]));
+        let mut tiled = TiledPolygonizer::new(bbox, 1.0).with_buffer(0.0);
+        tiled.add_geometry(&square);
+
+        let result = tiled.polygonize().unwrap();
+        assert_eq!(result.partition_snapshots.len(), 16);
+        assert_eq!(result.partition_snapshots.len(), result.tile_reports.len());
+        let nonempty_partition_ids = result
+            .partition_snapshots
+            .iter()
+            .filter(|snapshot| !snapshot.selected_input_geometry_indices.is_empty())
+            .map(|snapshot| snapshot.partition_id)
+            .collect::<Vec<_>>();
+        assert_eq!(nonempty_partition_ids, vec![5]);
+        assert_eq!(
+            result
+                .partition_snapshots
+                .iter()
+                .filter(|snapshot| snapshot.selected_input_geometry_indices.is_empty())
+                .count(),
+            15
+        );
+
+        for (partition_id, report) in result.tile_reports.iter().enumerate() {
+            let independent = tiled
+                .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
+                .unwrap();
+            assert_eq!(
+                result.partition_snapshots[partition_id], independent,
+                "partition {partition_id} differs from independent bounded scan"
+            );
+        }
+    }
+
+    #[test]
     fn partition_oracle_normalizes_bulk_and_independent_errors() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
         let square = Geometry::LineString(LineString::new(vec![

@@ -525,7 +525,7 @@ pattern, not its no-new-vertices clipping contract.
 - [x] Compare atomic border face references, local face successors, and
   unbounded markers with first-difference evidence.
 - [ ] Extend comparison to remaining local noding and graph/face state.
-- [ ] Exhaustively scan bounded neighboring empty partitions so missed and
+- [x] Exhaustively scan bounded neighboring empty partitions so missed and
   invented partition assignments are observable.
 - [ ] Add input permutation, reversal, grouping, duplicate-vertex, duplicate-edge,
   tile-origin, tile-size, buffer, and precision metamorphic tests.
