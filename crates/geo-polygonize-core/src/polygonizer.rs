@@ -57,6 +57,14 @@ pub struct Polygonizer {
     partition_border_local_face_graphs: Vec<PartitionBorderLocalFaceGraph>,
     boundary_noding_stats: PartitionBoundaryNodingStats,
     component_memory_stats: ComponentMemoryStats,
+    partition_noded_segments: Vec<PartitionNodedSegment>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PartitionNodedSegment {
+    pub(crate) line: Line3D,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_id: u32,
 }
 
 /// Reusable allocation storage for stateless polygonization calls.
@@ -361,6 +369,7 @@ pub fn polygonize_with_workspace_and_execution_policy(
         partition_border_local_face_graphs: Vec::new(),
         boundary_noding_stats: PartitionBoundaryNodingStats::default(),
         component_memory_stats: ComponentMemoryStats::default(),
+        partition_noded_segments: Vec::new(),
     };
     runner.input_line_strings = source_line_strings_for_segments(lines);
     let result = runner.polygonize_owned(lines.to_vec());
@@ -384,6 +393,7 @@ impl Polygonizer {
             partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
             component_memory_stats: ComponentMemoryStats::default(),
+            partition_noded_segments: Vec::new(),
         }
     }
     /// Creates a new `Polygonizer` with specific options.
@@ -400,6 +410,7 @@ impl Polygonizer {
             partition_border_local_face_graphs: Vec::new(),
             boundary_noding_stats: PartitionBoundaryNodingStats::default(),
             component_memory_stats: ComponentMemoryStats::default(),
+            partition_noded_segments: Vec::new(),
         }
     }
 
@@ -793,6 +804,7 @@ impl Polygonizer {
         self.polygonize_owned(self.input_lines.clone())
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn polygonize_with_partition_border_export_and_stats(
         &mut self,
         partition_id: usize,
@@ -802,21 +814,25 @@ impl Polygonizer {
         Vec<PartitionBorderHalfEdge>,
         Vec<PartitionBorderLocalFaceGraph>,
         PartitionBoundaryNodingStats,
+        Vec<PartitionNodedSegment>,
     )> {
         self.partition_border_export = Some(PartitionBorderExport { partition_id, bbox });
         self.partition_border_observations.clear();
         self.partition_border_local_face_graphs.clear();
         self.boundary_noding_stats = PartitionBoundaryNodingStats::default();
+        self.partition_noded_segments.clear();
         let result = self.polygonize();
         self.partition_border_export = None;
         let observations = std::mem::take(&mut self.partition_border_observations);
         let local_face_graphs = std::mem::take(&mut self.partition_border_local_face_graphs);
+        let noded_segments = std::mem::take(&mut self.partition_noded_segments);
         result.map(|result| {
             (
                 result,
                 observations,
                 local_face_graphs,
                 self.boundary_noding_stats,
+                noded_segments,
             )
         })
     }
@@ -881,6 +897,19 @@ impl Polygonizer {
                 None
             },
         )?;
+        if self.partition_border_export.is_some() {
+            self.partition_noded_segments = self
+                .graph
+                .edges
+                .iter()
+                .filter(|edge| !edge.deleted)
+                .map(|edge| PartitionNodedSegment {
+                    line: edge.line,
+                    source_line_ids: edge.sources.line_ids.to_vec(),
+                    representative_line_id: edge.line.line_id,
+                })
+                .collect();
+        }
         let mut boundary_graph = if let Some(export) = self.partition_border_export {
             let mut graph = self.graph.clone();
             self.boundary_noding_stats = graph.node_partition_boundaries_with_execution_policy(

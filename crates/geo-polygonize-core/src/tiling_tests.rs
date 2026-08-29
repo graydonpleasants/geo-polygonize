@@ -1313,7 +1313,7 @@ mod tests {
                 44,
             ),
         ]);
-        let (_, observations, local_face_graphs, stats) = polygonizer
+        let (_, observations, local_face_graphs, stats, _noded_segments) = polygonizer
             .polygonize_with_partition_border_export_and_stats(
                 7,
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 1.0 }),
@@ -3863,10 +3863,11 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 9);
+        assert_eq!(snapshot.schema_version, 10);
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
+        assert_eq!(snapshot.local_noded_segments.len(), 4);
         assert!(!snapshot.atomic_observations.is_empty());
         let observation_with_boundary_successor = snapshot
             .atomic_observations
@@ -3921,6 +3922,21 @@ mod tests {
         assert_eq!(
             snapshot.diff(&source_mismatch).unwrap().path,
             "$.selected_source_segments"
+        );
+        let mut noded_segment_mismatch = independent.clone();
+        noded_segment_mismatch.local_noded_segments[0]
+            .source_line_ids
+            .push(u32::MAX);
+        assert_eq!(
+            snapshot.diff(&noded_segment_mismatch).unwrap().path,
+            "$.local_noded_segments"
+        );
+        let mut noded_representative_mismatch = independent.clone();
+        noded_representative_mismatch.local_noded_segments[0].representative_line_id =
+            Some(u32::MAX);
+        assert_eq!(
+            snapshot.diff(&noded_representative_mismatch).unwrap().path,
+            "$.local_noded_segments"
         );
         let mut boundary_noding_mismatch = independent.clone();
         boundary_noding_mismatch.boundary_noding.added_node_count += 1;

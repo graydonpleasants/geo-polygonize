@@ -7,7 +7,7 @@ use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
 use crate::noding::snap::SnapNoder;
 use crate::options::{DedupPolicy, ExecutionPolicy, NodingGuarantee, TileOwnershipPolicy};
-use crate::polygonizer::{apply_determinism, canonicalize_ring};
+use crate::polygonizer::{apply_determinism, canonicalize_ring, PartitionNodedSegment};
 use crate::trace::{
     TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
     TraceStageV1,
@@ -64,7 +64,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 9;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -72,6 +72,14 @@ pub(crate) struct PartitionSourceSegmentV1 {
     pub(crate) segment_index: usize,
     pub(crate) start: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) end: crate::fingerprint::CoordinateFingerprintV1,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionNodedSegmentV1 {
+    pub(crate) start: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) end: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) representative_line_id: Option<u32>,
 }
 
 fn partition_source_segments(
@@ -99,6 +107,43 @@ fn partition_source_segments(
         }
     }
     Ok(segments)
+}
+
+fn partition_noded_segments(
+    segments: &[PartitionNodedSegment],
+) -> Result<Vec<PartitionNodedSegmentV1>> {
+    let mut noded_segments = segments
+        .iter()
+        .map(|segment| {
+            let start_key = [
+                canonical_coordinate_bits(segment.line.start.x),
+                canonical_coordinate_bits(segment.line.start.y),
+                canonical_coordinate_bits(segment.line.start.z),
+            ];
+            let end_key = [
+                canonical_coordinate_bits(segment.line.end.x),
+                canonical_coordinate_bits(segment.line.end.y),
+                canonical_coordinate_bits(segment.line.end.z),
+            ];
+            let (start, end) = if start_key <= end_key {
+                (segment.line.start, segment.line.end)
+            } else {
+                (segment.line.end, segment.line.start)
+            };
+            let mut source_line_ids = segment.source_line_ids.clone();
+            source_line_ids.sort_unstable();
+            source_line_ids.dedup();
+            Ok(PartitionNodedSegmentV1 {
+                start: crate::fingerprint::coordinate_fingerprint(start)?,
+                end: crate::fingerprint::coordinate_fingerprint(end)?,
+                representative_line_id: Some(segment.representative_line_id),
+                source_line_ids,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    noded_segments.sort_unstable();
+    noded_segments.dedup();
+    Ok(noded_segments)
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -404,6 +449,7 @@ pub(crate) struct PartitionSnapshotV1 {
     pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) selected_input_geometry_indices: Vec<usize>,
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
+    pub(crate) local_noded_segments: Vec<PartitionNodedSegmentV1>,
     pub(crate) boundary_noding: PartitionBoundaryNodingEvidenceV1,
     pub(crate) atomic_observations: Vec<PartitionAtomicObservationV1>,
     pub(crate) local_face_graphs: Vec<PartitionLocalFaceGraphV1>,
@@ -420,6 +466,7 @@ impl PartitionSnapshotV1 {
         mut selected_input_geometry_indices: Vec<usize>,
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
+        noded_segments: &[PartitionNodedSegment],
         border_observations: &[PartitionBorderHalfEdge],
         local_face_graphs: &[PartitionBorderLocalFaceGraph],
         result: &PolygonizerResult,
@@ -439,6 +486,7 @@ impl PartitionSnapshotV1 {
             tile_max: coordinate(tile_bbox.max())?,
             selected_input_geometry_indices,
             selected_source_segments,
+            local_noded_segments: partition_noded_segments(noded_segments)?,
             boundary_noding: PartitionBoundaryNodingEvidenceV1 {
                 added_node_count: boundary_noding_stats.added_node_count,
                 added_edge_count: boundary_noding_stats.added_edge_count,
@@ -502,6 +550,13 @@ impl PartitionSnapshotV1 {
                 "$.selected_source_segments",
                 &self.selected_source_segments,
                 &actual.selected_source_segments,
+            ));
+        }
+        if self.local_noded_segments != actual.local_noded_segments {
+            return Some(partition_snapshot_diff_field(
+                "$.local_noded_segments",
+                &self.local_noded_segments,
+                &actual.local_noded_segments,
             ));
         }
         if self.boundary_noding.added_node_count != actual.boundary_noding.added_node_count {
@@ -1729,6 +1784,7 @@ type TileProcessResult = (
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
     Vec<Vec<Coord3D>>,
+    Vec<PartitionNodedSegment>,
     PartitionSnapshotV1,
 );
 
@@ -2272,6 +2328,7 @@ impl<'a> TiledPolygonizer<'a> {
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
                 &[],
                 &[],
+                &[],
                 &PolygonizerResult {
                     polygons: Vec::new(),
                     dangles: Vec::new(),
@@ -2282,14 +2339,15 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.options,
             );
         }
-        let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
-            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let (result, border_observations, local_face_graphs, boundary_noding_stats, noded_segments) =
+            local_poly.polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
+            &noded_segments,
             &border_observations,
             &local_face_graphs,
             &result,
@@ -2403,6 +2461,7 @@ impl<'a> TiledPolygonizer<'a> {
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
                 &[],
                 &[],
+                &[],
                 &empty_result,
                 &self.options,
             )?;
@@ -2417,19 +2476,21 @@ impl<'a> TiledPolygonizer<'a> {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 snapshot,
             ));
         }
 
         // Run polygonization
-        let (result, border_observations, local_face_graphs, boundary_noding_stats) = local_poly
-            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let (result, border_observations, local_face_graphs, boundary_noding_stats, noded_segments) =
+            local_poly.polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
         let snapshot = PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
+            &noded_segments,
             &border_observations,
             &local_face_graphs,
             &result,
@@ -2520,6 +2581,7 @@ impl<'a> TiledPolygonizer<'a> {
             dangles,
             cut_edges,
             invalid_rings,
+            noded_segments,
             snapshot,
         ))
     }
@@ -3620,6 +3682,7 @@ impl<'a> TiledPolygonizer<'a> {
                     dangles,
                     cut_edges,
                     invalid_rings,
+                    _noded_segments,
                     snapshot,
                 ) = self.process_tile_with_retries(
                     tile_index,
@@ -3766,6 +3829,7 @@ impl<'a> TiledPolygonizer<'a> {
                     dangles,
                     cut_edges,
                     invalid_rings,
+                    _,
                     snapshot,
                 ) = result;
                 for observation in border_observations {
