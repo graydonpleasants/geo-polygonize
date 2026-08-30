@@ -560,8 +560,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
 - [x] Stream boundary-near segment/partition candidates without a
   candidate-count-proportional temporary vector (private prototype; production
   routing remains gated on the #1389 oracle).
-- [ ] Charge every physical candidate visit to explicit limits and poll
-  cancellation inside the scan.
+- [x] Charge every physical candidate visit to explicit limits and poll
+  cancellation inside the scan (private prototype).
 - [ ] Compare assignments and local snapshots against #1389.
 - [ ] Measure geometry-envelope false positives, allocations, peak memory,
   routing time, native/Wasm cost, and long sparse CAD/road/contour workloads.

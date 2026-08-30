@@ -1060,6 +1060,9 @@ pub struct TileExecutionPolicy {
     pub max_tiles: Option<usize>,
     pub max_input_geometries: Option<usize>,
     pub max_tile_geometry_assignments: Option<usize>,
+    /// Maximum source-segment-to-partition candidates visited by the private
+    /// partition router.
+    pub max_partition_candidate_visits: Option<usize>,
     pub max_retry_attempts_total: Option<usize>,
     pub max_fallback_regions: Option<usize>,
     pub max_parallel_tiles: Option<usize>,
@@ -2475,6 +2478,8 @@ impl<'a> TiledPolygonizer<'a> {
         {
             return Ok(sinks);
         }
+        self.execution_policy
+            .check_cancelled("partition_source_segment_routing")?;
 
         let rows = ((self.bbox.max().y - self.bbox.min().y) / self.tile_size).ceil() as usize;
         let cols = ((self.bbox.max().x - self.bbox.min().x) / self.tile_size).ceil() as usize;
@@ -2493,6 +2498,24 @@ impl<'a> TiledPolygonizer<'a> {
             let first = first.max(0).min(count as isize - 1) as usize;
             let last = last.max(0).min(count as isize - 1) as usize;
             (first <= last).then_some((first, last))
+        };
+
+        let mut candidate_visits = 0usize;
+        let visit_candidate = |candidate_visits: &mut usize| -> Result<()> {
+            *candidate_visits = candidate_visits.checked_add(1).ok_or_else(|| {
+                PolygonizeError::ResourceLimitExceeded {
+                    stage: "partition_candidate_visits".to_string(),
+                    limit: usize::MAX - 1,
+                    observed: usize::MAX,
+                }
+            })?;
+            self.execution_policy.check(
+                "partition_candidate_visits",
+                self.tile_execution_policy.max_partition_candidate_visits,
+                *candidate_visits,
+            )?;
+            self.execution_policy
+                .check_cancelled_every("partition_source_segment_routing", *candidate_visits)
         };
 
         for segment in &source_segments.segments {
@@ -2518,6 +2541,7 @@ impl<'a> TiledPolygonizer<'a> {
                 let direct_partition = direct_row as usize * cols + direct_col as usize;
                 let direct_tile = tiles[direct_partition];
                 if Self::partition_inner_box_contains_segment(line, direct_tile, self.buffer) {
+                    visit_candidate(&mut candidate_visits)?;
                     sinks[direct_partition].push_segment(*segment);
                     continue;
                 }
@@ -2537,6 +2561,7 @@ impl<'a> TiledPolygonizer<'a> {
             for row in first_row..=last_row {
                 for col in first_col..=last_col {
                     let partition = row * cols + col;
+                    visit_candidate(&mut candidate_visits)?;
                     if line.intersects(&self.buffered_bbox(tiles[partition], self.buffer)) {
                         sinks[partition].push_segment(*segment);
                     }
