@@ -570,7 +570,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   routing work, time, and allocations; peak memory, native/Wasm comparison,
   and timed publication runs remain; the dedicated publication workflow accepts
   optional router tile and buffer settings, and its publisher gates router
-  identity and timing dispersion across repetitions).
+  identity and timing dispersion across repetitions; hidden WASM comparison
+  and router-only entrypoints now support browser measurement).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 

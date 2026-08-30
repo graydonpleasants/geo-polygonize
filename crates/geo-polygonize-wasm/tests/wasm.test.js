@@ -218,6 +218,40 @@ describe('WASM Polygonizer', () => {
         })).features).toHaveLength(0);
     });
 
+    it('should expose correctness-gated partition router research evidence', async () => {
+        const {
+            __benchmarkPartitionRouter,
+            __partitionRouterComparison,
+            default: initModule,
+        } = await import('../../../dist/standard/es/index.js');
+        await initModule();
+        const input = JSON.stringify({
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [[0, 0], [20, 20]] },
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: [[2, 18], [18, 2]] },
+                },
+            ],
+        });
+
+        const comparison = JSON.parse(__partitionRouterComparison(input, 10, 1, {}));
+        expect(comparison).toMatchObject({
+            schema_version: 1,
+            oracle_difference: null,
+            routed_assignment_oracle_difference: null,
+            routed_local_snapshot_difference: null,
+        });
+        expect(comparison.routed_local_snapshot_checked_partition_count)
+            .toBe(comparison.assignments.length);
+        expect(JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {})))
+            .toEqual(comparison.router_work);
+    });
+
     it('should expose a versioned topology report with a bounded trace', async () => {
         const {
             default: initModule,
