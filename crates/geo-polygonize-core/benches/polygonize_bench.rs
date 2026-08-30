@@ -6,11 +6,12 @@ use criterion::{
     criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use geo_polygonize_core::noding::snap::{NodingStrategy, SnapNoder};
+use geo_polygonize_core::tiling::PartitionRouterWorkV1;
 use geo_polygonize_core::{
     Coord3D, Polygon3D, Polygonizer, PolygonizerOptions, PolygonizerResult, TiledPolygonizer,
     TopologyFingerprintV1,
 };
-use geo_types::{Coord, LineString, Rect};
+use geo_types::{Coord, Geometry, LineString, Rect};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::time::Duration;
@@ -426,6 +427,57 @@ fn bench_noding_workloads(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_partition_router(c: &mut Criterion) {
+    use geo::BoundingRect;
+
+    let geometry = Geometry::LineString(LineString::new(
+        (0..=512)
+            .map(|index| Coord {
+                x: index as f64,
+                y: 25.0 + (index as f64 / 8.0).sin() * 20.0,
+            })
+            .collect(),
+    ));
+    let mut tiled = TiledPolygonizer::new(geometry.bounding_rect().unwrap(), 16.0).with_buffer(2.0);
+    tiled.add_geometry(&geometry);
+    let comparison = tiled.partition_router_comparison().unwrap();
+    assert_eq!(comparison.oracle_difference, None);
+    assert_eq!(comparison.routed_assignment_oracle_difference, None);
+    assert_eq!(comparison.routed_local_snapshot_difference, None);
+    assert_eq!(
+        comparison.routed_local_snapshot_checked_partition_count,
+        comparison.assignments.len()
+    );
+    assert_eq!(comparison.assignments.len(), 96);
+    assert_eq!(
+        comparison.router_work,
+        PartitionRouterWorkV1 {
+            source_segment_count: 512,
+            direct_assignment_count: 144,
+            slow_path_segment_count: 368,
+            candidate_partition_visit_count: 1_703,
+            exact_intersection_test_count: 1_559,
+            emitted_assignment_count: 849,
+        }
+    );
+
+    let mut group = c.benchmark_group("partition_router");
+    group.sample_size(10);
+    group.throughput(Throughput::Elements(512));
+    if fast_ci() {
+        group.warm_up_time(Duration::from_secs(1));
+        group.measurement_time(Duration::from_secs(2));
+    }
+    group.bench_function("long_sparse_sine_v1", |b| {
+        b.iter(|| {
+            let work = tiled.benchmark_partition_router().unwrap();
+            assert_eq!(work, comparison.router_work);
+            criterion::black_box(work)
+        });
+    });
+    group.finish();
+}
+
 fn make_long_sparse_polyline() -> (Vec<Line3D>, Vec<(usize, usize)>) {
     let long_segments = 2_048;
     let mut lines = Vec::with_capacity(long_segments + long_segments / 32);
@@ -558,6 +610,7 @@ fn bench_large_ring_fingerprint(c: &mut Criterion) {
 criterion_group!(
     kernel_benches,
     bench_noding_workloads,
+    bench_partition_router,
     bench_monotone_chain_candidates,
     bench_kernel_grid_build,
     bench_kernel_find_splits,
