@@ -248,13 +248,13 @@ fn partition_router_input(geojson_str: &str) -> Result<RouterInput, JsValue> {
     Ok((geometries, bbox))
 }
 
-fn partition_router_evidence(
+fn with_partition_router<T>(
     geojson_str: &str,
     tile_size: f64,
     buffer: f64,
     options_val: JsValue,
-    comparison: bool,
-) -> Result<String, JsValue> {
+    run: impl FnOnce(&TiledPolygonizer<'_>) -> geo_polygonize_core::Result<T>,
+) -> Result<T, JsValue> {
     let options = serde_wasm_bindgen::from_value(options_val).map_err(|e| {
         to_js_error(
             "InvalidArgumentType",
@@ -268,20 +268,7 @@ fn partition_router_evidence(
     for geometry in &geometries {
         tiled.add_geometry(geometry);
     }
-    let serialized = if comparison {
-        serde_json::to_string(
-            &tiled
-                .partition_router_comparison()
-                .map_err(from_polygonizer_error)?,
-        )
-    } else {
-        serde_json::to_string(
-            &tiled
-                .benchmark_partition_router()
-                .map_err(from_polygonizer_error)?,
-        )
-    };
-    serialized.map_err(|e| to_js_error("InternalInvariantViolation", e))
+    run(&tiled).map_err(from_polygonizer_error)
 }
 
 #[wasm_bindgen(js_name = __partitionRouterComparison)]
@@ -292,7 +279,10 @@ pub fn partition_router_comparison_js(
     buffer: f64,
     options_val: JsValue,
 ) -> Result<String, JsValue> {
-    partition_router_evidence(geojson_str, tile_size, buffer, options_val, true)
+    let comparison = with_partition_router(geojson_str, tile_size, buffer, options_val, |tiled| {
+        tiled.partition_router_comparison()
+    })?;
+    serde_json::to_string(&comparison).map_err(|e| to_js_error("InternalInvariantViolation", e))
 }
 
 #[wasm_bindgen(js_name = __benchmarkPartitionRouter)]
@@ -302,8 +292,44 @@ pub fn benchmark_partition_router_js(
     tile_size: f64,
     buffer: f64,
     options_val: JsValue,
+    warmup_iterations: u32,
+    samples: u32,
 ) -> Result<String, JsValue> {
-    partition_router_evidence(geojson_str, tile_size, buffer, options_val, false)
+    if samples == 0 {
+        return Err(to_js_error(
+            "InvalidArgumentType",
+            "Partition router samples must be greater than zero",
+        ));
+    }
+    if warmup_iterations.saturating_add(samples) > 10_000 {
+        return Err(to_js_error(
+            "ResourceLimitExceeded",
+            "Partition router warmups and samples exceed 10000",
+        ));
+    }
+    let benchmark = with_partition_router(geojson_str, tile_size, buffer, options_val, |tiled| {
+        for _ in 0..warmup_iterations {
+            tiled.benchmark_partition_router()?;
+        }
+        let expected = tiled.benchmark_partition_router()?;
+        let mut samples_ms = Vec::with_capacity(samples as usize);
+        for _ in 0..samples {
+            let started = js_sys::Date::now();
+            let work = tiled.benchmark_partition_router()?;
+            samples_ms.push(js_sys::Date::now() - started);
+            if work != expected {
+                return Err(PolygonizeError::InternalInvariantViolation {
+                    reason: "partition router work changed between Wasm samples".to_string(),
+                });
+            }
+        }
+        Ok(serde_json::json!({
+            "schema_version": 1,
+            "samples_ms": samples_ms,
+            "router_work": expected,
+        }))
+    })?;
+    serde_json::to_string(&benchmark).map_err(|e| to_js_error("InternalInvariantViolation", e))
 }
 
 #[wasm_bindgen]

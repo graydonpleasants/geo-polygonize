@@ -248,8 +248,9 @@ describe('WASM Polygonizer', () => {
         });
         expect(comparison.routed_local_snapshot_checked_partition_count)
             .toBe(comparison.assignments.length);
-        expect(JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {})))
-            .toEqual(comparison.router_work);
+        const benchmark = JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {}, 1, 2));
+        expect(benchmark.router_work).toEqual(comparison.router_work);
+        expect(benchmark.samples_ms).toHaveLength(2);
     });
 
     it('should expose a versioned topology report with a bounded trace', async () => {
