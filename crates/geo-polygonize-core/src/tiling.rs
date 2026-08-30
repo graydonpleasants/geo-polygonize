@@ -937,6 +937,18 @@ pub(crate) struct PartitionPhysicalSpanEvidenceV1 {
     pub(crate) witness: Option<PartitionPhysicalSpanWitnessV1>,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum PartitionMosaicErrorV1 {
+    #[error(transparent)]
+    Polygonize(#[from] PolygonizeError),
+    #[error("partition mosaic physical span conflict: {witness:?}")]
+    PhysicalConflict {
+        witness: PartitionPhysicalSpanWitnessV1,
+    },
+}
+
+type PartitionMosaicResultV1<T> = std::result::Result<T, PartitionMosaicErrorV1>;
+
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub(crate) struct PartitionMosaic {
@@ -950,7 +962,7 @@ impl PartitionMosaic {
         &mut self,
         snapshot: PartitionSnapshotV1,
         execution_policy: &ExecutionPolicy,
-    ) -> Result<PartitionCommitReportV1> {
+    ) -> PartitionMosaicResultV1<PartitionCommitReportV1> {
         execution_policy.check_cancelled("partition_mosaic_replace")?;
         snapshot.validate_for_mosaic()?;
         let partition_id = snapshot.partition_id;
@@ -968,6 +980,13 @@ impl PartitionMosaic {
         let mut staged_partitions = self.partitions.clone();
         let replaced_existing = staged_partitions.insert(partition_id, snapshot).is_some();
         let staged_physical_spans = Self::physical_spans(&staged_partitions, execution_policy)?;
+        if let Some(witness) = Self::physical_span_evidence_from(&staged_physical_spans)
+            .into_iter()
+            .find(|evidence| evidence.status == PartitionPhysicalSpanStatusV1::Conflict)
+            .and_then(|evidence| evidence.witness)
+        {
+            return Err(PartitionMosaicErrorV1::PhysicalConflict { witness });
+        }
         self.partitions = staged_partitions;
         self.physical_spans = staged_physical_spans;
         Ok(PartitionCommitReportV1 {
@@ -985,7 +1004,7 @@ impl PartitionMosaic {
         &mut self,
         partition_id: usize,
         execution_policy: &ExecutionPolicy,
-    ) -> Result<PartitionPurgeReportV1> {
+    ) -> PartitionMosaicResultV1<PartitionPurgeReportV1> {
         execution_policy.check_cancelled("partition_mosaic_purge")?;
         let mut staged_partitions = self.partitions.clone();
         let removed = staged_partitions.remove(&partition_id).is_some();
@@ -1033,7 +1052,13 @@ impl PartitionMosaic {
     }
 
     fn physical_span_evidence(&self) -> Vec<PartitionPhysicalSpanEvidenceV1> {
-        self.physical_spans
+        Self::physical_span_evidence_from(&self.physical_spans)
+    }
+
+    fn physical_span_evidence_from(
+        physical_spans: &BTreeMap<PartitionPhysicalSpanKeyV1, Vec<PartitionPhysicalSpanClaimV1>>,
+    ) -> Vec<PartitionPhysicalSpanEvidenceV1> {
+        physical_spans
             .iter()
             .map(|(&span, claims)| Self::classify_physical_span(span, claims))
             .collect()
