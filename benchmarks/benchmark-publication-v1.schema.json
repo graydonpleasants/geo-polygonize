@@ -28,6 +28,11 @@
       "minimum": 0,
       "maximum": 3
     },
+    "partition_router_p50_relative_mad_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3
+    },
     "records": {
       "type": "array",
       "minItems": 5,

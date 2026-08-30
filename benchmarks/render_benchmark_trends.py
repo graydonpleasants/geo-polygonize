@@ -27,9 +27,7 @@ def render(publication_paths, decision_paths):
     registry = Registry().with_resource(
         record_schema["$id"], Resource.from_contents(record_schema)
     )
-    publication_validator = Draft202012Validator(
-        publication_schema, registry=registry
-    )
+    publication_validator = Draft202012Validator(publication_schema, registry=registry)
     publications = [load(path) for path in publication_paths]
     for publication in publications:
         publication_validator.validate(publication)
@@ -52,8 +50,8 @@ def render(publication_paths, decision_paths):
     if publications:
         lines.extend(
             [
-                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Processes | MAD % |",
-                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |",
+                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Router p50 ms | Router allocated bytes | Processes | MAD % | Router MAD % |",
+                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for publication in sorted(
@@ -76,10 +74,40 @@ def render(publication_paths, decision_paths):
             throughput_units = {
                 record["measurement"]["throughput"]["unit"] for record in records
             }
-            if len(identities) != 1 or len(throughput_units) != 1:
-                raise ValueError("publication records mix identities or throughput units")
+            router_identities = {
+                json.dumps(
+                    {
+                        "config": record["partition_router"]["config"],
+                        "correctness_gate": record["partition_router"][
+                            "correctness_gate"
+                        ],
+                    },
+                    sort_keys=True,
+                )
+                if "partition_router" in record
+                else None
+                for record in records
+            }
+            if (
+                len(identities) != 1
+                or len(throughput_units) != 1
+                or len(router_identities) != 1
+            ):
+                raise ValueError(
+                    "publication records mix identities or throughput units"
+                )
             measurement = [record["measurement"] for record in records]
             throughput = [value["throughput"]["value"] for value in measurement]
+            router_measurement = [
+                record["partition_router"]["measurement"]
+                for record in records
+                if "partition_router" in record
+            ]
+            router_mad = publication.get("partition_router_p50_relative_mad_percent")
+            if bool(router_measurement) != (router_mad is not None):
+                raise ValueError(
+                    "partition router summary does not match publication records"
+                )
             lines.append(
                 "| "
                 + " | ".join(
@@ -107,8 +135,24 @@ def render(publication_paths, decision_paths):
                                     value["peak_rss_bytes"] for value in measurement
                                 )
                             ),
+                            (
+                                f"{statistics.median(value['p50_ms'] for value in router_measurement):.3f}"
+                                if router_measurement
+                                else "—"
+                            ),
+                            (
+                                round(
+                                    statistics.median(
+                                        value["allocations"]["bytes"]
+                                        for value in router_measurement
+                                    )
+                                )
+                                if router_measurement
+                                else "—"
+                            ),
                             publication["process_repetitions"],
                             f"{publication['p50_relative_mad_percent']:.3f}",
+                            f"{router_mad:.3f}" if router_mad is not None else "—",
                         ],
                     )
                 )
