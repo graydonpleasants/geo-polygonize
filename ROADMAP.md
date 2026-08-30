@@ -563,7 +563,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
 - [x] Charge every physical candidate visit to explicit limits and poll
   cancellation inside the scan (private prototype).
 - [ ] Compare assignments and local snapshots against #1389 (assignment
-  evidence is private; routed local snapshots remain).
+  evidence and source-preserving routed topology checks are private;
+  independent #1389 comparison remains).
 - [ ] Measure geometry-envelope false positives, allocations, peak memory,
   routing time, native/Wasm cost, and long sparse CAD/road/contour workloads.
 - [ ] Keep the implementation private and accept, narrow, or reject it through
