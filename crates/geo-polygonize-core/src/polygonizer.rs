@@ -482,6 +482,19 @@ impl Polygonizer {
         self.input_lines.extend(lines);
     }
 
+    pub(crate) fn add_source_segments(
+        &mut self,
+        lines: Vec<Line3D>,
+        mut source_line_strings: Vec<SourceLineString>,
+    ) {
+        let segment_offset = self.input_lines.len();
+        for source_line_string in &mut source_line_strings {
+            source_line_string.segment_start += segment_offset;
+        }
+        self.input_line_strings.extend(source_line_strings);
+        self.input_lines.extend(lines);
+    }
+
     fn build_graph(
         &mut self,
         mut all_segments: Vec<Line3D>,

@@ -211,6 +211,7 @@ mod tests {
 
         let comparison = tiled.partition_router_comparison().unwrap();
         assert_eq!(comparison.oracle_difference, None);
+        assert_eq!(comparison.routed_local_snapshot_difference, None);
         assert_eq!(comparison.assignments.len(), 4);
         assert_eq!(
             comparison.assignments[0],
@@ -234,6 +235,55 @@ mod tests {
         assert_eq!(comparison.assignments[2].routed_segment_count, 0);
         assert_eq!(comparison.assignments[3].oracle_segment_count, 0);
         assert_eq!(comparison.assignments[3].routed_segment_count, 0);
+    }
+
+    #[test]
+    fn routed_source_segments_preserve_source_chain_metadata() {
+        let geometry = Geometry::MultiLineString(MultiLineString(vec![
+            LineString::new(vec![
+                Coord { x: 0.0, y: 0.0 },
+                Coord { x: 1.0, y: 0.0 },
+                Coord { x: 2.0, y: 0.0 },
+            ]),
+            LineString::new(vec![Coord { x: 2.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 }]),
+        ]));
+        let geometries = vec![(&geometry, geometry.bounding_rect())];
+        let sink = crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+        let (lines, source_line_strings) = sink.polygonizer_input();
+        let mut polygonizer = Polygonizer::new();
+        polygonizer.add_source_segments(lines, source_line_strings);
+        let traced = polygonizer
+            .polygonize_with_trace(TraceLevelV1::Noding, usize::MAX)
+            .unwrap();
+        let input_events = traced
+            .trace
+            .events
+            .iter()
+            .filter(|event| event.kind == "normalized_input_segment")
+            .collect::<Vec<_>>();
+
+        assert_eq!(input_events.len(), 3);
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["source_chain_index"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0), Some(1)]
+        );
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["chain_segment_index"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(0)]
+        );
+        assert_eq!(
+            input_events
+                .iter()
+                .map(|event| event.payload["chain_segment_count"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(2), Some(1)]
+        );
     }
 
     #[test]
