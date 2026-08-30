@@ -212,6 +212,7 @@ mod tests {
         let comparison = tiled.partition_router_comparison().unwrap();
         assert_eq!(comparison.oracle_difference, None);
         assert_eq!(comparison.routed_local_snapshot_difference, None);
+        assert_eq!(comparison.routed_local_snapshot_checked_partition_count, 2);
         assert_eq!(comparison.assignments.len(), 4);
         assert_eq!(
             comparison.assignments[0],
