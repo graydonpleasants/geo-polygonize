@@ -4337,6 +4337,31 @@ mod tests {
             }
         }
         corroborating.validate_for_mosaic().unwrap();
+        let before_conflict = mosaic.fingerprint_sha256();
+        let conflict = mosaic
+            .replace_partition(corroborating.clone(), &ExecutionPolicy::default())
+            .unwrap_err();
+        assert!(matches!(
+            conflict,
+            crate::tiling::PartitionMosaicErrorV1::PhysicalConflict {
+                witness: crate::tiling::PartitionPhysicalSpanWitnessV1 {
+                    payload_class: crate::tiling::PartitionPhysicalSpanPayloadClassV1::Adjacency,
+                    ..
+                }
+            }
+        ));
+        assert_eq!(mosaic.fingerprint_sha256(), before_conflict);
+        for observation in &mut corroborating.atomic_observations {
+            observation.side ^= 1;
+            std::mem::swap(&mut observation.from_xy_bits, &mut observation.to_xy_bits);
+            std::mem::swap(&mut observation.from_z_bits, &mut observation.to_z_bits);
+            if let Some(successor) = &mut observation.local_face_boundary_successor {
+                std::mem::swap(
+                    &mut successor.edge_start_xy_bits,
+                    &mut successor.edge_end_xy_bits,
+                );
+            }
+        }
         mosaic
             .replace_partition(corroborating, &ExecutionPolicy::default())
             .unwrap();
@@ -4352,26 +4377,6 @@ mod tests {
                 == BTreeSet::from([0, 1])
         }));
         assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
-            evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Conflict
-                && evidence.witness.as_ref().unwrap().payload_class
-                    == crate::tiling::PartitionPhysicalSpanPayloadClassV1::Adjacency
-        }));
-        let mut corroborating = mosaic.partitions[&1].clone();
-        for observation in &mut corroborating.atomic_observations {
-            observation.side ^= 1;
-            std::mem::swap(&mut observation.from_xy_bits, &mut observation.to_xy_bits);
-            std::mem::swap(&mut observation.from_z_bits, &mut observation.to_z_bits);
-            if let Some(successor) = &mut observation.local_face_boundary_successor {
-                std::mem::swap(
-                    &mut successor.edge_start_xy_bits,
-                    &mut successor.edge_end_xy_bits,
-                );
-            }
-        }
-        mosaic
-            .replace_partition(corroborating, &ExecutionPolicy::default())
-            .unwrap();
-        assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
             evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Valid
                 && evidence.witness.is_none()
         }));
@@ -4379,14 +4384,24 @@ mod tests {
         source_conflict.atomic_observations[0]
             .source_line_ids
             .push(u32::MAX);
-        mosaic
+        let before_source_conflict = mosaic.fingerprint_sha256();
+        let conflict = mosaic
             .replace_partition(source_conflict, &ExecutionPolicy::default())
-            .unwrap();
-        assert!(mosaic.physical_span_evidence().iter().any(|evidence| {
-            evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Conflict
-                && evidence.witness.as_ref().unwrap().payload_class
-                    == crate::tiling::PartitionPhysicalSpanPayloadClassV1::SourceLineIds
-                && evidence.witness.as_ref().unwrap().partition_ids == vec![0, 1]
+            .unwrap_err();
+        assert!(matches!(
+            conflict,
+            crate::tiling::PartitionMosaicErrorV1::PhysicalConflict {
+                witness: crate::tiling::PartitionPhysicalSpanWitnessV1 {
+                    partition_ids,
+                    payload_class:
+                        crate::tiling::PartitionPhysicalSpanPayloadClassV1::SourceLineIds,
+                    ..
+                }
+            } if partition_ids == vec![0, 1]
+        ));
+        assert_eq!(mosaic.fingerprint_sha256(), before_source_conflict);
+        assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
+            evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Valid
         }));
         mosaic
             .purge_partition(1, &ExecutionPolicy::default())

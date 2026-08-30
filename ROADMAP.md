@@ -833,7 +833,8 @@ to full partition arrangements rather than polyline edge sets.
   evidence. Snapshot staging now rejects unsupported schema revisions and mixed
   partition lineage before shared mosaic state can be mutated.
 - [x] Add atomic `replace_partition` and `purge_partition` operations; rejection
-  preserves the previous deterministic mosaic fingerprint exactly.
+  preserves the previous deterministic mosaic fingerprint exactly, including
+  typed physical-span conflicts discovered in staged shared evidence.
 - [x] Prove identical replacement is idempotent and every insertion order of a
   bounded fixture produces one deterministic mosaic.
 - [ ] Use the transaction boundary for larger-halo retries and independently
