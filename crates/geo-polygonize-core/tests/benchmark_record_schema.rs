@@ -171,6 +171,7 @@ fn benchmark_schema_keeps_partition_router_evidence_correctness_gated() {
             "emitted_assignment_count",
         ]))
     );
+    assert!(required(&router["properties"]["measurement"]).contains("peak_live_bytes"));
 }
 
 #[test]

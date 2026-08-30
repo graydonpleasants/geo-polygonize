@@ -121,6 +121,7 @@ def router_record(index, p50=10.0):
             "p95_ms": p50 + 0.1,
             "samples": 30,
             "allocations": {"count": 2, "bytes": 7},
+            "peak_live_bytes": 11,
         },
     }
     return value
@@ -251,7 +252,7 @@ def test_partition_router_publication_is_stable_and_dispersion_gated(tmp_path):
     publication_path = tmp_path / "router-publication.json"
     publication_path.write_text(json.dumps(publication))
     dashboard = TREND_RENDERER.render([publication_path], [])
-    assert "| 10.000 | 7 | 5 | 0.000 | 0.500 |" in dashboard
+    assert "| 10.000 | 7 | 11 | 5 | 0.000 | 0.500 |" in dashboard
 
 
 def test_decision_schema_keeps_rejections_and_crossovers_linked():

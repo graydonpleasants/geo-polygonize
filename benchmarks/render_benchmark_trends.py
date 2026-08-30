@@ -50,8 +50,8 @@ def render(publication_paths, decision_paths):
     if publications:
         lines.extend(
             [
-                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Router p50 ms | Router allocated bytes | Processes | MAD % | Router MAD % |",
-                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Router p50 ms | Router allocated bytes | Router peak live bytes | Processes | MAD % | Router MAD % |",
+                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for publication in sorted(
@@ -144,6 +144,16 @@ def render(publication_paths, decision_paths):
                                 round(
                                     statistics.median(
                                         value["allocations"]["bytes"]
+                                        for value in router_measurement
+                                    )
+                                )
+                                if router_measurement
+                                else "—"
+                            ),
+                            (
+                                round(
+                                    statistics.median(
+                                        value["peak_live_bytes"]
                                         for value in router_measurement
                                     )
                                 )

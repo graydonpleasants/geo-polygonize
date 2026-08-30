@@ -310,7 +310,7 @@
         "measurement": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["p50_ms", "p95_ms", "samples", "allocations"],
+          "required": ["p50_ms", "p95_ms", "samples", "allocations", "peak_live_bytes"],
           "properties": {
             "p50_ms": {"type": "number", "minimum": 0},
             "p95_ms": {"type": "number", "minimum": 0},
@@ -323,7 +323,8 @@
                 "count": {"type": "integer", "minimum": 0},
                 "bytes": {"type": "integer", "minimum": 0}
               }
-            }
+            },
+            "peak_live_bytes": {"type": "integer", "minimum": 0}
           }
         }
       }

@@ -564,10 +564,10 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   cancellation inside the scan (private prototype).
 - [x] Compare assignments and local snapshots against #1389 with an exhaustive
   per-partition source-segment oracle independent of the router's grid scan.
-- [ ] Measure geometry-envelope false positives, allocations, peak memory,
+- [ ] Measure geometry-envelope false positives, allocations, peak live heap,
   routing time, native/Wasm cost, and long sparse CAD/road/contour workloads
   (the workload recorder now captures correctness-gated false positives,
-  routing work, time, and allocations; peak memory, native/Wasm comparison,
+  routing work, time, allocations, and isolated peak live heap; native/Wasm comparison,
   and timed publication runs remain; the dedicated publication workflow accepts
   optional router tile and buffer settings, and its publisher gates router
   identity and timing dispersion across repetitions; hidden WASM comparison
