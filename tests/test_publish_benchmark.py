@@ -88,6 +88,44 @@ def record(index, p50=100.0):
     }
 
 
+def router_record(index, p50=10.0):
+    value = record(index)
+    value["partition_router"] = {
+        "config": {"tile_size": 10.0, "buffer": 1.0},
+        "correctness_gate": {
+            "schema_version": 1,
+            "oracle_difference": None,
+            "routed_assignment_oracle_difference": None,
+            "routed_local_snapshot_difference": None,
+            "routed_local_snapshot_checked_partition_count": 1,
+            "router_work": {
+                "source_segment_count": 1,
+                "direct_assignment_count": 1,
+                "slow_path_segment_count": 0,
+                "candidate_partition_visit_count": 0,
+                "exact_intersection_test_count": 0,
+                "emitted_assignment_count": 1,
+            },
+            "assignments": [
+                {
+                    "partition_id": 0,
+                    "geometry_envelope_segment_count": 1,
+                    "independent_segment_count": 1,
+                    "routed_segment_count": 1,
+                    "geometry_envelope_false_positive_count": 0,
+                }
+            ],
+        },
+        "measurement": {
+            "p50_ms": p50,
+            "p95_ms": p50 + 0.1,
+            "samples": 30,
+            "allocations": {"count": 2, "bytes": 7},
+        },
+    }
+    return value
+
+
 def write_records(tmp_path, records):
     tmp_path.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -169,7 +207,9 @@ def test_publication_enforces_decision_quality_policy(tmp_path):
 
     mixed_artifact = [record(index) for index in range(1, 6)]
     mixed_artifact[-1]["artifact_sha256"] = "d" * 64
-    with pytest.raises(ValueError, match="one commit, environment, workload, and artifact"):
+    with pytest.raises(
+        ValueError, match="one commit, environment, workload, and artifact"
+    ):
         PUBLISHER.publish(
             write_records(tmp_path / "mixed-artifact", mixed_artifact), "dedicated", 5
         )
@@ -182,10 +222,40 @@ def test_publication_enforces_decision_quality_policy(tmp_path):
         PUBLISHER.publish(noisy, "dedicated", 5)
 
 
-def test_decision_schema_keeps_rejections_and_crossovers_linked():
-    schema = json.loads(
-        (PATH.parent / "benchmark-decision-v1.schema.json").read_text()
+def test_partition_router_publication_is_stable_and_dispersion_gated(tmp_path):
+    records = [
+        router_record(index, p50)
+        for index, p50 in enumerate([10, 10.1, 9.9, 10.05, 9.95], 1)
+    ]
+    paths = write_records(tmp_path / "router", records)
+    publication = PUBLISHER.publish(paths, "dedicated", 5)
+    assert publication["partition_router_p50_relative_mad_percent"] == pytest.approx(
+        0.5
     )
+
+    mixed = [router_record(index) for index in range(1, 6)]
+    mixed[-1]["partition_router"]["config"]["tile_size"] = 20.0
+    with pytest.raises(ValueError, match="one commit"):
+        PUBLISHER.publish(
+            write_records(tmp_path / "mixed-router", mixed), "dedicated", 5
+        )
+
+    noisy = [
+        router_record(index, p50) for index, p50 in enumerate([10, 11, 9, 12, 8], 1)
+    ]
+    with pytest.raises(ValueError, match="partition router p50 dispersion"):
+        PUBLISHER.publish(
+            write_records(tmp_path / "noisy-router", noisy), "dedicated", 5
+        )
+
+    publication_path = tmp_path / "router-publication.json"
+    publication_path.write_text(json.dumps(publication))
+    dashboard = TREND_RENDERER.render([publication_path], [])
+    assert "| 10.000 | 7 | 5 | 0.000 | 0.500 |" in dashboard
+
+
+def test_decision_schema_keeps_rejections_and_crossovers_linked():
+    schema = json.loads((PATH.parent / "benchmark-decision-v1.schema.json").read_text())
     Draft202012Validator.check_schema(schema)
     decision = decision_record()
     validator = Draft202012Validator(schema)

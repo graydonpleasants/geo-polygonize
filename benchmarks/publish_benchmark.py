@@ -19,7 +19,10 @@ def stable_record_value(record, field):
     effects. Keep it in the published record, but do not treat it as record
     identity.
     """
-    value = record[field]
+    value = record.get(field)
+    if field == "partition_router" and value is not None:
+        value = dict(value)
+        value.pop("measurement")
     if field != "work":
         return value
     work = dict(value)
@@ -29,6 +32,16 @@ def stable_record_value(record, field):
 
 def load(name):
     return json.loads((ROOT / name).read_text())
+
+
+def relative_mad_percent(values, label):
+    median = statistics.median(values)
+    if median <= 0:
+        raise ValueError(f"decision-quality {label} p50 must be positive")
+    relative_mad = (
+        statistics.median(abs(value - median) for value in values) / median * 100
+    )
+    return relative_mad
 
 
 def publish(record_paths, runner_class, warmup_iterations):
@@ -60,6 +73,7 @@ def publish(record_paths, runner_class, warmup_iterations):
         "topology",
         "work",
         "environment",
+        "partition_router",
     ]
     baseline = records[0]
     if any(
@@ -71,15 +85,22 @@ def publish(record_paths, runner_class, warmup_iterations):
             "records do not describe one commit, environment, workload, and artifact"
         )
 
-    p50_values = [record["measurement"]["p50_ms"] for record in records]
-    median = statistics.median(p50_values)
-    if median <= 0:
-        raise ValueError("decision-quality p50 must be positive")
-    relative_mad = (
-        statistics.median(abs(value - median) for value in p50_values) / median * 100
+    relative_mad = relative_mad_percent(
+        [record["measurement"]["p50_ms"] for record in records], "end-to-end"
     )
     if relative_mad > quality["maximum_relative_mad_percent"]:
         raise ValueError("p50 dispersion exceeds the decision-quality limit")
+
+    router_relative_mad = None
+    if baseline.get("partition_router") is not None:
+        router_relative_mad = relative_mad_percent(
+            [record["partition_router"]["measurement"]["p50_ms"] for record in records],
+            "partition router",
+        )
+        if router_relative_mad > quality["maximum_relative_mad_percent"]:
+            raise ValueError(
+                "partition router p50 dispersion exceeds the decision-quality limit"
+            )
 
     records.sort(key=lambda record: record["record_id"])
     publication = {
@@ -96,6 +117,8 @@ def publish(record_paths, runner_class, warmup_iterations):
         "p50_relative_mad_percent": relative_mad,
         "records": records,
     }
+    if router_relative_mad is not None:
+        publication["partition_router_p50_relative_mad_percent"] = router_relative_mad
     publication_schema = load("benchmark-publication-v1.schema.json")
     registry = Registry().with_resource(
         record_schema["$id"], Resource.from_contents(record_schema)

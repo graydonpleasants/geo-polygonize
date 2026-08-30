@@ -569,7 +569,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   (the workload recorder now captures correctness-gated false positives,
   routing work, time, and allocations; peak memory, native/Wasm comparison,
   and timed publication runs remain; the dedicated publication workflow accepts
-  optional router tile and buffer settings).
+  optional router tile and buffer settings, and its publisher gates router
+  identity and timing dispersion across repetitions).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 
