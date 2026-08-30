@@ -5,6 +5,7 @@ use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 pub use buffer::parse_buffer_lines;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
+use geo_polygonize_core::tiling::TiledPolygonizer;
 use geo_polygonize_core::trace::TraceLevelV1;
 use geo_polygonize_core::{
     polygonize as polygonize_lines, Line3D, PolygonizeError, Polygonizer, PolygonizerResult,
@@ -19,6 +20,8 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 use crate::error::{from_polygonizer_error, to_js_error};
+
+type RouterInput = (Vec<geo::Geometry<f64>>, geo::Rect<f64>);
 
 #[cfg(feature = "threads")]
 pub use wasm_bindgen_rayon::init_thread_pool;
@@ -190,33 +193,143 @@ fn polygonizer_from_geojson(
     geojson_str: &str,
     options: &geo_polygonize_core::PolygonizerOptions,
 ) -> Result<Polygonizer, JsValue> {
-    let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {e}")))?;
     let mut polygonizer = Polygonizer::with_options(options.clone());
-    let mut add = |geometry: geojson::Geometry| -> Result<(), JsValue> {
-        polygonizer.add_geometry(
-            geometry
-                .try_into()
-                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {e}")))?,
-        );
-        Ok(())
-    };
-    match geojson {
-        GeoJson::FeatureCollection(collection) => {
-            for feature in collection.features {
-                if let Some(geometry) = feature.geometry {
-                    add(geometry)?;
-                }
-            }
-        }
-        GeoJson::Feature(feature) => {
-            if let Some(geometry) = feature.geometry {
-                add(geometry)?;
-            }
-        }
-        GeoJson::Geometry(geometry) => add(geometry)?,
+    for geometry in geometries_from_geojson(geojson_str)? {
+        polygonizer.add_geometry(geometry);
     }
     Ok(polygonizer)
+}
+
+fn geometries_from_geojson(geojson_str: &str) -> Result<Vec<geo::Geometry<f64>>, JsValue> {
+    let geojson = GeoJson::from_str(geojson_str)
+        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {e}")))?;
+    let convert = |geometry: geojson::Geometry| {
+        geometry
+            .try_into()
+            .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {e}")))
+    };
+    match geojson {
+        GeoJson::FeatureCollection(collection) => collection
+            .features
+            .into_iter()
+            .filter_map(|feature| feature.geometry)
+            .map(convert)
+            .collect(),
+        GeoJson::Feature(feature) => feature.geometry.into_iter().map(convert).collect(),
+        GeoJson::Geometry(geometry) => Ok(vec![convert(geometry)?]),
+    }
+}
+
+fn partition_router_input(geojson_str: &str) -> Result<RouterInput, JsValue> {
+    use geo::BoundingRect;
+
+    let geometries = geometries_from_geojson(geojson_str)?;
+    let mut bounds = geometries
+        .iter()
+        .filter_map(|geometry| geometry.bounding_rect());
+    let Some(first) = bounds.next() else {
+        return Err(to_js_error(
+            "InvalidGeometry",
+            "Partition router benchmark requires non-empty geometry",
+        ));
+    };
+    let bbox = bounds.fold(first, |bbox, next| {
+        geo::Rect::new(
+            geo::Coord {
+                x: bbox.min().x.min(next.min().x),
+                y: bbox.min().y.min(next.min().y),
+            },
+            geo::Coord {
+                x: bbox.max().x.max(next.max().x),
+                y: bbox.max().y.max(next.max().y),
+            },
+        )
+    });
+    Ok((geometries, bbox))
+}
+
+fn with_partition_router<T>(
+    geojson_str: &str,
+    tile_size: f64,
+    buffer: f64,
+    options_val: JsValue,
+    run: impl FnOnce(&TiledPolygonizer<'_>) -> geo_polygonize_core::Result<T>,
+) -> Result<T, JsValue> {
+    let options = serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+        to_js_error(
+            "InvalidArgumentType",
+            format!("Failed to parse options: {e}"),
+        )
+    })?;
+    let (geometries, bbox) = partition_router_input(geojson_str)?;
+    let mut tiled = TiledPolygonizer::new(bbox, tile_size)
+        .with_buffer(buffer)
+        .with_options(options);
+    for geometry in &geometries {
+        tiled.add_geometry(geometry);
+    }
+    run(&tiled).map_err(from_polygonizer_error)
+}
+
+#[wasm_bindgen(js_name = __partitionRouterComparison)]
+#[doc(hidden)]
+pub fn partition_router_comparison_js(
+    geojson_str: &str,
+    tile_size: f64,
+    buffer: f64,
+    options_val: JsValue,
+) -> Result<String, JsValue> {
+    let comparison = with_partition_router(geojson_str, tile_size, buffer, options_val, |tiled| {
+        tiled.partition_router_comparison()
+    })?;
+    serde_json::to_string(&comparison).map_err(|e| to_js_error("InternalInvariantViolation", e))
+}
+
+#[wasm_bindgen(js_name = __benchmarkPartitionRouter)]
+#[doc(hidden)]
+pub fn benchmark_partition_router_js(
+    geojson_str: &str,
+    tile_size: f64,
+    buffer: f64,
+    options_val: JsValue,
+    warmup_iterations: u32,
+    samples: u32,
+) -> Result<String, JsValue> {
+    if samples == 0 {
+        return Err(to_js_error(
+            "InvalidArgumentType",
+            "Partition router samples must be greater than zero",
+        ));
+    }
+    if warmup_iterations.saturating_add(samples) > 10_000 {
+        return Err(to_js_error(
+            "ResourceLimitExceeded",
+            "Partition router warmups and samples exceed 10000",
+        ));
+    }
+    let benchmark = with_partition_router(geojson_str, tile_size, buffer, options_val, |tiled| {
+        for _ in 0..warmup_iterations {
+            tiled.benchmark_partition_router()?;
+        }
+        let expected = tiled.benchmark_partition_router()?;
+        let mut samples_ms = Vec::with_capacity(samples as usize);
+        for _ in 0..samples {
+            let started = js_sys::Date::now();
+            let work = tiled.benchmark_partition_router()?;
+            samples_ms.push(js_sys::Date::now() - started);
+            if work != expected {
+                return Err(PolygonizeError::InternalInvariantViolation {
+                    reason: "partition router work changed between Wasm samples".to_string(),
+                });
+            }
+        }
+        Ok(serde_json::json!({
+            "schema_version": 1,
+            "samples_ms": samples_ms,
+            "router_work": expected,
+        }))
+    })?;
+    serde_json::to_string(&benchmark).map_err(|e| to_js_error("InternalInvariantViolation", e))
 }
 
 #[wasm_bindgen]
@@ -229,9 +342,6 @@ pub fn polygonize(
 ) -> Result<String, JsValue> {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
-
-    let geojson = GeoJson::from_str(geojson_str)
-        .map_err(|e| to_js_error("InvalidArgumentType", format!("Invalid GeoJSON: {}", e)))?;
 
     let mut options = geo_polygonize_core::PolygonizerOptions::default();
     if let Some(ni) = node_input {
@@ -251,32 +361,8 @@ pub fn polygonize(
         options.diagnostics.report_mode = rm;
     }
     let mut polygonizer = Polygonizer::with_options(options);
-
-    match geojson {
-        GeoJson::FeatureCollection(fc) => {
-            for feature in fc.features {
-                if let Some(geom) = feature.geometry {
-                    let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                        to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
-                    })?;
-                    polygonizer.add_geometry(geo_geom);
-                }
-            }
-        }
-        GeoJson::Feature(f) => {
-            if let Some(geom) = f.geometry {
-                let geo_geom: geo::Geometry<f64> = geom.try_into().map_err(|e| {
-                    to_js_error("InvalidGeometry", format!("Conversion error: {}", e))
-                })?;
-                polygonizer.add_geometry(geo_geom);
-            }
-        }
-        GeoJson::Geometry(g) => {
-            let geo_geom: geo::Geometry<f64> = g
-                .try_into()
-                .map_err(|e| to_js_error("InvalidGeometry", format!("Conversion error: {}", e)))?;
-            polygonizer.add_geometry(geo_geom);
-        }
+    for geometry in geometries_from_geojson(geojson_str)? {
+        polygonizer.add_geometry(geometry);
     }
 
     let result = polygonizer.polygonize().map_err(from_polygonizer_error)?;
