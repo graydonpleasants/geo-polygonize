@@ -849,6 +849,75 @@ impl PartitionSnapshotV1 {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct PartitionCommitReportV1 {
+    pub(crate) partition_id: usize,
+    pub(crate) replaced_existing: bool,
+    pub(crate) partition_count: usize,
+    pub(crate) mosaic_fingerprint_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct PartitionPurgeReportV1 {
+    pub(crate) partition_id: usize,
+    pub(crate) removed: bool,
+    pub(crate) partition_count: usize,
+    pub(crate) mosaic_fingerprint_sha256: String,
+}
+
+#[derive(Default)]
+#[allow(dead_code)]
+pub(crate) struct PartitionMosaic {
+    partitions: BTreeMap<usize, PartitionSnapshotV1>,
+}
+
+#[allow(dead_code)]
+impl PartitionMosaic {
+    pub(crate) fn replace_partition(
+        &mut self,
+        snapshot: PartitionSnapshotV1,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<PartitionCommitReportV1> {
+        execution_policy.check_cancelled("partition_mosaic_replace")?;
+        snapshot.validate_for_mosaic()?;
+        let partition_id = snapshot.partition_id;
+        let replaced_existing = self.partitions.insert(partition_id, snapshot).is_some();
+        Ok(PartitionCommitReportV1 {
+            partition_id,
+            replaced_existing,
+            partition_count: self.partitions.len(),
+            mosaic_fingerprint_sha256: self.fingerprint_sha256(),
+        })
+    }
+
+    pub(crate) fn purge_partition(
+        &mut self,
+        partition_id: usize,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<PartitionPurgeReportV1> {
+        execution_policy.check_cancelled("partition_mosaic_purge")?;
+        let removed = self.partitions.remove(&partition_id).is_some();
+        Ok(PartitionPurgeReportV1 {
+            partition_id,
+            removed,
+            partition_count: self.partitions.len(),
+            mosaic_fingerprint_sha256: self.fingerprint_sha256(),
+        })
+    }
+
+    pub(crate) fn fingerprint_sha256(&self) -> String {
+        format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&self.partitions.values().collect::<Vec<_>>())
+                    .expect("partition mosaic serializes")
+            )
+        )
+    }
+}
+
 fn canonical_polygon_output_key(poly: &Polygon3D) -> CanonicalPolygonOutputKey {
     let mut source_line_ids = poly.boundary_source_line_ids.clone();
     source_line_ids.sort_unstable();
