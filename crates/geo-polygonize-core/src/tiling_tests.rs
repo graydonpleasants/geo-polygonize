@@ -127,6 +127,78 @@ mod tests {
     }
 
     #[test]
+    fn bounds_router_candidate_visits_and_polls_cancellation() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let geometry = Geometry::LineString(LineString::new(vec![
+            Coord { x: 9.5, y: 2.0 },
+            Coord { x: 10.5, y: 2.0 },
+        ]));
+        let geometries = vec![(&geometry, geometry.bounding_rect())];
+        let source_segments =
+            crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+        let tiles = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(1.0)
+            .generate_tiles()
+            .unwrap();
+
+        let bounded = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(1.0)
+            .with_tile_execution_policy(TileExecutionPolicy {
+                max_partition_candidate_visits: Some(1),
+                ..Default::default()
+            });
+        assert!(matches!(
+            bounded.stream_source_segments_to_partition_sinks(&tiles, &source_segments),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: 1,
+                observed: 2,
+            }) if stage == "partition_candidate_visits"
+        ));
+
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled = TiledPolygonizer::new(bbox, 10.0)
+            .with_buffer(1.0)
+            .with_execution_policy(ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            });
+        assert!(matches!(
+            cancelled.stream_source_segments_to_partition_sinks(&tiles, &source_segments),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_segment_routing"
+        ));
+
+        let large_bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 300.0, y: 300.0 });
+        let large_geometry = Geometry::LineString(LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 300.0, y: 300.0 },
+        ]));
+        let large_geometries = vec![(&large_geometry, large_geometry.bounding_rect())];
+        let large_source_segments =
+            crate::tiling::partition_source_segment_sink(&large_geometries, &[0]).unwrap();
+        let large_tiled = TiledPolygonizer::new(large_bbox, 10.0).with_buffer(1.0);
+        let large_tiles = large_tiled.generate_tiles().unwrap();
+        let token = CancellationToken::new();
+        let mid_scan = TiledPolygonizer::new(large_bbox, 10.0)
+            .with_buffer(1.0)
+            .with_execution_policy(ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, 256)),
+                ..Default::default()
+            });
+        assert!(matches!(
+            mid_scan.stream_source_segments_to_partition_sinks(
+                &large_tiles,
+                &large_source_segments
+            ),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_segment_routing"
+        ));
+    }
+
+    #[test]
     fn exports_physical_tile_border_observations_before_scratch_is_released() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
         let geometries = [
