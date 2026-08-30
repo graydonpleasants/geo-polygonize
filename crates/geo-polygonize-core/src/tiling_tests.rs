@@ -4283,6 +4283,15 @@ mod tests {
         assert!(commit.changed);
         assert_eq!(commit.partition_count, 1);
         assert_eq!(
+            commit.physical_span_claim_count,
+            independent.atomic_observations.len()
+        );
+        assert_eq!(commit.physical_span_count, mosaic.physical_spans.len());
+        assert_eq!(
+            mosaic.physical_span_claim_count(),
+            independent.atomic_observations.len()
+        );
+        assert_eq!(
             commit.mosaic_fingerprint_sha256,
             mosaic.fingerprint_sha256()
         );
@@ -4298,7 +4307,50 @@ mod tests {
             .unwrap();
         assert!(purge.removed);
         assert_eq!(purge.partition_count, 0);
+        assert_eq!(purge.physical_span_count, 0);
+        assert_eq!(purge.physical_span_claim_count, 0);
         assert_eq!(purge.mosaic_fingerprint_sha256, mosaic.fingerprint_sha256());
+        mosaic
+            .replace_partition(independent.clone(), &ExecutionPolicy::default())
+            .unwrap();
+        let mut corroborating = independent.clone();
+        corroborating.partition_id = 1;
+        for observation in &mut corroborating.atomic_observations {
+            if let Some(face_ref) = &mut observation.face_ref {
+                face_ref[0] = 1;
+            }
+            if let Some(successor) = &mut observation.local_face_boundary_successor {
+                successor.partition_id = 1;
+            }
+        }
+        for graph in &mut corroborating.local_face_graphs {
+            graph.partition_id = 1;
+            for edge in &mut graph.directed_edges {
+                if let Some(face_ref) = &mut edge.face_ref {
+                    face_ref[0] = 1;
+                }
+            }
+        }
+        for node in &mut corroborating.boundary_nodes {
+            for face_ref in &mut node.face_refs {
+                face_ref[0] = 1;
+            }
+        }
+        corroborating.validate_for_mosaic().unwrap();
+        mosaic
+            .replace_partition(corroborating, &ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(
+            mosaic.physical_span_claim_count(),
+            independent.atomic_observations.len() * 2
+        );
+        assert!(mosaic.physical_spans.values().all(|claims| {
+            claims
+                .iter()
+                .map(|claim| claim.partition_id)
+                .collect::<BTreeSet<_>>()
+                == BTreeSet::from([0, 1])
+        }));
         let mut mismatch = independent.clone();
         mismatch.selected_input_geometry_indices.push(1);
         assert_eq!(

@@ -839,7 +839,7 @@ to full partition arrangements rather than polyline edge sets.
 - [ ] Use the transaction boundary for larger-halo retries and independently
   regenerated partitions.
 - [ ] Separate physical mosaic consistency from topology mosaic readiness.
-- [ ] Retain all face-side claims on one physical span rather than forcing one
+- [x] Retain all face-side claims on one physical span rather than forcing one
   physical edge to have one semantic twin.
 - [ ] Classify physical spans as `valid`, `incomplete`, or `conflict`, with typed
   witnesses naming partitions, coordinates, claim multiplicity, and payload
