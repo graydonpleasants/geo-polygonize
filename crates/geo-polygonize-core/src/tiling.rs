@@ -181,39 +181,40 @@ impl PartitionSourceSegmentSink {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PartitionOracleDifferenceV1 {
     pub partition_id: usize,
     pub stage: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PartitionRouterAssignmentEvidenceV1 {
-    pub(crate) partition_id: usize,
-    pub(crate) geometry_envelope_segment_count: usize,
-    pub(crate) independent_segment_count: usize,
-    pub(crate) routed_segment_count: usize,
-    pub(crate) geometry_envelope_false_positive_count: usize,
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PartitionRouterAssignmentEvidenceV1 {
+    pub partition_id: usize,
+    pub geometry_envelope_segment_count: usize,
+    pub independent_segment_count: usize,
+    pub routed_segment_count: usize,
+    pub geometry_envelope_false_positive_count: usize,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PartitionRouterWorkV1 {
-    pub(crate) source_segment_count: usize,
-    pub(crate) direct_assignment_count: usize,
-    pub(crate) slow_path_segment_count: usize,
-    pub(crate) candidate_partition_visit_count: usize,
-    pub(crate) exact_intersection_test_count: usize,
-    pub(crate) emitted_assignment_count: usize,
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct PartitionRouterWorkV1 {
+    pub source_segment_count: usize,
+    pub direct_assignment_count: usize,
+    pub slow_path_segment_count: usize,
+    pub candidate_partition_visit_count: usize,
+    pub exact_intersection_test_count: usize,
+    pub emitted_assignment_count: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PartitionRouterComparisonV1 {
-    pub(crate) oracle_difference: Option<PartitionOracleDifferenceV1>,
-    pub(crate) routed_assignment_oracle_difference: Option<PartitionOracleDifferenceV1>,
-    pub(crate) routed_local_snapshot_difference: Option<PartitionOracleDifferenceV1>,
-    pub(crate) routed_local_snapshot_checked_partition_count: usize,
-    pub(crate) router_work: PartitionRouterWorkV1,
-    pub(crate) assignments: Vec<PartitionRouterAssignmentEvidenceV1>,
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PartitionRouterComparisonV1 {
+    pub schema_version: u32,
+    pub oracle_difference: Option<PartitionOracleDifferenceV1>,
+    pub routed_assignment_oracle_difference: Option<PartitionOracleDifferenceV1>,
+    pub routed_local_snapshot_difference: Option<PartitionOracleDifferenceV1>,
+    pub routed_local_snapshot_checked_partition_count: usize,
+    pub router_work: PartitionRouterWorkV1,
+    pub assignments: Vec<PartitionRouterAssignmentEvidenceV1>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -3991,8 +3992,8 @@ impl<'a> TiledPolygonizer<'a> {
     /// Compares private router assignments and full local snapshots with an
     /// exhaustive source-segment oracle while retaining geometry-envelope
     /// false-positive evidence.
-    #[allow(dead_code)]
-    fn partition_router_comparison(&self) -> Result<PartitionRouterComparisonV1> {
+    #[doc(hidden)]
+    pub fn partition_router_comparison(&self) -> Result<PartitionRouterComparisonV1> {
         let result = self.polygonize()?;
         let oracle_difference = self.partition_oracle_first_difference_for_result(&result)?;
         let tiles = result
@@ -4075,6 +4076,7 @@ impl<'a> TiledPolygonizer<'a> {
             });
         }
         Ok(PartitionRouterComparisonV1 {
+            schema_version: 1,
             oracle_difference,
             routed_assignment_oracle_difference,
             routed_local_snapshot_difference,
@@ -4082,6 +4084,18 @@ impl<'a> TiledPolygonizer<'a> {
             router_work,
             assignments,
         })
+    }
+
+    /// Runs only the private router scan for timing and allocation evidence.
+    /// Call `partition_router_comparison` first as the correctness gate.
+    #[doc(hidden)]
+    pub fn benchmark_partition_router(&self) -> Result<PartitionRouterWorkV1> {
+        let tiles = self.generate_tiles()?;
+        let all_geometry_indices = (0..self.geometries.len()).collect::<Vec<_>>();
+        let source_segments =
+            partition_source_segment_sink(&self.geometries, &all_geometry_indices)?;
+        let (_, work) = self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
+        Ok(work)
     }
 
     fn process_router_partition(

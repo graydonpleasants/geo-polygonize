@@ -229,6 +229,7 @@ mod tests {
         }
 
         let comparison = tiled.partition_router_comparison().unwrap();
+        assert_eq!(comparison.schema_version, 1);
         assert_eq!(comparison.oracle_difference, None);
         assert_eq!(comparison.routed_assignment_oracle_difference, None);
         assert_eq!(comparison.routed_local_snapshot_difference, None);
@@ -272,6 +273,15 @@ mod tests {
         );
         assert_eq!(comparison.assignments[2].routed_segment_count, 1);
         assert_eq!(comparison.assignments[3].routed_segment_count, 1);
+        assert_eq!(
+            tiled.benchmark_partition_router().unwrap(),
+            comparison.router_work
+        );
+        assert_eq!(
+            serde_json::to_value(&comparison).unwrap()["router_work"]
+                ["candidate_partition_visit_count"],
+            7
+        );
     }
 
     #[test]
