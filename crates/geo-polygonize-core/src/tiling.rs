@@ -662,7 +662,7 @@ impl PartitionSnapshotV1 {
         let coordinate = |coord: Coord<f64>| {
             crate::fingerprint::coordinate_fingerprint(Coord3D::new(coord.x, coord.y, 0.0))
         };
-        Ok(Self {
+        let snapshot = Self {
             schema_version: PARTITION_SNAPSHOT_V1_SCHEMA_VERSION,
             partition_id,
             tile_min: coordinate(tile_bbox.min())?,
@@ -681,7 +681,46 @@ impl PartitionSnapshotV1 {
             boundary_nodes: partition_boundary_nodes(border_observations),
             non_polygon: partition_non_polygon_evidence(result),
             topology: crate::fingerprint::TopologyFingerprintV1::try_from_result(result, options)?,
-        })
+        };
+        snapshot.validate_for_mosaic()?;
+        Ok(snapshot)
+    }
+
+    fn validate_for_mosaic(&self) -> Result<()> {
+        if self.schema_version != PARTITION_SNAPSHOT_V1_SCHEMA_VERSION {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition {} snapshot schema version {} is unsupported",
+                    self.partition_id, self.schema_version
+                ),
+            });
+        }
+        let partition_id = self.partition_id;
+        let has_foreign_partition = self.atomic_observations.iter().any(|observation| {
+            observation
+                .face_ref
+                .is_some_and(|face| face[0] != partition_id)
+                || observation
+                    .local_face_boundary_successor
+                    .is_some_and(|successor| successor.partition_id != partition_id)
+        }) || self.local_face_graphs.iter().any(|graph| {
+            graph.partition_id != partition_id
+                || graph
+                    .directed_edges
+                    .iter()
+                    .any(|edge| edge.face_ref.is_some_and(|face| face[0] != partition_id))
+        }) || self
+            .boundary_nodes
+            .iter()
+            .any(|node| node.face_refs.iter().any(|face| face[0] != partition_id));
+        if has_foreign_partition {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition {partition_id} snapshot contains foreign partition lineage"
+                ),
+            });
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]

@@ -4205,6 +4205,7 @@ mod tests {
         let snapshot = &result.partition_snapshots[0];
 
         assert_eq!(snapshot.schema_version, 12);
+        snapshot.validate_for_mosaic().unwrap();
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
@@ -4279,6 +4280,12 @@ mod tests {
             snapshot.diff(&mismatch).unwrap().path,
             "$.selected_input_geometry_indices"
         );
+        let mut unsupported_schema = independent.clone();
+        unsupported_schema.schema_version += 1;
+        assert!(unsupported_schema.validate_for_mosaic().is_err());
+        let mut foreign_lineage = independent.clone();
+        foreign_lineage.local_face_graphs[0].partition_id += 1;
+        assert!(foreign_lineage.validate_for_mosaic().is_err());
         let mut source_mismatch = independent.clone();
         source_mismatch.selected_source_segments[0].segment_index += 1;
         assert_eq!(
