@@ -2418,6 +2418,34 @@ impl<'a> TiledPolygonizer<'a> {
         )
     }
 
+    /// Proves that a source segment is wholly inside this partition's open
+    /// inner box. Strict boundaries keep halo-touching assignments on the
+    /// neighbor-aware path; endpoint containment is sufficient because the
+    /// inner box is convex.
+    // The segment router consumes this proof in the following P4.4 layer.
+    #[allow(dead_code)]
+    pub(crate) fn partition_inner_box_contains_segment(
+        line: Line3D,
+        tile_bbox: Rect<f64>,
+        buffer: f64,
+    ) -> bool {
+        if !buffer.is_finite() || buffer < 0.0 {
+            return false;
+        }
+        let inner_min_x = tile_bbox.min().x + buffer;
+        let inner_min_y = tile_bbox.min().y + buffer;
+        let inner_max_x = tile_bbox.max().x - buffer;
+        let inner_max_y = tile_bbox.max().y - buffer;
+        inner_min_x < inner_max_x
+            && inner_min_y < inner_max_y
+            && [line.start, line.end].into_iter().all(|point| {
+                point.x > inner_min_x
+                    && point.x < inner_max_x
+                    && point.y > inner_min_y
+                    && point.y < inner_max_y
+            })
+    }
+
     fn process_one_partition(
         &self,
         partition_id: usize,
