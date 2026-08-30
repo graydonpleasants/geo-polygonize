@@ -4274,6 +4274,30 @@ mod tests {
         assert_eq!(snapshot, &independent);
         assert_eq!(snapshot.diff(&independent), None);
         assert_eq!(serial.partition_oracle_first_difference().unwrap(), None);
+        let mut mosaic = crate::tiling::PartitionMosaic::default();
+        let commit = mosaic
+            .replace_partition(independent.clone(), &ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(commit.partition_id, 0);
+        assert!(!commit.replaced_existing);
+        assert_eq!(commit.partition_count, 1);
+        assert_eq!(
+            commit.mosaic_fingerprint_sha256,
+            mosaic.fingerprint_sha256()
+        );
+        let committed_fingerprint = mosaic.fingerprint_sha256();
+        let mut invalid_replacement = independent.clone();
+        invalid_replacement.schema_version += 1;
+        assert!(mosaic
+            .replace_partition(invalid_replacement, &ExecutionPolicy::default())
+            .is_err());
+        assert_eq!(mosaic.fingerprint_sha256(), committed_fingerprint);
+        let purge = mosaic
+            .purge_partition(0, &ExecutionPolicy::default())
+            .unwrap();
+        assert!(purge.removed);
+        assert_eq!(purge.partition_count, 0);
+        assert_eq!(purge.mosaic_fingerprint_sha256, mosaic.fingerprint_sha256());
         let mut mismatch = independent.clone();
         mismatch.selected_input_geometry_indices.push(1);
         assert_eq!(
