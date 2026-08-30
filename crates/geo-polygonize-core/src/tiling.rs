@@ -13,7 +13,9 @@ use crate::trace::{
     TopologyTraceV1, TraceByteLimitsV1, TraceCaptureBudget, TraceLevelV1, TraceRecorderV1,
     TraceStageV1,
 };
-use crate::types::{Coord3D, Line3D, Polygon3D, PolygonProvenance};
+use crate::types::{
+    source_segment_identity, Coord3D, Line3D, Polygon3D, PolygonProvenance, SourceSegmentIdentity,
+};
 use crate::utils::canonical_coordinate_bits;
 use crate::{PolygonizeError, Polygonizer, PolygonizerOptions, PolygonizerResult, Result};
 use geo::algorithm::line_intersection::line_intersection;
@@ -75,6 +77,70 @@ pub(crate) struct PartitionSourceSegmentV1 {
     pub(crate) end: crate::fingerprint::CoordinateFingerprintV1,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PartitionSourceSegment {
+    geometry_index: usize,
+    segment_index: usize,
+    line: Line3D,
+    source: SourceSegmentIdentity,
+    raw_start_z_bits: u64,
+    raw_end_z_bits: u64,
+}
+
+#[derive(Default)]
+struct PartitionSourceSegmentSink {
+    segments: Vec<PartitionSourceSegment>,
+}
+
+impl PartitionSourceSegmentSink {
+    fn push(
+        &mut self,
+        geometry_index: usize,
+        segment_index: usize,
+        line: Line3D,
+        source: SourceSegmentIdentity,
+    ) {
+        self.segments.push(PartitionSourceSegment {
+            geometry_index,
+            segment_index,
+            raw_start_z_bits: line.start.z.to_bits(),
+            raw_end_z_bits: line.end.z.to_bits(),
+            line,
+            source,
+        });
+    }
+
+    fn snapshot_segments(&self) -> Result<Vec<PartitionSourceSegmentV1>> {
+        self.segments
+            .iter()
+            .map(|segment| {
+                let source = segment.source;
+                if source.segment_index >= source.chain_segment_count {
+                    return Err(PolygonizeError::InternalInvariantViolation {
+                        reason: "partition source segment identity is out of range".to_string(),
+                    });
+                }
+                let start = Coord3D::new(
+                    segment.line.start.x,
+                    segment.line.start.y,
+                    f64::from_bits(segment.raw_start_z_bits),
+                );
+                let end = Coord3D::new(
+                    segment.line.end.x,
+                    segment.line.end.y,
+                    f64::from_bits(segment.raw_end_z_bits),
+                );
+                Ok(PartitionSourceSegmentV1 {
+                    geometry_index: segment.geometry_index,
+                    segment_index: segment.segment_index,
+                    start: crate::fingerprint::coordinate_fingerprint(start)?,
+                    end: crate::fingerprint::coordinate_fingerprint(end)?,
+                })
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartitionOracleDifferenceV1 {
     pub partition_id: usize,
@@ -89,11 +155,11 @@ pub(crate) struct PartitionNodedSegmentV1 {
     pub(crate) representative_line_id: Option<u32>,
 }
 
-fn partition_source_segments(
+fn partition_source_segment_sink(
     geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
     selected_input_geometry_indices: &[usize],
-) -> Result<Vec<PartitionSourceSegmentV1>> {
-    let mut segments = Vec::new();
+) -> Result<PartitionSourceSegmentSink> {
+    let mut sink = PartitionSourceSegmentSink::default();
     for &geometry_index in selected_input_geometry_indices {
         let geometry = geometries
             .get(geometry_index)
@@ -101,19 +167,26 @@ fn partition_source_segments(
                 reason: "partition snapshot source geometry index is missing".to_string(),
             })?
             .0;
-        for (segment_index, segment) in crate::polygonizer::extract_geometry_segments(geometry)
-            .into_iter()
-            .enumerate()
-        {
-            segments.push(PartitionSourceSegmentV1 {
-                geometry_index,
-                segment_index,
-                start: crate::fingerprint::coordinate_fingerprint(segment.start)?,
-                end: crate::fingerprint::coordinate_fingerprint(segment.end)?,
-            });
+        let (source_segments, source_chains) =
+            crate::polygonizer::extract_geometry_segments_with_source(geometry);
+        for (segment_index, segment) in source_segments.into_iter().enumerate() {
+            let source =
+                source_segment_identity(&source_chains, segment_index).ok_or_else(|| {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: "partition source segment identity is missing".to_string(),
+                    }
+                })?;
+            sink.push(geometry_index, segment_index, segment, source);
         }
     }
-    Ok(segments)
+    Ok(sink)
+}
+
+fn partition_source_segments(
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    selected_input_geometry_indices: &[usize],
+) -> Result<Vec<PartitionSourceSegmentV1>> {
+    partition_source_segment_sink(geometries, selected_input_geometry_indices)?.snapshot_segments()
 }
 
 fn partition_noded_segments(

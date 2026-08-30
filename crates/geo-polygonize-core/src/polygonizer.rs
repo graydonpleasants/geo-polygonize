@@ -2638,11 +2638,13 @@ fn append_line_string(
     });
 }
 
-pub(crate) fn extract_geometry_segments(geom: &Geometry<f64>) -> Vec<Line3D> {
+pub(crate) fn extract_geometry_segments_with_source(
+    geom: &Geometry<f64>,
+) -> (Vec<Line3D>, Vec<SourceLineString>) {
     let mut segments = Vec::new();
     let mut source_line_strings = Vec::new();
     extract_segments(geom, &mut segments, &mut source_line_strings);
-    segments
+    (segments, source_line_strings)
 }
 
 fn extract_segments(

@@ -16,6 +16,34 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
+    fn source_segment_sink_retains_chain_and_endpoint_identity() {
+        let geometry = Geometry::MultiLineString(MultiLineString(vec![
+            LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }]),
+            LineString::new(vec![
+                Coord { x: 1.0, y: 1.0 },
+                Coord { x: 2.0, y: 1.0 },
+                Coord { x: 3.0, y: 1.0 },
+            ]),
+        ]));
+        let geometries = vec![(&geometry, None)];
+        let sink = crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+
+        assert_eq!(sink.segments.len(), 3);
+        assert_eq!(sink.segments[0].geometry_index, 0);
+        assert_eq!(sink.segments[0].source.chain_index, 0);
+        assert_eq!(sink.segments[0].source.segment_index, 0);
+        assert_eq!(sink.segments[0].source.chain_segment_count, 1);
+        assert_eq!(sink.segments[0].source.source_id, None);
+        assert_eq!(sink.segments[0].line.line_id, 0);
+        assert_eq!(sink.segments[0].raw_start_z_bits, 0.0f64.to_bits());
+        assert_eq!(sink.segments[0].raw_end_z_bits, 0.0f64.to_bits());
+        assert_eq!(sink.segments[2].source.chain_index, 1);
+        assert_eq!(sink.segments[2].source.segment_index, 1);
+        assert_eq!(sink.segments[2].source.chain_segment_count, 2);
+        assert_eq!(sink.segments[2].line.end.x, 3.0);
+    }
+
+    #[test]
     fn exports_physical_tile_border_observations_before_scratch_is_released() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
         let geometries = [
