@@ -199,27 +199,42 @@ mod tests {
     }
 
     #[test]
-    fn compares_router_assignments_with_geometry_envelope_oracle() {
+    fn compares_router_assignments_with_independent_partition_oracle() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
-        let geometry = Geometry::LineString(LineString::new(vec![
-            Coord { x: 2.0, y: 2.0 },
-            Coord { x: 8.0, y: 2.0 },
-            Coord { x: 18.0, y: 2.0 },
-        ]));
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 2.0 },
+                Coord { x: 8.0, y: 2.0 },
+                Coord { x: 18.0, y: 2.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 18.0 },
+                Coord { x: 18.0, y: 2.0 },
+            ])),
+        ];
         let mut tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(1.0);
-        tiled.add_geometry(&geometry);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
 
         let comparison = tiled.partition_router_comparison().unwrap();
         assert_eq!(comparison.oracle_difference, None);
+        assert_eq!(comparison.routed_assignment_oracle_difference, None);
         assert_eq!(comparison.routed_local_snapshot_difference, None);
-        assert_eq!(comparison.routed_local_snapshot_checked_partition_count, 2);
+        assert_eq!(comparison.routed_local_snapshot_checked_partition_count, 4);
         assert_eq!(comparison.assignments.len(), 4);
+        assert!(comparison
+            .assignments
+            .iter()
+            .all(|assignment| assignment.independent_segment_count
+                == assignment.routed_segment_count));
         assert_eq!(
             comparison.assignments[0],
             crate::tiling::PartitionRouterAssignmentEvidenceV1 {
                 partition_id: 0,
-                oracle_segment_count: 2,
-                routed_segment_count: 2,
+                geometry_envelope_segment_count: 3,
+                independent_segment_count: 3,
+                routed_segment_count: 3,
                 geometry_envelope_false_positive_count: 0,
             }
         );
@@ -227,15 +242,14 @@ mod tests {
             comparison.assignments[1],
             crate::tiling::PartitionRouterAssignmentEvidenceV1 {
                 partition_id: 1,
-                oracle_segment_count: 2,
-                routed_segment_count: 1,
+                geometry_envelope_segment_count: 3,
+                independent_segment_count: 2,
+                routed_segment_count: 2,
                 geometry_envelope_false_positive_count: 1,
             }
         );
-        assert_eq!(comparison.assignments[2].oracle_segment_count, 0);
-        assert_eq!(comparison.assignments[2].routed_segment_count, 0);
-        assert_eq!(comparison.assignments[3].oracle_segment_count, 0);
-        assert_eq!(comparison.assignments[3].routed_segment_count, 0);
+        assert_eq!(comparison.assignments[2].routed_segment_count, 1);
+        assert_eq!(comparison.assignments[3].routed_segment_count, 1);
     }
 
     #[test]
@@ -4425,16 +4439,14 @@ mod tests {
             for geometry in &geometries {
                 tiled.add_geometry(geometry);
             }
+            let comparison = tiled.partition_router_comparison().unwrap();
+            assert_eq!(comparison.oracle_difference, None, "{label}");
+            assert_eq!(
+                comparison.routed_assignment_oracle_difference, None,
+                "{label}"
+            );
+            assert_eq!(comparison.routed_local_snapshot_difference, None, "{label}");
             let result = tiled.polygonize().unwrap();
-            for (partition_id, report) in result.tile_reports.iter().enumerate() {
-                let independent = tiled
-                    .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
-                    .unwrap();
-                assert_eq!(
-                    result.partition_snapshots[partition_id], independent,
-                    "{label} partition {partition_id} differs from independent reprocess"
-                );
-            }
             let mut output = result
                 .polygons
                 .iter()
@@ -4490,16 +4502,14 @@ mod tests {
                 .with_buffer(buffer)
                 .with_options(options);
             tiled.add_geometry(&geometry);
+            let comparison = tiled.partition_router_comparison().unwrap();
+            assert_eq!(comparison.oracle_difference, None, "{label}");
+            assert_eq!(
+                comparison.routed_assignment_oracle_difference, None,
+                "{label}"
+            );
+            assert_eq!(comparison.routed_local_snapshot_difference, None, "{label}");
             let result = tiled.polygonize().unwrap();
-            for (partition_id, report) in result.tile_reports.iter().enumerate() {
-                let independent = tiled
-                    .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
-                    .unwrap();
-                assert_eq!(
-                    result.partition_snapshots[partition_id], independent,
-                    "{label} partition {partition_id} differs from independent reprocess"
-                );
-            }
             let mut output = result
                 .polygons
                 .iter()

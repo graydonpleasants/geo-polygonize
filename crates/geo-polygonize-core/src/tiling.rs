@@ -190,7 +190,8 @@ pub struct PartitionOracleDifferenceV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PartitionRouterAssignmentEvidenceV1 {
     pub(crate) partition_id: usize,
-    pub(crate) oracle_segment_count: usize,
+    pub(crate) geometry_envelope_segment_count: usize,
+    pub(crate) independent_segment_count: usize,
     pub(crate) routed_segment_count: usize,
     pub(crate) geometry_envelope_false_positive_count: usize,
 }
@@ -198,6 +199,7 @@ pub(crate) struct PartitionRouterAssignmentEvidenceV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PartitionRouterComparisonV1 {
     pub(crate) oracle_difference: Option<PartitionOracleDifferenceV1>,
+    pub(crate) routed_assignment_oracle_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) routed_local_snapshot_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) routed_local_snapshot_checked_partition_count: usize,
     pub(crate) assignments: Vec<PartitionRouterAssignmentEvidenceV1>,
@@ -2623,6 +2625,29 @@ impl<'a> TiledPolygonizer<'a> {
         Ok(sinks)
     }
 
+    /// Selects one partition's source segments without using the router's
+    /// fast path or candidate-range math.
+    // ponytail: The O(partitions * segments) scan keeps this private oracle
+    // independent; move it offline only if evidence runs become too slow.
+    fn partition_source_segment_oracle(
+        &self,
+        tile_bbox: Rect<f64>,
+        source_segments: &PartitionSourceSegmentSink,
+    ) -> Result<PartitionSourceSegmentSink> {
+        self.execution_policy
+            .check_cancelled("partition_source_segment_oracle")?;
+        let buffered_bbox = self.buffered_bbox(tile_bbox, self.buffer);
+        let mut sink = PartitionSourceSegmentSink::default();
+        for (index, segment) in source_segments.segments.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("partition_source_segment_oracle", index)?;
+            if segment.line.to_line_2d().intersects(&buffered_bbox) {
+                sink.push_segment(*segment);
+            }
+        }
+        Ok(sink)
+    }
+
     fn process_one_partition(
         &self,
         partition_id: usize,
@@ -3941,9 +3966,9 @@ impl<'a> TiledPolygonizer<'a> {
         Ok(None)
     }
 
-    /// Compares private router assignments with the geometry-envelope path and
-    /// checks each non-empty routed partition with a source-preserving
-    /// standalone polygonizer.
+    /// Compares private router assignments and full local snapshots with an
+    /// exhaustive source-segment oracle while retaining geometry-envelope
+    /// false-positive evidence.
     #[allow(dead_code)]
     fn partition_router_comparison(&self) -> Result<PartitionRouterComparisonV1> {
         let result = self.polygonize()?;
@@ -3959,6 +3984,7 @@ impl<'a> TiledPolygonizer<'a> {
         let routed_sinks =
             self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
         let mut assignments = Vec::with_capacity(tiles.len());
+        let mut routed_assignment_oracle_difference = None;
         let mut routed_local_snapshot_difference = None;
         let mut routed_local_snapshot_checked_partition_count = 0;
         for (partition_id, sink) in routed_sinks.iter().enumerate() {
@@ -3972,7 +3998,18 @@ impl<'a> TiledPolygonizer<'a> {
                 })?;
             let mut routed_segments = sink.snapshot_segments()?;
             routed_segments.sort_unstable();
-            routed_segments.dedup();
+            let independent_sink =
+                self.partition_source_segment_oracle(tiles[partition_id], &source_segments)?;
+            let mut independent_segments = independent_sink.snapshot_segments()?;
+            independent_segments.sort_unstable();
+            if routed_assignment_oracle_difference.is_none()
+                && routed_segments != independent_segments
+            {
+                routed_assignment_oracle_difference = Some(PartitionOracleDifferenceV1 {
+                    partition_id,
+                    stage: "$.selected_source_segments".to_string(),
+                });
+            }
             if routed_segments.iter().any(|segment| {
                 oracle
                     .selected_source_segments
@@ -3988,14 +4025,19 @@ impl<'a> TiledPolygonizer<'a> {
             let geometry_envelope_false_positive_count = oracle
                 .selected_source_segments
                 .iter()
-                .filter(|segment| routed_segments.binary_search(segment).is_err())
+                .filter(|segment| independent_segments.binary_search(segment).is_err())
                 .count();
-            if routed_local_snapshot_difference.is_none() && !routed_segments.is_empty() {
+            if routed_local_snapshot_difference.is_none() && routed_segments == independent_segments
+            {
                 routed_local_snapshot_checked_partition_count += 1;
+                let independent_snapshot = self.process_router_partition(
+                    partition_id,
+                    tiles[partition_id],
+                    &independent_sink,
+                )?;
                 let routed_snapshot =
                     self.process_router_partition(partition_id, tiles[partition_id], sink)?;
-                let reference_topology = self.process_router_partition_reference(sink)?;
-                if let Some(diff) = reference_topology.diff(&routed_snapshot.topology) {
+                if let Some(diff) = independent_snapshot.diff(&routed_snapshot) {
                     routed_local_snapshot_difference = Some(PartitionOracleDifferenceV1 {
                         partition_id,
                         stage: diff.path,
@@ -4004,31 +4046,19 @@ impl<'a> TiledPolygonizer<'a> {
             }
             assignments.push(PartitionRouterAssignmentEvidenceV1 {
                 partition_id,
-                oracle_segment_count: oracle.selected_source_segments.len(),
+                geometry_envelope_segment_count: oracle.selected_source_segments.len(),
+                independent_segment_count: independent_segments.len(),
                 routed_segment_count: routed_segments.len(),
                 geometry_envelope_false_positive_count,
             });
         }
         Ok(PartitionRouterComparisonV1 {
             oracle_difference,
+            routed_assignment_oracle_difference,
             routed_local_snapshot_difference,
             routed_local_snapshot_checked_partition_count,
             assignments,
         })
-    }
-
-    fn process_router_partition_reference(
-        &self,
-        source_segments: &PartitionSourceSegmentSink,
-    ) -> Result<crate::fingerprint::TopologyFingerprintV1> {
-        self.execution_policy
-            .check_cancelled("partition_router_local_reference")?;
-        let (lines, source_line_strings) = source_segments.polygonizer_input();
-        let mut local_poly = Polygonizer::with_options(self.options.clone())
-            .with_execution_policy(self.execution_policy.clone());
-        local_poly.add_source_segments(lines, source_line_strings);
-        let result = local_poly.polygonize()?;
-        crate::fingerprint::TopologyFingerprintV1::try_from_result(&result, &self.options)
     }
 
     fn process_router_partition(
