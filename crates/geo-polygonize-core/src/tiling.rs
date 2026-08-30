@@ -196,12 +196,23 @@ pub(crate) struct PartitionRouterAssignmentEvidenceV1 {
     pub(crate) geometry_envelope_false_positive_count: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PartitionRouterWorkV1 {
+    pub(crate) source_segment_count: usize,
+    pub(crate) direct_assignment_count: usize,
+    pub(crate) slow_path_segment_count: usize,
+    pub(crate) candidate_partition_visit_count: usize,
+    pub(crate) exact_intersection_test_count: usize,
+    pub(crate) emitted_assignment_count: usize,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PartitionRouterComparisonV1 {
     pub(crate) oracle_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) routed_assignment_oracle_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) routed_local_snapshot_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) routed_local_snapshot_checked_partition_count: usize,
+    pub(crate) router_work: PartitionRouterWorkV1,
     pub(crate) assignments: Vec<PartitionRouterAssignmentEvidenceV1>,
 }
 
@@ -2519,18 +2530,22 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         tiles: &[Rect<f64>],
         source_segments: &PartitionSourceSegmentSink,
-    ) -> Result<Vec<PartitionSourceSegmentSink>> {
+    ) -> Result<(Vec<PartitionSourceSegmentSink>, PartitionRouterWorkV1)> {
         let mut sinks = Vec::with_capacity(tiles.len());
         sinks.resize_with(tiles.len(), PartitionSourceSegmentSink::default);
+        let mut work = PartitionRouterWorkV1 {
+            source_segment_count: source_segments.segments.len(),
+            ..Default::default()
+        };
         if tiles.is_empty() || source_segments.segments.is_empty() {
-            return Ok(sinks);
+            return Ok((sinks, work));
         }
         if !self.tile_size.is_finite()
             || self.tile_size <= 0.0
             || !self.buffer.is_finite()
             || self.buffer < 0.0
         {
-            return Ok(sinks);
+            return Ok((sinks, work));
         }
         self.execution_policy
             .check_cancelled("partition_source_segment_routing")?;
@@ -2554,22 +2569,24 @@ impl<'a> TiledPolygonizer<'a> {
             (first <= last).then_some((first, last))
         };
 
-        let mut candidate_visits = 0usize;
-        let visit_candidate = |candidate_visits: &mut usize| -> Result<()> {
-            *candidate_visits = candidate_visits.checked_add(1).ok_or_else(|| {
-                PolygonizeError::ResourceLimitExceeded {
+        let visit_candidate = |work: &mut PartitionRouterWorkV1| -> Result<()> {
+            work.candidate_partition_visit_count = work
+                .candidate_partition_visit_count
+                .checked_add(1)
+                .ok_or_else(|| PolygonizeError::ResourceLimitExceeded {
                     stage: "partition_candidate_visits".to_string(),
                     limit: usize::MAX - 1,
                     observed: usize::MAX,
-                }
-            })?;
+                })?;
             self.execution_policy.check(
                 "partition_candidate_visits",
                 self.tile_execution_policy.max_partition_candidate_visits,
-                *candidate_visits,
+                work.candidate_partition_visit_count,
             )?;
-            self.execution_policy
-                .check_cancelled_every("partition_source_segment_routing", *candidate_visits)
+            self.execution_policy.check_cancelled_every(
+                "partition_source_segment_routing",
+                work.candidate_partition_visit_count,
+            )
         };
 
         for segment in &source_segments.segments {
@@ -2595,12 +2612,15 @@ impl<'a> TiledPolygonizer<'a> {
                 let direct_partition = direct_row as usize * cols + direct_col as usize;
                 let direct_tile = tiles[direct_partition];
                 if Self::partition_inner_box_contains_segment(line, direct_tile, self.buffer) {
-                    visit_candidate(&mut candidate_visits)?;
+                    visit_candidate(&mut work)?;
                     sinks[direct_partition].push_segment(*segment);
+                    work.direct_assignment_count += 1;
+                    work.emitted_assignment_count += 1;
                     continue;
                 }
             }
 
+            work.slow_path_segment_count += 1;
             let Some((first_row, last_row)) =
                 axis_bounds(segment_min_y, segment_max_y, self.bbox.min().y, rows)
             else {
@@ -2615,14 +2635,16 @@ impl<'a> TiledPolygonizer<'a> {
             for row in first_row..=last_row {
                 for col in first_col..=last_col {
                     let partition = row * cols + col;
-                    visit_candidate(&mut candidate_visits)?;
+                    visit_candidate(&mut work)?;
+                    work.exact_intersection_test_count += 1;
                     if line.intersects(&self.buffered_bbox(tiles[partition], self.buffer)) {
                         sinks[partition].push_segment(*segment);
+                        work.emitted_assignment_count += 1;
                     }
                 }
             }
         }
-        Ok(sinks)
+        Ok((sinks, work))
     }
 
     /// Selects one partition's source segments without using the router's
@@ -3981,7 +4003,7 @@ impl<'a> TiledPolygonizer<'a> {
         let all_geometry_indices = (0..self.geometries.len()).collect::<Vec<_>>();
         let source_segments =
             partition_source_segment_sink(&self.geometries, &all_geometry_indices)?;
-        let routed_sinks =
+        let (routed_sinks, router_work) =
             self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
         let mut assignments = Vec::with_capacity(tiles.len());
         let mut routed_assignment_oracle_difference = None;
@@ -4057,6 +4079,7 @@ impl<'a> TiledPolygonizer<'a> {
             routed_assignment_oracle_difference,
             routed_local_snapshot_difference,
             routed_local_snapshot_checked_partition_count,
+            router_work,
             assignments,
         })
     }

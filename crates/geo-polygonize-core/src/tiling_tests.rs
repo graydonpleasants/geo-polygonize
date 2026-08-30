@@ -112,10 +112,21 @@ mod tests {
             crate::tiling::partition_source_segment_sink(&geometries, &[0, 1]).unwrap();
         let tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(1.0);
         let tiles = tiled.generate_tiles().unwrap();
-        let sinks = tiled
+        let (sinks, work) = tiled
             .stream_source_segments_to_partition_sinks(&tiles, &source_segments)
             .unwrap();
 
+        assert_eq!(
+            work,
+            crate::tiling::PartitionRouterWorkV1 {
+                source_segment_count: 2,
+                direct_assignment_count: 1,
+                slow_path_segment_count: 1,
+                candidate_partition_visit_count: 3,
+                exact_intersection_test_count: 2,
+                emitted_assignment_count: 3,
+            }
+        );
         assert_eq!(sinks.len(), 4);
         assert_eq!(sinks[0].segments.len(), 2);
         assert_eq!(sinks[1].segments.len(), 1);
@@ -222,6 +233,17 @@ mod tests {
         assert_eq!(comparison.routed_assignment_oracle_difference, None);
         assert_eq!(comparison.routed_local_snapshot_difference, None);
         assert_eq!(comparison.routed_local_snapshot_checked_partition_count, 4);
+        assert_eq!(
+            comparison.router_work,
+            crate::tiling::PartitionRouterWorkV1 {
+                source_segment_count: 3,
+                direct_assignment_count: 1,
+                slow_path_segment_count: 2,
+                candidate_partition_visit_count: 7,
+                exact_intersection_test_count: 6,
+                emitted_assignment_count: 7,
+            }
+        );
         assert_eq!(comparison.assignments.len(), 4);
         assert!(comparison
             .assignments
