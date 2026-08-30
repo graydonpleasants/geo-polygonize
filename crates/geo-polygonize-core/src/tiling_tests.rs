@@ -44,6 +44,54 @@ mod tests {
     }
 
     #[test]
+    fn inner_box_fast_path_requires_strict_halo_clearance() {
+        let tile = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 10.0 });
+        let line = |start: (f64, f64), end: (f64, f64)| {
+            Line3D::new(
+                Coord3D::new(start.0, start.1, 4.0),
+                Coord3D::new(end.0, end.1, 8.0),
+                3,
+            )
+        };
+
+        assert!(
+            crate::tiling::TiledPolygonizer::partition_inner_box_contains_segment(
+                line((3.0, 3.0), (7.0, 7.0)),
+                tile,
+                2.0,
+            )
+        );
+        assert!(
+            !crate::tiling::TiledPolygonizer::partition_inner_box_contains_segment(
+                line((2.0, 3.0), (7.0, 7.0)),
+                tile,
+                2.0,
+            )
+        );
+        assert!(
+            !crate::tiling::TiledPolygonizer::partition_inner_box_contains_segment(
+                line((3.0, 3.0), (8.0, 7.0)),
+                tile,
+                2.0,
+            )
+        );
+        assert!(
+            !crate::tiling::TiledPolygonizer::partition_inner_box_contains_segment(
+                line((3.0, 3.0), (7.0, 7.0)),
+                tile,
+                5.0,
+            )
+        );
+        assert!(
+            crate::tiling::TiledPolygonizer::partition_inner_box_contains_segment(
+                line((1.0, 1.0), (9.0, 9.0)),
+                tile,
+                0.0,
+            )
+        );
+    }
+
+    #[test]
     fn exports_physical_tile_border_observations_before_scratch_is_released() {
         let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
         let geometries = [

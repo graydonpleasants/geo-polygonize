@@ -555,7 +555,7 @@ then let the existing physical boundary-noding stage create atomic halfedges.
 
 - [x] Define a source-aware partition sink retaining chain, segment, parametric,
   provenance, representative-ID, and raw endpoint-Z identity.
-- [ ] Add a documented same-partition inner-box fast path for segments safely
+- [x] Add a documented same-partition inner-box fast path for segments safely
   farther than the halo from every border.
 - [ ] Stream boundary-near segment/partition candidates without a
   candidate-count-proportional temporary vector.
