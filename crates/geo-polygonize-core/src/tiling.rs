@@ -143,6 +143,42 @@ impl PartitionSourceSegmentSink {
             })
             .collect()
     }
+
+    fn polygonizer_input(&self) -> (Vec<Line3D>, Vec<crate::types::SourceLineString>) {
+        let mut lines = Vec::with_capacity(self.segments.len());
+        let mut source_line_strings = Vec::<crate::types::SourceLineString>::new();
+        for segment in &self.segments {
+            let segment_start = lines.len();
+            let extends_previous_chain = self
+                .segments
+                .get(segment_start.checked_sub(1).unwrap_or(usize::MAX))
+                .is_some_and(|previous| {
+                    previous.geometry_index == segment.geometry_index
+                        && previous.source.chain_index == segment.source.chain_index
+                        && previous.source.segment_index + 1 == segment.source.segment_index
+                        && source_line_strings.last().is_some_and(|chain| {
+                            chain.segment_start + chain.segment_count == segment_start
+                                && chain.source_id == segment.source.source_id
+                                && chain.kind == segment.source.kind
+                        })
+                });
+            lines.push(segment.line);
+            if extends_previous_chain {
+                source_line_strings
+                    .last_mut()
+                    .expect("previous source chain exists")
+                    .segment_count += 1;
+            } else {
+                source_line_strings.push(crate::types::SourceLineString {
+                    segment_start,
+                    segment_count: 1,
+                    source_id: segment.source.source_id,
+                    kind: segment.source.kind,
+                });
+            }
+        }
+        (lines, source_line_strings)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,6 +198,7 @@ pub(crate) struct PartitionRouterAssignmentEvidenceV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PartitionRouterComparisonV1 {
     pub(crate) oracle_difference: Option<PartitionOracleDifferenceV1>,
+    pub(crate) routed_local_snapshot_difference: Option<PartitionOracleDifferenceV1>,
     pub(crate) assignments: Vec<PartitionRouterAssignmentEvidenceV1>,
 }
 
@@ -3922,6 +3959,7 @@ impl<'a> TiledPolygonizer<'a> {
         let routed_sinks =
             self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
         let mut assignments = Vec::with_capacity(tiles.len());
+        let mut routed_local_snapshot_difference = None;
         for (partition_id, sink) in routed_sinks.iter().enumerate() {
             self.execution_policy
                 .check_cancelled_every("partition_router_comparison", partition_id)?;
@@ -3951,6 +3989,19 @@ impl<'a> TiledPolygonizer<'a> {
                 .iter()
                 .filter(|segment| routed_segments.binary_search(segment).is_err())
                 .count();
+            if routed_local_snapshot_difference.is_none()
+                && !routed_segments.is_empty()
+                && routed_segments == oracle.selected_source_segments
+            {
+                let routed_snapshot =
+                    self.process_router_partition(partition_id, tiles[partition_id], sink)?;
+                if let Some(diff) = oracle.diff(&routed_snapshot) {
+                    routed_local_snapshot_difference = Some(PartitionOracleDifferenceV1 {
+                        partition_id,
+                        stage: diff.path,
+                    });
+                }
+            }
             assignments.push(PartitionRouterAssignmentEvidenceV1 {
                 partition_id,
                 oracle_segment_count: oracle.selected_source_segments.len(),
@@ -3960,8 +4011,53 @@ impl<'a> TiledPolygonizer<'a> {
         }
         Ok(PartitionRouterComparisonV1 {
             oracle_difference,
+            routed_local_snapshot_difference,
             assignments,
         })
+    }
+
+    fn process_router_partition(
+        &self,
+        partition_id: usize,
+        tile_bbox: Rect<f64>,
+        source_segments: &PartitionSourceSegmentSink,
+    ) -> Result<PartitionSnapshotV1> {
+        self.execution_policy
+            .check_cancelled("partition_router_local_snapshot")?;
+        let (lines, source_line_strings) = source_segments.polygonizer_input();
+        let mut local_poly = Polygonizer::with_options(self.options.clone())
+            .with_execution_policy(self.execution_policy.clone());
+        local_poly.add_source_segments(lines, source_line_strings);
+        let mut selected_input_geometry_indices = source_segments
+            .segments
+            .iter()
+            .map(|segment| segment.geometry_index)
+            .collect::<Vec<_>>();
+        selected_input_geometry_indices.sort_unstable();
+        selected_input_geometry_indices.dedup();
+        let selected_source_segments = source_segments.snapshot_segments()?;
+        let (
+            result,
+            border_observations,
+            local_face_graphs,
+            boundary_noding_stats,
+            noded_segments,
+            boundary_noded_segments,
+        ) = local_poly
+            .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        PartitionSnapshotV1::from_result(
+            partition_id,
+            tile_bbox,
+            selected_input_geometry_indices,
+            selected_source_segments,
+            boundary_noding_stats,
+            &noded_segments,
+            &boundary_noded_segments,
+            &border_observations,
+            &local_face_graphs,
+            &result,
+            &self.options,
+        )
     }
 
     pub fn polygonize_with_coverage_guarantee(
