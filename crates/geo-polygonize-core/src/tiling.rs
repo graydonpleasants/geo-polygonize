@@ -856,6 +856,8 @@ pub(crate) struct PartitionCommitReportV1 {
     pub(crate) replaced_existing: bool,
     pub(crate) changed: bool,
     pub(crate) partition_count: usize,
+    pub(crate) physical_span_count: usize,
+    pub(crate) physical_span_claim_count: usize,
     pub(crate) mosaic_fingerprint_sha256: String,
 }
 
@@ -865,13 +867,47 @@ pub(crate) struct PartitionPurgeReportV1 {
     pub(crate) partition_id: usize,
     pub(crate) removed: bool,
     pub(crate) partition_count: usize,
+    pub(crate) physical_span_count: usize,
+    pub(crate) physical_span_claim_count: usize,
     pub(crate) mosaic_fingerprint_sha256: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionPhysicalSpanKeyV1 {
+    pub(crate) start_xy_bits: [u64; 2],
+    pub(crate) end_xy_bits: [u64; 2],
+}
+
+impl PartitionPhysicalSpanKeyV1 {
+    fn from_observation(observation: &PartitionAtomicObservationV1) -> Result<Self> {
+        if observation.from_xy_bits == observation.to_xy_bits {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: "partition mosaic physical span has identical endpoints".to_string(),
+            });
+        }
+        let (start_xy_bits, end_xy_bits) = if observation.from_xy_bits < observation.to_xy_bits {
+            (observation.from_xy_bits, observation.to_xy_bits)
+        } else {
+            (observation.to_xy_bits, observation.from_xy_bits)
+        };
+        Ok(Self {
+            start_xy_bits,
+            end_xy_bits,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionPhysicalSpanClaimV1 {
+    pub(crate) partition_id: usize,
+    pub(crate) observation: PartitionAtomicObservationV1,
 }
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub(crate) struct PartitionMosaic {
     partitions: BTreeMap<usize, PartitionSnapshotV1>,
+    physical_spans: BTreeMap<PartitionPhysicalSpanKeyV1, Vec<PartitionPhysicalSpanClaimV1>>,
 }
 
 #[allow(dead_code)]
@@ -890,15 +926,23 @@ impl PartitionMosaic {
                 replaced_existing: true,
                 changed: false,
                 partition_count: self.partitions.len(),
+                physical_span_count: self.physical_spans.len(),
+                physical_span_claim_count: self.physical_span_claim_count(),
                 mosaic_fingerprint_sha256: self.fingerprint_sha256(),
             });
         }
-        let replaced_existing = self.partitions.insert(partition_id, snapshot).is_some();
+        let mut staged_partitions = self.partitions.clone();
+        let replaced_existing = staged_partitions.insert(partition_id, snapshot).is_some();
+        let staged_physical_spans = Self::physical_spans(&staged_partitions, execution_policy)?;
+        self.partitions = staged_partitions;
+        self.physical_spans = staged_physical_spans;
         Ok(PartitionCommitReportV1 {
             partition_id,
             replaced_existing,
             changed: true,
             partition_count: self.partitions.len(),
+            physical_span_count: self.physical_spans.len(),
+            physical_span_claim_count: self.physical_span_claim_count(),
             mosaic_fingerprint_sha256: self.fingerprint_sha256(),
         })
     }
@@ -909,21 +953,60 @@ impl PartitionMosaic {
         execution_policy: &ExecutionPolicy,
     ) -> Result<PartitionPurgeReportV1> {
         execution_policy.check_cancelled("partition_mosaic_purge")?;
-        let removed = self.partitions.remove(&partition_id).is_some();
+        let mut staged_partitions = self.partitions.clone();
+        let removed = staged_partitions.remove(&partition_id).is_some();
+        let staged_physical_spans = Self::physical_spans(&staged_partitions, execution_policy)?;
+        self.partitions = staged_partitions;
+        self.physical_spans = staged_physical_spans;
         Ok(PartitionPurgeReportV1 {
             partition_id,
             removed,
             partition_count: self.partitions.len(),
+            physical_span_count: self.physical_spans.len(),
+            physical_span_claim_count: self.physical_span_claim_count(),
             mosaic_fingerprint_sha256: self.fingerprint_sha256(),
         })
+    }
+
+    fn physical_spans(
+        partitions: &BTreeMap<usize, PartitionSnapshotV1>,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<BTreeMap<PartitionPhysicalSpanKeyV1, Vec<PartitionPhysicalSpanClaimV1>>> {
+        let mut physical_spans = BTreeMap::<_, Vec<_>>::new();
+        let mut claim_count = 0;
+        for (&partition_id, snapshot) in partitions {
+            for observation in &snapshot.atomic_observations {
+                execution_policy
+                    .check_cancelled_every("partition_mosaic_physical_spans", claim_count)?;
+                physical_spans
+                    .entry(PartitionPhysicalSpanKeyV1::from_observation(observation)?)
+                    .or_default()
+                    .push(PartitionPhysicalSpanClaimV1 {
+                        partition_id,
+                        observation: observation.clone(),
+                    });
+                claim_count += 1;
+            }
+        }
+        for claims in physical_spans.values_mut() {
+            claims.sort_unstable();
+        }
+        Ok(physical_spans)
+    }
+
+    fn physical_span_claim_count(&self) -> usize {
+        self.physical_spans.values().map(Vec::len).sum()
     }
 
     pub(crate) fn fingerprint_sha256(&self) -> String {
         format!(
             "{:x}",
             Sha256::digest(
-                serde_json::to_vec(&self.partitions.values().collect::<Vec<_>>())
-                    .expect("partition mosaic serializes")
+                serde_json::to_vec(&(
+                    self.partitions.values().collect::<Vec<_>>(),
+                    self.physical_spans.iter().collect::<Vec<_>>(),
+                ))
+                .expect("partition mosaic serializes")
             )
         )
     }
