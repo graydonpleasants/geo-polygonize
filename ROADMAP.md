@@ -566,8 +566,9 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   per-partition source-segment oracle independent of the router's grid scan.
 - [ ] Measure geometry-envelope false positives, allocations, peak memory,
   routing time, native/Wasm cost, and long sparse CAD/road/contour workloads
-  (private correctness and benchmark entrypoints exist; timed publications
-  remain).
+  (the workload recorder now captures correctness-gated false positives,
+  routing work, time, and allocations; peak memory, native/Wasm comparison,
+  and timed publications remain).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 

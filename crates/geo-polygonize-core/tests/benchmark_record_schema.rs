@@ -145,6 +145,35 @@ fn benchmark_schema_requires_measurement_work_and_environment_evidence() {
 }
 
 #[test]
+fn benchmark_schema_keeps_partition_router_evidence_correctness_gated() {
+    let schema = schema();
+    let router = &schema["properties"]["partition_router"];
+    assert_eq!(router["additionalProperties"], false);
+    assert!(required(router).is_superset(&HashSet::from([
+        "config",
+        "correctness_gate",
+        "measurement",
+    ])));
+
+    let comparison = &schema["$defs"]["partitionRouterComparison"];
+    assert!(required(comparison).is_superset(&HashSet::from([
+        "oracle_difference",
+        "routed_assignment_oracle_difference",
+        "routed_local_snapshot_difference",
+        "router_work",
+        "assignments",
+    ])));
+    assert!(
+        required(&schema["$defs"]["partitionRouterWork"]).is_superset(&HashSet::from([
+            "source_segment_count",
+            "candidate_partition_visit_count",
+            "exact_intersection_test_count",
+            "emitted_assignment_count",
+        ]))
+    );
+}
+
+#[test]
 fn decision_policy_separates_diagnostics_from_publishable_evidence() {
     let policy = benchmark_file("benchmark-decision-policy-v1.json");
     let classes = &policy["measurement_classes"];

@@ -292,6 +292,42 @@
         }
       }
     },
+    "partition_router": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "correctness_gate", "measurement"],
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tile_size", "buffer"],
+          "properties": {
+            "tile_size": {"type": "number", "exclusiveMinimum": 0},
+            "buffer": {"type": "number", "minimum": 0}
+          }
+        },
+        "correctness_gate": {"$ref": "#/$defs/partitionRouterComparison"},
+        "measurement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p50_ms", "p95_ms", "samples", "allocations"],
+          "properties": {
+            "p50_ms": {"type": "number", "minimum": 0},
+            "p95_ms": {"type": "number", "minimum": 0},
+            "samples": {"type": "integer", "minimum": 1},
+            "allocations": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["count", "bytes"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 0},
+                "bytes": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    },
     "environment": {
       "type": "object",
       "additionalProperties": false,
@@ -330,6 +366,86 @@
         "commit_sha": {
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "partitionRouterDifference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["partition_id", "stage"],
+      "properties": {
+        "partition_id": {"type": "integer", "minimum": 0},
+        "stage": {"type": "string", "minLength": 1}
+      }
+    },
+    "nullablePartitionRouterDifference": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/partitionRouterDifference"}
+      ]
+    },
+    "partitionRouterWork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_segment_count",
+        "direct_assignment_count",
+        "slow_path_segment_count",
+        "candidate_partition_visit_count",
+        "exact_intersection_test_count",
+        "emitted_assignment_count"
+      ],
+      "properties": {
+        "source_segment_count": {"type": "integer", "minimum": 0},
+        "direct_assignment_count": {"type": "integer", "minimum": 0},
+        "slow_path_segment_count": {"type": "integer", "minimum": 0},
+        "candidate_partition_visit_count": {"type": "integer", "minimum": 0},
+        "exact_intersection_test_count": {"type": "integer", "minimum": 0},
+        "emitted_assignment_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "partitionRouterAssignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partition_id",
+        "geometry_envelope_segment_count",
+        "independent_segment_count",
+        "routed_segment_count",
+        "geometry_envelope_false_positive_count"
+      ],
+      "properties": {
+        "partition_id": {"type": "integer", "minimum": 0},
+        "geometry_envelope_segment_count": {"type": "integer", "minimum": 0},
+        "independent_segment_count": {"type": "integer", "minimum": 0},
+        "routed_segment_count": {"type": "integer", "minimum": 0},
+        "geometry_envelope_false_positive_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "partitionRouterComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "oracle_difference",
+        "routed_assignment_oracle_difference",
+        "routed_local_snapshot_difference",
+        "routed_local_snapshot_checked_partition_count",
+        "router_work",
+        "assignments"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "oracle_difference": {"$ref": "#/$defs/nullablePartitionRouterDifference"},
+        "routed_assignment_oracle_difference": {"$ref": "#/$defs/nullablePartitionRouterDifference"},
+        "routed_local_snapshot_difference": {"$ref": "#/$defs/nullablePartitionRouterDifference"},
+        "routed_local_snapshot_checked_partition_count": {"type": "integer", "minimum": 0},
+        "router_work": {"$ref": "#/$defs/partitionRouterWork"},
+        "assignments": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/partitionRouterAssignment"}
         }
       }
     }
