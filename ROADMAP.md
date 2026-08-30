@@ -572,7 +572,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   optional router tile and buffer settings, and its publisher gates router
   identity and timing dispersion across repetitions; hidden WASM comparison
   and router-only entrypoints now feed a correctness-gated long-sparse browser
-  benchmark for scalar and threaded packages).
+  benchmark for scalar and threaded packages, with the same deterministic
+  workload recorded by the native cross-architecture Criterion job).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 
