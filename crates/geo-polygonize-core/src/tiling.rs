@@ -28,7 +28,7 @@ use rayon::{prelude::*, ThreadPoolBuilder};
 use rstar::AABB;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -903,6 +903,40 @@ pub(crate) struct PartitionPhysicalSpanClaimV1 {
     pub(crate) observation: PartitionAtomicObservationV1,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionPhysicalSpanStatusV1 {
+    Valid,
+    Incomplete,
+    Conflict,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionPhysicalSpanPayloadClassV1 {
+    MissingCorroboratingPartition,
+    PartitionMultiplicity,
+    Adjacency,
+    Direction,
+    SourceLineIds,
+    EndpointZ,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionPhysicalSpanWitnessV1 {
+    pub(crate) span: PartitionPhysicalSpanKeyV1,
+    pub(crate) partition_ids: Vec<usize>,
+    pub(crate) claim_count: usize,
+    pub(crate) payload_class: PartitionPhysicalSpanPayloadClassV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionPhysicalSpanEvidenceV1 {
+    pub(crate) span: PartitionPhysicalSpanKeyV1,
+    pub(crate) status: PartitionPhysicalSpanStatusV1,
+    pub(crate) witness: Option<PartitionPhysicalSpanWitnessV1>,
+}
+
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub(crate) struct PartitionMosaic {
@@ -996,6 +1030,121 @@ impl PartitionMosaic {
 
     fn physical_span_claim_count(&self) -> usize {
         self.physical_spans.values().map(Vec::len).sum()
+    }
+
+    fn physical_span_evidence(&self) -> Vec<PartitionPhysicalSpanEvidenceV1> {
+        self.physical_spans
+            .iter()
+            .map(|(&span, claims)| Self::classify_physical_span(span, claims))
+            .collect()
+    }
+
+    fn classify_physical_span(
+        span: PartitionPhysicalSpanKeyV1,
+        claims: &[PartitionPhysicalSpanClaimV1],
+    ) -> PartitionPhysicalSpanEvidenceV1 {
+        let partition_ids = claims
+            .iter()
+            .map(|claim| claim.partition_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let evidence = |status, payload_class| PartitionPhysicalSpanEvidenceV1 {
+            span,
+            status,
+            witness: Some(PartitionPhysicalSpanWitnessV1 {
+                span,
+                partition_ids: partition_ids.clone(),
+                claim_count: claims.len(),
+                payload_class,
+            }),
+        };
+        if partition_ids.len() < 2 {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Incomplete,
+                PartitionPhysicalSpanPayloadClassV1::MissingCorroboratingPartition,
+            );
+        }
+        if partition_ids.len() > 2 {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Conflict,
+                PartitionPhysicalSpanPayloadClassV1::PartitionMultiplicity,
+            );
+        }
+
+        let mut sides = BTreeMap::<usize, BTreeSet<u8>>::new();
+        let mut directions = BTreeMap::<usize, BTreeSet<bool>>::new();
+        for claim in claims {
+            sides
+                .entry(claim.partition_id)
+                .or_default()
+                .insert(claim.observation.side);
+            directions
+                .entry(claim.partition_id)
+                .or_default()
+                .insert(claim.observation.from_xy_bits == span.start_xy_bits);
+        }
+        let first_sides = &sides[&partition_ids[0]];
+        let second_sides = &sides[&partition_ids[1]];
+        let complementary = first_sides.len() == 1
+            && second_sides.len() == 1
+            && matches!(
+                (
+                    *first_sides.first().unwrap(),
+                    *second_sides.first().unwrap()
+                ),
+                (0, 1) | (1, 0) | (2, 3) | (3, 2)
+            );
+        if !complementary {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Conflict,
+                PartitionPhysicalSpanPayloadClassV1::Adjacency,
+            );
+        }
+        let first_directions = &directions[&partition_ids[0]];
+        let second_directions = &directions[&partition_ids[1]];
+        if !first_directions
+            .iter()
+            .any(|direction| second_directions.contains(&!*direction))
+        {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Conflict,
+                PartitionPhysicalSpanPayloadClassV1::Direction,
+            );
+        }
+
+        let first_source_line_ids = &claims[0].observation.source_line_ids;
+        if claims
+            .iter()
+            .any(|claim| claim.observation.source_line_ids != *first_source_line_ids)
+        {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Conflict,
+                PartitionPhysicalSpanPayloadClassV1::SourceLineIds,
+            );
+        }
+        let endpoint_z = |claim: &PartitionPhysicalSpanClaimV1| {
+            if claim.observation.from_xy_bits == span.start_xy_bits {
+                (claim.observation.from_z_bits, claim.observation.to_z_bits)
+            } else {
+                (claim.observation.to_z_bits, claim.observation.from_z_bits)
+            }
+        };
+        let first_endpoint_z = endpoint_z(&claims[0]);
+        if claims
+            .iter()
+            .any(|claim| endpoint_z(claim) != first_endpoint_z)
+        {
+            return evidence(
+                PartitionPhysicalSpanStatusV1::Conflict,
+                PartitionPhysicalSpanPayloadClassV1::EndpointZ,
+            );
+        }
+        PartitionPhysicalSpanEvidenceV1 {
+            span,
+            status: PartitionPhysicalSpanStatusV1::Valid,
+            witness: None,
+        }
     }
 
     pub(crate) fn fingerprint_sha256(&self) -> String {
