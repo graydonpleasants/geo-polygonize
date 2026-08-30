@@ -12,7 +12,7 @@ mod tests {
         TileCoverageResolutionKind, TileExcludedComponentIssue, TileExecutionPolicy, TileReport,
         TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer, TiledStitchedOutput, ZOptions,
     };
-    use geo::{Contains, Coord, Geometry, LineString, MultiLineString, Rect};
+    use geo::{BoundingRect, Contains, Coord, Geometry, LineString, MultiLineString, Rect};
     use std::collections::BTreeSet;
 
     #[test]
@@ -89,6 +89,41 @@ mod tests {
                 0.0,
             )
         );
+    }
+
+    #[test]
+    fn streams_inner_and_boundary_segments_without_candidate_collection() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 20.0, y: 20.0 });
+        let geometries = [
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 2.0, y: 2.0 },
+                Coord { x: 8.0, y: 8.0 },
+            ])),
+            Geometry::LineString(LineString::new(vec![
+                Coord { x: 9.5, y: 2.0 },
+                Coord { x: 10.5, y: 2.0 },
+            ])),
+        ];
+        let geometries = geometries
+            .iter()
+            .map(|geometry| (geometry, geometry.bounding_rect()))
+            .collect::<Vec<_>>();
+        let source_segments =
+            crate::tiling::partition_source_segment_sink(&geometries, &[0, 1]).unwrap();
+        let tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(1.0);
+        let tiles = tiled.generate_tiles().unwrap();
+        let sinks = tiled
+            .stream_source_segments_to_partition_sinks(&tiles, &source_segments)
+            .unwrap();
+
+        assert_eq!(sinks.len(), 4);
+        assert_eq!(sinks[0].segments.len(), 2);
+        assert_eq!(sinks[1].segments.len(), 1);
+        assert!(sinks[2].segments.is_empty());
+        assert!(sinks[3].segments.is_empty());
+        assert_eq!(sinks[0].segments[0].geometry_index, 0);
+        assert_eq!(sinks[0].segments[1].geometry_index, 1);
+        assert_eq!(sinks[1].segments[0].geometry_index, 1);
     }
 
     #[test]

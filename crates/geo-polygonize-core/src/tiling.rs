@@ -93,6 +93,10 @@ struct PartitionSourceSegmentSink {
 }
 
 impl PartitionSourceSegmentSink {
+    fn push_segment(&mut self, segment: PartitionSourceSegment) {
+        self.segments.push(segment);
+    }
+
     fn push(
         &mut self,
         geometry_index: usize,
@@ -2444,6 +2448,102 @@ impl<'a> TiledPolygonizer<'a> {
                     && point.y > inner_min_y
                     && point.y < inner_max_y
             })
+    }
+
+    /// Streams source segments into the partition sinks that can observe them.
+    ///
+    /// Segments wholly inside one open inner box take the direct path. Other
+    /// segments scan only the grid rows and columns covered by their XY
+    /// envelope plus the halo, emitting directly into destination sinks.
+    // The geometry-envelope path remains the production oracle until #1389
+    // proves that this private router preserves partition snapshots.
+    #[allow(dead_code)]
+    fn stream_source_segments_to_partition_sinks(
+        &self,
+        tiles: &[Rect<f64>],
+        source_segments: &PartitionSourceSegmentSink,
+    ) -> Result<Vec<PartitionSourceSegmentSink>> {
+        let mut sinks = Vec::with_capacity(tiles.len());
+        sinks.resize_with(tiles.len(), PartitionSourceSegmentSink::default);
+        if tiles.is_empty() || source_segments.segments.is_empty() {
+            return Ok(sinks);
+        }
+        if !self.tile_size.is_finite()
+            || self.tile_size <= 0.0
+            || !self.buffer.is_finite()
+            || self.buffer < 0.0
+        {
+            return Ok(sinks);
+        }
+
+        let rows = ((self.bbox.max().y - self.bbox.min().y) / self.tile_size).ceil() as usize;
+        let cols = ((self.bbox.max().x - self.bbox.min().x) / self.tile_size).ceil() as usize;
+        if rows == 0 || cols == 0 || rows.checked_mul(cols) != Some(tiles.len()) {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: "partition grid shape does not match generated tiles".to_string(),
+            });
+        }
+
+        let axis_bounds = |lower: f64, upper: f64, origin: f64, count: usize| {
+            if !lower.is_finite() || !upper.is_finite() || lower > upper {
+                return None;
+            }
+            let first = ((lower - self.buffer - origin) / self.tile_size).floor() as isize - 1;
+            let last = ((upper + self.buffer - origin) / self.tile_size).floor() as isize;
+            let first = first.max(0).min(count as isize - 1) as usize;
+            let last = last.max(0).min(count as isize - 1) as usize;
+            (first <= last).then_some((first, last))
+        };
+
+        for segment in &source_segments.segments {
+            let line = segment.line;
+            if ![line.start.x, line.start.y, line.end.x, line.end.y]
+                .into_iter()
+                .all(f64::is_finite)
+            {
+                continue;
+            }
+            let segment_min_x = line.start.x.min(line.end.x);
+            let segment_max_x = line.start.x.max(line.end.x);
+            let segment_min_y = line.start.y.min(line.end.y);
+            let segment_max_y = line.start.y.max(line.end.y);
+
+            let direct_col = ((line.start.x - self.bbox.min().x) / self.tile_size).floor();
+            let direct_row = ((line.start.y - self.bbox.min().y) / self.tile_size).floor();
+            if direct_col >= 0.0
+                && direct_col < cols as f64
+                && direct_row >= 0.0
+                && direct_row < rows as f64
+            {
+                let direct_partition = direct_row as usize * cols + direct_col as usize;
+                let direct_tile = tiles[direct_partition];
+                if Self::partition_inner_box_contains_segment(line, direct_tile, self.buffer) {
+                    sinks[direct_partition].push_segment(*segment);
+                    continue;
+                }
+            }
+
+            let Some((first_row, last_row)) =
+                axis_bounds(segment_min_y, segment_max_y, self.bbox.min().y, rows)
+            else {
+                continue;
+            };
+            let Some((first_col, last_col)) =
+                axis_bounds(segment_min_x, segment_max_x, self.bbox.min().x, cols)
+            else {
+                continue;
+            };
+            let line = line.to_line_2d();
+            for row in first_row..=last_row {
+                for col in first_col..=last_col {
+                    let partition = row * cols + col;
+                    if line.intersects(&self.buffered_bbox(tiles[partition], self.buffer)) {
+                        sinks[partition].push_segment(*segment);
+                    }
+                }
+            }
+        }
+        Ok(sinks)
     }
 
     fn process_one_partition(

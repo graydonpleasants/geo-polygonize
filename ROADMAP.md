@@ -557,8 +557,9 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   provenance, representative-ID, and raw endpoint-Z identity.
 - [x] Add a documented same-partition inner-box fast path for segments safely
   farther than the halo from every border.
-- [ ] Stream boundary-near segment/partition candidates without a
-  candidate-count-proportional temporary vector.
+- [x] Stream boundary-near segment/partition candidates without a
+  candidate-count-proportional temporary vector (private prototype; production
+  routing remains gated on the #1389 oracle).
 - [ ] Charge every physical candidate visit to explicit limits and poll
   cancellation inside the scan.
 - [ ] Compare assignments and local snapshots against #1389.
