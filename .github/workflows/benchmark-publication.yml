@@ -35,6 +35,14 @@ on:
         description: Absolute path to an out-of-tree runner-manifest-v1.json staged on the dedicated runner
         required: false
         default: ""
+      partition_router_tile_size:
+        description: Optional tile size for partition-router evidence; leave blank to disable
+        required: false
+        default: ""
+      partition_router_buffer:
+        description: Partition-router overlap buffer
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -47,6 +55,8 @@ jobs:
       MAVEN_IMAGE: maven:3.9.11-eclipse-temurin-21@sha256:6fdc855a6ed81d288ca7ca37ac6ff5e9308b612485c0801d70b25a858c83d237
       PYTHON_IMAGE: python:3.12.11-bookworm@sha256:13c9584604a99ca134c4f41800f74ffc64ee6ac8cf555cf1e704a6087fc84f12
       MANIFEST_PATH: ${{ inputs.manifest_path }}
+      PARTITION_ROUTER_TILE_SIZE: ${{ inputs.partition_router_tile_size }}
+      PARTITION_ROUTER_BUFFER: ${{ inputs.partition_router_buffer }}
     steps:
       - uses: actions/checkout@v4
 
@@ -131,10 +141,20 @@ jobs:
           if [ -n "$MANIFEST_PATH" ]; then
             manifest_args+=(--manifest "$MANIFEST_PATH")
           fi
+          router_args=()
+          if [ -n "$PARTITION_ROUTER_TILE_SIZE" ]; then
+            router_args+=(
+              --partition-router-tile-size "$PARTITION_ROUTER_TILE_SIZE"
+              --partition-router-buffer "$PARTITION_ROUTER_BUFFER"
+            )
+          elif [ "$PARTITION_ROUTER_BUFFER" != 0 ]; then
+            echo "partition_router_buffer requires partition_router_tile_size" >&2
+            exit 1
+          fi
           /usr/bin/time -f '%M' -o target/benchmark-publication/peak-rss-kib.txt \
             "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
             --workload "${{ inputs.workload }}" \
-            "${manifest_args[@]}" \
+            "${manifest_args[@]}" "${router_args[@]}" \
             --reference-result "$reference" --check-only
           peak_kib=$(tr -d '[:space:]' < target/benchmark-publication/peak-rss-kib.txt)
           case "$peak_kib" in *[!0-9]*|'') exit 1 ;; esac
@@ -142,7 +162,7 @@ jobs:
           for repetition in 1 2 3 4 5; do
             "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
               --workload "${{ inputs.workload }}" \
-              "${manifest_args[@]}" \
+              "${manifest_args[@]}" "${router_args[@]}" \
               --samples 30 --warmup-iterations 5 --repetition "$repetition" \
               --peak-rss-bytes "$peak_bytes" --reference-result "$reference" \
               --output "target/benchmark-publication/record-${repetition}.json"

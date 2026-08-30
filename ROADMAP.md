@@ -568,7 +568,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   routing time, native/Wasm cost, and long sparse CAD/road/contour workloads
   (the workload recorder now captures correctness-gated false positives,
   routing work, time, and allocations; peak memory, native/Wasm comparison,
-  and timed publications remain).
+  and timed publication runs remain; the dedicated publication workflow accepts
+  optional router tile and buffer settings).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 
