@@ -1740,7 +1740,8 @@ pub struct StitchingReport {
 #[derive(Debug)]
 pub struct TiledPolygonizeResult {
     pub polygons: Vec<Polygon3D>,
-    /// Validated stitched output, when the private extraction gate passes.
+    /// Validated stitched output, when the private extraction gate passes and
+    /// any requested untiled equivalence gate passes.
     /// The existing `polygons` field remains the replicate-and-own tiled
     /// output until full untiled equivalence is proven.
     pub stitched_output: Option<TiledStitchedOutput>,
@@ -2319,7 +2320,8 @@ impl<'a> TiledPolygonizer<'a> {
     }
 
     /// Enables an experimental full canonical comparison of validated
-    /// stitched output against one same-options untiled pass.
+    /// stitched output against one same-options untiled pass. A mismatch keeps
+    /// the stitched sidecar fail-closed.
     pub fn with_untiled_equivalence_check(mut self) -> Self {
         self.untiled_equivalence_check = true;
         self
@@ -4225,6 +4227,14 @@ impl<'a> TiledPolygonizer<'a> {
             )?
         } else {
             TiledUntiledEquivalenceStats::default()
+        };
+        let stitched_output = if self.untiled_equivalence_check
+            && stitched_output.is_some()
+            && !untiled_equivalence.ready
+        {
+            None
+        } else {
+            stitched_output
         };
         if let Some(trace) = trace.as_deref_mut() {
             let (
