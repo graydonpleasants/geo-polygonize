@@ -293,6 +293,7 @@ struct RouterSamples {
     elapsed: Vec<Duration>,
     allocations: u64,
     allocated_bytes: u64,
+    peak_live_bytes: usize,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -516,6 +517,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::id()
     ));
     let _profiler = dhat::Profiler::builder().file_name(profile_path).build();
+    let router_record = if let Some((tiled, comparison)) = &router_benchmark {
+        let mut samples = RouterSamples {
+            elapsed: Vec::with_capacity(args.samples),
+            ..Default::default()
+        };
+        for _ in 0..args.samples {
+            let before = dhat::HeapStats::get();
+            let started = Instant::now();
+            let work = tiled.benchmark_partition_router()?;
+            samples.elapsed.push(started.elapsed());
+            let after = dhat::HeapStats::get();
+            samples.allocations += after.total_blocks - before.total_blocks;
+            samples.allocated_bytes += after.total_bytes - before.total_bytes;
+            samples.peak_live_bytes = samples.peak_live_bytes.max(after.max_bytes);
+            if work != comparison.router_work {
+                return Err("timed partition router work diverged after correctness gate".into());
+            }
+        }
+        Some(json!({
+            "config": {
+                "tile_size": args.partition_router_tile_size.expect("router benchmark has a tile size"),
+                "buffer": args.partition_router_buffer.unwrap_or_default(),
+            },
+            "correctness_gate": comparison,
+            "measurement": {
+                "p50_ms": milliseconds(percentile(&samples.elapsed, 50)),
+                "p95_ms": milliseconds(percentile(&samples.elapsed, 95)),
+                "samples": args.samples,
+                "allocations": {
+                    "count": samples.allocations / args.samples as u64,
+                    "bytes": samples.allocated_bytes / args.samples as u64,
+                },
+                "peak_live_bytes": samples.peak_live_bytes,
+            },
+        }))
+    } else {
+        None
+    };
     let mut samples = Samples::default();
     for _ in 0..args.samples {
         let before = dhat::HeapStats::get();
@@ -544,40 +583,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         samples.containment.push(phase.containment);
         samples.output_flatten.push(phase.output_flatten);
     }
-    let router_record = if let Some((tiled, comparison)) = &router_benchmark {
-        let mut samples = RouterSamples::default();
-        for _ in 0..args.samples {
-            let before = dhat::HeapStats::get();
-            let started = Instant::now();
-            let work = tiled.benchmark_partition_router()?;
-            samples.elapsed.push(started.elapsed());
-            let after = dhat::HeapStats::get();
-            samples.allocations += after.total_blocks - before.total_blocks;
-            samples.allocated_bytes += after.total_bytes - before.total_bytes;
-            if work != comparison.router_work {
-                return Err("timed partition router work diverged after correctness gate".into());
-            }
-        }
-        Some(json!({
-            "config": {
-                "tile_size": args.partition_router_tile_size.expect("router benchmark has a tile size"),
-                "buffer": args.partition_router_buffer.unwrap_or_default(),
-            },
-            "correctness_gate": comparison,
-            "measurement": {
-                "p50_ms": milliseconds(percentile(&samples.elapsed, 50)),
-                "p95_ms": milliseconds(percentile(&samples.elapsed, 95)),
-                "samples": args.samples,
-                "allocations": {
-                    "count": samples.allocations / args.samples as u64,
-                    "bytes": samples.allocated_bytes / args.samples as u64,
-                },
-            },
-        }))
-    } else {
-        None
-    };
-
     let diagnostics = correctness
         .diagnostics
         .as_ref()
