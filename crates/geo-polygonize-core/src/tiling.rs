@@ -854,6 +854,7 @@ impl PartitionSnapshotV1 {
 pub(crate) struct PartitionCommitReportV1 {
     pub(crate) partition_id: usize,
     pub(crate) replaced_existing: bool,
+    pub(crate) changed: bool,
     pub(crate) partition_count: usize,
     pub(crate) mosaic_fingerprint_sha256: String,
 }
@@ -867,7 +868,7 @@ pub(crate) struct PartitionPurgeReportV1 {
     pub(crate) mosaic_fingerprint_sha256: String,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 #[allow(dead_code)]
 pub(crate) struct PartitionMosaic {
     partitions: BTreeMap<usize, PartitionSnapshotV1>,
@@ -883,10 +884,20 @@ impl PartitionMosaic {
         execution_policy.check_cancelled("partition_mosaic_replace")?;
         snapshot.validate_for_mosaic()?;
         let partition_id = snapshot.partition_id;
+        if self.partitions.get(&partition_id) == Some(&snapshot) {
+            return Ok(PartitionCommitReportV1 {
+                partition_id,
+                replaced_existing: true,
+                changed: false,
+                partition_count: self.partitions.len(),
+                mosaic_fingerprint_sha256: self.fingerprint_sha256(),
+            });
+        }
         let replaced_existing = self.partitions.insert(partition_id, snapshot).is_some();
         Ok(PartitionCommitReportV1 {
             partition_id,
             replaced_existing,
+            changed: true,
             partition_count: self.partitions.len(),
             mosaic_fingerprint_sha256: self.fingerprint_sha256(),
         })

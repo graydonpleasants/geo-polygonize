@@ -4280,6 +4280,7 @@ mod tests {
             .unwrap();
         assert_eq!(commit.partition_id, 0);
         assert!(!commit.replaced_existing);
+        assert!(commit.changed);
         assert_eq!(commit.partition_count, 1);
         assert_eq!(
             commit.mosaic_fingerprint_sha256,
@@ -4698,6 +4699,54 @@ mod tests {
                 "partition {partition_id} differs from independent bounded scan"
             );
         }
+
+        let snapshots = [0, 5, 15].map(|index| result.partition_snapshots[index].clone());
+        let mut fingerprints = BTreeSet::new();
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let mut mosaic = crate::tiling::PartitionMosaic::default();
+            for index in order {
+                mosaic
+                    .replace_partition(snapshots[index].clone(), &ExecutionPolicy::default())
+                    .unwrap();
+            }
+            let fingerprint = mosaic.fingerprint_sha256();
+            let unchanged = mosaic
+                .replace_partition(snapshots[1].clone(), &ExecutionPolicy::default())
+                .unwrap();
+            assert!(unchanged.replaced_existing);
+            assert!(!unchanged.changed);
+            assert_eq!(unchanged.mosaic_fingerprint_sha256, fingerprint);
+
+            mosaic
+                .purge_partition(snapshots[1].partition_id, &ExecutionPolicy::default())
+                .unwrap();
+            mosaic
+                .replace_partition(snapshots[1].clone(), &ExecutionPolicy::default())
+                .unwrap();
+            assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+
+            let cancellation = CancellationToken::new();
+            cancellation.cancel();
+            assert!(mosaic
+                .purge_partition(
+                    snapshots[1].partition_id,
+                    &ExecutionPolicy {
+                        cancellation_token: Some(cancellation),
+                        ..Default::default()
+                    },
+                )
+                .is_err());
+            assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+            fingerprints.insert(fingerprint);
+        }
+        assert_eq!(fingerprints.len(), 1);
     }
 
     #[test]

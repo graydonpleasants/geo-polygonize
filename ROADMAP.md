@@ -834,8 +834,8 @@ to full partition arrangements rather than polyline edge sets.
   partition lineage before shared mosaic state can be mutated.
 - [x] Add atomic `replace_partition` and `purge_partition` operations; rejection
   preserves the previous deterministic mosaic fingerprint exactly.
-- [ ] Prove identical replacement is idempotent and arbitrary insertion order
-  produces one deterministic mosaic.
+- [x] Prove identical replacement is idempotent and every insertion order of a
+  bounded fixture produces one deterministic mosaic.
 - [ ] Use the transaction boundary for larger-halo retries and independently
   regenerated partitions.
 - [ ] Separate physical mosaic consistency from topology mosaic readiness.
