@@ -250,11 +250,63 @@ try {
         };
       },
     );
+    const routerCoordinates = Array.from({ length: 513 }, (_, index) => [
+      index,
+      25 + Math.sin(index / 8) * 20,
+    ]);
+    const routerInput = JSON.stringify({
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: { workload: "long-sparse-sine-v1" },
+        geometry: { type: "LineString", coordinates: routerCoordinates },
+      }],
+    });
+    const routerConfig = { tileSize: 16, buffer: 2 };
+    const routerComparison = JSON.parse(wasm.__partitionRouterComparison(
+      routerInput,
+      routerConfig.tileSize,
+      routerConfig.buffer,
+      {},
+    ));
+    if (
+      routerComparison.oracle_difference !== null
+      || routerComparison.routed_assignment_oracle_difference !== null
+      || routerComparison.routed_local_snapshot_difference !== null
+      || routerComparison.routed_local_snapshot_checked_partition_count
+        !== routerComparison.assignments.length
+    ) {
+      throw new Error("partition router correctness gate failed");
+    }
+    const routerBenchmark = JSON.parse(wasm.__benchmarkPartitionRouter(
+      routerInput,
+      routerConfig.tileSize,
+      routerConfig.buffer,
+      {},
+      3,
+      10,
+      100,
+    ));
+    if (
+      Object.keys(routerComparison.router_work).length
+        !== Object.keys(routerBenchmark.router_work).length
+      || Object.entries(routerComparison.router_work).some(
+        ([name, value]) => routerBenchmark.router_work[name] !== value,
+      )
+    ) {
+      throw new Error("partition router work changed after correctness gate");
+    }
     return {
       variant: selectedVariant,
       threadCount,
       results,
       nodingWorkloads,
+      partitionRouter: {
+        workload: { id: "long-sparse-sine-v1", segments: routerCoordinates.length - 1 },
+        config: routerConfig,
+        correctnessGate: routerComparison,
+        measurement: summarize(routerBenchmark.samples_ms),
+      },
     };
   }, { selectedVariant: variant, requestedThreadCount, sizes });
   console.log(JSON.stringify(result, null, 2));

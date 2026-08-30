@@ -571,7 +571,8 @@ then let the existing physical boundary-noding stage create atomic halfedges.
   and timed publication runs remain; the dedicated publication workflow accepts
   optional router tile and buffer settings, and its publisher gates router
   identity and timing dispersion across repetitions; hidden WASM comparison
-  and router-only entrypoints now support browser measurement).
+  and router-only entrypoints now feed a correctness-gated long-sparse browser
+  benchmark for scalar and threaded packages).
 - [ ] Keep the implementation private and accept, narrow, or reject it through
   a durable evidence record.
 

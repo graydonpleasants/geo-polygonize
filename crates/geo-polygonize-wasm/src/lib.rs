@@ -294,17 +294,20 @@ pub fn benchmark_partition_router_js(
     options_val: JsValue,
     warmup_iterations: u32,
     samples: u32,
+    iterations_per_sample: u32,
 ) -> Result<String, JsValue> {
-    if samples == 0 {
+    if samples == 0 || iterations_per_sample == 0 {
         return Err(to_js_error(
             "InvalidArgumentType",
-            "Partition router samples must be greater than zero",
+            "Partition router samples and iterations per sample must be greater than zero",
         ));
     }
-    if warmup_iterations.saturating_add(samples) > 10_000 {
+    let total_iterations = u64::from(warmup_iterations)
+        .saturating_add(u64::from(samples) * u64::from(iterations_per_sample));
+    if total_iterations > 1_000_000 {
         return Err(to_js_error(
             "ResourceLimitExceeded",
-            "Partition router warmups and samples exceed 10000",
+            "Partition router benchmark exceeds 1000000 iterations",
         ));
     }
     let benchmark = with_partition_router(geojson_str, tile_size, buffer, options_val, |tiled| {
@@ -315,18 +318,20 @@ pub fn benchmark_partition_router_js(
         let mut samples_ms = Vec::with_capacity(samples as usize);
         for _ in 0..samples {
             let started = js_sys::Date::now();
-            let work = tiled.benchmark_partition_router()?;
-            samples_ms.push(js_sys::Date::now() - started);
-            if work != expected {
-                return Err(PolygonizeError::InternalInvariantViolation {
-                    reason: "partition router work changed between Wasm samples".to_string(),
-                });
+            for _ in 0..iterations_per_sample {
+                if tiled.benchmark_partition_router()? != expected {
+                    return Err(PolygonizeError::InternalInvariantViolation {
+                        reason: "partition router work changed between Wasm samples".to_string(),
+                    });
+                }
             }
+            samples_ms.push((js_sys::Date::now() - started) / f64::from(iterations_per_sample));
         }
         Ok(serde_json::json!({
-            "schema_version": 1,
-            "samples_ms": samples_ms,
-            "router_work": expected,
+                "schema_version": 1,
+                "iterations_per_sample": iterations_per_sample,
+                "samples_ms": samples_ms,
+                "router_work": expected,
         }))
     })?;
     serde_json::to_string(&benchmark).map_err(|e| to_js_error("InternalInvariantViolation", e))
