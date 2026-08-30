@@ -3,11 +3,13 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::noding::monotone::benchmark_node_hybrid_source_ranges;
+use geo_polygonize_core::tiling::{PartitionRouterComparisonV1, TiledPolygonizer};
 use geo_polygonize_core::{
     normalize_polygonize_error, AdjacencyLayoutBenchmark, ComponentMemoryStats, Coord3D,
     CoordinateFingerprintV1, ExecutionPolicy, Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1,
     Polygonizer, PolygonizerOptions, PolygonizerResult, PrecisionModel, TopologyFingerprintV1,
 };
+use geo_types::{Coord, Geometry, LineString, Rect};
 use geojson::{GeoJson, Value as GeoJsonValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -18,6 +20,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+type LoadedLines = (Vec<Line3D>, Vec<(usize, usize)>);
+type RouterGeometries = (Vec<Geometry<f64>>, Rect<f64>);
 
 #[derive(Parser)]
 #[command(about = "Emit one correctness-gated benchmark record")]
@@ -48,6 +53,10 @@ struct Args {
     output: Option<PathBuf>,
     #[arg(long)]
     mismatch_candidate: Option<PathBuf>,
+    #[arg(long)]
+    partition_router_tile_size: Option<f64>,
+    #[arg(long, requires = "partition_router_tile_size")]
+    partition_router_buffer: Option<f64>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -279,6 +288,13 @@ struct Samples {
     allocated_bytes: u64,
 }
 
+#[derive(Default)]
+struct RouterSamples {
+    elapsed: Vec<Duration>,
+    allocations: u64,
+    allocated_bytes: u64,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     if !args.check_only && args.samples == 0 {
@@ -292,6 +308,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.check_only_output.is_some() && !args.check_only {
         return Err("check-only output requires --check-only".into());
+    }
+    if args
+        .partition_router_tile_size
+        .is_some_and(|tile_size| !tile_size.is_finite() || tile_size <= 0.0)
+    {
+        return Err("partition router tile size must be finite and greater than zero".into());
+    }
+    if args
+        .partition_router_buffer
+        .is_some_and(|buffer| !buffer.is_finite() || buffer < 0.0)
+    {
+        return Err("partition router buffer must be finite and non-negative".into());
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let manifest_path = args
@@ -431,6 +459,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
+    let router_geometries = args
+        .partition_router_tile_size
+        .map(|_| router_geometries(&lines, &source_ranges))
+        .transpose()?;
+    let router_benchmark = if let (Some(tile_size), Some((geometries, bbox))) =
+        (args.partition_router_tile_size, router_geometries.as_ref())
+    {
+        let mut tiled = TiledPolygonizer::new(*bbox, tile_size)
+            .with_buffer(args.partition_router_buffer.unwrap_or_default())
+            .with_options(options.clone());
+        for geometry in geometries {
+            tiled.add_geometry(geometry);
+        }
+        let comparison = tiled.partition_router_comparison()?;
+        require_router_equivalence(&comparison)?;
+        Some((tiled, comparison))
+    } else {
+        None
+    };
     if args.check_only {
         if let Some(path) = args.check_only_output.as_deref() {
             write_check_only_output(
@@ -458,6 +505,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &timed_options,
             args.noding_path,
         )?;
+    }
+    if let Some((tiled, _)) = &router_benchmark {
+        for _ in 0..args.warmup_iterations {
+            tiled.benchmark_partition_router()?;
+        }
     }
     let profile_path = std::env::temp_dir().join(format!(
         "geo-polygonize-benchmark-{}.json",
@@ -492,6 +544,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         samples.containment.push(phase.containment);
         samples.output_flatten.push(phase.output_flatten);
     }
+    let router_record = if let Some((tiled, comparison)) = &router_benchmark {
+        let mut samples = RouterSamples::default();
+        for _ in 0..args.samples {
+            let before = dhat::HeapStats::get();
+            let started = Instant::now();
+            let work = tiled.benchmark_partition_router()?;
+            samples.elapsed.push(started.elapsed());
+            let after = dhat::HeapStats::get();
+            samples.allocations += after.total_blocks - before.total_blocks;
+            samples.allocated_bytes += after.total_bytes - before.total_bytes;
+            if work != comparison.router_work {
+                return Err("timed partition router work diverged after correctness gate".into());
+            }
+        }
+        Some(json!({
+            "config": {
+                "tile_size": args.partition_router_tile_size.expect("router benchmark has a tile size"),
+                "buffer": args.partition_router_buffer.unwrap_or_default(),
+            },
+            "correctness_gate": comparison,
+            "measurement": {
+                "p50_ms": milliseconds(percentile(&samples.elapsed, 50)),
+                "p95_ms": milliseconds(percentile(&samples.elapsed, 95)),
+                "samples": args.samples,
+                "allocations": {
+                    "count": samples.allocations / args.samples as u64,
+                    "bytes": samples.allocated_bytes / args.samples as u64,
+                },
+            },
+        }))
+    } else {
+        None
+    };
 
     let diagnostics = correctness
         .diagnostics
@@ -508,7 +593,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.lane.profile(),
         args.noding_path.record_name()
     );
-    let record = json!({
+    let mut record = json!({
         "schema_version": 1,
         "record_id": args.repetition.map_or(record_id.clone(), |repetition| format!("{record_id}-r{repetition}")),
         "workload_id": workload.id,
@@ -589,6 +674,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "commit_sha": commit,
         },
     });
+    if let Some(router_record) = router_record {
+        record["partition_router"] = router_record;
+    }
     let bytes = serde_json::to_vec_pretty(&record)?;
     if let Some(path) = args.output {
         std::fs::write(path, bytes)?;
@@ -656,9 +744,7 @@ fn polygonize_with_path(
     }
 }
 
-fn load_lines(
-    path: &Path,
-) -> Result<(Vec<Line3D>, Vec<(usize, usize)>), Box<dyn std::error::Error>> {
+fn load_lines(path: &Path) -> Result<LoadedLines, Box<dyn std::error::Error>> {
     let geojson: GeoJson = std::fs::read_to_string(path)?.parse()?;
     let features = match geojson {
         GeoJson::FeatureCollection(collection) => collection.features,
@@ -688,6 +774,66 @@ fn load_lines(
         source_ranges.push((segment_start, segments.len() - segment_start));
     }
     Ok((segments, source_ranges))
+}
+
+fn router_geometries(
+    lines: &[Line3D],
+    source_ranges: &[(usize, usize)],
+) -> Result<RouterGeometries, Box<dyn std::error::Error>> {
+    let mut geometries = Vec::with_capacity(source_ranges.len());
+    let mut min = Coord {
+        x: f64::INFINITY,
+        y: f64::INFINITY,
+    };
+    let mut max = Coord {
+        x: f64::NEG_INFINITY,
+        y: f64::NEG_INFINITY,
+    };
+    for &(start, count) in source_ranges {
+        let Some(source) = lines.get(start..start + count) else {
+            return Err("source line range falls outside benchmark input".into());
+        };
+        let Some(last) = source.last() else {
+            continue;
+        };
+        let coordinates = source
+            .iter()
+            .map(|segment| segment.start)
+            .chain(std::iter::once(last.end))
+            .map(|coordinate| {
+                min.x = min.x.min(coordinate.x);
+                min.y = min.y.min(coordinate.y);
+                max.x = max.x.max(coordinate.x);
+                max.y = max.y.max(coordinate.y);
+                Coord {
+                    x: coordinate.x,
+                    y: coordinate.y,
+                }
+            })
+            .collect();
+        geometries.push(Geometry::LineString(LineString::new(coordinates)));
+    }
+    if geometries.is_empty() {
+        return Err("partition router benchmark requires at least one input segment".into());
+    }
+    Ok((geometries, Rect::new(min, max)))
+}
+
+fn require_router_equivalence(
+    comparison: &PartitionRouterComparisonV1,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if comparison.oracle_difference.is_some()
+        || comparison.routed_assignment_oracle_difference.is_some()
+        || comparison.routed_local_snapshot_difference.is_some()
+        || comparison.routed_local_snapshot_checked_partition_count != comparison.assignments.len()
+    {
+        return Err(format!(
+            "partition router correctness gate failed: {}",
+            serde_json::to_string(comparison)?
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn verify_artifact_sha256(path: &Path, expected: &str) -> Result<(), Box<dyn std::error::Error>> {
