@@ -830,7 +830,8 @@ to full partition arrangements rather than polyline edge sets.
 
 - [ ] Define an immutable versioned `PartitionSnapshotV1` containing local graph,
   face, border, source, representative-ID, Z, non-polygon, options, and execution
-  evidence.
+  evidence. Snapshot staging now rejects unsupported schema revisions and mixed
+  partition lineage before shared mosaic state can be mutated.
 - [ ] Add atomic `replace_partition` and `purge_partition` operations; rejection
   must preserve the previous mosaic fingerprint exactly.
 - [ ] Prove identical replacement is idempotent and arbitrary insertion order
