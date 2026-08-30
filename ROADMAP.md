@@ -838,10 +838,10 @@ to full partition arrangements rather than polyline edge sets.
   bounded fixture produces one deterministic mosaic.
 - [ ] Use the transaction boundary for larger-halo retries and independently
   regenerated partitions.
-- [ ] Separate physical mosaic consistency from topology mosaic readiness.
+- [x] Separate physical mosaic consistency from topology mosaic readiness.
 - [x] Retain all face-side claims on one physical span rather than forcing one
   physical edge to have one semantic twin.
-- [ ] Classify physical spans as `valid`, `incomplete`, or `conflict`, with typed
+- [x] Classify physical spans as `valid`, `incomplete`, or `conflict`, with typed
   witnesses naming partitions, coordinates, claim multiplicity, and payload
   class.
 - [ ] Define deterministic core-ownership/corroboration obligations without
