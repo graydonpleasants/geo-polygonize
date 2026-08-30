@@ -541,7 +541,7 @@ pattern, not its no-new-vertices clipping contract.
   tile-origin, tile-size, buffer, and precision metamorphic tests.
 - [x] Add a bounded fuzz target that names the first differing partition and
   stage.
-- [ ] Retain final tiled-versus-untiled comparison as the stronger global gate.
+- [x] Retain final tiled-versus-untiled comparison as the stronger global gate.
 
 ## P4.4 Stream source segments into partition sinks
 

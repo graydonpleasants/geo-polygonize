@@ -3378,12 +3378,34 @@ mod tests {
         assert_eq!(
             result
                 .stitching_report
-                .partition_border_global_untiled_equivalence_checked,
+                .partition_border_global_stitched_output_ready,
             result.stitched_output.is_some()
         );
         if result.stitched_output.is_none() {
+            if !result
+                .stitching_report
+                .partition_border_global_untiled_equivalence_checked
+            {
+                assert!(
+                    !result
+                        .stitching_report
+                        .partition_border_global_untiled_equivalence_ready
+                );
+                assert_eq!(
+                    result
+                        .stitching_report
+                        .partition_border_global_untiled_equivalence_mismatch_count,
+                    0
+                );
+            }
+        } else {
             assert!(
-                !result
+                result
+                    .stitching_report
+                    .partition_border_global_untiled_equivalence_checked
+            );
+            assert!(
+                result
                     .stitching_report
                     .partition_border_global_untiled_equivalence_ready
             );
