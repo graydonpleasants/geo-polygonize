@@ -248,8 +248,9 @@ describe('WASM Polygonizer', () => {
         });
         expect(comparison.routed_local_snapshot_checked_partition_count)
             .toBe(comparison.assignments.length);
-        const benchmark = JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {}, 1, 2));
+        const benchmark = JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {}, 1, 2, 2));
         expect(benchmark.router_work).toEqual(comparison.router_work);
+        expect(benchmark.iterations_per_sample).toBe(2);
         expect(benchmark.samples_ms).toHaveLength(2);
     });
 

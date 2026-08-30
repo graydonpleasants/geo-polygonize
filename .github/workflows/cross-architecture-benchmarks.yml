@@ -13,6 +13,8 @@ on:
       - ".github/workflows/cross-architecture-benchmarks.yml"
       - "scripts/benchmark_wasm_browser.mjs"
       - "scripts/build_wasm.sh"
+      - "crates/geo-polygonize-core/src/tiling.rs"
+      - "crates/geo-polygonize-wasm/**"
       - "crates/geo-polygonize-core/benches/polygonize_bench.rs"
       - "crates/geo-polygonize-core/benches/hole_sort_bench.rs"
       - "package.json"
