@@ -4377,7 +4377,18 @@ mod tests {
                 == BTreeSet::from([0, 1])
         }));
         assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
+            let obligation = evidence.obligation.as_ref().unwrap();
+            let claims = &mosaic.physical_spans[&evidence.span];
             evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Valid
+                && claims.iter().any(|claim| {
+                    claim.partition_id == obligation.owner_partition_id
+                        && matches!(claim.observation.side, 0 | 2)
+                })
+                && obligation.corroborating_partition_ids.len() == 1
+                && claims.iter().any(|claim| {
+                    claim.partition_id == obligation.corroborating_partition_ids[0]
+                        && matches!(claim.observation.side, 1 | 3)
+                })
                 && evidence.witness.is_none()
         }));
         let mut source_conflict = mosaic.partitions[&1].clone();
@@ -4402,12 +4413,14 @@ mod tests {
         assert_eq!(mosaic.fingerprint_sha256(), before_source_conflict);
         assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
             evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Valid
+                && evidence.obligation.is_some()
         }));
         mosaic
             .purge_partition(1, &ExecutionPolicy::default())
             .unwrap();
         assert!(mosaic.physical_span_evidence().iter().all(|evidence| {
             evidence.status == crate::tiling::PartitionPhysicalSpanStatusV1::Incomplete
+                && evidence.obligation.is_none()
                 && evidence.witness.as_ref().unwrap().claim_count > 0
         }));
         let mut mismatch = independent.clone();
