@@ -840,7 +840,7 @@ to full partition arrangements rather than polyline edge sets.
   typed physical-span conflicts discovered in staged shared evidence.
 - [x] Prove identical replacement is idempotent and every insertion order of a
   bounded fixture produces one deterministic mosaic.
-- [ ] Use the transaction boundary for larger-halo retries and independently
+- [x] Use the transaction boundary for larger-halo retries and independently
   regenerated partitions.
 - [x] Separate physical mosaic consistency from topology mosaic readiness.
 - [x] Retain all face-side claims on one physical span rather than forcing one
