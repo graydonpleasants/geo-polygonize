@@ -833,8 +833,8 @@ to full partition arrangements rather than polyline edge sets.
   evidence. Snapshot staging now rejects unsupported schema revisions and mixed
   partition lineage before shared mosaic state can be mutated. Semantic options
   are retained by the topology fingerprint, and canonical halo/retry generation
-  evidence is retained; declared-adjacency, ownership-domain, and execution-policy
-  evidence remain.
+  evidence is retained; typed declared-adjacency, ownership-domain, and
+  execution-policy evidence is now retained as well.
 - [x] Add atomic `replace_partition` and `purge_partition` operations; rejection
   preserves the previous deterministic mosaic fingerprint exactly, including
   typed physical-span conflicts discovered in staged shared evidence.

@@ -3,6 +3,7 @@
 mod tests {
     use crate::tiling::{
         ComponentFallbackDecision, ComponentFallbackDeclineReason, InputComponent,
+        PartitionDeclaredAdjacencyV1,
     };
     use crate::{
         trace::TraceLevelV1, CancellationToken, Coord3D, DedupPolicy, ExecutionPolicy, Line3D,
@@ -4241,11 +4242,15 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 14);
+        assert_eq!(snapshot.schema_version, 15);
         snapshot.validate_for_mosaic().unwrap();
         assert_eq!(snapshot.partition_id, 0);
+        assert_eq!(snapshot.ownership_domain_min.x, "0x0000000000000000");
+        assert_eq!(snapshot.ownership_domain_max.x, "0x4000000000000000");
         assert_eq!(snapshot.generation.buffer_bits, 0.0f64.to_bits());
         assert_eq!(snapshot.generation.retry_attempt, 0);
+        assert!(snapshot.declared_adjacencies.is_empty());
+        assert_eq!(snapshot.execution.max_parallel_tiles, Some(1));
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
         assert_eq!(snapshot.local_noded_segments.len(), 4);
@@ -4515,6 +4520,12 @@ mod tests {
         assert_eq!(
             snapshot.diff(&generation_mismatch).unwrap().path,
             "$.generation.retry_attempt"
+        );
+        let mut execution_mismatch = independent.clone();
+        execution_mismatch.execution.max_graph_nodes = Some(1);
+        assert_eq!(
+            snapshot.diff(&execution_mismatch).unwrap().path,
+            "$.execution"
         );
         let mut unsupported_schema = independent.clone();
         unsupported_schema.schema_version += 1;
@@ -4867,6 +4878,51 @@ mod tests {
             ),
             expected
         );
+    }
+
+    #[test]
+    fn partition_snapshot_retains_domain_adjacency_and_execution_evidence() {
+        let bbox = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 });
+        let tiled = TiledPolygonizer::new(bbox, 1.0)
+            .with_execution_policy(ExecutionPolicy {
+                max_graph_nodes: Some(101),
+                max_tile_retry_attempts: Some(2),
+                ..Default::default()
+            })
+            .with_tile_execution_policy(TileExecutionPolicy {
+                max_tiles: Some(2),
+                max_parallel_tiles: Some(1),
+                ..Default::default()
+            });
+        let result = tiled.polygonize().unwrap();
+
+        assert_eq!(result.partition_snapshots.len(), 2);
+        assert_eq!(
+            result.partition_snapshots[0].declared_adjacencies,
+            vec![PartitionDeclaredAdjacencyV1 {
+                neighbor_partition_id: 1,
+                side: 1,
+                neighbor_side: 0,
+                coordinate_bits: 1.0f64.to_bits(),
+            }]
+        );
+        assert_eq!(
+            result.partition_snapshots[1].declared_adjacencies,
+            vec![PartitionDeclaredAdjacencyV1 {
+                neighbor_partition_id: 0,
+                side: 0,
+                neighbor_side: 1,
+                coordinate_bits: 1.0f64.to_bits(),
+            }]
+        );
+        for snapshot in &result.partition_snapshots {
+            assert_eq!(snapshot.ownership_domain_min.x, "0x0000000000000000");
+            assert_eq!(snapshot.ownership_domain_max.x, "0x4000000000000000");
+            assert_eq!(snapshot.execution.max_graph_nodes, Some(101));
+            assert_eq!(snapshot.execution.max_tile_retry_attempts, Some(2));
+            assert_eq!(snapshot.execution.max_tiles, Some(2));
+            snapshot.validate_for_mosaic().unwrap();
+        }
     }
 
     #[test]

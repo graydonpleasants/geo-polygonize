@@ -67,7 +67,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 14;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 15;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -363,6 +363,41 @@ fn partition_border_side_code(side: PartitionBorderSide) -> u8 {
     }
 }
 
+fn partition_adjacency_descriptor(
+    first: Rect<f64>,
+    second: Rect<f64>,
+) -> Option<(PartitionBorderSide, PartitionBorderSide, u64)> {
+    let y_overlap = first.min().y < second.max().y && second.min().y < first.max().y;
+    let x_overlap = first.min().x < second.max().x && second.min().x < first.max().x;
+    if y_overlap && first.max().x == second.min().x {
+        Some((
+            PartitionBorderSide::MaxX,
+            PartitionBorderSide::MinX,
+            canonical_coordinate_bits(first.max().x),
+        ))
+    } else if y_overlap && second.max().x == first.min().x {
+        Some((
+            PartitionBorderSide::MinX,
+            PartitionBorderSide::MaxX,
+            canonical_coordinate_bits(first.min().x),
+        ))
+    } else if x_overlap && first.max().y == second.min().y {
+        Some((
+            PartitionBorderSide::MaxY,
+            PartitionBorderSide::MinY,
+            canonical_coordinate_bits(first.max().y),
+        ))
+    } else if x_overlap && second.max().y == first.min().y {
+        Some((
+            PartitionBorderSide::MinY,
+            PartitionBorderSide::MaxY,
+            canonical_coordinate_bits(first.min().y),
+        ))
+    } else {
+        None
+    }
+}
+
 fn partition_atomic_observations(
     border_observations: &[PartitionBorderHalfEdge],
 ) -> Vec<PartitionAtomicObservationV1> {
@@ -651,13 +686,81 @@ pub(crate) struct PartitionGenerationEvidenceV1 {
     pub(crate) retry_attempt: usize,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct PartitionDeclaredAdjacencyV1 {
+    pub(crate) neighbor_partition_id: usize,
+    pub(crate) side: u8,
+    pub(crate) neighbor_side: u8,
+    pub(crate) coordinate_bits: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionExecutionEvidenceV1 {
+    pub(crate) max_input_line_strings: Option<usize>,
+    pub(crate) max_input_segments: Option<usize>,
+    pub(crate) max_input_coordinates: Option<usize>,
+    pub(crate) max_noded_segments: Option<usize>,
+    pub(crate) max_candidate_pairs: Option<usize>,
+    pub(crate) max_exact_intersection_calls: Option<usize>,
+    pub(crate) max_split_events: Option<usize>,
+    pub(crate) max_noding_iterations: Option<usize>,
+    pub(crate) max_graph_nodes: Option<usize>,
+    pub(crate) max_graph_edges: Option<usize>,
+    pub(crate) max_rings: Option<usize>,
+    pub(crate) max_output_polygons: Option<usize>,
+    pub(crate) max_output_coordinates: Option<usize>,
+    pub(crate) max_tile_retry_attempts: Option<usize>,
+    pub(crate) max_tiles: Option<usize>,
+    pub(crate) max_input_geometries: Option<usize>,
+    pub(crate) max_tile_geometry_assignments: Option<usize>,
+    pub(crate) max_partition_candidate_visits: Option<usize>,
+    pub(crate) max_retry_attempts_total: Option<usize>,
+    pub(crate) max_fallback_regions: Option<usize>,
+    pub(crate) max_parallel_tiles: Option<usize>,
+}
+
+impl PartitionExecutionEvidenceV1 {
+    fn from_policies(
+        execution_policy: &ExecutionPolicy,
+        tile_execution_policy: &TileExecutionPolicy,
+    ) -> Self {
+        Self {
+            max_input_line_strings: execution_policy.max_input_line_strings,
+            max_input_segments: execution_policy.max_input_segments,
+            max_input_coordinates: execution_policy.max_input_coordinates,
+            max_noded_segments: execution_policy.max_noded_segments,
+            max_candidate_pairs: execution_policy.max_candidate_pairs,
+            max_exact_intersection_calls: execution_policy.max_exact_intersection_calls,
+            max_split_events: execution_policy.max_split_events,
+            max_noding_iterations: execution_policy.max_noding_iterations,
+            max_graph_nodes: execution_policy.max_graph_nodes,
+            max_graph_edges: execution_policy.max_graph_edges,
+            max_rings: execution_policy.max_rings,
+            max_output_polygons: execution_policy.max_output_polygons,
+            max_output_coordinates: execution_policy.max_output_coordinates,
+            max_tile_retry_attempts: execution_policy.max_tile_retry_attempts,
+            max_tiles: tile_execution_policy.max_tiles,
+            max_input_geometries: tile_execution_policy.max_input_geometries,
+            max_tile_geometry_assignments: tile_execution_policy.max_tile_geometry_assignments,
+            max_partition_candidate_visits: tile_execution_policy.max_partition_candidate_visits,
+            max_retry_attempts_total: tile_execution_policy.max_retry_attempts_total,
+            max_fallback_regions: tile_execution_policy.max_fallback_regions,
+            max_parallel_tiles: tile_execution_policy.max_parallel_tiles,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct PartitionSnapshotV1 {
     pub(crate) schema_version: u32,
     pub(crate) partition_id: usize,
     pub(crate) tile_min: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) ownership_domain_min: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) ownership_domain_max: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) generation: PartitionGenerationEvidenceV1,
+    pub(crate) declared_adjacencies: Vec<PartitionDeclaredAdjacencyV1>,
+    pub(crate) execution: PartitionExecutionEvidenceV1,
     pub(crate) selected_input_geometry_indices: Vec<usize>,
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
     pub(crate) local_noded_segments: Vec<PartitionNodedSegmentV1>,
@@ -675,8 +778,12 @@ impl PartitionSnapshotV1 {
     fn from_result(
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        ownership_domain: Rect<f64>,
         buffer: f64,
         retry_attempt: usize,
+        mut declared_adjacencies: Vec<PartitionDeclaredAdjacencyV1>,
+        execution_policy: &ExecutionPolicy,
+        tile_execution_policy: &TileExecutionPolicy,
         mut selected_input_geometry_indices: Vec<usize>,
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
@@ -691,6 +798,15 @@ impl PartitionSnapshotV1 {
         selected_input_geometry_indices.dedup();
         selected_source_segments.sort_unstable();
         selected_source_segments.dedup();
+        declared_adjacencies.sort_unstable_by_key(|adjacency| {
+            (
+                adjacency.neighbor_partition_id,
+                adjacency.side,
+                adjacency.neighbor_side,
+                adjacency.coordinate_bits,
+            )
+        });
+        declared_adjacencies.dedup();
         let coordinate = |coord: Coord<f64>| {
             crate::fingerprint::coordinate_fingerprint(Coord3D::new(coord.x, coord.y, 0.0))
         };
@@ -699,10 +815,17 @@ impl PartitionSnapshotV1 {
             partition_id,
             tile_min: coordinate(tile_bbox.min())?,
             tile_max: coordinate(tile_bbox.max())?,
+            ownership_domain_min: coordinate(ownership_domain.min())?,
+            ownership_domain_max: coordinate(ownership_domain.max())?,
             generation: PartitionGenerationEvidenceV1 {
                 buffer_bits: canonical_coordinate_bits(buffer),
                 retry_attempt,
             },
+            declared_adjacencies,
+            execution: PartitionExecutionEvidenceV1::from_policies(
+                execution_policy,
+                tile_execution_policy,
+            ),
             selected_input_geometry_indices,
             selected_source_segments,
             local_noded_segments: partition_noded_segments(noded_segments)?,
@@ -736,6 +859,33 @@ impl PartitionSnapshotV1 {
             return Err(PolygonizeError::InternalInvariantViolation {
                 reason: format!(
                     "partition {} snapshot has invalid generation buffer",
+                    self.partition_id
+                ),
+            });
+        }
+        if self
+            .declared_adjacencies
+            .windows(2)
+            .any(|window| window[0] >= window[1])
+        {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition {} snapshot declared adjacencies are not canonical",
+                    self.partition_id
+                ),
+            });
+        }
+        if self.declared_adjacencies.iter().any(|adjacency| {
+            adjacency.neighbor_partition_id == self.partition_id
+                || !matches!(
+                    (adjacency.side, adjacency.neighbor_side),
+                    (0, 1) | (1, 0) | (2, 3) | (3, 2)
+                )
+                || !f64::from_bits(adjacency.coordinate_bits).is_finite()
+        }) {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition {} snapshot has invalid declared adjacency evidence",
                     self.partition_id
                 ),
             });
@@ -826,6 +976,20 @@ impl PartitionSnapshotV1 {
                 &actual.tile_max,
             ));
         }
+        if self.ownership_domain_min != actual.ownership_domain_min {
+            return Some(partition_snapshot_diff_field(
+                "$.ownership_domain_min",
+                &self.ownership_domain_min,
+                &actual.ownership_domain_min,
+            ));
+        }
+        if self.ownership_domain_max != actual.ownership_domain_max {
+            return Some(partition_snapshot_diff_field(
+                "$.ownership_domain_max",
+                &self.ownership_domain_max,
+                &actual.ownership_domain_max,
+            ));
+        }
         if self.generation.buffer_bits != actual.generation.buffer_bits {
             return Some(partition_snapshot_diff_field(
                 "$.generation.buffer_bits",
@@ -838,6 +1002,20 @@ impl PartitionSnapshotV1 {
                 "$.generation.retry_attempt",
                 &self.generation.retry_attempt,
                 &actual.generation.retry_attempt,
+            ));
+        }
+        if self.declared_adjacencies != actual.declared_adjacencies {
+            return Some(partition_snapshot_diff_field(
+                "$.declared_adjacencies",
+                &self.declared_adjacencies,
+                &actual.declared_adjacencies,
+            ));
+        }
+        if self.execution != actual.execution {
+            return Some(partition_snapshot_diff_field(
+                "$.execution",
+                &self.execution,
+                &actual.execution,
             ));
         }
         if self.selected_input_geometry_indices != actual.selected_input_geometry_indices {
@@ -3342,12 +3520,17 @@ impl<'a> TiledPolygonizer<'a> {
         }
         let selected_source_segments =
             partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
         if selected_input_geometry_indices.is_empty() {
             return PartitionSnapshotV1::from_result(
                 partition_id,
                 tile_bbox,
+                self.bbox,
                 buffer,
                 retry_attempt,
+                declared_adjacencies.clone(),
+                &self.execution_policy,
+                &self.tile_execution_policy,
                 selected_input_geometry_indices,
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
@@ -3377,8 +3560,12 @@ impl<'a> TiledPolygonizer<'a> {
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            self.bbox,
             buffer,
             retry_attempt,
+            declared_adjacencies,
+            &self.execution_policy,
+            &self.tile_execution_policy,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
@@ -3434,6 +3621,7 @@ impl<'a> TiledPolygonizer<'a> {
         }
         let selected_source_segments =
             partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
         let input_boundary_geometry_indices = input_boundary_issues
             .iter()
             .map(|issue| issue.input_geometry_index)
@@ -3493,8 +3681,12 @@ impl<'a> TiledPolygonizer<'a> {
             let snapshot = PartitionSnapshotV1::from_result(
                 partition_id,
                 tile_bbox,
+                self.bbox,
                 buffer,
                 retry_attempt,
+                declared_adjacencies.clone(),
+                &self.execution_policy,
+                &self.tile_execution_policy,
                 selected_input_geometry_indices,
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
@@ -3535,8 +3727,12 @@ impl<'a> TiledPolygonizer<'a> {
         let snapshot = PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            self.bbox,
             buffer,
             retry_attempt,
+            declared_adjacencies,
+            &self.execution_policy,
+            &self.tile_execution_policy,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
@@ -4227,51 +4423,46 @@ impl<'a> TiledPolygonizer<'a> {
             {
                 let first_bbox = first.tile_bbox;
                 let second_bbox = second.tile_bbox;
-                let y_overlap = first_bbox.min().y < second_bbox.max().y
-                    && second_bbox.min().y < first_bbox.max().y;
-                let x_overlap = first_bbox.min().x < second_bbox.max().x
-                    && second_bbox.min().x < first_bbox.max().x;
-                let adjacency = if y_overlap && first_bbox.max().x == second_bbox.min().x {
-                    Some(PartitionBorderAdjacency::new(
+                if let Some((first_side, second_side, coordinate_bits)) =
+                    partition_adjacency_descriptor(first_bbox, second_bbox)
+                {
+                    let adjacency = PartitionBorderAdjacency::new(
                         first_partition_id,
-                        PartitionBorderSide::MaxX,
+                        first_side,
                         second_partition_id,
-                        PartitionBorderSide::MinX,
-                        first_bbox.max().x,
-                    )?)
-                } else if y_overlap && second_bbox.max().x == first_bbox.min().x {
-                    Some(PartitionBorderAdjacency::new(
-                        first_partition_id,
-                        PartitionBorderSide::MinX,
-                        second_partition_id,
-                        PartitionBorderSide::MaxX,
-                        first_bbox.min().x,
-                    )?)
-                } else if x_overlap && first_bbox.max().y == second_bbox.min().y {
-                    Some(PartitionBorderAdjacency::new(
-                        first_partition_id,
-                        PartitionBorderSide::MaxY,
-                        second_partition_id,
-                        PartitionBorderSide::MinY,
-                        first_bbox.max().y,
-                    )?)
-                } else if x_overlap && second_bbox.max().y == first_bbox.min().y {
-                    Some(PartitionBorderAdjacency::new(
-                        first_partition_id,
-                        PartitionBorderSide::MinY,
-                        second_partition_id,
-                        PartitionBorderSide::MaxY,
-                        first_bbox.min().y,
-                    )?)
-                } else {
-                    None
-                };
-                if let Some(adjacency) = adjacency {
+                        second_side,
+                        f64::from_bits(coordinate_bits),
+                    )?;
                     graph.declare_adjacency(adjacency);
                 }
             }
         }
         Ok(())
+    }
+
+    fn declared_adjacencies_for(
+        &self,
+        partition_id: usize,
+        tile_bbox: Rect<f64>,
+    ) -> Result<Vec<PartitionDeclaredAdjacencyV1>> {
+        let tiles = self.generate_tiles()?;
+        let mut adjacencies = Vec::new();
+        for (neighbor_partition_id, neighbor_bbox) in tiles.into_iter().enumerate() {
+            if neighbor_partition_id == partition_id {
+                continue;
+            }
+            if let Some((side, neighbor_side, coordinate_bits)) =
+                partition_adjacency_descriptor(tile_bbox, neighbor_bbox)
+            {
+                adjacencies.push(PartitionDeclaredAdjacencyV1 {
+                    neighbor_partition_id,
+                    side: partition_border_side_code(side),
+                    neighbor_side: partition_border_side_code(neighbor_side),
+                    coordinate_bits,
+                });
+            }
+        }
+        Ok(adjacencies)
     }
 
     fn generate_tiles(&self) -> Result<Vec<Rect<f64>>> {
@@ -4792,11 +4983,16 @@ impl<'a> TiledPolygonizer<'a> {
             boundary_noded_segments,
         ) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            self.bbox,
             self.buffer,
             0,
+            declared_adjacencies,
+            &self.execution_policy,
+            &self.tile_execution_policy,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
