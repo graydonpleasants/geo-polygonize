@@ -67,7 +67,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 13;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 14;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -645,12 +645,19 @@ fn partition_snapshot_diff_field<T: Serialize>(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionGenerationEvidenceV1 {
+    pub(crate) buffer_bits: u64,
+    pub(crate) retry_attempt: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct PartitionSnapshotV1 {
     pub(crate) schema_version: u32,
     pub(crate) partition_id: usize,
     pub(crate) tile_min: crate::fingerprint::CoordinateFingerprintV1,
     pub(crate) tile_max: crate::fingerprint::CoordinateFingerprintV1,
+    pub(crate) generation: PartitionGenerationEvidenceV1,
     pub(crate) selected_input_geometry_indices: Vec<usize>,
     pub(crate) selected_source_segments: Vec<PartitionSourceSegmentV1>,
     pub(crate) local_noded_segments: Vec<PartitionNodedSegmentV1>,
@@ -668,6 +675,8 @@ impl PartitionSnapshotV1 {
     fn from_result(
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        buffer: f64,
+        retry_attempt: usize,
         mut selected_input_geometry_indices: Vec<usize>,
         mut selected_source_segments: Vec<PartitionSourceSegmentV1>,
         boundary_noding_stats: crate::graph::planar_graph::PartitionBoundaryNodingStats,
@@ -690,6 +699,10 @@ impl PartitionSnapshotV1 {
             partition_id,
             tile_min: coordinate(tile_bbox.min())?,
             tile_max: coordinate(tile_bbox.max())?,
+            generation: PartitionGenerationEvidenceV1 {
+                buffer_bits: canonical_coordinate_bits(buffer),
+                retry_attempt,
+            },
             selected_input_geometry_indices,
             selected_source_segments,
             local_noded_segments: partition_noded_segments(noded_segments)?,
@@ -715,6 +728,15 @@ impl PartitionSnapshotV1 {
                 reason: format!(
                     "partition {} snapshot schema version {} is unsupported",
                     self.partition_id, self.schema_version
+                ),
+            });
+        }
+        let buffer = f64::from_bits(self.generation.buffer_bits);
+        if !buffer.is_finite() || buffer < 0.0 {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: format!(
+                    "partition {} snapshot has invalid generation buffer",
+                    self.partition_id
                 ),
             });
         }
@@ -802,6 +824,20 @@ impl PartitionSnapshotV1 {
                 "$.tile_max",
                 &self.tile_max,
                 &actual.tile_max,
+            ));
+        }
+        if self.generation.buffer_bits != actual.generation.buffer_bits {
+            return Some(partition_snapshot_diff_field(
+                "$.generation.buffer_bits",
+                &self.generation.buffer_bits,
+                &actual.generation.buffer_bits,
+            ));
+        }
+        if self.generation.retry_attempt != actual.generation.retry_attempt {
+            return Some(partition_snapshot_diff_field(
+                "$.generation.retry_attempt",
+                &self.generation.retry_attempt,
+                &actual.generation.retry_attempt,
             ));
         }
         if self.selected_input_geometry_indices != actual.selected_input_geometry_indices {
@@ -3286,6 +3322,7 @@ impl<'a> TiledPolygonizer<'a> {
         partition_id: usize,
         tile_bbox: Rect<f64>,
         buffer: f64,
+        retry_attempt: usize,
     ) -> Result<PartitionSnapshotV1> {
         self.execution_policy.check_cancelled("partition_oracle")?;
         let buffered_bbox = self.buffered_bbox(tile_bbox, buffer);
@@ -3309,6 +3346,8 @@ impl<'a> TiledPolygonizer<'a> {
             return PartitionSnapshotV1::from_result(
                 partition_id,
                 tile_bbox,
+                buffer,
+                retry_attempt,
                 selected_input_geometry_indices,
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
@@ -3338,6 +3377,8 @@ impl<'a> TiledPolygonizer<'a> {
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            buffer,
+            retry_attempt,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
@@ -3356,6 +3397,7 @@ impl<'a> TiledPolygonizer<'a> {
         tile_bbox: Rect<f64>,
         input_components: &[InputComponent],
         buffer: f64,
+        retry_attempt: usize,
         capture_byte_limit: Option<usize>,
     ) -> Result<TileProcessResult> {
         self.execution_policy.check_cancelled("tile_processing")?;
@@ -3451,6 +3493,8 @@ impl<'a> TiledPolygonizer<'a> {
             let snapshot = PartitionSnapshotV1::from_result(
                 partition_id,
                 tile_bbox,
+                buffer,
+                retry_attempt,
                 selected_input_geometry_indices,
                 selected_source_segments,
                 crate::graph::planar_graph::PartitionBoundaryNodingStats::default(),
@@ -3491,6 +3535,8 @@ impl<'a> TiledPolygonizer<'a> {
         let snapshot = PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            buffer,
+            retry_attempt,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,
@@ -4024,6 +4070,7 @@ impl<'a> TiledPolygonizer<'a> {
             tile_bbox,
             input_components,
             buffer,
+            0,
             capture_byte_limit,
         )?;
         let Some(policy) = self.retry_policy else {
@@ -4064,6 +4111,7 @@ impl<'a> TiledPolygonizer<'a> {
                 tile_bbox,
                 input_components,
                 buffer,
+                attempt,
                 capture_byte_limit,
             )?;
             capture_truncated |= result.5;
@@ -4590,7 +4638,12 @@ impl<'a> TiledPolygonizer<'a> {
                 .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
                     reason: format!("partition {partition_id} has no captured snapshot"),
                 })?;
-            let actual = self.process_one_partition(partition_id, report.tile_bbox, self.buffer)?;
+            let actual = self.process_one_partition(
+                partition_id,
+                report.tile_bbox,
+                f64::from_bits(expected.generation.buffer_bits),
+                expected.generation.retry_attempt,
+            )?;
             if let Some(diff) = expected.diff(&actual) {
                 return Ok(Some(PartitionOracleDifferenceV1 {
                     partition_id,
@@ -4742,6 +4795,8 @@ impl<'a> TiledPolygonizer<'a> {
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
+            self.buffer,
+            0,
             selected_input_geometry_indices,
             selected_source_segments,
             boundary_noding_stats,

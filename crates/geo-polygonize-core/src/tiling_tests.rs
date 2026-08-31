@@ -4241,9 +4241,11 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 13);
+        assert_eq!(snapshot.schema_version, 14);
         snapshot.validate_for_mosaic().unwrap();
         assert_eq!(snapshot.partition_id, 0);
+        assert_eq!(snapshot.generation.buffer_bits, 0.0f64.to_bits());
+        assert_eq!(snapshot.generation.retry_attempt, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
         assert_eq!(snapshot.selected_source_segments.len(), 4);
         assert_eq!(snapshot.local_noded_segments.len(), 4);
@@ -4306,7 +4308,7 @@ mod tests {
             Some("partition-oracle-v1")
         );
         let independent = serial
-            .process_one_partition(0, bbox, serial.buffer)
+            .process_one_partition(0, bbox, serial.buffer, 0)
             .unwrap();
         assert_eq!(snapshot, &independent);
         assert_eq!(snapshot.diff(&independent), None);
@@ -4507,6 +4509,12 @@ mod tests {
         assert_eq!(
             snapshot.diff(&mismatch).unwrap().path,
             "$.selected_input_geometry_indices"
+        );
+        let mut generation_mismatch = independent.clone();
+        generation_mismatch.generation.retry_attempt += 1;
+        assert_eq!(
+            snapshot.diff(&generation_mismatch).unwrap().path,
+            "$.generation.retry_attempt"
         );
         let mut unsupported_schema = independent.clone();
         unsupported_schema.schema_version += 1;
@@ -4895,7 +4903,7 @@ mod tests {
 
         for (partition_id, report) in result.tile_reports.iter().enumerate() {
             let independent = tiled
-                .process_one_partition(partition_id, report.tile_bbox, tiled.buffer)
+                .process_one_partition(partition_id, report.tile_bbox, tiled.buffer, 0)
                 .unwrap();
             assert_eq!(
                 result.partition_snapshots[partition_id], independent,
@@ -4979,7 +4987,7 @@ mod tests {
             Err(error) => error,
         };
         let independent_error = tiled
-            .process_one_partition(0, bbox, tiled.buffer)
+            .process_one_partition(0, bbox, tiled.buffer, 0)
             .unwrap_err();
         let bulk = crate::fingerprint::normalize_polygonize_error(&bulk_error);
         let independent = crate::fingerprint::normalize_polygonize_error(&independent_error);
@@ -6371,7 +6379,7 @@ mod tests {
         });
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[], 0.0, None),
+            tiled.process_tile(0, bbox, &[], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -6399,7 +6407,7 @@ mod tests {
         }
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[], 0.0, None),
+            tiled.process_tile(0, bbox, &[], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -6426,7 +6434,7 @@ mod tests {
         };
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[component], 0.0, None),
+            tiled.process_tile(0, bbox, &[component], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -7287,6 +7295,16 @@ mod tests {
                 && report.retry_attempts[0].buffer == 42.0
                 && report.retry_attempts[0].resolved
         }));
+        assert!(result.partition_snapshots.iter().all(|snapshot| {
+            snapshot.generation.buffer_bits == 42.0f64.to_bits()
+                && snapshot.generation.retry_attempt == 1
+        }));
+        assert_eq!(
+            tiled
+                .partition_oracle_first_difference_for_result(&result)
+                .unwrap(),
+            None
+        );
         let traced = tiled
             .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
             .unwrap();
