@@ -4465,6 +4465,11 @@ mod tests {
                 evidence.status == crate::tiling::PartitionTopologySpanStatusV1::Ready
                     && evidence.ready_observation_ids.len() == 2
             }));
+        assert_eq!(
+            ready_mosaic.topology_ready_observation_ids().len(),
+            ready_mosaic.physical_spans.len() * 2
+        );
+        assert!(mosaic.topology_ready_observation_ids().is_empty());
         let mut source_conflict = mosaic.partitions[&1].clone();
         source_conflict.atomic_observations[0]
             .source_line_ids
