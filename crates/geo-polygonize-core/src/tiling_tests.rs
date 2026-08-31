@@ -366,6 +366,43 @@ mod tests {
         }
 
         let result = tiled.polygonize().unwrap();
+        let mut mosaic = crate::tiling::PartitionMosaic::default();
+        for snapshot in &result.partition_snapshots {
+            mosaic
+                .replace_partition(snapshot.clone(), &ExecutionPolicy::default())
+                .unwrap();
+        }
+        let node_obligations = mosaic
+            .boundary_node_obligation_evidence(&ExecutionPolicy::default())
+            .unwrap();
+        let node = |x: f64, y: f64| {
+            node_obligations
+                .iter()
+                .find(|evidence| {
+                    evidence.xy_bits
+                        == [
+                            crate::utils::canonical_coordinate_bits(x),
+                            crate::utils::canonical_coordinate_bits(y),
+                        ]
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            node(1.0, 0.0).status,
+            crate::tiling::PartitionBoundaryNodeObligationStatusV1::Valid
+        );
+        assert_eq!(
+            node(1.0, 0.0).obligation,
+            Some(crate::tiling::PartitionCorroborationObligationV1 {
+                owner_partition_id: 1,
+                corroborating_partition_ids: vec![0],
+            })
+        );
+        assert_eq!(
+            node(1.0, 1.0).status,
+            crate::tiling::PartitionBoundaryNodeObligationStatusV1::Incomplete
+        );
+        assert_eq!(node(1.0, 1.0).obligation, None);
         let start = crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
             Coord3D::new(1.0, 0.0, 0.0),
         );
@@ -4391,6 +4428,13 @@ mod tests {
                 })
                 && evidence.witness.is_none()
         }));
+        assert!(mosaic
+            .boundary_node_obligation_evidence(&ExecutionPolicy::default())
+            .unwrap()
+            .iter()
+            .any(|evidence| {
+                evidence.status == crate::tiling::PartitionBoundaryNodeObligationStatusV1::Conflict
+            }));
         let mut source_conflict = mosaic.partitions[&1].clone();
         source_conflict.atomic_observations[0]
             .source_line_ids

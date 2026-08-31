@@ -723,6 +723,25 @@ impl PartitionSnapshotV1 {
         Ok(())
     }
 
+    fn tile_xy_bits(&self) -> Result<([u64; 2], [u64; 2])> {
+        let parse = |value: &str| {
+            value
+                .strip_prefix("0x")
+                .filter(|hex| hex.len() == 16)
+                .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "partition {} snapshot has an invalid tile-bound coordinate",
+                        self.partition_id
+                    ),
+                })
+        };
+        Ok((
+            [parse(&self.tile_min.x)?, parse(&self.tile_min.y)?],
+            [parse(&self.tile_max.x)?, parse(&self.tile_max.y)?],
+        ))
+    }
+
     #[allow(dead_code)]
     pub(crate) fn fingerprint_sha256(&self) -> String {
         format!(
@@ -918,9 +937,25 @@ pub(crate) enum PartitionPhysicalSpanStatusV1 {
 /// a horizontal span belongs to the partition observing `MinY`. This only
 /// identifies which partition must supply evidence; it never selects output.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub(crate) struct PartitionPhysicalSpanObligationV1 {
+pub(crate) struct PartitionCorroborationObligationV1 {
     pub(crate) owner_partition_id: usize,
     pub(crate) corroborating_partition_ids: Vec<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionBoundaryNodeObligationStatusV1 {
+    Valid,
+    Incomplete,
+    Conflict,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionBoundaryNodeObligationEvidenceV1 {
+    pub(crate) xy_bits: [u64; 2],
+    pub(crate) partition_ids: Vec<usize>,
+    pub(crate) status: PartitionBoundaryNodeObligationStatusV1,
+    pub(crate) obligation: Option<PartitionCorroborationObligationV1>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -946,7 +981,7 @@ pub(crate) struct PartitionPhysicalSpanWitnessV1 {
 pub(crate) struct PartitionPhysicalSpanEvidenceV1 {
     pub(crate) span: PartitionPhysicalSpanKeyV1,
     pub(crate) status: PartitionPhysicalSpanStatusV1,
-    pub(crate) obligation: Option<PartitionPhysicalSpanObligationV1>,
+    pub(crate) obligation: Option<PartitionCorroborationObligationV1>,
     pub(crate) witness: Option<PartitionPhysicalSpanWitnessV1>,
 }
 
@@ -1068,6 +1103,81 @@ impl PartitionMosaic {
         Self::physical_span_evidence_from(&self.physical_spans)
     }
 
+    fn boundary_node_obligation_evidence(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<Vec<PartitionBoundaryNodeObligationEvidenceV1>> {
+        let mut claims = BTreeMap::<[u64; 2], Vec<(usize, [u64; 2])>>::new();
+        let mut claim_count = 0;
+        for (&partition_id, snapshot) in &self.partitions {
+            let (tile_min, tile_max) = snapshot.tile_xy_bits()?;
+            for node in &snapshot.boundary_nodes {
+                execution_policy.check_cancelled_every(
+                    "partition_mosaic_boundary_node_obligations",
+                    claim_count,
+                )?;
+                let point = node.xy_bits.map(f64::from_bits);
+                let minimum = tile_min.map(f64::from_bits);
+                let maximum = tile_max.map(f64::from_bits);
+                if !(minimum[0]..=maximum[0]).contains(&point[0])
+                    || !(minimum[1]..=maximum[1]).contains(&point[1])
+                {
+                    return Err(PolygonizeError::InternalInvariantViolation {
+                        reason: format!(
+                            "partition {partition_id} boundary node lies outside its tile bounds"
+                        ),
+                    });
+                }
+                claims
+                    .entry(node.xy_bits)
+                    .or_default()
+                    .push((partition_id, tile_max));
+                claim_count += 1;
+            }
+        }
+        Ok(claims
+            .into_iter()
+            .map(|(xy_bits, claims)| {
+                let partition_ids = claims
+                    .iter()
+                    .map(|(partition_id, _)| *partition_id)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let owners = claims
+                    .iter()
+                    .filter(|(_, tile_max)| xy_bits[0] != tile_max[0] && xy_bits[1] != tile_max[1])
+                    .map(|(partition_id, _)| *partition_id)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let (status, obligation) = match (partition_ids.len(), owners.as_slice()) {
+                    (0 | 1, _) | (_, []) => {
+                        (PartitionBoundaryNodeObligationStatusV1::Incomplete, None)
+                    }
+                    (_, [owner_partition_id]) => (
+                        PartitionBoundaryNodeObligationStatusV1::Valid,
+                        Some(PartitionCorroborationObligationV1 {
+                            owner_partition_id: *owner_partition_id,
+                            corroborating_partition_ids: partition_ids
+                                .iter()
+                                .copied()
+                                .filter(|partition_id| partition_id != owner_partition_id)
+                                .collect(),
+                        }),
+                    ),
+                    _ => (PartitionBoundaryNodeObligationStatusV1::Conflict, None),
+                };
+                PartitionBoundaryNodeObligationEvidenceV1 {
+                    xy_bits,
+                    partition_ids,
+                    status,
+                    obligation,
+                }
+            })
+            .collect())
+    }
+
     fn physical_span_evidence_from(
         physical_spans: &BTreeMap<PartitionPhysicalSpanKeyV1, Vec<PartitionPhysicalSpanClaimV1>>,
     ) -> Vec<PartitionPhysicalSpanEvidenceV1> {
@@ -1182,7 +1292,7 @@ impl PartitionMosaic {
         PartitionPhysicalSpanEvidenceV1 {
             span,
             status: PartitionPhysicalSpanStatusV1::Valid,
-            obligation: Some(PartitionPhysicalSpanObligationV1 {
+            obligation: Some(PartitionCorroborationObligationV1 {
                 owner_partition_id: sides
                     .iter()
                     .find_map(|(&partition_id, sides)| {
