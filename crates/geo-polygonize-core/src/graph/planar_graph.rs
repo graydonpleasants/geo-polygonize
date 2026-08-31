@@ -34,6 +34,7 @@ pub(crate) struct ExtractedRing {
     pub source_line_ids: Vec<u32>,
     /// Component-local deterministic face identity for final ring extraction.
     /// Maximal trace rings are captured before face identities are assigned.
+    #[cfg(any(test, debug_assertions))]
     pub face_id: Option<FaceId>,
     /// Qualified identity once the component-local result is merged.
     pub(crate) face_ref: Option<LocalFaceRef>,
@@ -2150,6 +2151,7 @@ impl PlanarGraph {
             coords,
             line_ids: ids,
             source_line_ids: source_ids,
+            #[cfg(any(test, debug_assertions))]
             face_id,
             face_ref: face_id.map(|face_id| LocalFaceRef {
                 component_id: 0,
@@ -2405,6 +2407,7 @@ impl PlanarGraph {
     }
 
     /// Assigns stable component IDs to nodes incident to active edges.
+    #[cfg(any(test, debug_assertions))]
     pub(crate) fn active_component_ids(&self) -> Vec<Option<usize>> {
         self.active_component_ids_with_execution_policy(None)
             .expect("unlimited component identification cannot fail")

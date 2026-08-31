@@ -4040,6 +4040,8 @@ impl<'a> TiledPolygonizer<'a> {
                 self.execution_policy.max_tile_retry_attempts,
                 attempt,
             )?;
+            // `AtomicUsize::try_update` remains unstable on the Rust 1.87 MSRV.
+            #[allow(deprecated)]
             let observed_attempts = retry_attempt_counter
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |attempts| {
                     attempts.checked_add(1)
