@@ -4252,6 +4252,31 @@ impl<'a> TiledPolygonizer<'a> {
         Ok(result)
     }
 
+    fn stage_retry_snapshot(
+        &self,
+        retry_mosaic: &mut PartitionMosaic,
+        snapshot: &PartitionSnapshotV1,
+        context: &str,
+    ) -> Result<PartitionSnapshotV1> {
+        retry_mosaic
+            .replace_partition(snapshot.clone(), &self.execution_policy)
+            .map_err(|error| match error {
+                PartitionMosaicErrorV1::Polygonize(error) => error,
+                PartitionMosaicErrorV1::PhysicalConflict { .. } => {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: format!("{context}: {error}"),
+                    }
+                }
+            })?;
+        retry_mosaic
+            .partitions
+            .get(&snapshot.partition_id)
+            .cloned()
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: format!("{context}: committed partition snapshot is missing"),
+            })
+    }
+
     fn process_tile_with_retries(
         &self,
         partition_id: usize,
@@ -4260,6 +4285,7 @@ impl<'a> TiledPolygonizer<'a> {
         capture_byte_limit: Option<usize>,
         retry_attempt_counter: &AtomicUsize,
     ) -> Result<TileProcessResult> {
+        let mut retry_mosaic = PartitionMosaic::default();
         let mut buffer = self.buffer;
         let mut result = self.process_tile(
             partition_id,
@@ -4268,6 +4294,11 @@ impl<'a> TiledPolygonizer<'a> {
             buffer,
             0,
             capture_byte_limit,
+        )?;
+        result.12 = self.stage_retry_snapshot(
+            &mut retry_mosaic,
+            &result.12,
+            "initial partition snapshot failed retry staging",
         )?;
         let Some(policy) = self.retry_policy else {
             return Ok(result);
@@ -4309,6 +4340,11 @@ impl<'a> TiledPolygonizer<'a> {
                 buffer,
                 attempt,
                 capture_byte_limit,
+            )?;
+            result.12 = self.stage_retry_snapshot(
+                &mut retry_mosaic,
+                &result.12,
+                "retry partition snapshot rejected",
             )?;
             capture_truncated |= result.5;
             let resolved = !Self::report_is_unresolved(&result.1);
