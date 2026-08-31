@@ -852,8 +852,8 @@ to full partition arrangements rather than polyline edge sets.
   nodes, retaining missing owner partitions as incomplete.
 - [ ] Allow only physically valid, face-qualified claims into global twin,
   successor, component, face, unbounded-face, and extraction gates.
-- [ ] Keep physically valid but topologically ambiguous cases fail-closed and
-  distinct from physical conflicts.
+- [x] Keep physically valid but topologically ambiguous spans fail-closed and
+  distinct from physically incomplete spans and physical conflicts.
 - [ ] Retain full global arrangement, Euler, containment, provenance, Z,
   cancellation, limits, trace, and untiled-equivalence validation.
 
