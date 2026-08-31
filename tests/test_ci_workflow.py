@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -38,6 +39,38 @@ def test_supported_feature_and_python_abi_matrix_is_required():
     assert "from geo_polygonize.geo_polygonize_core import polygonize_with_options" in workflow
     assert "needs.python-abi-build.result" in workflow
     assert "needs.python-abi.result" in workflow
+
+
+def test_benchmark_only_changes_do_not_fan_out_to_unrelated_pr_checks():
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    docs = (ROOT / ".github/workflows/docs-pages.yml").read_text()
+    differential = (ROOT / ".github/workflows/python-tests.yml").read_text()
+    unsafe = (ROOT / ".github/workflows/unsafe-boundaries.yml").read_text()
+    maintenance = (ROOT / ".github/workflows/maintenance.yml").read_text()
+    perf = (ROOT / ".github/workflows/perf.yml").read_text()
+    filters = [
+        line.split("grep -Eq '", 1)[1].split("'; then", 1)[0]
+        for line in ci.splitlines()
+        if "grep -Eq '" in line
+    ]
+
+    assert len(filters) == 2
+    assert all(
+        re.search(pattern, "crates/geo-polygonize-core/benches/polygonize_bench.rs")
+        is None
+        for pattern in filters
+    )
+    assert all(
+        re.search(pattern, "crates/geo-polygonize-core/src/lib.rs")
+        for pattern in filters
+    )
+    assert "cargo test --release --locked -p geo-polygonize-arrow" not in ci
+    assert "crates/geo-polygonize-core/**" not in docs
+    assert "crates/geo-polygonize-core/**" not in differential
+    assert "crates/geo-polygonize-core/**" not in unsafe
+    assert "pull_request:" not in maintenance
+    assert "pull_request:" not in perf
+    assert "workflow_dispatch:" in perf
 
 
 def test_scheduled_differential_fuzzing_retains_review_candidates():

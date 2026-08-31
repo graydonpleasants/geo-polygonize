@@ -10,19 +10,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/maintenance.yml'
-  pull_request:
-    branches:
-      - main
-      - develop
-    paths:
-      - 'crates/geo-polygonize-core/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/maintenance.yml'
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -57,14 +47,12 @@ jobs:
           pip install Shapely==2.1.2 numpy==2.3.2
 
       - name: Set up Node.js
-        if: github.event_name != 'pull_request'
         uses: actions/setup-node@v4
         with:
           node-version: '22.17.1'
           cache: 'npm'
 
       - name: Install Wasm tools
-        if: github.event_name != 'pull_request'
         run: npm install -g wasm-pack@0.13.1
 
       - name: Run Benchmarks
@@ -78,12 +66,5 @@ jobs:
       - name: Generate Benchmark Report
         run: python3 crates/geo-polygonize-core/benches/compare_results.py > benchmark_report.md
 
-      - name: Comment on PR
-        if: github.event_name == 'pull_request' && hashFiles('benchmark_report.md') != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr comment ${{ github.event.pull_request.number }} --edit-last --create-if-none --body-file benchmark_report.md
-
       - name: Add report to workflow summary
-        if: github.event_name != 'pull_request'
         run: cat benchmark_report.md >> "$GITHUB_STEP_SUMMARY"

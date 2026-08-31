@@ -7,7 +7,8 @@ on:
       - ".github/workflows/python-tests.yml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "crates/geo-polygonize-core/**"
+      - "crates/geo-polygonize-core/Cargo.toml"
+      - "crates/geo-polygonize-core/src/**"
       - "tests/differential_shapely.py"
   pull_request:
     branches: [ "main" ]
@@ -15,7 +16,8 @@ on:
       - ".github/workflows/python-tests.yml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "crates/geo-polygonize-core/**"
+      - "crates/geo-polygonize-core/Cargo.toml"
+      - "crates/geo-polygonize-core/src/**"
       - "tests/differential_shapely.py"
 
 concurrency:

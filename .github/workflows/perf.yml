@@ -1,16 +1,8 @@
 name: Performance Tracking
 
 on:
+  workflow_dispatch:
   push:
-    branches:
-      - main
-      - develop
-    paths:
-      - '.github/workflows/perf.yml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/geo-polygonize-core/**'
-  pull_request:
     branches:
       - main
       - develop

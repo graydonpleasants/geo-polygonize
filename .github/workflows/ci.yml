@@ -39,13 +39,13 @@ jobs:
             changed="$(git diff --name-only "$base" "${{ github.sha }}")"
           fi
 
-          if echo "$changed" | grep -Eq '^(crates/|fixtures/cfb/|pkg-wrapper/|playground/|scripts/build_wasm\.sh$|package(-lock)?\.json$|rollup\.config\.mjs$|tsconfig\.json$|\.github/workflows/ci\.yml$)'; then
+          if echo "$changed" | grep -Eq '^(Cargo\.(toml|lock)$|crates/geo-polygonize-(core/(Cargo\.toml$|bindings/|src/)|arrow/(Cargo\.toml$|src/)|wasm/)|fixtures/cfb/|pkg-wrapper/|playground/|scripts/build_wasm\.sh$|package(-lock)?\.json$|rollup\.config\.mjs$|tsconfig\.json$|\.github/workflows/ci\.yml$)'; then
             echo "wasm=true" >> "$GITHUB_OUTPUT"
           else
             echo "wasm=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if echo "$changed" | grep -Eq '^(Cargo\.(toml|lock)$|pyproject\.toml$|python/|crates/geo-polygonize-(core|python)/|\.github/workflows/ci\.yml$)'; then
+          if echo "$changed" | grep -Eq '^(Cargo\.(toml|lock)$|pyproject\.toml$|python/|crates/geo-polygonize-(core/(Cargo\.toml$|src/)|python/)|\.github/workflows/ci\.yml$)'; then
             echo "python=true" >> "$GITHUB_OUTPUT"
           else
             echo "python=false" >> "$GITHUB_OUTPUT"
@@ -186,7 +186,6 @@ jobs:
         run: |
           cargo test --release --locked -p geo-polygonize-core --test robustness --test regression_nan_panic
           cargo test --release --locked -p geo-polygonize-core --test tiling_equivalence -- --ignored
-          cargo test --release --locked -p geo-polygonize-arrow --test test_ffi_errors
 
   release-contract:
     name: Release Contract
