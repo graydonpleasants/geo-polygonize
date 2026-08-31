@@ -7,8 +7,13 @@ on:
   pull_request:
     paths:
       - ".github/workflows/unsafe-boundaries.yml"
-      - "crates/geo-polygonize-core/**"
-      - "crates/geo-polygonize-arrow/**"
+      - "crates/geo-polygonize-core/Cargo.toml"
+      - "crates/geo-polygonize-core/src/**"
+      - "crates/geo-polygonize-core/tests/execution_policy.rs"
+      - "crates/geo-polygonize-arrow/Cargo.toml"
+      - "crates/geo-polygonize-arrow/src/**"
+      - "crates/geo-polygonize-arrow/tests/arrow_integration.rs"
+      - "crates/geo-polygonize-arrow/tests/test_ffi_errors.rs"
       - "tests/test_ci_workflow.py"
 
 permissions:
