@@ -4241,7 +4241,7 @@ mod tests {
         let result = serial.polygonize().unwrap();
         let snapshot = &result.partition_snapshots[0];
 
-        assert_eq!(snapshot.schema_version, 12);
+        assert_eq!(snapshot.schema_version, 13);
         snapshot.validate_for_mosaic().unwrap();
         assert_eq!(snapshot.partition_id, 0);
         assert_eq!(snapshot.selected_input_geometry_indices, vec![0]);
@@ -4353,6 +4353,7 @@ mod tests {
         let mut corroborating = independent.clone();
         corroborating.partition_id = 1;
         for observation in &mut corroborating.atomic_observations {
+            observation.observation_id.partition_id = 1;
             if let Some(face_ref) = &mut observation.face_ref {
                 face_ref[0] = 1;
             }
@@ -4434,6 +4435,35 @@ mod tests {
             .iter()
             .any(|evidence| {
                 evidence.status == crate::tiling::PartitionBoundaryNodeObligationStatusV1::Conflict
+            }));
+        assert!(mosaic.topology_span_evidence().iter().all(|evidence| {
+            evidence.status == crate::tiling::PartitionTopologySpanStatusV1::Ambiguous
+                && evidence.ready_observation_ids.is_empty()
+        }));
+
+        let mut ready_snapshots = [independent.clone(), mosaic.partitions[&1].clone()];
+        for snapshot in &mut ready_snapshots {
+            let mut retained_spans = BTreeSet::new();
+            snapshot.atomic_observations.retain(|observation| {
+                observation.face_ref.is_some()
+                    && retained_spans.insert(
+                        crate::tiling::PartitionPhysicalSpanKeyV1::from_observation(observation)
+                            .unwrap(),
+                    )
+            });
+        }
+        let mut ready_mosaic = crate::tiling::PartitionMosaic::default();
+        for snapshot in ready_snapshots {
+            ready_mosaic
+                .replace_partition(snapshot, &ExecutionPolicy::default())
+                .unwrap();
+        }
+        assert!(ready_mosaic
+            .topology_span_evidence()
+            .iter()
+            .all(|evidence| {
+                evidence.status == crate::tiling::PartitionTopologySpanStatusV1::Ready
+                    && evidence.ready_observation_ids.len() == 2
             }));
         let mut source_conflict = mosaic.partitions[&1].clone();
         source_conflict.atomic_observations[0]

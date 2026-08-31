@@ -67,7 +67,7 @@ type CanonicalPolygonOutputKey = (
     Option<(Vec<u64>, Option<String>)>,
 );
 
-const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 12;
+const PARTITION_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 13;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionSourceSegmentV1 {
@@ -298,6 +298,7 @@ fn partition_noded_segments(
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct PartitionAtomicObservationV1 {
+    pub(crate) observation_id: PartitionBorderObservationIdV1,
     pub(crate) from_xy_bits: [u64; 2],
     pub(crate) to_xy_bits: [u64; 2],
     pub(crate) from_z_bits: u64,
@@ -351,6 +352,7 @@ fn partition_atomic_observations(
             source_line_ids.sort_unstable();
             source_line_ids.dedup();
             PartitionAtomicObservationV1 {
+                observation_id: partition_border_observation_id(observation.observation_id()),
                 from_xy_bits: observation.from.xy_bits(),
                 to_xy_bits: observation.to.xy_bits(),
                 from_z_bits: observation.from_z_bits,
@@ -697,9 +699,10 @@ impl PartitionSnapshotV1 {
         }
         let partition_id = self.partition_id;
         let has_foreign_partition = self.atomic_observations.iter().any(|observation| {
-            observation
-                .face_ref
-                .is_some_and(|face| face[0] != partition_id)
+            observation.observation_id.partition_id != partition_id
+                || observation
+                    .face_ref
+                    .is_some_and(|face| face[0] != partition_id)
                 || observation
                     .local_face_boundary_successor
                     .is_some_and(|successor| successor.partition_id != partition_id)
@@ -985,6 +988,22 @@ pub(crate) struct PartitionPhysicalSpanEvidenceV1 {
     pub(crate) witness: Option<PartitionPhysicalSpanWitnessV1>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionTopologySpanStatusV1 {
+    Ready,
+    Ambiguous,
+    PhysicallyIncomplete,
+    PhysicalConflict,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionTopologySpanEvidenceV1 {
+    pub(crate) span: PartitionPhysicalSpanKeyV1,
+    pub(crate) status: PartitionTopologySpanStatusV1,
+    pub(crate) ready_observation_ids: Vec<PartitionBorderObservationIdV1>,
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum PartitionMosaicErrorV1 {
     #[error(transparent)]
@@ -1101,6 +1120,50 @@ impl PartitionMosaic {
 
     fn physical_span_evidence(&self) -> Vec<PartitionPhysicalSpanEvidenceV1> {
         Self::physical_span_evidence_from(&self.physical_spans)
+    }
+
+    fn topology_span_evidence(&self) -> Vec<PartitionTopologySpanEvidenceV1> {
+        self.physical_spans
+            .iter()
+            .map(|(&span, claims)| {
+                let physical = Self::classify_physical_span(span, claims);
+                let ready_observation_ids = claims
+                    .iter()
+                    .filter(|claim| {
+                        claim
+                            .observation
+                            .face_ref
+                            .is_some_and(|face_ref| face_ref[0] == claim.partition_id)
+                    })
+                    .map(|claim| claim.observation.observation_id)
+                    .collect::<Vec<_>>();
+                let status = match physical.status {
+                    PartitionPhysicalSpanStatusV1::Incomplete => {
+                        PartitionTopologySpanStatusV1::PhysicallyIncomplete
+                    }
+                    PartitionPhysicalSpanStatusV1::Conflict => {
+                        PartitionTopologySpanStatusV1::PhysicalConflict
+                    }
+                    PartitionPhysicalSpanStatusV1::Valid
+                        if claims.len() == 2 && ready_observation_ids.len() == 2 =>
+                    {
+                        PartitionTopologySpanStatusV1::Ready
+                    }
+                    PartitionPhysicalSpanStatusV1::Valid => {
+                        PartitionTopologySpanStatusV1::Ambiguous
+                    }
+                };
+                PartitionTopologySpanEvidenceV1 {
+                    span,
+                    status,
+                    ready_observation_ids: if status == PartitionTopologySpanStatusV1::Ready {
+                        ready_observation_ids
+                    } else {
+                        Vec::new()
+                    },
+                }
+            })
+            .collect()
     }
 
     fn boundary_node_obligation_evidence(
