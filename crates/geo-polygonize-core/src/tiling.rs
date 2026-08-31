@@ -911,6 +911,18 @@ pub(crate) enum PartitionPhysicalSpanStatusV1 {
     Conflict,
 }
 
+/// Deterministic corroboration ownership for one shared physical span.
+///
+/// Partition cores use half-open minimum-inclusive bounds for shared-border
+/// obligations: a vertical span belongs to the partition observing `MinX`, and
+/// a horizontal span belongs to the partition observing `MinY`. This only
+/// identifies which partition must supply evidence; it never selects output.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct PartitionPhysicalSpanObligationV1 {
+    pub(crate) owner_partition_id: usize,
+    pub(crate) corroborating_partition_ids: Vec<usize>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PartitionPhysicalSpanPayloadClassV1 {
@@ -934,6 +946,7 @@ pub(crate) struct PartitionPhysicalSpanWitnessV1 {
 pub(crate) struct PartitionPhysicalSpanEvidenceV1 {
     pub(crate) span: PartitionPhysicalSpanKeyV1,
     pub(crate) status: PartitionPhysicalSpanStatusV1,
+    pub(crate) obligation: Option<PartitionPhysicalSpanObligationV1>,
     pub(crate) witness: Option<PartitionPhysicalSpanWitnessV1>,
 }
 
@@ -1077,6 +1090,7 @@ impl PartitionMosaic {
         let evidence = |status, payload_class| PartitionPhysicalSpanEvidenceV1 {
             span,
             status,
+            obligation: None,
             witness: Some(PartitionPhysicalSpanWitnessV1 {
                 span,
                 partition_ids: partition_ids.clone(),
@@ -1168,6 +1182,24 @@ impl PartitionMosaic {
         PartitionPhysicalSpanEvidenceV1 {
             span,
             status: PartitionPhysicalSpanStatusV1::Valid,
+            obligation: Some(PartitionPhysicalSpanObligationV1 {
+                owner_partition_id: sides
+                    .iter()
+                    .find_map(|(&partition_id, sides)| {
+                        sides
+                            .iter()
+                            .any(|side| matches!(side, 0 | 2))
+                            .then_some(partition_id)
+                    })
+                    .expect("complementary span has one half-open owner"),
+                corroborating_partition_ids: partition_ids
+                    .iter()
+                    .copied()
+                    .filter(|partition_id| {
+                        !sides[partition_id].iter().any(|side| matches!(side, 0 | 2))
+                    })
+                    .collect(),
+            }),
             witness: None,
         }
     }

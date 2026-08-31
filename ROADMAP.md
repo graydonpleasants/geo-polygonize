@@ -845,8 +845,10 @@ to full partition arrangements rather than polyline edge sets.
 - [x] Classify physical spans as `valid`, `incomplete`, or `conflict`, with typed
   witnesses naming partitions, coordinates, claim multiplicity, and payload
   class.
-- [ ] Define deterministic core-ownership/corroboration obligations without
-  using ownership to select final polygon output.
+- [x] Define deterministic half-open core-ownership/corroboration obligations
+  for shared physical spans without using ownership to select final polygon
+  output.
+- [ ] Extend the same explicit obligation evidence to shared corner nodes.
 - [ ] Allow only physically valid, face-qualified claims into global twin,
   successor, component, face, unbounded-face, and extraction gates.
 - [ ] Keep physically valid but topologically ambiguous cases fail-closed and
