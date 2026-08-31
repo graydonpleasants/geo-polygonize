@@ -4923,6 +4923,53 @@ mod tests {
             assert_eq!(snapshot.execution.max_tiles, Some(2));
             snapshot.validate_for_mosaic().unwrap();
         }
+
+        let mut mosaic = crate::tiling::PartitionMosaic::default();
+        mosaic
+            .replace_partition(
+                result.partition_snapshots[0].clone(),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+        let before_incompatible = mosaic.fingerprint_sha256();
+        let mut domain_mismatch = result.partition_snapshots[1].clone();
+        domain_mismatch.ownership_domain_max.x = "0x4008000000000000".to_string();
+        assert!(matches!(
+            mosaic.replace_partition(domain_mismatch, &ExecutionPolicy::default()),
+            Err(
+                crate::tiling::PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    reason: "ownership domain differs from existing mosaic",
+                    ..
+                }
+            )
+        ));
+        assert_eq!(mosaic.fingerprint_sha256(), before_incompatible);
+
+        let mut adjacency_mismatch = result.partition_snapshots[1].clone();
+        adjacency_mismatch.declared_adjacencies.clear();
+        assert!(matches!(
+            mosaic.replace_partition(adjacency_mismatch, &ExecutionPolicy::default()),
+            Err(
+                crate::tiling::PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    reason: "declared adjacency has no reciprocal snapshot evidence",
+                    ..
+                }
+            )
+        ));
+        assert_eq!(mosaic.fingerprint_sha256(), before_incompatible);
+
+        let mut options_mismatch = result.partition_snapshots[1].clone();
+        options_mismatch.topology.options = serde_json::json!({"mismatch": true});
+        assert!(matches!(
+            mosaic.replace_partition(options_mismatch, &ExecutionPolicy::default()),
+            Err(
+                crate::tiling::PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    reason: "semantic options differ from existing mosaic",
+                    ..
+                }
+            )
+        ));
+        assert_eq!(mosaic.fingerprint_sha256(), before_incompatible);
     }
 
     #[test]

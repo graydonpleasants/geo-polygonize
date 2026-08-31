@@ -1247,6 +1247,11 @@ pub(crate) enum PartitionMosaicErrorV1 {
     PhysicalConflict {
         witness: PartitionPhysicalSpanWitnessV1,
     },
+    #[error("partition mosaic snapshot {partition_id} is incompatible: {reason}")]
+    IncompatibleSnapshot {
+        partition_id: usize,
+        reason: &'static str,
+    },
 }
 
 type PartitionMosaicResultV1<T> = std::result::Result<T, PartitionMosaicErrorV1>;
@@ -1260,6 +1265,48 @@ pub(crate) struct PartitionMosaic {
 
 #[allow(dead_code)]
 impl PartitionMosaic {
+    fn validate_snapshot_context(
+        partitions: &BTreeMap<usize, PartitionSnapshotV1>,
+    ) -> PartitionMosaicResultV1<()> {
+        let Some((_, reference)) = partitions.iter().next() else {
+            return Ok(());
+        };
+        for (&partition_id, snapshot) in partitions {
+            if snapshot.ownership_domain_min != reference.ownership_domain_min
+                || snapshot.ownership_domain_max != reference.ownership_domain_max
+            {
+                return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    partition_id,
+                    reason: "ownership domain differs from existing mosaic",
+                });
+            }
+            if snapshot.topology.options != reference.topology.options {
+                return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    partition_id,
+                    reason: "semantic options differ from existing mosaic",
+                });
+            }
+            for adjacency in &snapshot.declared_adjacencies {
+                let Some(neighbor) = partitions.get(&adjacency.neighbor_partition_id) else {
+                    continue;
+                };
+                let reciprocal = neighbor.declared_adjacencies.iter().any(|candidate| {
+                    candidate.neighbor_partition_id == partition_id
+                        && candidate.side == adjacency.neighbor_side
+                        && candidate.neighbor_side == adjacency.side
+                        && candidate.coordinate_bits == adjacency.coordinate_bits
+                });
+                if !reciprocal {
+                    return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                        partition_id,
+                        reason: "declared adjacency has no reciprocal snapshot evidence",
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn replace_partition(
         &mut self,
         snapshot: PartitionSnapshotV1,
@@ -1281,6 +1328,7 @@ impl PartitionMosaic {
         }
         let mut staged_partitions = self.partitions.clone();
         let replaced_existing = staged_partitions.insert(partition_id, snapshot).is_some();
+        Self::validate_snapshot_context(&staged_partitions)?;
         let staged_physical_spans = Self::physical_spans(&staged_partitions, execution_policy)?;
         if let Some(witness) = Self::physical_span_evidence_from(&staged_physical_spans)
             .into_iter()
@@ -4267,6 +4315,11 @@ impl<'a> TiledPolygonizer<'a> {
                         reason: format!("{context}: {error}"),
                     }
                 }
+                PartitionMosaicErrorV1::IncompatibleSnapshot { .. } => {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: format!("{context}: {error}"),
+                    }
+                }
             })?;
         retry_mosaic
             .partitions
@@ -5337,6 +5390,13 @@ impl<'a> TiledPolygonizer<'a> {
                 .map_err(|error| match error {
                     PartitionMosaicErrorV1::Polygonize(error) => error,
                     error @ PartitionMosaicErrorV1::PhysicalConflict { .. } => {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "generated partition snapshot failed mosaic staging: {error}"
+                            ),
+                        }
+                    }
+                    error @ PartitionMosaicErrorV1::IncompatibleSnapshot { .. } => {
                         PolygonizeError::InternalInvariantViolation {
                             reason: format!(
                                 "generated partition snapshot failed mosaic staging: {error}"
