@@ -831,7 +831,10 @@ to full partition arrangements rather than polyline edge sets.
 - [ ] Define an immutable versioned `PartitionSnapshotV1` containing local graph,
   face, border, source, representative-ID, Z, non-polygon, options, and execution
   evidence. Snapshot staging now rejects unsupported schema revisions and mixed
-  partition lineage before shared mosaic state can be mutated.
+  partition lineage before shared mosaic state can be mutated. Semantic options
+  are retained by the topology fingerprint, and canonical halo/retry generation
+  evidence is retained; declared-adjacency, ownership-domain, and execution-policy
+  evidence remain.
 - [x] Add atomic `replace_partition` and `purge_partition` operations; rejection
   preserves the previous deterministic mosaic fingerprint exactly, including
   typed physical-span conflicts discovered in staged shared evidence.
