@@ -4313,7 +4313,7 @@ mod tests {
             Some("partition-oracle-v1")
         );
         let independent = serial
-            .process_one_partition(0, bbox, serial.buffer, 0)
+            .process_one_partition(0, bbox, &[bbox], serial.buffer, 0)
             .unwrap();
         assert_eq!(snapshot, &independent);
         assert_eq!(snapshot.diff(&independent), None);
@@ -5004,9 +5004,14 @@ mod tests {
             15
         );
 
+        let tiles = result
+            .tile_reports
+            .iter()
+            .map(|report| report.tile_bbox)
+            .collect::<Vec<_>>();
         for (partition_id, report) in result.tile_reports.iter().enumerate() {
             let independent = tiled
-                .process_one_partition(partition_id, report.tile_bbox, tiled.buffer, 0)
+                .process_one_partition(partition_id, report.tile_bbox, &tiles, tiled.buffer, 0)
                 .unwrap();
             assert_eq!(
                 result.partition_snapshots[partition_id], independent,
@@ -5082,6 +5087,7 @@ mod tests {
         let bulk_error = match tiled.process_tile_with_retries(
             0,
             bbox,
+            &[bbox],
             &components,
             None,
             &std::sync::atomic::AtomicUsize::new(0),
@@ -5090,7 +5096,7 @@ mod tests {
             Err(error) => error,
         };
         let independent_error = tiled
-            .process_one_partition(0, bbox, tiled.buffer, 0)
+            .process_one_partition(0, bbox, &[bbox], tiled.buffer, 0)
             .unwrap_err();
         let bulk = crate::fingerprint::normalize_polygonize_error(&bulk_error);
         let independent = crate::fingerprint::normalize_polygonize_error(&independent_error);
@@ -6482,7 +6488,7 @@ mod tests {
         });
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[], 0.0, 0, None),
+            tiled.process_tile(0, bbox, &[bbox], &[], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -6510,7 +6516,7 @@ mod tests {
         }
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[], 0.0, 0, None),
+            tiled.process_tile(0, bbox, &[bbox], &[], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
@@ -6537,7 +6543,7 @@ mod tests {
         };
 
         assert!(matches!(
-            tiled.process_tile(0, bbox, &[component], 0.0, 0, None),
+            tiled.process_tile(0, bbox, &[bbox], &[component], 0.0, 0, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "tile_processing"
         ));
     }
