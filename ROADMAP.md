@@ -848,7 +848,8 @@ to full partition arrangements rather than polyline edge sets.
 - [x] Define deterministic half-open core-ownership/corroboration obligations
   for shared physical spans without using ownership to select final polygon
   output.
-- [ ] Extend the same explicit obligation evidence to shared corner nodes.
+- [x] Extend the same explicit half-open obligation evidence to shared corner
+  nodes, retaining missing owner partitions as incomplete.
 - [ ] Allow only physically valid, face-qualified claims into global twin,
   successor, component, face, unbounded-face, and extraction gates.
 - [ ] Keep physically valid but topologically ambiguous cases fail-closed and
