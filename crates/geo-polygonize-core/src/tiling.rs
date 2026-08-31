@@ -1247,6 +1247,11 @@ pub(crate) enum PartitionMosaicErrorV1 {
     PhysicalConflict {
         witness: PartitionPhysicalSpanWitnessV1,
     },
+    #[error("partition mosaic snapshot {partition_id} is incompatible: {reason}")]
+    IncompatibleSnapshot {
+        partition_id: usize,
+        reason: &'static str,
+    },
 }
 
 type PartitionMosaicResultV1<T> = std::result::Result<T, PartitionMosaicErrorV1>;
@@ -1260,6 +1265,48 @@ pub(crate) struct PartitionMosaic {
 
 #[allow(dead_code)]
 impl PartitionMosaic {
+    fn validate_snapshot_context(
+        partitions: &BTreeMap<usize, PartitionSnapshotV1>,
+    ) -> PartitionMosaicResultV1<()> {
+        let Some((_, reference)) = partitions.iter().next() else {
+            return Ok(());
+        };
+        for (&partition_id, snapshot) in partitions {
+            if snapshot.ownership_domain_min != reference.ownership_domain_min
+                || snapshot.ownership_domain_max != reference.ownership_domain_max
+            {
+                return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    partition_id,
+                    reason: "ownership domain differs from existing mosaic",
+                });
+            }
+            if snapshot.topology.options != reference.topology.options {
+                return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                    partition_id,
+                    reason: "semantic options differ from existing mosaic",
+                });
+            }
+            for adjacency in &snapshot.declared_adjacencies {
+                let Some(neighbor) = partitions.get(&adjacency.neighbor_partition_id) else {
+                    continue;
+                };
+                let reciprocal = neighbor.declared_adjacencies.iter().any(|candidate| {
+                    candidate.neighbor_partition_id == partition_id
+                        && candidate.side == adjacency.neighbor_side
+                        && candidate.neighbor_side == adjacency.side
+                        && candidate.coordinate_bits == adjacency.coordinate_bits
+                });
+                if !reciprocal {
+                    return Err(PartitionMosaicErrorV1::IncompatibleSnapshot {
+                        partition_id,
+                        reason: "declared adjacency has no reciprocal snapshot evidence",
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn replace_partition(
         &mut self,
         snapshot: PartitionSnapshotV1,
@@ -1281,6 +1328,7 @@ impl PartitionMosaic {
         }
         let mut staged_partitions = self.partitions.clone();
         let replaced_existing = staged_partitions.insert(partition_id, snapshot).is_some();
+        Self::validate_snapshot_context(&staged_partitions)?;
         let staged_physical_spans = Self::physical_spans(&staged_partitions, execution_policy)?;
         if let Some(witness) = Self::physical_span_evidence_from(&staged_physical_spans)
             .into_iter()
@@ -3499,6 +3547,7 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        tiles: &[Rect<f64>],
         buffer: f64,
         retry_attempt: usize,
     ) -> Result<PartitionSnapshotV1> {
@@ -3520,7 +3569,7 @@ impl<'a> TiledPolygonizer<'a> {
         }
         let selected_source_segments =
             partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
-        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox, tiles)?;
         if selected_input_geometry_indices.is_empty() {
             return PartitionSnapshotV1::from_result(
                 partition_id,
@@ -3578,10 +3627,12 @@ impl<'a> TiledPolygonizer<'a> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn process_tile(
         &self,
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        tiles: &[Rect<f64>],
         input_components: &[InputComponent],
         buffer: f64,
         retry_attempt: usize,
@@ -3621,7 +3672,7 @@ impl<'a> TiledPolygonizer<'a> {
         }
         let selected_source_segments =
             partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
-        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox, tiles)?;
         let input_boundary_geometry_indices = input_boundary_issues
             .iter()
             .map(|issue| issue.input_geometry_index)
@@ -4267,6 +4318,11 @@ impl<'a> TiledPolygonizer<'a> {
                         reason: format!("{context}: {error}"),
                     }
                 }
+                PartitionMosaicErrorV1::IncompatibleSnapshot { .. } => {
+                    PolygonizeError::InternalInvariantViolation {
+                        reason: format!("{context}: {error}"),
+                    }
+                }
             })?;
         retry_mosaic
             .partitions
@@ -4281,6 +4337,7 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        tiles: &[Rect<f64>],
         input_components: &[InputComponent],
         capture_byte_limit: Option<usize>,
         retry_attempt_counter: &AtomicUsize,
@@ -4290,6 +4347,7 @@ impl<'a> TiledPolygonizer<'a> {
         let mut result = self.process_tile(
             partition_id,
             tile_bbox,
+            tiles,
             input_components,
             buffer,
             0,
@@ -4336,6 +4394,7 @@ impl<'a> TiledPolygonizer<'a> {
             result = self.process_tile(
                 partition_id,
                 tile_bbox,
+                tiles,
                 input_components,
                 buffer,
                 attempt,
@@ -4480,10 +4539,10 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        tiles: &[Rect<f64>],
     ) -> Result<Vec<PartitionDeclaredAdjacencyV1>> {
-        let tiles = self.generate_tiles()?;
         let mut adjacencies = Vec::new();
-        for (neighbor_partition_id, neighbor_bbox) in tiles.into_iter().enumerate() {
+        for (neighbor_partition_id, neighbor_bbox) in tiles.iter().copied().enumerate() {
             if neighbor_partition_id == partition_id {
                 continue;
             }
@@ -4858,6 +4917,11 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         result: &TiledPolygonizeResult,
     ) -> Result<Option<PartitionOracleDifferenceV1>> {
+        let tiles = result
+            .tile_reports
+            .iter()
+            .map(|report| report.tile_bbox)
+            .collect::<Vec<_>>();
         for (partition_id, report) in result.tile_reports.iter().enumerate() {
             let expected = result
                 .partition_snapshots
@@ -4868,6 +4932,7 @@ impl<'a> TiledPolygonizer<'a> {
             let actual = self.process_one_partition(
                 partition_id,
                 report.tile_bbox,
+                &tiles,
                 f64::from_bits(expected.generation.buffer_bits),
                 expected.generation.retry_attempt,
             )?;
@@ -4948,10 +5013,11 @@ impl<'a> TiledPolygonizer<'a> {
                 let independent_snapshot = self.process_router_partition(
                     partition_id,
                     tiles[partition_id],
+                    &tiles,
                     &independent_sink,
                 )?;
                 let routed_snapshot =
-                    self.process_router_partition(partition_id, tiles[partition_id], sink)?;
+                    self.process_router_partition(partition_id, tiles[partition_id], &tiles, sink)?;
                 if let Some(diff) = independent_snapshot.diff(&routed_snapshot) {
                     routed_local_snapshot_difference = Some(PartitionOracleDifferenceV1 {
                         partition_id,
@@ -4994,6 +5060,7 @@ impl<'a> TiledPolygonizer<'a> {
         &self,
         partition_id: usize,
         tile_bbox: Rect<f64>,
+        tiles: &[Rect<f64>],
         source_segments: &PartitionSourceSegmentSink,
     ) -> Result<PartitionSnapshotV1> {
         self.execution_policy
@@ -5019,7 +5086,7 @@ impl<'a> TiledPolygonizer<'a> {
             boundary_noded_segments,
         ) = local_poly
             .polygonize_with_partition_border_export_and_stats(partition_id, tile_bbox)?;
-        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox)?;
+        let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox, tiles)?;
         PartitionSnapshotV1::from_result(
             partition_id,
             tile_bbox,
@@ -5140,6 +5207,7 @@ impl<'a> TiledPolygonizer<'a> {
         let mut partition_snapshots = Vec::with_capacity(tiles.len());
         let mut partition_border_graph = PartitionBorderGraph::default();
         let mut partition_border_local_face_graphs = Vec::new();
+        let tile_layout = tiles.clone();
         if trace_ownership {
             for (tile_index, tile) in tiles.into_iter().enumerate() {
                 let capture_byte_limit = trace.as_ref().and_then(|trace| {
@@ -5164,6 +5232,7 @@ impl<'a> TiledPolygonizer<'a> {
                 ) = self.process_tile_with_retries(
                     tile_index,
                     tile,
+                    &tile_layout,
                     input_components,
                     capture_byte_limit,
                     &retry_attempt_counter,
@@ -5257,6 +5326,7 @@ impl<'a> TiledPolygonizer<'a> {
                                 self.process_tile_with_retries(
                                     tile_index,
                                     tile,
+                                    &tile_layout,
                                     input_components,
                                     None,
                                     &retry_attempt_counter,
@@ -5272,6 +5342,7 @@ impl<'a> TiledPolygonizer<'a> {
                             self.process_tile_with_retries(
                                 tile_index,
                                 tile,
+                                &tile_layout,
                                 input_components,
                                 None,
                                 &retry_attempt_counter,
@@ -5287,6 +5358,7 @@ impl<'a> TiledPolygonizer<'a> {
                     self.process_tile_with_retries(
                         tile_index,
                         tile,
+                        &tile_layout,
                         input_components,
                         None,
                         &retry_attempt_counter,
@@ -5337,6 +5409,13 @@ impl<'a> TiledPolygonizer<'a> {
                 .map_err(|error| match error {
                     PartitionMosaicErrorV1::Polygonize(error) => error,
                     error @ PartitionMosaicErrorV1::PhysicalConflict { .. } => {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "generated partition snapshot failed mosaic staging: {error}"
+                            ),
+                        }
+                    }
+                    error @ PartitionMosaicErrorV1::IncompatibleSnapshot { .. } => {
                         PolygonizeError::InternalInvariantViolation {
                             reason: format!(
                                 "generated partition snapshot failed mosaic staging: {error}"
