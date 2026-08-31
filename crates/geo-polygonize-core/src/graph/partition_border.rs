@@ -1898,8 +1898,9 @@ impl PartitionBorderGraph {
         self.edges.len()
     }
 
-    fn normalized_edges(
+    fn normalized_edges_for(
         &self,
+        eligible_observation_ids: Option<&BTreeSet<PartitionBorderObservationId>>,
     ) -> BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>> {
         let mut edges =
             BTreeMap::<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>::new();
@@ -1908,15 +1909,17 @@ impl PartitionBorderGraph {
                 .observations
                 .values()
                 .filter(|observation| {
-                    adjacency.matches_observation(
-                        observation,
-                        adjacency.first_partition_id,
-                        adjacency.first_side,
-                    ) || adjacency.matches_observation(
-                        observation,
-                        adjacency.second_partition_id,
-                        adjacency.second_side,
-                    )
+                    eligible_observation_ids
+                        .is_none_or(|eligible| eligible.contains(&observation.observation_id()))
+                        && (adjacency.matches_observation(
+                            observation,
+                            adjacency.first_partition_id,
+                            adjacency.first_side,
+                        ) || adjacency.matches_observation(
+                            observation,
+                            adjacency.second_partition_id,
+                            adjacency.second_side,
+                        ))
                 })
                 .collect::<Vec<_>>();
             let coordinate_index = adjacency.first_side.coordinate_index();
@@ -1961,6 +1964,12 @@ impl PartitionBorderGraph {
             }
         }
         edges
+    }
+
+    fn normalized_edges(
+        &self,
+    ) -> BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>> {
+        self.normalized_edges_for(None)
     }
 
     fn twin_pairs_from_edges(
@@ -2070,12 +2079,29 @@ impl PartitionBorderGraph {
     /// resulting links are retained on this exported graph for later global
     /// arrangement work; no local adjacency, output polygon, or Z policy is
     /// mutated here.
+    #[cfg(test)]
     pub(crate) fn apply_unambiguous_face_twins(
         &mut self,
         execution_policy: &ExecutionPolicy,
     ) -> crate::Result<PartitionBorderTwinApplicationStats> {
+        self.apply_face_twins(None, execution_policy)
+    }
+
+    pub(crate) fn apply_topology_ready_face_twins(
+        &mut self,
+        eligible_observation_ids: &BTreeSet<PartitionBorderObservationId>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderTwinApplicationStats> {
+        self.apply_face_twins(Some(eligible_observation_ids), execution_policy)
+    }
+
+    fn apply_face_twins(
+        &mut self,
+        eligible_observation_ids: Option<&BTreeSet<PartitionBorderObservationId>>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<PartitionBorderTwinApplicationStats> {
         execution_policy.check_cancelled("partition_border_twin_application")?;
-        let edges = self.normalized_edges();
+        let edges = self.normalized_edges_for(eligible_observation_ids);
         let twins = self.twin_pairs_from_edges(&edges);
         execution_policy.check(
             "partition_border_twin_applications",
@@ -10977,6 +11003,34 @@ mod tests {
         graph.insert(reverse).unwrap();
         graph.insert(forward).unwrap();
         graph
+    }
+
+    #[test]
+    fn topology_ready_gate_excludes_unready_observations() {
+        let mut admitted = exact_face_twin_graph();
+        let ready = admitted
+            .observations
+            .values()
+            .map(PartitionBorderHalfEdge::observation_id)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            admitted
+                .apply_topology_ready_face_twins(&ready, &ExecutionPolicy::default())
+                .unwrap()
+                .applied_twin_count,
+            1
+        );
+
+        let mut excluded = exact_face_twin_graph();
+        let one_ready = ready.into_iter().take(1).collect();
+        assert_eq!(
+            excluded
+                .apply_topology_ready_face_twins(&one_ready, &ExecutionPolicy::default())
+                .unwrap()
+                .applied_twin_count,
+            0
+        );
+        assert!(excluded.applied_face_twins().is_empty());
     }
 
     fn exact_face_twin_graph_with_successors() -> PartitionBorderGraph {

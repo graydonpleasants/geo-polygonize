@@ -850,7 +850,7 @@ to full partition arrangements rather than polyline edge sets.
   output.
 - [x] Extend the same explicit half-open obligation evidence to shared corner
   nodes, retaining missing owner partitions as incomplete.
-- [ ] Allow only physically valid, face-qualified claims into global twin,
+- [x] Allow only physically valid, face-qualified claims into global twin,
   successor, component, face, unbounded-face, and extraction gates.
 - [x] Keep physically valid but topologically ambiguous spans fail-closed and
   distinct from physically incomplete spans and physical conflicts.

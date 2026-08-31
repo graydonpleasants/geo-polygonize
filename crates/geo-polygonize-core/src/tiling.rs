@@ -1,8 +1,8 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::graph::partition_border::{
-    PartitionBorderAdjacency, PartitionBorderGraph, PartitionBorderHalfEdge,
-    PartitionBorderLocalFaceGraph, PartitionBorderObservationId, PartitionBorderSide,
-    PartitionLocalGraphState,
+    PartitionBorderAdjacency, PartitionBorderEdgeKey, PartitionBorderGraph,
+    PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph, PartitionBorderNodeKey,
+    PartitionBorderObservationId, PartitionBorderSide, PartitionLocalGraphState,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -330,6 +330,27 @@ fn partition_border_observation_id(
         local_dir_edge_id: observation_id.local_dir_edge_id,
         edge_start_xy_bits: start.xy_bits(),
         edge_end_xy_bits: end.xy_bits(),
+    }
+}
+
+fn graph_partition_border_observation_id(
+    observation_id: PartitionBorderObservationIdV1,
+) -> PartitionBorderObservationId {
+    let node = |bits: [u64; 2]| {
+        PartitionBorderNodeKey::from_coord(Coord3D::new(
+            f64::from_bits(bits[0]),
+            f64::from_bits(bits[1]),
+            0.0,
+        ))
+    };
+    PartitionBorderObservationId {
+        partition_id: observation_id.partition_id,
+        local_dir_edge_id: observation_id.local_dir_edge_id,
+        edge_key: PartitionBorderEdgeKey::new(
+            node(observation_id.edge_start_xy_bits),
+            node(observation_id.edge_end_xy_bits),
+        )
+        .expect("validated partition snapshot observations are non-degenerate"),
     }
 }
 
@@ -1163,6 +1184,14 @@ impl PartitionMosaic {
                     },
                 }
             })
+            .collect()
+    }
+
+    fn topology_ready_observation_ids(&self) -> BTreeSet<PartitionBorderObservationId> {
+        self.topology_span_evidence()
+            .into_iter()
+            .flat_map(|evidence| evidence.ready_observation_ids)
+            .map(graph_partition_border_observation_id)
             .collect()
     }
 
@@ -5012,9 +5041,28 @@ impl<'a> TiledPolygonizer<'a> {
             partition_border_graph.insert_local_face_graph(local_face_graph)?;
         }
         self.declare_partition_adjacencies(&mut partition_border_graph, &tile_reports)?;
+        let mut partition_mosaic = PartitionMosaic::default();
+        for snapshot in &partition_snapshots {
+            partition_mosaic
+                .replace_partition(snapshot.clone(), &self.execution_policy)
+                .map_err(|error| match error {
+                    PartitionMosaicErrorV1::Polygonize(error) => error,
+                    error @ PartitionMosaicErrorV1::PhysicalConflict { .. } => {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: format!(
+                                "generated partition snapshot failed mosaic staging: {error}"
+                            ),
+                        }
+                    }
+                })?;
+        }
+        let topology_ready_observation_ids = partition_mosaic.topology_ready_observation_ids();
         let partition_border_reconciliation = partition_border_graph.reconciliation_stats();
-        let partition_border_twin_application =
-            partition_border_graph.apply_unambiguous_face_twins(&self.execution_policy)?;
+        let partition_border_twin_application = partition_border_graph
+            .apply_topology_ready_face_twins(
+                &topology_ready_observation_ids,
+                &self.execution_policy,
+            )?;
         let partition_border_global_face_edge_map =
             partition_border_graph.reconcile_global_face_edge_map(&self.execution_policy)?;
         let partition_border_global_face_nodes = partition_border_graph
