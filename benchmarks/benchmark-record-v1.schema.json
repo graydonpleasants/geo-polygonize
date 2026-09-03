@@ -329,6 +329,9 @@
         }
       }
     },
+    "stitching": {
+      "$ref": "#/$defs/stitchingEvidence"
+    },
     "environment": {
       "type": "object",
       "additionalProperties": false,
@@ -372,6 +375,102 @@
     }
   },
   "$defs": {
+    "stitchingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "correctness_gate", "topology", "measurement"],
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tile_size", "buffer"],
+          "properties": {
+            "tile_size": {"type": "number", "exclusiveMinimum": 0},
+            "buffer": {"type": "number", "minimum": 0}
+          }
+        },
+        "correctness_gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "stitched_output",
+            "untiled_equivalence",
+            "actual_sha256",
+            "reference_sha256"
+          ],
+          "properties": {
+            "status": {"const": "passed"},
+            "stitched_output": {"const": "ready"},
+            "untiled_equivalence": {"const": "equal"},
+            "actual_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "reference_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "polygons",
+            "rings",
+            "dangles",
+            "cut_edges",
+            "invalid_rings",
+            "provenance_sources"
+          ],
+          "properties": {
+            "polygons": {"type": "integer", "minimum": 0},
+            "rings": {"type": "integer", "minimum": 0},
+            "dangles": {"type": "integer", "minimum": 0},
+            "cut_edges": {"type": "integer", "minimum": 0},
+            "invalid_rings": {"type": "integer", "minimum": 0},
+            "provenance_sources": {"type": "integer", "minimum": 0}
+          }
+        },
+        "measurement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p50_ms",
+            "p95_ms",
+            "throughput",
+            "samples",
+            "phase_times_ms",
+            "allocations",
+            "peak_rss_bytes"
+          ],
+          "properties": {
+            "p50_ms": {"type": "number", "minimum": 0},
+            "p95_ms": {"type": "number", "minimum": 0},
+            "throughput": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "unit"],
+              "properties": {
+                "value": {"type": "number", "minimum": 0},
+                "unit": {"type": "string", "minLength": 1}
+              }
+            },
+            "samples": {"type": "integer", "minimum": 1},
+            "phase_times_ms": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {"type": "number", "minimum": 0}
+            },
+            "allocations": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["count", "bytes"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 0},
+                "bytes": {"type": "integer", "minimum": 0}
+              }
+            },
+            "peak_rss_bytes": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
     "partitionRouterDifference": {
       "type": "object",
       "additionalProperties": false,

@@ -127,6 +127,31 @@ def router_record(index, p50=10.0):
     return value
 
 
+def stitching_record(index, p50=20.0):
+    value = record(index)
+    value["stitching"] = {
+        "config": {"tile_size": 10.0, "buffer": 1.0},
+        "correctness_gate": {
+            "status": "passed",
+            "stitched_output": "ready",
+            "untiled_equivalence": "equal",
+            "actual_sha256": "a" * 64,
+            "reference_sha256": "a" * 64,
+        },
+        "topology": value["topology"].copy(),
+        "measurement": {
+            "p50_ms": p50,
+            "p95_ms": p50 + 1,
+            "throughput": {"value": 5, "unit": "input-segments/second"},
+            "samples": 30,
+            "phase_times_ms": {"tiled_polygonize": p50},
+            "allocations": {"count": 2, "bytes": 3},
+            "peak_rss_bytes": 4,
+        },
+    }
+    return value
+
+
 def write_records(tmp_path, records):
     tmp_path.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -252,7 +277,34 @@ def test_partition_router_publication_is_stable_and_dispersion_gated(tmp_path):
     publication_path = tmp_path / "router-publication.json"
     publication_path.write_text(json.dumps(publication))
     dashboard = TREND_RENDERER.render([publication_path], [])
-    assert "| 10.000 | 7 | 11 | 5 | 0.000 | 0.500 |" in dashboard
+    assert "| 10.000 | 7 | 11 | — | — | — | — | 5 | 0.000 | 0.500 | — |" in dashboard
+
+
+def test_stitched_publication_is_stable_and_dispersion_gated(tmp_path):
+    records = [
+        stitching_record(index, p50)
+        for index, p50 in enumerate([20, 20.1, 19.9, 20.05, 19.95], 1)
+    ]
+    publication = PUBLISHER.publish(
+        write_records(tmp_path / "stitched", records), "dedicated", 5
+    )
+    assert publication["stitching_p50_relative_mad_percent"] == pytest.approx(0.25)
+
+    mixed = [stitching_record(index) for index in range(1, 6)]
+    mixed[-1]["stitching"]["config"]["tile_size"] = 20.0
+    with pytest.raises(ValueError, match="one commit"):
+        PUBLISHER.publish(
+            write_records(tmp_path / "mixed-stitched", mixed), "dedicated", 5
+        )
+
+    noisy = [
+        stitching_record(index, p50)
+        for index, p50 in enumerate([20, 22, 18, 24, 16], 1)
+    ]
+    with pytest.raises(ValueError, match="stitched output p50 dispersion"):
+        PUBLISHER.publish(
+            write_records(tmp_path / "noisy-stitched", noisy), "dedicated", 5
+        )
 
 
 def test_decision_schema_keeps_rejections_and_crossovers_linked():

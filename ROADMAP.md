@@ -812,7 +812,10 @@ Blocked by #1288.
 
 This eligibility boundary is documented only. No public selector promotes the
 sidecar, and performance or peak-memory evidence is still required before any
-promotion decision.
+promotion decision. The dedicated publication runner now accepts optional
+stitched tile-size and buffer settings and retains correctness-gated stitched
+timing, allocation, and peak-RSS evidence; dedicated-runner publications and a
+decision record are still required.
 
 **Promotion gate:** exact untiled equivalence or an explicit deterministic
 fallback for every documented supported case.

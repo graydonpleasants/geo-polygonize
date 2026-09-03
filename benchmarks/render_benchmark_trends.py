@@ -50,8 +50,8 @@ def render(publication_paths, decision_paths):
     if publications:
         lines.extend(
             [
-                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Router p50 ms | Router allocated bytes | Router peak live bytes | Processes | MAD % | Router MAD % |",
-                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| Workload | Lane | Architecture | Commit | p50 ms | p95 ms | Throughput | Allocated bytes | Peak RSS bytes | Router p50 ms | Router allocated bytes | Router peak live bytes | Stitched p50 ms | Stitched p95 ms | Stitched allocated bytes | Stitched peak RSS bytes | Processes | MAD % | Router MAD % | Stitched MAD % |",
+                "| --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for publication in sorted(
@@ -88,10 +88,23 @@ def render(publication_paths, decision_paths):
                 else None
                 for record in records
             }
+            stitched_identities = {
+                json.dumps(
+                    {
+                        "config": record["stitching"]["config"],
+                        "correctness_gate": record["stitching"]["correctness_gate"],
+                    },
+                    sort_keys=True,
+                )
+                if "stitching" in record
+                else None
+                for record in records
+            }
             if (
                 len(identities) != 1
                 or len(throughput_units) != 1
                 or len(router_identities) != 1
+                or len(stitched_identities) != 1
             ):
                 raise ValueError(
                     "publication records mix identities or throughput units"
@@ -107,6 +120,16 @@ def render(publication_paths, decision_paths):
             if bool(router_measurement) != (router_mad is not None):
                 raise ValueError(
                     "partition router summary does not match publication records"
+                )
+            stitched_measurement = [
+                record["stitching"]["measurement"]
+                for record in records
+                if "stitching" in record
+            ]
+            stitched_mad = publication.get("stitching_p50_relative_mad_percent")
+            if bool(stitched_measurement) != (stitched_mad is not None):
+                raise ValueError(
+                    "stitched summary does not match publication records"
                 )
             lines.append(
                 "| "
@@ -160,9 +183,40 @@ def render(publication_paths, decision_paths):
                                 if router_measurement
                                 else "—"
                             ),
+                            (
+                                f"{statistics.median(value['p50_ms'] for value in stitched_measurement):.3f}"
+                                if stitched_measurement
+                                else "—"
+                            ),
+                            (
+                                f"{statistics.median(value['p95_ms'] for value in stitched_measurement):.3f}"
+                                if stitched_measurement
+                                else "—"
+                            ),
+                            (
+                                round(
+                                    statistics.median(
+                                        value["allocations"]["bytes"]
+                                        for value in stitched_measurement
+                                    )
+                                )
+                                if stitched_measurement
+                                else "—"
+                            ),
+                            (
+                                round(
+                                    statistics.median(
+                                        value["peak_rss_bytes"]
+                                        for value in stitched_measurement
+                                    )
+                                )
+                                if stitched_measurement
+                                else "—"
+                            ),
                             publication["process_repetitions"],
                             f"{publication['p50_relative_mad_percent']:.3f}",
                             f"{router_mad:.3f}" if router_mad is not None else "—",
+                            f"{stitched_mad:.3f}" if stitched_mad is not None else "—",
                         ],
                     )
                 )

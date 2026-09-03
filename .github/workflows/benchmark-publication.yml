@@ -43,6 +43,14 @@ on:
         description: Partition-router overlap buffer
         required: false
         default: "0"
+      stitched_tile_size:
+        description: Optional tile size for stitched-output evidence; leave blank to disable
+        required: false
+        default: ""
+      stitched_buffer:
+        description: Stitched-output overlap buffer
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -57,6 +65,8 @@ jobs:
       MANIFEST_PATH: ${{ inputs.manifest_path }}
       PARTITION_ROUTER_TILE_SIZE: ${{ inputs.partition_router_tile_size }}
       PARTITION_ROUTER_BUFFER: ${{ inputs.partition_router_buffer }}
+      STITCHED_TILE_SIZE: ${{ inputs.stitched_tile_size }}
+      STITCHED_BUFFER: ${{ inputs.stitched_buffer }}
     steps:
       - uses: actions/checkout@v4
 
@@ -151,10 +161,20 @@ jobs:
             echo "partition_router_buffer requires partition_router_tile_size" >&2
             exit 1
           fi
+          stitched_args=()
+          if [ -n "$STITCHED_TILE_SIZE" ]; then
+            stitched_args=(
+              --stitched-tile-size "$STITCHED_TILE_SIZE"
+              --stitched-buffer "$STITCHED_BUFFER"
+            )
+          elif [ "$STITCHED_BUFFER" != 0 ]; then
+            echo "stitched_buffer requires stitched_tile_size" >&2
+            exit 1
+          fi
           /usr/bin/time -f '%M' -o target/benchmark-publication/peak-rss-kib.txt \
             "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
             --workload "${{ inputs.workload }}" \
-            "${manifest_args[@]}" "${router_args[@]}" \
+            "${manifest_args[@]}" "${router_args[@]}" "${stitched_args[@]}" \
             --reference-result "$reference" --check-only
           peak_kib=$(tr -d '[:space:]' < target/benchmark-publication/peak-rss-kib.txt)
           case "$peak_kib" in *[!0-9]*|'') exit 1 ;; esac
@@ -162,7 +182,7 @@ jobs:
           for repetition in 1 2 3 4 5; do
             "$binary" --lane "${{ inputs.lane }}" --noding-path "${{ inputs.noding_path }}" \
               --workload "${{ inputs.workload }}" \
-              "${manifest_args[@]}" "${router_args[@]}" \
+              "${manifest_args[@]}" "${router_args[@]}" "${stitched_args[@]}" \
               --samples 30 --warmup-iterations 5 --repetition "$repetition" \
               --peak-rss-bytes "$peak_bytes" --reference-result "$reference" \
               --output "target/benchmark-publication/record-${repetition}.json"
