@@ -36,6 +36,12 @@ gh workflow run benchmark-publication.yml --ref main \
   -f manifest_path=/mnt/geo-polygonize/runner-manifest-v1.json
 ```
 
+Pass `stitched_tile_size` and `stitched_buffer` to add correctness-gated
+stitched-output timing, allocation, and peak-RSS evidence to the record. The
+stitched result must also match the same-options untiled result and the
+external reference; it remains an additive research field and does not change
+the published polygonization path.
+
 The workflow defaults to the `parallel` core feature set. Pass
 `-f feature_set=serial` for a matched no-default-features publication; the
 record retains the selected feature set in `implementation.features`.

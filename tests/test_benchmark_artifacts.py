@@ -59,6 +59,8 @@ def test_publication_requires_a_dedicated_runner_and_retains_gated_outputs():
     workflow = (ROOT / ".github/workflows/benchmark-publication.yml").read_text()
     assert "runs-on: [self-hosted, benchmark-dedicated, linux, x64]" in workflow
     assert "manifest_path:" in workflow
+    assert "stitched_tile_size:" in workflow
+    assert "stitched_buffer:" in workflow
     assert "MANIFEST_PATH: ${{ inputs.manifest_path }}" in workflow
     assert 'test -f "$MANIFEST_PATH"' in workflow
     assert 'manifest_args+=(--manifest "$MANIFEST_PATH")' in workflow

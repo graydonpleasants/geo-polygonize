@@ -20,7 +20,7 @@ def stable_record_value(record, field):
     identity.
     """
     value = record.get(field)
-    if field == "partition_router" and value is not None:
+    if field in ("partition_router", "stitching") and value is not None:
         value = dict(value)
         value.pop("measurement")
     if field != "work":
@@ -74,6 +74,7 @@ def publish(record_paths, runner_class, warmup_iterations):
         "work",
         "environment",
         "partition_router",
+        "stitching",
     ]
     baseline = records[0]
     if any(
@@ -102,6 +103,17 @@ def publish(record_paths, runner_class, warmup_iterations):
                 "partition router p50 dispersion exceeds the decision-quality limit"
             )
 
+    stitching_relative_mad = None
+    if baseline.get("stitching") is not None:
+        stitching_relative_mad = relative_mad_percent(
+            [record["stitching"]["measurement"]["p50_ms"] for record in records],
+            "stitched output",
+        )
+        if stitching_relative_mad > quality["maximum_relative_mad_percent"]:
+            raise ValueError(
+                "stitched output p50 dispersion exceeds the decision-quality limit"
+            )
+
     records.sort(key=lambda record: record["record_id"])
     publication = {
         "schema_version": 1,
@@ -119,6 +131,8 @@ def publish(record_paths, runner_class, warmup_iterations):
     }
     if router_relative_mad is not None:
         publication["partition_router_p50_relative_mad_percent"] = router_relative_mad
+    if stitching_relative_mad is not None:
+        publication["stitching_p50_relative_mad_percent"] = stitching_relative_mad
     publication_schema = load("benchmark-publication-v1.schema.json")
     registry = Registry().with_resource(
         record_schema["$id"], Resource.from_contents(record_schema)

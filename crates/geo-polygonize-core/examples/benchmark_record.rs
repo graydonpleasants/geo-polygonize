@@ -3,7 +3,9 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Parser, ValueEnum};
 use geo_polygonize_core::noding::monotone::benchmark_node_hybrid_source_ranges;
-use geo_polygonize_core::tiling::{PartitionRouterComparisonV1, TiledPolygonizer};
+use geo_polygonize_core::tiling::{
+    PartitionRouterComparisonV1, TiledPolygonizeResult, TiledPolygonizer, TiledStitchedOutput,
+};
 use geo_polygonize_core::{
     normalize_polygonize_error, AdjacencyLayoutBenchmark, ComponentMemoryStats, Coord3D,
     CoordinateFingerprintV1, ExecutionPolicy, Line3D, NodingGuarantee, NormalizedPolygonizeErrorV1,
@@ -57,6 +59,10 @@ struct Args {
     partition_router_tile_size: Option<f64>,
     #[arg(long, requires = "partition_router_tile_size")]
     partition_router_buffer: Option<f64>,
+    #[arg(long)]
+    stitched_tile_size: Option<f64>,
+    #[arg(long, requires = "stitched_tile_size")]
+    stitched_buffer: Option<f64>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -296,6 +302,19 @@ struct RouterSamples {
     peak_live_bytes: usize,
 }
 
+#[derive(Default)]
+struct StitchedSamples {
+    elapsed: Vec<Duration>,
+    allocations: u64,
+    allocated_bytes: u64,
+}
+
+struct StitchedEvidence {
+    tile_size: f64,
+    buffer: f64,
+    topology: BenchmarkTopologyFingerprintV1,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     if !args.check_only && args.samples == 0 {
@@ -321,6 +340,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .is_some_and(|buffer| !buffer.is_finite() || buffer < 0.0)
     {
         return Err("partition router buffer must be finite and non-negative".into());
+    }
+    if args
+        .stitched_tile_size
+        .is_some_and(|tile_size| !tile_size.is_finite() || tile_size <= 0.0)
+    {
+        return Err("stitched tile size must be finite and greater than zero".into());
+    }
+    if args
+        .stitched_buffer
+        .is_some_and(|buffer| !buffer.is_finite() || buffer < 0.0)
+    {
+        return Err("stitched buffer must be finite and non-negative".into());
+    }
+    if args.stitched_tile_size.is_none() && args.stitched_buffer.is_some() {
+        return Err("stitched buffer requires stitched tile size".into());
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let manifest_path = args
@@ -460,12 +494,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    let router_geometries = args
+    let stitched_evidence = if let Some(tile_size) = args.stitched_tile_size {
+        let (geometries, bbox) = router_geometries(&lines, &source_ranges)?;
+        let buffer = args.stitched_buffer.unwrap_or_default();
+        let tiled = build_tiled_polygonizer(&geometries, bbox, tile_size, buffer, &options, true);
+        let result = tiled.polygonize()?;
+        let topology = require_stitched_equivalence(&result, &options, reference_topology)?;
+        Some(StitchedEvidence {
+            tile_size,
+            buffer,
+            topology,
+        })
+    } else {
+        None
+    };
+    let router_input = args
         .partition_router_tile_size
         .map(|_| router_geometries(&lines, &source_ranges))
         .transpose()?;
     let router_benchmark = if let (Some(tile_size), Some((geometries, bbox))) =
-        (args.partition_router_tile_size, router_geometries.as_ref())
+        (args.partition_router_tile_size, router_input.as_ref())
     {
         let mut tiled = TiledPolygonizer::new(*bbox, tile_size)
             .with_buffer(args.partition_router_buffer.unwrap_or_default())
@@ -512,6 +560,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tiled.benchmark_partition_router()?;
         }
     }
+    if let Some(tile_size) = args.stitched_tile_size {
+        let (geometries, bbox) = router_geometries(&lines, &source_ranges)?;
+        let tiled = build_tiled_polygonizer(
+            &geometries,
+            bbox,
+            tile_size,
+            args.stitched_buffer.unwrap_or_default(),
+            &options,
+            false,
+        );
+        for _ in 0..args.warmup_iterations {
+            tiled.polygonize()?;
+        }
+    }
     let profile_path = std::env::temp_dir().join(format!(
         "geo-polygonize-benchmark-{}.json",
         std::process::id()
@@ -554,6 +616,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
     } else {
         None
+    };
+    let stitched_record = if let Some(evidence) = &stitched_evidence {
+        let (geometries, bbox) = router_geometries(&lines, &source_ranges)?;
+        let tiled = build_tiled_polygonizer(
+            &geometries,
+            bbox,
+            evidence.tile_size,
+            evidence.buffer,
+            &options,
+            false,
+        );
+        let mut samples = StitchedSamples {
+            elapsed: Vec::with_capacity(args.samples),
+            ..Default::default()
+        };
+        for _ in 0..args.samples {
+            let before = dhat::HeapStats::get();
+            let started = Instant::now();
+            let result = tiled.polygonize()?;
+            samples.elapsed.push(started.elapsed());
+            let after = dhat::HeapStats::get();
+            samples.allocations += after.total_blocks - before.total_blocks;
+            samples.allocated_bytes += after.total_bytes - before.total_bytes;
+            let output = result
+                .stitched_output
+                .as_ref()
+                .ok_or("stitched timed sample did not produce output")?;
+            if benchmark_stitched_topology(output, &options)? != evidence.topology {
+                return Err("stitched sample fingerprint diverged after correctness gate".into());
+            }
+        }
+        let p50 = percentile(&samples.elapsed, 50);
+        json!({
+            "config": {
+                "tile_size": evidence.tile_size,
+                "buffer": evidence.buffer,
+            },
+            "correctness_gate": {
+                "status": "passed",
+                "stitched_output": "ready",
+                "untiled_equivalence": "equal",
+                "actual_sha256": hex(&benchmark_fingerprint_sha256(&evidence.topology)),
+                "reference_sha256": hex(&expected),
+            },
+            "topology": evidence.topology,
+            "measurement": {
+                "p50_ms": milliseconds(p50),
+                "p95_ms": milliseconds(percentile(&samples.elapsed, 95)),
+                "throughput": {
+                    "value": if p50.is_zero() { 0.0 } else { lines.len() as f64 / p50.as_secs_f64() },
+                    "unit": "input-segments/second",
+                },
+                "samples": args.samples,
+                "phase_times_ms": {
+                    "tiled_polygonize": milliseconds(p50),
+                },
+                "allocations": {
+                    "count": samples.allocations / args.samples as u64,
+                    "bytes": samples.allocated_bytes / args.samples as u64,
+                },
+                "peak_rss_bytes": args.peak_rss_bytes.expect("required before timing"),
+            },
+        })
+    } else {
+        serde_json::Value::Null
     };
     let mut samples = Samples::default();
     for _ in 0..args.samples {
@@ -681,6 +808,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     if let Some(router_record) = router_record {
         record["partition_router"] = router_record;
+    }
+    if !stitched_record.is_null() {
+        record["stitching"] = stitched_record;
     }
     let bytes = serde_json::to_vec_pretty(&record)?;
     if let Some(path) = args.output {
@@ -822,6 +952,73 @@ fn router_geometries(
         return Err("partition router benchmark requires at least one input segment".into());
     }
     Ok((geometries, Rect::new(min, max)))
+}
+
+fn build_tiled_polygonizer<'a>(
+    geometries: &'a [Geometry<f64>],
+    bbox: Rect<f64>,
+    tile_size: f64,
+    buffer: f64,
+    options: &PolygonizerOptions,
+    check_equivalence: bool,
+) -> TiledPolygonizer<'a> {
+    let mut tiled = TiledPolygonizer::new(bbox, tile_size)
+        .with_buffer(buffer)
+        .with_options(options.clone());
+    if check_equivalence {
+        tiled = tiled.with_untiled_equivalence_check();
+    }
+    for geometry in geometries {
+        tiled.add_geometry(geometry);
+    }
+    tiled
+}
+
+fn require_stitched_equivalence(
+    result: &TiledPolygonizeResult,
+    options: &PolygonizerOptions,
+    reference_topology: &BenchmarkTopologyFingerprintV1,
+) -> Result<BenchmarkTopologyFingerprintV1, Box<dyn std::error::Error>> {
+    let report = &result.stitching_report;
+    if !report.partition_border_global_stitched_output_ready
+        || !report.partition_border_global_untiled_equivalence_checked
+        || !report.partition_border_global_untiled_equivalence_ready
+        || report.partition_border_global_untiled_equivalence_mismatch_count != 0
+    {
+        return Err(format!(
+            "stitched correctness gate failed: stitched_ready={}, equivalence_checked={}, equivalence_ready={}, mismatches={}",
+            report.partition_border_global_stitched_output_ready,
+            report.partition_border_global_untiled_equivalence_checked,
+            report.partition_border_global_untiled_equivalence_ready,
+            report.partition_border_global_untiled_equivalence_mismatch_count,
+        )
+        .into());
+    }
+    let output = result
+        .stitched_output
+        .as_ref()
+        .ok_or("stitched correctness gate produced no output")?;
+    let topology = benchmark_stitched_topology(output, options)?;
+    if &topology != reference_topology {
+        return Err("stitched output differs from the external reference".into());
+    }
+    Ok(topology)
+}
+
+fn benchmark_stitched_topology(
+    output: &TiledStitchedOutput,
+    options: &PolygonizerOptions,
+) -> geo_polygonize_core::Result<BenchmarkTopologyFingerprintV1> {
+    benchmark_topology(
+        &PolygonizerResult {
+            polygons: output.polygons.clone(),
+            dangles: output.dangles.clone(),
+            cut_edges: output.cut_edges.clone(),
+            invalid_rings: output.invalid_rings.clone(),
+            diagnostics: None,
+        },
+        options,
+    )
 }
 
 fn require_router_equivalence(
