@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.1.0...geo-polygonize-v1.2.0) (2026-09-03)
+
+
+### Features
+
+* **core:** add inner-box routing proof ([#1466](https://github.com/graydonpleasants/geo-polygonize/issues/1466)) ([547a551](https://github.com/graydonpleasants/geo-polygonize/commit/547a551d928841e90d2d57a5b707b7b7da9af780))
+* **core:** add source-aware partition sink ([#1465](https://github.com/graydonpleasants/geo-polygonize/issues/1465)) ([231a8ef](https://github.com/graydonpleasants/geo-polygonize/commit/231a8ef21506fb16816c1d2eaf4197faf7beaba2))
+* **core:** add stitched benchmark evidence ([#1504](https://github.com/graydonpleasants/geo-polygonize/issues/1504)) ([78c264f](https://github.com/graydonpleasants/geo-polygonize/commit/78c264f055d10753e7c00bebb7459cef2c663fc3))
+* **core:** add transactional partition mosaic ([#1485](https://github.com/graydonpleasants/geo-polygonize/issues/1485)) ([979260a](https://github.com/graydonpleasants/geo-polygonize/commit/979260ab77c26d08122db0a3d87e9985158bfdc8))
+* **core:** bound partition candidate visits ([#1468](https://github.com/graydonpleasants/geo-polygonize/issues/1468)) ([581cea6](https://github.com/graydonpleasants/geo-polygonize/commit/581cea6d9b724f5bcf41ded2243fc57cf861c397))
+* **core:** classify partition mosaic spans ([#1489](https://github.com/graydonpleasants/geo-polygonize/issues/1489)) ([0e2a24b](https://github.com/graydonpleasants/geo-polygonize/commit/0e2a24b6aa9e658977bb34708e05106552a66e01))
+* **core:** classify partition topology readiness ([#1494](https://github.com/graydonpleasants/geo-polygonize/issues/1494)) ([d5744a1](https://github.com/graydonpleasants/geo-polygonize/commit/d5744a10a0f234681c6110c05877655a97e35109))
+* **core:** complete partition snapshot evidence ([#1500](https://github.com/graydonpleasants/geo-polygonize/issues/1500)) ([a7eaaf3](https://github.com/graydonpleasants/geo-polygonize/commit/a7eaaf30a9d35cf8d89ec32e0d0614da9cf60062))
+* **core:** define partition corner obligations ([#1493](https://github.com/graydonpleasants/geo-polygonize/issues/1493)) ([7dde3b9](https://github.com/graydonpleasants/geo-polygonize/commit/7dde3b92d49fa8b312eed4c95375f5c2912e82d6))
+* **core:** define partition span obligations ([#1492](https://github.com/graydonpleasants/geo-polygonize/issues/1492)) ([c3279b5](https://github.com/graydonpleasants/geo-polygonize/commit/c3279b5ef6645df9ed21c638fc577276079304d8))
+* **core:** gate partition topology claims ([#1495](https://github.com/graydonpleasants/geo-polygonize/issues/1495)) ([4b956a9](https://github.com/graydonpleasants/geo-polygonize/commit/4b956a911cd6b86d58a2c6c24f430b8af144277a))
+* **core:** retain partition generation evidence ([#1499](https://github.com/graydonpleasants/geo-polygonize/issues/1499)) ([f3d8cb4](https://github.com/graydonpleasants/geo-polygonize/commit/f3d8cb414be68d9835bf1532ac415d059328164a))
+* **core:** retain partition mosaic span claims ([#1488](https://github.com/graydonpleasants/geo-polygonize/issues/1488)) ([44178bc](https://github.com/graydonpleasants/geo-polygonize/commit/44178bcc96a8405351b9dff26f69f3ae81779849))
+* **core:** stage halo retries transactionally ([#1501](https://github.com/graydonpleasants/geo-polygonize/issues/1501)) ([e0c4274](https://github.com/graydonpleasants/geo-polygonize/commit/e0c42749f84f06b709f07b4ba37df8d183881cf1))
+* **core:** stream boundary partition candidates ([#1467](https://github.com/graydonpleasants/geo-polygonize/issues/1467)) ([6fc8e84](https://github.com/graydonpleasants/geo-polygonize/commit/6fc8e8446e5443a8897df11b6c31e81423bb10ee))
+* **core:** validate partition snapshots for mosaic ([#1484](https://github.com/graydonpleasants/geo-polygonize/issues/1484)) ([7655af0](https://github.com/graydonpleasants/geo-polygonize/commit/7655af0fef853226b2606ca821ba694fccd2a0e1))
+
+
+### Bug Fixes
+
+* **core:** avoid face-ring materialization in layout benchmark ([#1419](https://github.com/graydonpleasants/geo-polygonize/issues/1419)) ([2c47d92](https://github.com/graydonpleasants/geo-polygonize/commit/2c47d92b78872e4043d0e3302db95be407c9f987))
+* **core:** gate stitched output on untiled equivalence ([#1464](https://github.com/graydonpleasants/geo-polygonize/issues/1464)) ([dfcab3d](https://github.com/graydonpleasants/geo-polygonize/commit/dfcab3df41c9e7d13fa8b9b0d73e77c6f2db2f8b))
+* **core:** keep Rust builds warning-free ([#1497](https://github.com/graydonpleasants/geo-polygonize/issues/1497)) ([c1ad588](https://github.com/graydonpleasants/geo-polygonize/commit/c1ad588778b9632f4501cb3a6f6b18cc2fa40e18))
+* **core:** normalize MCIndex zero-event output ([#1424](https://github.com/graydonpleasants/geo-polygonize/issues/1424)) ([bb4875e](https://github.com/graydonpleasants/geo-polygonize/commit/bb4875e9e62fd09c935f412e770f4b1c1d81d519))
+* **core:** normalize MCIndex zero-length output ([#1431](https://github.com/graydonpleasants/geo-polygonize/issues/1431)) ([7d00882](https://github.com/graydonpleasants/geo-polygonize/commit/7d008824974d88b325e6b4b9a513af58a0da623a))
+* **core:** preserve repeated border twin identity ([#1505](https://github.com/graydonpleasants/geo-polygonize/issues/1505)) ([7e9a147](https://github.com/graydonpleasants/geo-polygonize/commit/7e9a1478b4bcbce09050da3108aaf6d912d9085a))
+* **core:** reject incompatible partition snapshots ([#1503](https://github.com/graydonpleasants/geo-polygonize/issues/1503)) ([62d9109](https://github.com/graydonpleasants/geo-polygonize/commit/62d9109879b74ca957dccee8fa05affa768c3752))
+* **core:** reject partition mosaic span conflicts ([#1491](https://github.com/graydonpleasants/geo-polygonize/issues/1491)) ([36c4b1c](https://github.com/graydonpleasants/geo-polygonize/commit/36c4b1ce9461a70e91c3cc5f882b432cdde55b06))
+* **github:** accept legacy release report asset names ([#1409](https://github.com/graydonpleasants/geo-polygonize/issues/1409)) ([6d88614](https://github.com/graydonpleasants/geo-polygonize/commit/6d88614b081d0dd7feae92d2ed10822103183bf3))
+* **github:** attach benchmark release artifacts ([#1408](https://github.com/graydonpleasants/geo-polygonize/issues/1408)) ([441cdfe](https://github.com/graydonpleasants/geo-polygonize/commit/441cdfe7181d18f0bd52fa187a3ad959f12d319e))
+
+
+### Performance Improvements
+
+* **core:** add MCIndex publication experiment path ([#1437](https://github.com/graydonpleasants/geo-polygonize/issues/1437)) ([27397f8](https://github.com/graydonpleasants/geo-polygonize/commit/27397f8874b2b98658db954e3ec02491e15f4ca1))
+* **core:** benchmark packed CSR adjacency ([#1418](https://github.com/graydonpleasants/geo-polygonize/issues/1418)) ([92cc3a6](https://github.com/graydonpleasants/geo-polygonize/commit/92cc3a651e4f7b4ff33de76ca214deb45ad026f7))
+* **core:** benchmark partition router natively ([#1482](https://github.com/graydonpleasants/geo-polygonize/issues/1482)) ([6851e7d](https://github.com/graydonpleasants/geo-polygonize/commit/6851e7d631778fad432a4a659fdb6237fe2f5ba5))
+* **core:** bypass scratch for single component ([#1414](https://github.com/graydonpleasants/geo-polygonize/issues/1414)) ([e3902be](https://github.com/graydonpleasants/geo-polygonize/commit/e3902bef3a1a8060ce5f5ed02f7f8d479854b698))
+* **core:** expose partition router evidence ([#1476](https://github.com/graydonpleasants/geo-polygonize/issues/1476)) ([b90542e](https://github.com/graydonpleasants/geo-polygonize/commit/b90542ecd5e91fc2a726573f9a8b1faa11190a2f))
+* **core:** prototype CSR adjacency oracle ([#1416](https://github.com/graydonpleasants/geo-polygonize/issues/1416)) ([d881afb](https://github.com/graydonpleasants/geo-polygonize/commit/d881afb40f41baf4209d9445cca9cbe1fd0df5a7))
+* **core:** record CSR layout memory evidence ([#1417](https://github.com/graydonpleasants/geo-polygonize/issues/1417)) ([47a498c](https://github.com/graydonpleasants/geo-polygonize/commit/47a498cf208a8cb976c046f7f8b3c77ee5343dd8))
+* **core:** record partition router evidence ([#1477](https://github.com/graydonpleasants/geo-polygonize/issues/1477)) ([0e12d2a](https://github.com/graydonpleasants/geo-polygonize/commit/0e12d2a458709466399064c033b22036f7950180))
+* **core:** record partition router peak memory ([#1483](https://github.com/graydonpleasants/geo-polygonize/issues/1483)) ([59b29ea](https://github.com/graydonpleasants/geo-polygonize/commit/59b29eaabc8be0ac84dccba9dc93ca07b8317e62))
+* **core:** record partition router work ([#1474](https://github.com/graydonpleasants/geo-polygonize/issues/1474)) ([3a19fc0](https://github.com/graydonpleasants/geo-polygonize/commit/3a19fc0f649acd4bf2b1d47ae384467ca9c6093a))
+* **core:** record single-component benchmark decision ([#1415](https://github.com/graydonpleasants/geo-polygonize/issues/1415)) ([a32d3e7](https://github.com/graydonpleasants/geo-polygonize/commit/a32d3e7234f0972c501722e7a3fe6fec0ac588af))
+* **core:** route MCIndex through shared noding path ([#1420](https://github.com/graydonpleasants/geo-polygonize/issues/1420)) ([1c15e0d](https://github.com/graydonpleasants/geo-polygonize/commit/1c15e0d394d2ce807d29f460e3edb5ae52038e1f))
+* **core:** skip empty MCIndex fallback scan ([#1438](https://github.com/graydonpleasants/geo-polygonize/issues/1438)) ([397ea8d](https://github.com/graydonpleasants/geo-polygonize/commit/397ea8d70f32bfab8837f21b23f0962839c9913d))
+* **core:** summarize partition router publications ([#1479](https://github.com/graydonpleasants/geo-polygonize/issues/1479)) ([1eaea58](https://github.com/graydonpleasants/geo-polygonize/commit/1eaea58edae9d079146989720940c81d4b3ef041))
+* **wasm:** benchmark partition router in browser ([#1481](https://github.com/graydonpleasants/geo-polygonize/issues/1481)) ([bb99cb1](https://github.com/graydonpleasants/geo-polygonize/commit/bb99cb159b379538d3109c656c00643e253f595c))
+* **wasm:** expose partition router evidence ([#1480](https://github.com/graydonpleasants/geo-polygonize/issues/1480)) ([0e1280d](https://github.com/graydonpleasants/geo-polygonize/commit/0e1280d4b349caad7ce59dfbd14acab1e16a050b))
+
 ## [1.1.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.0.0...geo-polygonize-v1.1.0) (2026-08-20)
 
 
