@@ -542,6 +542,26 @@ impl PartitionBorderHalfEdge {
     }
 }
 
+/// Stable identity of one face-qualified cross-partition twin. The physical
+/// edge is not unique when both local face sides are retained, so the two
+/// immutable observation IDs are part of the global identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PartitionBorderTwinKey {
+    pub(crate) edge_key: PartitionBorderEdgeKey,
+    pub(crate) forward: PartitionBorderObservationId,
+    pub(crate) reverse: PartitionBorderObservationId,
+}
+
+impl PartitionBorderTwin {
+    fn key(self) -> PartitionBorderTwinKey {
+        PartitionBorderTwinKey {
+            edge_key: self.edge_key,
+            forward: self.forward,
+            reverse: self.reverse,
+        }
+    }
+}
+
 /// An unambiguous opposite-direction pair observed in two partitions.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PartitionBorderTwin {
@@ -1455,6 +1475,16 @@ pub(crate) struct PartitionBorderGlobalFaceTwinTransition {
     pub(crate) reverse_cycle_closed: bool,
 }
 
+impl PartitionBorderGlobalFaceTwinTransition {
+    fn key(self) -> PartitionBorderTwinKey {
+        PartitionBorderTwinKey {
+            edge_key: self.edge_key,
+            forward: self.forward_observation_id,
+            reverse: self.reverse_observation_id,
+        }
+    }
+}
+
 /// Counts from positioning declared face twins in ordered local cycles.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PartitionBorderGlobalFaceTwinTransitionStats {
@@ -1979,44 +2009,108 @@ impl PartitionBorderGraph {
         edges
             .iter()
             .filter_map(|(&edge_key, observations)| {
-                let mut observations = observations.iter();
-                let first = observations.next()?;
-                let second = observations.next()?;
-                if observations.next().is_some()
-                    || first.partition_id == second.partition_id
-                    || !self
-                        .adjacencies
-                        .iter()
-                        .any(|adjacency| adjacency.matches(first, second))
-                {
+                let observations = observations.iter().collect::<Vec<_>>();
+                let partition_ids = observations
+                    .iter()
+                    .map(|observation| observation.partition_id)
+                    .collect::<BTreeSet<_>>();
+                if partition_ids.len() != 2 {
                     return None;
                 }
                 let (start, end) = edge_key.endpoints();
-                let first_is_forward = first.from == start && first.to == end;
-                let second_is_forward = second.from == start && second.to == end;
-                let first_is_reverse = first.from == end && first.to == start;
-                let second_is_reverse = second.from == end && second.to == start;
-                if first_is_forward && second_is_reverse {
-                    Some(PartitionBorderTwin {
-                        edge_key,
-                        forward: first.observation_id(),
-                        reverse: second.observation_id(),
-                    })
-                } else if second_is_forward && first_is_reverse {
-                    Some(PartitionBorderTwin {
-                        edge_key,
-                        forward: second.observation_id(),
-                        reverse: first.observation_id(),
-                    })
-                } else {
-                    None
+                let matches_adjacency =
+                    |left: &PartitionBorderHalfEdge, right: &PartitionBorderHalfEdge| {
+                        self.adjacencies
+                            .iter()
+                            .any(|adjacency| adjacency.matches(left, right))
+                    };
+
+                if observations.len() == 2 {
+                    let first = observations[0];
+                    let second = observations[1];
+                    if !matches_adjacency(first, second) {
+                        return None;
+                    }
+                    return match (
+                        first.from == start && first.to == end,
+                        second.from == start && second.to == end,
+                    ) {
+                        (true, false) => Some(vec![PartitionBorderTwin {
+                            edge_key,
+                            forward: first.observation_id(),
+                            reverse: second.observation_id(),
+                        }]),
+                        (false, true) => Some(vec![PartitionBorderTwin {
+                            edge_key,
+                            forward: second.observation_id(),
+                            reverse: first.observation_id(),
+                        }]),
+                        _ => None,
+                    };
                 }
+
+                if observations.len() != 4 {
+                    return None;
+                }
+                let mut by_partition = partition_ids.iter().map(|partition_id| {
+                    let mut forward = None;
+                    let mut reverse = None;
+                    for observation in observations
+                        .iter()
+                        .filter(|observation| observation.partition_id == *partition_id)
+                    {
+                        if observation.from == start && observation.to == end {
+                            if forward.replace(*observation).is_some() {
+                                return (*partition_id, None, None);
+                            }
+                        } else if observation.from == end && observation.to == start {
+                            if reverse.replace(*observation).is_some() {
+                                return (*partition_id, None, None);
+                            }
+                        } else {
+                            return (*partition_id, None, None);
+                        }
+                    }
+                    (*partition_id, forward, reverse)
+                });
+                let first = by_partition.next()?;
+                let second = by_partition.next()?;
+                if by_partition.next().is_some()
+                    || first.1.is_none()
+                    || first.2.is_none()
+                    || second.1.is_none()
+                    || second.2.is_none()
+                {
+                    return None;
+                }
+                let first_forward = first.1?;
+                let first_reverse = first.2?;
+                let second_forward = second.1?;
+                let second_reverse = second.2?;
+                if !matches_adjacency(first_forward, second_reverse)
+                    || !matches_adjacency(first_reverse, second_forward)
+                {
+                    return None;
+                }
+                Some(vec![
+                    PartitionBorderTwin {
+                        edge_key,
+                        forward: first_forward.observation_id(),
+                        reverse: second_reverse.observation_id(),
+                    },
+                    PartitionBorderTwin {
+                        edge_key,
+                        forward: second_forward.observation_id(),
+                        reverse: first_reverse.observation_id(),
+                    },
+                ])
             })
+            .flatten()
             .collect()
     }
 
-    /// Matches only exactly-two-observation buckets with opposite directions
-    /// on one declared partition border. Ambiguous, same-partition, or
+    /// Matches one or two opposite-direction face-side claims per partition
+    /// on one declared border. Ambiguous, incomplete, same-partition, or
     /// unrelated-partition buckets remain unmatched for later reconciliation.
     pub fn twin_pairs(&self) -> Vec<PartitionBorderTwin> {
         self.twin_pairs_from_edges(&self.normalized_edges())
@@ -2026,7 +2120,17 @@ impl PartitionBorderGraph {
     /// without mutating observations or choosing a Z/provenance policy.
     pub fn reconciliation_stats(&self) -> PartitionBorderReconciliationStats {
         let edges = self.normalized_edges();
-        let matched_twin_count = self.twin_pairs_from_edges(&edges).len();
+        // Keep the public reconciliation summary fail-closed for multi-face
+        // spans until topology readiness admits their qualified observations.
+        let matched_twin_count = self
+            .twin_pairs_from_edges(&edges)
+            .into_iter()
+            .filter(|twin| {
+                edges
+                    .get(&twin.edge_key)
+                    .is_some_and(|edges| edges.len() == 2)
+            })
+            .count();
         PartitionBorderReconciliationStats {
             declared_adjacency_count: self.adjacencies.len(),
             normalized_edge_count: edges.len(),
@@ -5625,13 +5729,27 @@ impl PartitionBorderGraph {
             }
         }
 
-        let mut twin_edge_owner = BTreeMap::<PartitionBorderEdgeKey, usize>::new();
+        let mut twin_edge_owner = BTreeMap::<PartitionBorderTwinKey, usize>::new();
         let mut duplicate_twin_edge_count = 0usize;
-        for (component_index, component) in self.global_components.iter().enumerate() {
-            for edge_key in &component.twin_edge_keys {
-                if twin_edge_owner.insert(*edge_key, component_index).is_some() {
-                    duplicate_twin_edge_count += 1;
-                }
+        for (twin_index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_component_coverage_twins",
+                twin_index,
+            )?;
+            let Some(&forward_component) = component_by_face.get(&twin.forward_face_ref) else {
+                continue;
+            };
+            let Some(&reverse_component) = component_by_face.get(&twin.reverse_face_ref) else {
+                continue;
+            };
+            if forward_component != reverse_component {
+                continue;
+            }
+            if twin_edge_owner
+                .insert(twin.twin.key(), forward_component)
+                .is_some()
+            {
+                duplicate_twin_edge_count += 1;
             }
         }
 
@@ -6132,7 +6250,7 @@ impl PartitionBorderGraph {
             }
         }
 
-        let mut twin_faces = BTreeMap::<PartitionBorderEdgeKey, BTreeSet<PartitionFaceRef>>::new();
+        let mut twin_faces = BTreeMap::<PartitionBorderTwinKey, BTreeSet<PartitionFaceRef>>::new();
         for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
             execution_policy.check_cancelled_every(
                 "partition_border_global_face_validation_twins",
@@ -6178,22 +6296,22 @@ impl PartitionBorderGraph {
                     ),
                 });
             }
-            let faces = twin_faces.entry(applied_twin.twin.edge_key).or_default();
+            let twin_key = applied_twin.twin.key();
+            let faces = twin_faces.entry(twin_key).or_default();
             if !faces.insert(applied_twin.forward_face_ref)
                 || !faces.insert(applied_twin.reverse_face_ref)
             {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
-                    reason: format!(
-                        "global face twin edge {:?} is duplicated",
-                        applied_twin.twin.edge_key
-                    ),
+                    reason: format!("global face twin {:?} is duplicated", twin_key),
                 });
             }
         }
 
         for plan in &self.global_face_plans {
             for edge_key in &plan.twin_edge_keys {
-                let Some(faces) = twin_faces.get(edge_key) else {
+                let Some((_twin_key, _faces)) = twin_faces.iter().find(|(twin_key, faces)| {
+                    twin_key.edge_key == *edge_key && faces.contains(&plan.face_ref)
+                }) else {
                     return Err(crate::PolygonizeError::InternalInvariantViolation {
                         reason: format!(
                             "global face plan {:?} references an unapplied twin edge {:?}",
@@ -6201,22 +6319,14 @@ impl PartitionBorderGraph {
                         ),
                     });
                 };
-                if !faces.contains(&plan.face_ref) {
-                    return Err(crate::PolygonizeError::InternalInvariantViolation {
-                        reason: format!(
-                            "global face plan {:?} does not belong to twin edge {:?}",
-                            plan.face_ref, edge_key
-                        ),
-                    });
-                }
             }
         }
-        for (edge_key, faces) in &twin_faces {
+        for (twin_key, faces) in &twin_faces {
             if faces.len() != 2 {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
                     reason: format!(
-                        "global face twin edge {:?} connects {} face plans",
-                        edge_key,
+                        "global face twin {:?} connects {} face plans",
+                        twin_key,
                         faces.len()
                     ),
                 });
@@ -6225,19 +6335,19 @@ impl PartitionBorderGraph {
                 let Some(&plan_index) = plan_indices.get(face_ref) else {
                     return Err(crate::PolygonizeError::InternalInvariantViolation {
                         reason: format!(
-                            "global face twin edge {:?} references missing face plan {:?}",
-                            edge_key, face_ref
+                            "global face twin {:?} references missing face plan {:?}",
+                            twin_key, face_ref
                         ),
                     });
                 };
                 if !self.global_face_plans[plan_index]
                     .twin_edge_keys
-                    .contains(edge_key)
+                    .contains(&twin_key.edge_key)
                 {
                     return Err(crate::PolygonizeError::InternalInvariantViolation {
                         reason: format!(
-                            "global face twin edge {:?} is absent from face plan {:?}",
-                            edge_key, face_ref
+                            "global face twin {:?} is absent from face plan {:?}",
+                            twin_key, face_ref
                         ),
                     });
                 }
@@ -9976,7 +10086,6 @@ impl PartitionBorderGraph {
         }
 
         let mut component_face_owner = BTreeMap::<PartitionFaceRef, usize>::new();
-        let mut component_edge_owner = BTreeMap::<PartitionBorderEdgeKey, usize>::new();
         let mut face_adjacency_cycle_rank = 0usize;
         let mut unbounded_component_count = 0usize;
         for (component_position, component) in self.global_components.iter().enumerate() {
@@ -10052,17 +10161,6 @@ impl PartitionBorderGraph {
                         ),
                     });
                 }
-                if component_edge_owner
-                    .insert(*edge_key, component.component_index)
-                    .is_some()
-                {
-                    return Err(crate::PolygonizeError::InternalInvariantViolation {
-                        reason: format!(
-                            "global face walk twin edge {:?} belongs to multiple components",
-                            edge_key
-                        ),
-                    });
-                }
             }
             let required_edge_count = component.face_refs.len().saturating_sub(1);
             let component_cycle_rank = local_edges
@@ -10098,6 +10196,38 @@ impl PartitionBorderGraph {
                 ),
             });
         }
+        let mut component_edge_owner = BTreeMap::<PartitionBorderTwinKey, usize>::new();
+        for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("partition_border_global_face_walk_twins", twin_index)?;
+            let Some(&forward_component) = component_face_owner.get(&applied_twin.forward_face_ref)
+            else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face walk twin {:?} has no forward component",
+                        applied_twin.twin.key()
+                    ),
+                });
+            };
+            let Some(&reverse_component) = component_face_owner.get(&applied_twin.reverse_face_ref)
+            else {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face walk twin {:?} has no reverse component",
+                        applied_twin.twin.key()
+                    ),
+                });
+            };
+            if forward_component != reverse_component {
+                return Err(crate::PolygonizeError::InternalInvariantViolation {
+                    reason: format!(
+                        "global face walk twin {:?} crosses components",
+                        applied_twin.twin.key()
+                    ),
+                });
+            }
+            component_edge_owner.insert(applied_twin.twin.key(), forward_component);
+        }
         if component_edge_owner.len() != self.applied_face_twins.len() {
             return Err(crate::PolygonizeError::InternalInvariantViolation {
                 reason: format!(
@@ -10109,28 +10239,19 @@ impl PartitionBorderGraph {
         }
 
         let mut applied_by_edge =
-            BTreeMap::<PartitionBorderEdgeKey, &PartitionBorderFaceTwin>::new();
+            BTreeMap::<PartitionBorderTwinKey, &PartitionBorderFaceTwin>::new();
         for (twin_index, applied_twin) in self.applied_face_twins.iter().enumerate() {
             execution_policy
                 .check_cancelled_every("partition_border_global_face_walk_twins", twin_index)?;
-            if applied_by_edge
-                .insert(applied_twin.twin.edge_key, applied_twin)
-                .is_some()
-            {
+            let twin_key = applied_twin.twin.key();
+            if applied_by_edge.insert(twin_key, applied_twin).is_some() {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
-                    reason: format!(
-                        "global face walk twin edge {:?} is duplicated",
-                        applied_twin.twin.edge_key
-                    ),
+                    reason: format!("global face walk twin {:?} is duplicated", twin_key),
                 });
             }
-            let Some(&component_index) = component_edge_owner.get(&applied_twin.twin.edge_key)
-            else {
+            let Some(&component_index) = component_edge_owner.get(&twin_key) else {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
-                    reason: format!(
-                        "global face walk twin edge {:?} has no component",
-                        applied_twin.twin.edge_key
-                    ),
+                    reason: format!("global face walk twin {:?} has no component", twin_key),
                 });
             };
             if component_face_owner.get(&applied_twin.forward_face_ref) != Some(&component_index)
@@ -10138,22 +10259,20 @@ impl PartitionBorderGraph {
                     != Some(&component_index)
             {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
-                    reason: format!(
-                        "global face walk twin edge {:?} crosses components",
-                        applied_twin.twin.edge_key
-                    ),
+                    reason: format!("global face walk twin {:?} crosses components", twin_key),
                 });
             }
         }
 
         let mut mapped_by_edge =
-            BTreeMap::<PartitionBorderEdgeKey, &PartitionBorderGlobalFaceTwinTransition>::new();
+            BTreeMap::<PartitionBorderTwinKey, &PartitionBorderGlobalFaceTwinTransition>::new();
         for (link_index, link) in self.global_face_twin_transitions.iter().enumerate() {
             execution_policy.check_cancelled_every(
                 "partition_border_global_face_walk_mapped_twins",
                 link_index,
             )?;
-            let Some(applied_twin) = applied_by_edge.get(&link.edge_key) else {
+            let twin_key = link.key();
+            let Some(applied_twin) = applied_by_edge.get(&twin_key) else {
                 return Err(crate::PolygonizeError::InternalInvariantViolation {
                     reason: format!(
                         "global face walk link {:?} has no applied twin",
@@ -10161,7 +10280,7 @@ impl PartitionBorderGraph {
                     ),
                 });
             };
-            if mapped_by_edge.insert(link.edge_key, link).is_some()
+            if mapped_by_edge.insert(twin_key, link).is_some()
                 || link.forward_face_ref != applied_twin.forward_face_ref
                 || link.reverse_face_ref != applied_twin.reverse_face_ref
                 || link.forward_observation_id != applied_twin.twin.forward
@@ -10296,7 +10415,7 @@ impl PartitionBorderGraph {
                 }
             }
             source_complete_twin_count += 1;
-            if let Some(link) = mapped_by_edge.get(&applied_twin.twin.edge_key) {
+            if let Some(link) = mapped_by_edge.get(&applied_twin.twin.key()) {
                 if link.forward_cycle_closed && link.reverse_cycle_closed {
                     mutation_ready_twin_count += 1;
                 }
@@ -17915,9 +18034,39 @@ mod tests {
             observation.local_face_is_unbounded = is_unbounded;
             face_qualified.insert(observation).unwrap();
         }
-        // The detached topology currently keys each physical edge to one twin;
-        // two face pairs on one span remain ambiguous until that identity model
-        // is extended.
-        assert!(face_qualified.twin_pairs().is_empty());
+        let twins = face_qualified.twin_pairs();
+        assert_eq!(twins.len(), 2);
+        assert_eq!(
+            twins
+                .iter()
+                .map(|twin| twin.key())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            2
+        );
+        assert!(twins.iter().all(|twin| {
+            twin.forward.partition_id != twin.reverse.partition_id
+                && twin.forward.edge_key == twin.reverse.edge_key
+        }));
+
+        for observation in face_qualified.observations.values_mut() {
+            observation.local_face_successor = Some(observation.local_dir_edge_id);
+        }
+        face_qualified
+            .apply_unambiguous_face_twins(&ExecutionPolicy::default())
+            .unwrap();
+        face_qualified
+            .reconcile_border_nodes(ZOptions::default(), &ExecutionPolicy::default())
+            .unwrap();
+        face_qualified
+            .reconcile_global_components(&ExecutionPolicy::default())
+            .unwrap();
+        face_qualified
+            .reconcile_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        let validation = face_qualified
+            .validate_global_face_plans(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(validation.twin_link_count, 2);
     }
 }
