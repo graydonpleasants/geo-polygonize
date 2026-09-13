@@ -17,6 +17,79 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
+    fn coverage_global_arrangement_has_one_exterior_without_promoting_ambiguous_claims() {
+        let mut geometries = Vec::new();
+        for axis in 0..=2 {
+            for segment in 0..2 {
+                let (a, b) = (axis as f64, segment as f64);
+                for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                    geometries.push(Geometry::LineString(LineString::from(coords)));
+                }
+            }
+        }
+        let mut signatures = Vec::new();
+        for reverse in [false, true] {
+            if reverse {
+                geometries.reverse();
+            }
+            let mut tiled = TiledPolygonizer::new(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 }),
+                1.0,
+            )
+            .with_buffer(0.0)
+            .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let result = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let report = &result.result.stitching_report;
+            assert_eq!(report.partition_border_global_arrangement_face_count, 5);
+            assert_eq!(
+                report.partition_border_global_arrangement_unbounded_face_count,
+                1
+            );
+            assert_eq!(
+                report.partition_border_global_arrangement_mapped_edge_count,
+                32
+            );
+            assert!(!report.partition_border_global_stitched_output_ready);
+            assert!(!report.partition_border_global_untiled_equivalence_checked);
+            assert!(!report.partition_border_global_untiled_equivalence_ready);
+            assert!(result.result.stitched_output.is_none());
+            let witness = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_witness")
+                .unwrap()
+                .payload;
+            assert_eq!(witness["node_count"], 9);
+            assert_eq!(witness["physical_edge_count"], 12);
+            let exterior = &witness["unbounded_face_ids"][0];
+            assert_eq!(
+                witness["face_ids_by_local_edge"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|id| *id == exterior)
+                    .count(),
+                8
+            );
+            assert_eq!(
+                witness["face_ids_by_direction"].as_array().unwrap().len(),
+                24
+            );
+            signatures.push((
+                witness["unbounded_face_ids"].clone(),
+                witness["face_ids_by_direction"].clone(),
+            ));
+        }
+        assert_eq!(signatures[0], signatures[1]);
+    }
+
+    #[test]
     fn source_segment_sink_retains_chain_and_endpoint_identity() {
         let geometry = Geometry::MultiLineString(MultiLineString(vec![
             LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }]),
