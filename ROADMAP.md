@@ -860,6 +860,12 @@ to full partition arrangements rather than polyline edge sets.
   successor, component, face, unbounded-face, and extraction gates.
 - [x] Keep physically valid but topologically ambiguous spans fail-closed and
   distinct from physically incomplete spans and physical conflicts.
+- [x] Recognize multiple local exterior markers as one unbounded proof
+  candidate only when one closed, ID-assigned global cycle covers all markers;
+  missing, incomplete, or multiple marked cycles remain fail-closed.
+  The 2x2 coverage workload still has eight component-local cycles and no
+  validated exterior-cycle reconciliation across ambiguous four-claim spans;
+  global unbounded application, Euler, and extraction remain gated.
 - [ ] Retain full global arrangement, Euler, containment, provenance, Z,
   cancellation, limits, trace, and untiled-equivalence validation.
 
