@@ -46,6 +46,12 @@ mod tests {
                 .unwrap();
             let report = &result.result.stitching_report;
             assert_eq!(report.partition_border_global_arrangement_face_count, 5);
+            assert!(!report.partition_border_global_arrangement_adopted);
+            assert!(report.partition_border_global_arrangement_blocked_span_count > 0);
+            assert_eq!(
+                report.partition_border_global_arrangement_alias_edge_count,
+                8
+            );
             assert_eq!(
                 report.partition_border_global_arrangement_unbounded_face_count,
                 1
@@ -87,6 +93,42 @@ mod tests {
             ));
         }
         assert_eq!(signatures[0], signatures[1]);
+    }
+
+    #[test]
+    fn interior_ring_adopts_physical_candidate_without_shared_claims() {
+        let geometry = Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (3.0, 1.0),
+            (3.0, 3.0),
+            (1.0, 3.0),
+            (1.0, 1.0),
+        ]));
+        let mut tiled = TiledPolygonizer::new(
+            Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 }),
+            4.0,
+        )
+        .with_buffer(0.0)
+        .with_untiled_equivalence_check();
+        tiled.add_geometry(&geometry);
+        let result = tiled.polygonize().unwrap();
+        assert!(
+            result
+                .stitching_report
+                .partition_border_global_arrangement_adopted
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_arrangement_alias_edge_count,
+            0
+        );
+        assert_eq!(
+            result
+                .stitching_report
+                .partition_border_global_arrangement_blocked_span_count,
+            0
+        );
     }
 
     #[test]

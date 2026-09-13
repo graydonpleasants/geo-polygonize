@@ -2655,6 +2655,13 @@ pub struct StitchingReport {
     pub partition_border_global_arrangement_unbounded_face_count: usize,
     /// Local directed edges mapped into the physical arrangement's face IDs.
     pub partition_border_global_arrangement_mapped_edge_count: usize,
+    /// Whether validated physical links were adopted into the detached candidate.
+    /// This does not imply stitched extraction or equivalence readiness.
+    pub partition_border_global_arrangement_adopted: bool,
+    /// Non-ready mosaic spans preventing physical candidate adoption.
+    pub partition_border_global_arrangement_blocked_span_count: usize,
+    /// Extra local edge slots that cannot fit a one-to-one physical mapping.
+    pub partition_border_global_arrangement_alias_edge_count: usize,
     /// Active global face edges covered by canonical global node slots.
     pub partition_border_global_face_node_edge_count: usize,
     /// Deterministic global node slots retained for active face-edge endpoints.
@@ -5546,8 +5553,28 @@ impl<'a> TiledPolygonizer<'a> {
             )?;
         let partition_border_global_face_next_application = partition_border_graph
             .reconcile_global_face_next_application_plans(&self.execution_policy)?;
-        let partition_border_global_topology_candidate =
+        let mut partition_border_global_topology_candidate =
             partition_border_graph.reconcile_global_topology_candidate(&self.execution_policy)?;
+        let arrangement_blocked_span_count = if global_arrangement_witness.is_some() {
+            partition_mosaic
+                .topology_span_evidence()
+                .iter()
+                .filter(|span| span.status != PartitionTopologySpanStatusV1::Ready)
+                .count()
+        } else {
+            0
+        };
+        let mut arrangement_adopted = false;
+        if let Some(witness) = &global_arrangement_witness {
+            if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(
+                witness,
+                arrangement_blocked_span_count == 0,
+                &self.execution_policy,
+            )? {
+                partition_border_global_topology_candidate = candidate;
+                arrangement_adopted = true;
+            }
+        }
         let partition_border_global_topology_application_gate = partition_border_graph
             .validate_global_topology_application_gate(&self.execution_policy)?;
         let partition_border_global_component_coverage =
@@ -5763,6 +5790,11 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_edge_map,
             );
             if let Some(witness) = &global_arrangement_witness {
+                trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
+                    "adopted": arrangement_adopted,
+                    "blocked_span_count": arrangement_blocked_span_count,
+                    "alias_edge_count": witness.physical_edge_by_local_edge.len().saturating_sub(witness.physical_edges.len()),
+                }));
                 trace.record(
                     TraceStageV1::Graph,
                     "partition_border_global_arrangement_witness",
@@ -6933,6 +6965,9 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_edge_map.unmapped_twin_count,
                 partition_border_global_face_edge_map_ready: partition_border_global_face_edge_map
                     .edge_map_ready,
+                partition_border_global_arrangement_adopted: arrangement_adopted,
+                partition_border_global_arrangement_blocked_span_count: arrangement_blocked_span_count,
+                partition_border_global_arrangement_alias_edge_count: global_arrangement_witness.as_ref().map_or(0, |w| w.physical_edge_by_local_edge.len().saturating_sub(w.physical_edges.len())),
                 partition_border_global_arrangement_face_count: global_arrangement_witness.as_ref().map_or(0, |w| w.face_count),
                 partition_border_global_arrangement_unbounded_face_count: global_arrangement_witness.as_ref().map_or(0, |w| w.unbounded_face_ids.len()),
                 partition_border_global_arrangement_mapped_edge_count: global_arrangement_witness.as_ref().map_or(0, |w| w.face_ids_by_local_edge.len()),
