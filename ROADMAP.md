@@ -863,9 +863,17 @@ to full partition arrangements rather than polyline edge sets.
 - [x] Recognize multiple local exterior markers as one unbounded proof
   candidate only when one closed, ID-assigned global cycle covers all markers;
   missing, incomplete, or multiple marked cycles remain fail-closed.
-  The 2x2 coverage workload still has eight component-local cycles and no
-  validated exterior-cycle reconciliation across ambiguous four-claim spans;
-  global unbounded application, Euler, and extraction remain gated.
+  The face-qualified 2x2 topology still has eight component-local cycles;
+  adopting physical arrangement identities across ambiguous four-claim spans
+  remains blocked at the global unbounded application and extraction gates.
+- [x] Reconstruct a private physical-arrangement witness during opt-in untiled
+  equivalence checks, using existing noding, angular face walks, deterministic
+  IDs, and Euler validators. The 2x2 coverage fixture has five physical faces,
+  exactly one exterior identity, and all 32 local directed edges mapped into
+  those identities; reversed input order preserves the identity signature.
+  Face-qualified topology, containment, provenance, Z, and output-equivalence
+  gates remain authoritative: four-claim spans stay ambiguous, and consuming
+  the witness in the detached extraction topology remains deferred.
 - [ ] Retain full global arrangement, Euler, containment, provenance, Z,
   cancellation, limits, trace, and untiled-equivalence validation.
 

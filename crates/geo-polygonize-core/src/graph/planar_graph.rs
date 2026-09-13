@@ -1399,10 +1399,9 @@ impl PlanarGraph {
 
     /// Validates the post-sort, pre-pruning arrangement representation.
     ///
-    /// This is compiled only for tests and debug builds so production release
-    /// pipelines pay no validation cost. Keeping the check at the shared sort
-    /// root also lets debug fuzz builds exercise it without a public graph API.
-    #[cfg(any(test, debug_assertions))]
+    /// Normal pipelines call this in tests/debug builds. The opt-in partition
+    /// arrangement witness also uses it in release builds before accepting
+    /// physical face-cycle evidence.
     pub(crate) fn validate_arrangement_edge_invariants(&self) -> crate::Result<()> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
         let node_count = self.nodes_x.len();
@@ -2329,7 +2328,6 @@ impl PlanarGraph {
 
     /// Validates that active half-edges form disjoint closed cycles through
     /// the current persisted `next_idx` links.
-    #[cfg(any(test, debug_assertions))]
     pub(crate) fn validate_arrangement_ring_cycles(&self, phase: &str) -> crate::Result<usize> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
 
@@ -2407,7 +2405,6 @@ impl PlanarGraph {
     }
 
     /// Assigns stable component IDs to nodes incident to active edges.
-    #[cfg(any(test, debug_assertions))]
     pub(crate) fn active_component_ids(&self) -> Vec<Option<usize>> {
         self.active_component_ids_with_execution_policy(None)
             .expect("unlimited component identification cannot fail")
@@ -2838,7 +2835,6 @@ impl PlanarGraph {
     }
 
     /// Validates Euler's planar relation for the active maximal-ring graph.
-    #[cfg(any(test, debug_assertions))]
     pub(crate) fn validate_arrangement_euler(&self, phase: &str) -> crate::Result<()> {
         let invariant = |reason| crate::PolygonizeError::InternalInvariantViolation { reason };
         let boundary_cycles = self.validate_arrangement_ring_cycles(phase)?;
