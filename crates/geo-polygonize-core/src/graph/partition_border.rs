@@ -10676,8 +10676,9 @@ impl PartitionBorderGraph {
     /// Applies a conservative proof boundary to local-unbounded evidence.
     /// Exactly one local unbounded marker is a candidate only when every face
     /// cycle is closed, every border twin is mapped, and every unbounded-face
-    /// twin is mutation-ready. Multiple local markers, including markers that
-    /// share one retained connected component, remain unresolved evidence.
+    /// twin is mutation-ready. Multiple local markers additionally require one
+    /// closed, ID-assigned global cycle covering all markers; component
+    /// membership alone remains unresolved evidence.
     #[cfg(test)]
     pub(crate) fn validate_global_unbounded_face_proof(
         &self,
@@ -10733,11 +10734,47 @@ impl PartitionBorderGraph {
                 unbounded_face_not_ready_twin_count += 1;
             }
         }
-        let candidate_count = usize::from(local_unbounded_face_count == 1);
+        // Multiple local exterior markers prove one identity only when a
+        // validated closed global cycle contains all of them. Merely sharing
+        // a component (or a physically valid span) is not sufficient.
+        execution_policy.check(
+            "partition_border_global_unbounded_face_proof_cycles",
+            execution_policy.max_graph_nodes,
+            self.global_face_id_plans.len(),
+        )?;
+        let mut reconciled_unbounded_cycles = 0usize;
+        let mut reconciled_unbounded_faces = BTreeSet::new();
+        for (plan_index, plan) in self.global_face_id_plans.iter().enumerate() {
+            execution_policy.check_cancelled_every(
+                "partition_border_global_unbounded_face_proof_cycles",
+                plan_index,
+            )?;
+            let markers = plan
+                .face_refs
+                .iter()
+                .filter(|face_ref| unbounded_faces.contains(face_ref))
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if markers.is_empty() {
+                continue;
+            }
+            // An incomplete or additional marked cycle must not disappear
+            // from the uniqueness check.
+            reconciled_unbounded_cycles += 1;
+            if plan.closed && plan.candidate_global_face_id.is_some() {
+                reconciled_unbounded_faces.extend(markers);
+            }
+        }
+        let candidate_count = usize::from(
+            local_unbounded_face_count == 1
+                || (local_unbounded_face_count > 1
+                    && reconciled_unbounded_cycles == 1
+                    && reconciled_unbounded_faces == unbounded_faces),
+        );
         let proof_ready = candidate_count == 1
             && walk.face_count > 0
             && walk.closed_face_count == walk.face_count
-            && closed_unbounded_face_count == 1
+            && closed_unbounded_face_count == local_unbounded_face_count
             && walk.unbounded_component_count == 1
             && walk.unmapped_twin_count == 0
             && walk.source_complete_twin_count == walk.applied_twin_count
@@ -14419,6 +14456,52 @@ mod tests {
         assert_eq!(stats.closed_unbounded_face_count, 0);
         assert_eq!(stats.unbounded_face_not_ready_twin_count, 1);
         assert!(!stats.proof_ready);
+    }
+
+    #[test]
+    fn global_unbounded_face_proof_reconciles_only_one_closed_marker_cycle() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = prepared_global_face_walk_graph(true, [true, true]);
+        let before = graph.global_face_transitions.clone();
+        graph.reconcile_global_face_id_plans(&policy).unwrap();
+        let proof = graph.validate_global_unbounded_face_proof(&policy).unwrap();
+        assert_eq!(proof.local_unbounded_face_count, 2);
+        assert_eq!(proof.candidate_count, 1);
+        assert!(proof.proof_ready);
+        assert_eq!(graph.global_face_transitions, before);
+
+        let cycle = graph.global_face_id_plans[0].clone();
+        graph.global_face_id_plans[0].candidate_global_face_id = None;
+        assert!(
+            !graph
+                .validate_global_unbounded_face_proof(&policy)
+                .unwrap()
+                .proof_ready
+        );
+        graph.global_face_id_plans[0] = cycle.clone();
+        graph.global_face_id_plans[0].closed = false;
+        assert!(
+            !graph
+                .validate_global_unbounded_face_proof(&policy)
+                .unwrap()
+                .proof_ready
+        );
+        graph.global_face_id_plans[0] = cycle.clone();
+        graph.global_face_id_plans.push(cycle.clone());
+        assert!(
+            !graph
+                .validate_global_unbounded_face_proof(&policy)
+                .unwrap()
+                .proof_ready
+        );
+        graph.global_face_id_plans.pop();
+        graph.global_face_id_plans[0].face_refs.pop();
+        assert!(
+            !graph
+                .validate_global_unbounded_face_proof(&policy)
+                .unwrap()
+                .proof_ready
+        );
     }
 
     #[test]
