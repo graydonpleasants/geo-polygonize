@@ -46,6 +46,10 @@ mod tests {
                 .unwrap();
             let report = &result.result.stitching_report;
             assert_eq!(report.partition_border_global_arrangement_face_count, 5);
+            assert_eq!(
+                report.partition_border_global_arrangement_alias_slot_count,
+                24
+            );
             assert!(!report.partition_border_global_arrangement_adopted);
             assert!(report.partition_border_global_arrangement_blocked_span_count > 0);
             assert_eq!(
@@ -64,6 +68,29 @@ mod tests {
             assert!(!report.partition_border_global_untiled_equivalence_checked);
             assert!(!report.partition_border_global_untiled_equivalence_ready);
             assert!(result.result.stitched_output.is_none());
+            let adoption = result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_adoption")
+                .unwrap();
+            let aliases = adoption.payload["local_edges_by_physical_edge"]
+                .as_array()
+                .unwrap();
+            let mut retained = aliases
+                .iter()
+                .flat_map(|group| group.as_array().unwrap())
+                .map(|id| id.as_u64().unwrap())
+                .collect::<Vec<_>>();
+            retained.sort_unstable();
+            assert_eq!(retained, (0..32).collect::<Vec<_>>());
+            assert_eq!(
+                aliases
+                    .iter()
+                    .filter(|group| group.as_array().unwrap().len() == 2)
+                    .count(),
+                8
+            );
             let witness = &result
                 .trace
                 .events

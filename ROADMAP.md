@@ -881,6 +881,13 @@ to full partition arrangements rather than polyline edge sets.
   all existing extraction gates still run. The 2x2 workload remains blocked by
   unresolved spans and eight extra local edge slots: alias-aware face-qualified
   extraction is the next representation change, not a readiness relaxation.
+- [x] Validate many-to-one local edge aliases per physical directed slot,
+  retaining every contributing local edge and requiring exact aggregate source
+  coverage, endpoint Z, symmetric aliases, and physical successor consistency.
+  The 2x2 workload validates 32 local edges across 24 physical slots, including
+  eight two-edge alias groups. This removes payload validation's bijection
+  assumption; face-qualified claim resolution and alias-aware candidate
+  consumption remain blocked, and four-claim readiness stays unchanged.
 - [ ] Retain full global arrangement, Euler, containment, provenance, Z,
   cancellation, limits, trace, and untiled-equivalence validation.
 
