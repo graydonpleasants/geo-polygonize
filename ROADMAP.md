@@ -872,8 +872,15 @@ to full partition arrangements rather than polyline edge sets.
   exactly one exterior identity, and all 32 local directed edges mapped into
   those identities; reversed input order preserves the identity signature.
   Face-qualified topology, containment, provenance, Z, and output-equivalence
-  gates remain authoritative: four-claim spans stay ambiguous, and consuming
-  the witness in the detached extraction topology remains deferred.
+  gates remain authoritative: four-claim spans stay ambiguous, and adopting
+  shared-edge aliases into detached extraction topology remains deferred.
+- [x] Retain physical twin/successor links and the local-to-physical edge map,
+  and atomically adopt bijective mappings into the detached successor candidate
+  after payload, cycle, Euler, and unique-exterior checks. Non-ready mosaic
+  spans and aliased edge slots decline adoption without changing the candidate;
+  all existing extraction gates still run. The 2x2 workload remains blocked by
+  unresolved spans and eight extra local edge slots: alias-aware face-qualified
+  extraction is the next representation change, not a readiness relaxation.
 - [ ] Retain full global arrangement, Euler, containment, provenance, Z,
   cancellation, limits, trace, and untiled-equivalence validation.
 

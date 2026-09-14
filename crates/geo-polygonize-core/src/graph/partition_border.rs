@@ -635,6 +635,19 @@ pub(crate) struct PartitionBorderGlobalFaceEdge {
     pub(crate) source_line_ids: Vec<u32>,
 }
 
+/// One directed physical edge, including the payload needed to validate adoption.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub(crate) struct PartitionBorderPhysicalTopologyEdge {
+    pub(crate) from: [u64; 2],
+    pub(crate) to: [u64; 2],
+    pub(crate) from_z_bits: u64,
+    pub(crate) to_z_bits: u64,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) symmetric: usize,
+    pub(crate) next: usize,
+    pub(crate) face_id: FaceId,
+}
+
 /// Private physical-arrangement evidence, independent of face-claim readiness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalArrangementWitness {
@@ -644,6 +657,8 @@ pub(crate) struct PartitionBorderGlobalArrangementWitness {
     pub(crate) unbounded_face_ids: Vec<FaceId>,
     pub(crate) face_ids_by_local_edge: Vec<FaceId>,
     pub(crate) face_ids_by_direction: Vec<([u64; 2], [u64; 2], FaceId)>,
+    pub(crate) physical_edges: Vec<PartitionBorderPhysicalTopologyEdge>,
+    pub(crate) physical_edge_by_local_edge: Vec<usize>,
 }
 
 /// Counts from remapping active local face-edge lineage into deterministic
@@ -2400,6 +2415,8 @@ impl PartitionBorderGraph {
                 graph.nodes_z[id],
             ))
         };
+        let mut physical_edges = Vec::with_capacity(graph.directed_edges.len());
+        let mut slot_by_direction = BTreeMap::new();
         let mut face_by_direction = BTreeMap::new();
         for (index, edge) in graph.directed_edges.iter().enumerate() {
             execution_policy.check_cancelled_every("partition_border_global_arrangement", index)?;
@@ -2407,7 +2424,22 @@ impl PartitionBorderGraph {
                 return Ok(None);
             };
             face_by_direction.insert((key(edge.src), key(edge.dst)), face_id);
+            let Some(next) = graph.directed_edges[edge.sym_idx].next_idx else {
+                return Ok(None);
+            };
+            slot_by_direction.insert((key(edge.src), key(edge.dst)), index);
+            physical_edges.push(PartitionBorderPhysicalTopologyEdge {
+                from: key(edge.src).xy_bits,
+                to: key(edge.dst).xy_bits,
+                from_z_bits: graph.nodes_z[edge.src].to_bits(),
+                to_z_bits: graph.nodes_z[edge.dst].to_bits(),
+                source_line_ids: graph.edges[edge.edge_idx].sources.line_ids.to_vec(),
+                symmetric: edge.sym_idx,
+                next,
+                face_id,
+            });
         }
+        let mut physical_edge_by_local_edge = Vec::with_capacity(self.global_face_edge_map.len());
         let mut face_ids_by_local_edge = Vec::with_capacity(self.global_face_edge_map.len());
         for (index, edge) in self.global_face_edge_map.iter().enumerate() {
             execution_policy.check_cancelled_every("partition_border_global_arrangement", index)?;
@@ -2415,6 +2447,7 @@ impl PartitionBorderGraph {
                 return Ok(None);
             };
             face_ids_by_local_edge.push(face_id);
+            physical_edge_by_local_edge.push(slot_by_direction[&(edge.from, edge.to)]);
         }
         Ok(Some(PartitionBorderGlobalArrangementWitness {
             node_count: graph.nodes_x.len(),
@@ -2422,11 +2455,179 @@ impl PartitionBorderGraph {
             face_count: graph.face_count,
             unbounded_face_ids: graph.unbounded_face_ids,
             face_ids_by_local_edge,
+            physical_edges,
+            physical_edge_by_local_edge,
             face_ids_by_direction: face_by_direction
                 .into_iter()
                 .map(|((from, to), face_id)| (from.xy_bits, to.xy_bits, face_id))
                 .collect(),
         }))
+    }
+
+    /// Atomically adopts physical successors into the detached candidate only.
+    /// Extraction still runs every existing application, face, and payload gate.
+    /// ponytail: one local edge per slot; alias-aware extraction is required for duplicates.
+    pub(crate) fn adopt_global_arrangement_candidate(
+        &mut self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        claims_ready: bool,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<PartitionBorderGlobalTopologyCandidateStats>> {
+        let stage = "partition_border_global_arrangement_adoption";
+        execution_policy.check_cancelled(stage)?;
+        let edge_count = self.global_face_edge_map.len();
+        execution_policy.check(stage, execution_policy.max_graph_edges, edge_count)?;
+        execution_policy.check(stage, execution_policy.max_graph_nodes, witness.face_count)?;
+        if !claims_ready
+            || edge_count == 0
+            || witness.physical_edges.len() != edge_count
+            || witness.physical_edge_count.checked_mul(2) != Some(edge_count)
+            || witness.node_count != self.global_face_nodes.len()
+            || witness.node_count as i128 - witness.physical_edge_count as i128
+                + witness.face_count as i128
+                != 2
+            || witness.physical_edge_by_local_edge.len() != edge_count
+            || witness.face_ids_by_local_edge.len() != edge_count
+            || witness.unbounded_face_ids.len() != 1
+            || self.global_topology_candidate.is_none()
+            || !self.global_next_global_dir_edge_ids.is_empty()
+        {
+            return Ok(None);
+        }
+        let mut local_by_physical = vec![None; edge_count];
+        for (local, &physical) in witness.physical_edge_by_local_edge.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, local)?;
+            if physical >= edge_count || local_by_physical[physical].replace(local).is_some() {
+                return Ok(None);
+            }
+        }
+        let mut next = vec![None; edge_count];
+        let mut predecessors = vec![0usize; edge_count];
+        for (local, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, local)?;
+            let physical = witness.physical_edge_by_local_edge[local];
+            let record = &witness.physical_edges[physical];
+            let (Some(twin), Some(successor)) = (
+                witness.physical_edges.get(record.symmetric),
+                witness.physical_edges.get(record.next),
+            ) else {
+                return Ok(None);
+            };
+            let (Some(from), Some(to)) = (
+                edge.from_global_node_id
+                    .and_then(|id| self.global_face_nodes.get(id)),
+                edge.to_global_node_id
+                    .and_then(|id| self.global_face_nodes.get(id)),
+            ) else {
+                return Ok(None);
+            };
+            if edge.global_dir_edge_id != local
+                || record.from != edge.from.xy_bits
+                || record.to != edge.to.xy_bits
+                || from.key != edge.from
+                || to.key != edge.to
+                || record.from_z_bits != from.selected_z_bits
+                || record.to_z_bits != to.selected_z_bits
+                || !from.z_bits.contains(&edge.from_z_bits)
+                || !to.z_bits.contains(&edge.to_z_bits)
+                || record.source_line_ids.is_empty()
+                || record.source_line_ids != edge.source_line_ids
+                || twin.symmetric != physical
+                || twin.from != record.to
+                || twin.to != record.from
+                || local_by_physical[record.symmetric] != Some(edge.symmetric_global_dir_edge_id)
+                || successor.from != record.to
+                || successor.face_id != record.face_id
+                || record.face_id >= witness.face_count
+                || witness.face_ids_by_local_edge[local] != record.face_id
+            {
+                return Ok(None);
+            }
+            let successor = local_by_physical[record.next].unwrap();
+            next[local] = Some(successor);
+            predecessors[successor] += 1;
+        }
+        if predecessors.iter().any(|&count| count != 1) {
+            return Ok(None);
+        }
+        let mut visited = vec![false; edge_count];
+        let mut starts = Vec::new();
+        let mut faces = BTreeSet::new();
+        let mut exterior = Vec::new();
+        for start in 0..edge_count {
+            execution_policy.check_cancelled_every(stage, start)?;
+            if visited[start] {
+                continue;
+            }
+            let face = witness.face_ids_by_local_edge[start];
+            if !faces.insert(face) {
+                return Ok(None);
+            }
+            let mut coords = Vec::new();
+            let mut current = start;
+            loop {
+                execution_policy.check_cancelled_every(stage, coords.len())?;
+                if visited[current] {
+                    if current != start {
+                        return Ok(None);
+                    }
+                    break;
+                }
+                visited[current] = true;
+                let edge = &self.global_face_edge_map[current];
+                coords.push(Coord3D::new(
+                    f64::from_bits(edge.from.xy_bits[0]),
+                    f64::from_bits(edge.from.xy_bits[1]),
+                    0.0,
+                ));
+                current = next[current].unwrap();
+            }
+            coords.push(coords[0]);
+            let area = Polygon3D::ring_signed_area_2d(&coords);
+            if !area.is_finite() || area == 0.0 {
+                return Ok(None);
+            }
+            if area < 0.0 {
+                exterior.push(face);
+            }
+            starts.push(start);
+        }
+        if faces.len() != witness.face_count || exterior != witness.unbounded_face_ids {
+            return Ok(None);
+        }
+        let incomplete_application_plan_count = self
+            .global_face_next_application_plans
+            .iter()
+            .filter(|plan| !plan.closed || !plan.node_continuous)
+            .count();
+        let stats = PartitionBorderGlobalTopologyCandidateStats {
+            edge_count,
+            local_successor_count: self
+                .global_face_edge_map
+                .iter()
+                .filter(|edge| edge.local_face_successor_global_dir_edge_id.is_some())
+                .count(),
+            global_override_count: self
+                .global_face_edge_map
+                .iter()
+                .zip(&next)
+                .filter(|(edge, successor)| {
+                    edge.local_face_successor_global_dir_edge_id != **successor
+                })
+                .count(),
+            assigned_next_count: edge_count,
+            cycle_count: starts.len(),
+            closed_cycle_edge_count: edge_count,
+            incomplete_application_plan_count,
+            candidate_ready: incomplete_application_plan_count == 0,
+            ..Default::default()
+        };
+        execution_policy.check_cancelled(stage)?;
+        self.global_topology_candidate = Some(PartitionBorderGlobalTopologyCandidate {
+            next_global_dir_edge_ids: next,
+            cycle_start_global_dir_edge_ids: starts,
+        });
+        Ok(Some(stats))
     }
 
     /// Remaps active tile-local face-edge lineage into deterministic global
@@ -11600,6 +11801,100 @@ mod tests {
         assert!(planar
             .partition_border_half_edge(4, 0, PartitionBorderSide::MinY)
             .is_none());
+    }
+
+    #[test]
+    fn physical_candidate_adoption_validates_payloads_links_and_rolls_back_rejection() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = PartitionBorderGraph::default();
+        let points = [
+            coord(0.0, 0.0, 4.0),
+            coord(1.0, 0.0, 4.0),
+            coord(1.0, 1.0, 4.0),
+            coord(0.0, 1.0, 4.0),
+        ];
+        for index in 0..4 {
+            graph
+                .insert_local_face_graph(local_face_graph(
+                    index,
+                    0,
+                    0,
+                    0,
+                    points[index],
+                    points[(index + 1) % 4],
+                    index as u32,
+                ))
+                .unwrap();
+        }
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        graph.reconcile_global_topology_candidate(&policy).unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let before = graph.clone();
+        assert!(graph
+            .adopt_global_arrangement_candidate(&witness, false, &policy)
+            .unwrap()
+            .is_none());
+        assert_eq!(graph, before);
+        for mutation in 0..5 {
+            let mut invalid = witness.clone();
+            match mutation {
+                0 => invalid.physical_edges[0].next = usize::MAX,
+                1 => invalid.physical_edges[0].source_line_ids.clear(),
+                2 => invalid.physical_edges[0].from_z_bits = 99.0f64.to_bits(),
+                3 => invalid.unbounded_face_ids.clear(),
+                _ => {
+                    invalid.physical_edge_by_local_edge[0] = invalid.physical_edge_by_local_edge[1]
+                }
+            }
+            assert!(graph
+                .adopt_global_arrangement_candidate(&invalid, true, &policy)
+                .unwrap()
+                .is_none());
+            assert_eq!(graph, before);
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            graph.adopt_global_arrangement_candidate(
+                &witness,
+                true,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
+        assert!(matches!(
+            graph.adopt_global_arrangement_candidate(
+                &witness,
+                true,
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        assert_eq!(graph, before);
+        let stats = graph
+            .adopt_global_arrangement_candidate(&witness, true, &policy)
+            .unwrap()
+            .unwrap();
+        assert!(stats.candidate_ready);
+        assert_eq!(stats.cycle_count, 2);
+        assert_eq!(stats.closed_cycle_edge_count, 8);
+        assert_ne!(
+            graph.global_topology_candidate,
+            before.global_topology_candidate
+        );
+        let mut expected = before;
+        expected.global_topology_candidate = graph.global_topology_candidate.clone();
+        assert_eq!(graph, expected);
+        assert!(graph.global_next_global_dir_edge_ids.is_empty());
     }
 
     #[test]
