@@ -2464,6 +2464,98 @@ impl PartitionBorderGraph {
         }))
     }
 
+    /// Validates the many-to-one payload map without selecting a representative
+    /// local face claim. Every local edge remains available in its physical slot.
+    pub(crate) fn global_arrangement_aliases(
+        &self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<Vec<Vec<usize>>>> {
+        let stage = "partition_border_global_arrangement_aliases";
+        execution_policy.check_cancelled(stage)?;
+        let local_count = self.global_face_edge_map.len();
+        let physical_count = witness.physical_edges.len();
+        execution_policy.check(stage, execution_policy.max_graph_edges, local_count)?;
+        if local_count == 0
+            || physical_count == 0
+            || physical_count > local_count
+            || witness.physical_edge_count.checked_mul(2) != Some(physical_count)
+            || witness.physical_edge_by_local_edge.len() != local_count
+            || witness.face_ids_by_local_edge.len() != local_count
+        {
+            return Ok(None);
+        }
+        let mut aliases = vec![Vec::new(); physical_count];
+        let mut sources = vec![BTreeSet::new(); physical_count];
+        for (local, edge) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, local)?;
+            let physical = witness.physical_edge_by_local_edge[local];
+            let Some(record) = witness.physical_edges.get(physical) else {
+                return Ok(None);
+            };
+            let (Some(from), Some(to)) = (
+                edge.from_global_node_id
+                    .and_then(|id| self.global_face_nodes.get(id)),
+                edge.to_global_node_id
+                    .and_then(|id| self.global_face_nodes.get(id)),
+            ) else {
+                return Ok(None);
+            };
+            if edge.global_dir_edge_id != local
+                || record.from != edge.from.xy_bits
+                || record.to != edge.to.xy_bits
+                || from.key != edge.from
+                || to.key != edge.to
+                || record.from_z_bits != from.selected_z_bits
+                || record.to_z_bits != to.selected_z_bits
+                || !from.z_bits.contains(&edge.from_z_bits)
+                || !to.z_bits.contains(&edge.to_z_bits)
+                || edge.source_line_ids.is_empty()
+                || witness
+                    .physical_edge_by_local_edge
+                    .get(edge.symmetric_global_dir_edge_id)
+                    != Some(&record.symmetric)
+                || witness.face_ids_by_local_edge[local] != record.face_id
+            {
+                return Ok(None);
+            }
+            aliases[physical].push(local);
+            sources[physical].extend(edge.source_line_ids.iter().copied());
+        }
+        let mut predecessors = vec![0usize; physical_count];
+        for (physical, record) in witness.physical_edges.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, physical)?;
+            let (Some(twin), Some(next)) = (
+                witness.physical_edges.get(record.symmetric),
+                witness.physical_edges.get(record.next),
+            ) else {
+                return Ok(None);
+            };
+            if aliases[physical].is_empty()
+                || !sources[physical]
+                    .iter()
+                    .copied()
+                    .eq(record.source_line_ids.iter().copied())
+                || twin.symmetric != physical
+                || twin.from != record.to
+                || twin.to != record.from
+                || twin.from_z_bits != record.to_z_bits
+                || twin.to_z_bits != record.from_z_bits
+                || twin.source_line_ids != record.source_line_ids
+                || next.from != record.to
+                || next.face_id != record.face_id
+                || record.face_id >= witness.face_count
+            {
+                return Ok(None);
+            }
+            predecessors[record.next] += 1;
+        }
+        if predecessors.iter().any(|&count| count != 1) {
+            return Ok(None);
+        }
+        Ok(Some(aliases))
+    }
+
     /// Atomically adopts physical successors into the detached candidate only.
     /// Extraction still runs every existing application, face, and payload gate.
     /// ponytail: one local edge per slot; alias-aware extraction is required for duplicates.
@@ -2494,61 +2586,16 @@ impl PartitionBorderGraph {
         {
             return Ok(None);
         }
-        let mut local_by_physical = vec![None; edge_count];
-        for (local, &physical) in witness.physical_edge_by_local_edge.iter().enumerate() {
-            execution_policy.check_cancelled_every(stage, local)?;
-            if physical >= edge_count || local_by_physical[physical].replace(local).is_some() {
-                return Ok(None);
-            }
+        let Some(aliases) = self.global_arrangement_aliases(witness, execution_policy)? else {
+            return Ok(None);
+        };
+        if aliases.iter().any(|locals| locals.len() != 1) {
+            return Ok(None);
         }
         let mut next = vec![None; edge_count];
-        let mut predecessors = vec![0usize; edge_count];
-        for (local, edge) in self.global_face_edge_map.iter().enumerate() {
+        for (local, &physical) in witness.physical_edge_by_local_edge.iter().enumerate() {
             execution_policy.check_cancelled_every(stage, local)?;
-            let physical = witness.physical_edge_by_local_edge[local];
-            let record = &witness.physical_edges[physical];
-            let (Some(twin), Some(successor)) = (
-                witness.physical_edges.get(record.symmetric),
-                witness.physical_edges.get(record.next),
-            ) else {
-                return Ok(None);
-            };
-            let (Some(from), Some(to)) = (
-                edge.from_global_node_id
-                    .and_then(|id| self.global_face_nodes.get(id)),
-                edge.to_global_node_id
-                    .and_then(|id| self.global_face_nodes.get(id)),
-            ) else {
-                return Ok(None);
-            };
-            if edge.global_dir_edge_id != local
-                || record.from != edge.from.xy_bits
-                || record.to != edge.to.xy_bits
-                || from.key != edge.from
-                || to.key != edge.to
-                || record.from_z_bits != from.selected_z_bits
-                || record.to_z_bits != to.selected_z_bits
-                || !from.z_bits.contains(&edge.from_z_bits)
-                || !to.z_bits.contains(&edge.to_z_bits)
-                || record.source_line_ids.is_empty()
-                || record.source_line_ids != edge.source_line_ids
-                || twin.symmetric != physical
-                || twin.from != record.to
-                || twin.to != record.from
-                || local_by_physical[record.symmetric] != Some(edge.symmetric_global_dir_edge_id)
-                || successor.from != record.to
-                || successor.face_id != record.face_id
-                || record.face_id >= witness.face_count
-                || witness.face_ids_by_local_edge[local] != record.face_id
-            {
-                return Ok(None);
-            }
-            let successor = local_by_physical[record.next].unwrap();
-            next[local] = Some(successor);
-            predecessors[successor] += 1;
-        }
-        if predecessors.iter().any(|&count| count != 1) {
-            return Ok(None);
+            next[local] = Some(aliases[witness.physical_edges[physical].next][0]);
         }
         let mut visited = vec![false; edge_count];
         let mut starts = Vec::new();
@@ -11801,6 +11848,99 @@ mod tests {
         assert!(planar
             .partition_border_half_edge(4, 0, PartitionBorderSide::MinY)
             .is_none());
+    }
+
+    #[test]
+    fn physical_aliases_preserve_all_local_sources_without_enabling_adoption() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = PartitionBorderGraph::default();
+        let points = [
+            coord(0.0, 0.0, 4.0),
+            coord(1.0, 0.0, 4.0),
+            coord(1.0, 1.0, 4.0),
+            coord(0.0, 1.0, 4.0),
+        ];
+        for index in 0..8 {
+            graph
+                .insert_local_face_graph(local_face_graph(
+                    index,
+                    0,
+                    0,
+                    0,
+                    points[index % 4],
+                    points[(index + 1) % 4],
+                    index as u32,
+                ))
+                .unwrap();
+        }
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        graph.reconcile_global_topology_candidate(&policy).unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let before = graph.clone();
+        let aliases = graph
+            .global_arrangement_aliases(&witness, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(aliases.len(), 8);
+        assert!(aliases.iter().all(|locals| locals.len() == 2));
+        let mut retained = aliases.into_iter().flatten().collect::<Vec<_>>();
+        retained.sort_unstable();
+        assert_eq!(retained, (0..16).collect::<Vec<_>>());
+        assert!(witness
+            .physical_edges
+            .iter()
+            .all(|edge| edge.source_line_ids.len() == 2));
+        assert!(graph
+            .adopt_global_arrangement_candidate(&witness, true, &policy)
+            .unwrap()
+            .is_none());
+        for mutation in 0..4 {
+            let mut invalid = witness.clone();
+            match mutation {
+                0 => {
+                    invalid.physical_edge_by_local_edge.pop();
+                }
+                1 => {
+                    invalid.physical_edges[0].source_line_ids.pop();
+                }
+                2 => {
+                    invalid.physical_edges[0].from_z_bits = 99.0f64.to_bits();
+                }
+                _ => {
+                    invalid.physical_edges[0].symmetric = usize::MAX;
+                }
+            }
+            assert!(graph
+                .global_arrangement_aliases(&invalid, &policy)
+                .unwrap()
+                .is_none());
+        }
+        assert!(matches!(
+            graph.global_arrangement_aliases(
+                &witness,
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            graph.global_arrangement_aliases(
+                &witness,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
+        assert_eq!(graph, before);
     }
 
     #[test]

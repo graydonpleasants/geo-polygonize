@@ -2655,6 +2655,9 @@ pub struct StitchingReport {
     pub partition_border_global_arrangement_unbounded_face_count: usize,
     /// Local directed edges mapped into the physical arrangement's face IDs.
     pub partition_border_global_arrangement_mapped_edge_count: usize,
+    /// Physical slots with complete, source/Z-validated local alias groups.
+    /// This does not resolve face claims or authorize extraction.
+    pub partition_border_global_arrangement_alias_slot_count: usize,
     /// Whether validated physical links were adopted into the detached candidate.
     /// This does not imply stitched extraction or equivalence readiness.
     pub partition_border_global_arrangement_adopted: bool,
@@ -5564,6 +5567,13 @@ impl<'a> TiledPolygonizer<'a> {
         } else {
             0
         };
+        let arrangement_aliases = global_arrangement_witness
+            .as_ref()
+            .map(|witness| {
+                partition_border_graph.global_arrangement_aliases(witness, &self.execution_policy)
+            })
+            .transpose()?
+            .flatten();
         let mut arrangement_adopted = false;
         if let Some(witness) = &global_arrangement_witness {
             if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(
@@ -5792,6 +5802,7 @@ impl<'a> TiledPolygonizer<'a> {
             if let Some(witness) = &global_arrangement_witness {
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
                     "adopted": arrangement_adopted,
+                    "local_edges_by_physical_edge": arrangement_aliases,
                     "blocked_span_count": arrangement_blocked_span_count,
                     "alias_edge_count": witness.physical_edge_by_local_edge.len().saturating_sub(witness.physical_edges.len()),
                 }));
@@ -6965,6 +6976,7 @@ impl<'a> TiledPolygonizer<'a> {
                     partition_border_global_face_edge_map.unmapped_twin_count,
                 partition_border_global_face_edge_map_ready: partition_border_global_face_edge_map
                     .edge_map_ready,
+                partition_border_global_arrangement_alias_slot_count: arrangement_aliases.as_ref().map_or(0, Vec::len),
                 partition_border_global_arrangement_adopted: arrangement_adopted,
                 partition_border_global_arrangement_blocked_span_count: arrangement_blocked_span_count,
                 partition_border_global_arrangement_alias_edge_count: global_arrangement_witness.as_ref().map_or(0, |w| w.physical_edge_by_local_edge.len().saturating_sub(w.physical_edges.len())),
