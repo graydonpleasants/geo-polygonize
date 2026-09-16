@@ -1,0 +1,438 @@
+{
+  "schemaVersion": 1,
+  "commit": "c8f82831218685f78925fca74def506eac6a4a3b",
+  "generatedAt": "2026-09-16T02:28:25.069Z",
+  "packageEntrypoint": "geo-polygonize default standard ESM bundle",
+  "initializationMode": "inlined scalar/SIMD auto-selection",
+  "options": "diagnostics timings and complete provenance enabled; otherwise canonical defaults",
+  "runtime": {
+    "node": "v22.22.0",
+    "platform": "darwin-arm64",
+    "selectedVariant": "automatic scalar/SIMD selection"
+  },
+  "node": {
+    "coldInitializationMs": 115.42454199999997,
+    "workloads": [
+      {
+        "name": "interactive",
+        "lineCount": 1,
+        "polygonCount": 1,
+        "samples": 30,
+        "knownInputCopyBytes": 88,
+        "inputPackingMs": 0.013000000000033651,
+        "timings": {
+          "geojson": {
+            "p50Ms": 0.02504199999998491,
+            "p95Ms": 0.042458999999951175
+          },
+          "rawFull": {
+            "p50Ms": 0.06279100000000426,
+            "p95Ms": 0.16320799999999736
+          },
+          "managedFull": {
+            "p50Ms": 0.061790999999971064,
+            "p95Ms": 0.18637500000005502
+          },
+          "geometry": {
+            "p50Ms": 0.02687500000001819,
+            "p95Ms": 0.12529100000000426
+          },
+          "snapshot": {
+            "p50Ms": 0.02708300000000463,
+            "p95Ms": 0.031916000000023814
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0.0005830000000059954,
+            "p95Ms": 0.010583999999994376
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0.0005409999999983484,
+            "p95Ms": 0.00304199999999355
+          },
+          "snapshotCopy": {
+            "p50Ms": 0.0016660000000001673,
+            "p95Ms": 0.004208000000005541
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.021665999999981977,
+            "output_flatten_ms": 0.012707999999975073,
+            "packed_output_bytes": 108
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.0222079999999778,
+            "output_flatten_ms": 0.01245899999997846,
+            "packed_output_bytes": 108
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.0015409999999747015,
+            "output_flatten_ms": 0.0028750000000172804,
+            "packed_output_bytes": 108
+          }
+        },
+        "packedOutputBytes": 108,
+        "wasmMemoryHighWaterBytes": 1376256,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      },
+      {
+        "name": "disconnected-256",
+        "lineCount": 256,
+        "polygonCount": 256,
+        "samples": 30,
+        "knownInputCopyBytes": 22528,
+        "inputPackingMs": 0.16145899999997937,
+        "timings": {
+          "geojson": {
+            "p50Ms": 2.3552910000000224,
+            "p95Ms": 5.1978750000000105
+          },
+          "rawFull": {
+            "p50Ms": 4.107250000000022,
+            "p95Ms": 7.489749999999958
+          },
+          "managedFull": {
+            "p50Ms": 3.6722919999999704,
+            "p95Ms": 7.206000000000017
+          },
+          "geometry": {
+            "p50Ms": 1.2500420000000076,
+            "p95Ms": 1.9302079999999933
+          },
+          "snapshot": {
+            "p50Ms": 1.0870419999999967,
+            "p95Ms": 1.2136669999999867
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0.0018749999999272404,
+            "p95Ms": 0.004916000000093845
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0.002375000000029104,
+            "p95Ms": 0.0037079999999605207
+          },
+          "snapshotCopy": {
+            "p50Ms": 0.0072499999999990905,
+            "p95Ms": 0.01850000000001728
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 2.1667919999999867,
+            "output_flatten_ms": 0.10524999999995543,
+            "packed_output_bytes": 27648
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 2.699124999999981,
+            "output_flatten_ms": 0.23783399999990706,
+            "packed_output_bytes": 27648
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.0014169999999467109,
+            "output_flatten_ms": 0.029625000000010004,
+            "packed_output_bytes": 27648
+          }
+        },
+        "packedOutputBytes": 27648,
+        "wasmMemoryHighWaterBytes": 2031616,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      },
+      {
+        "name": "dirty",
+        "lineCount": 18,
+        "polygonCount": 16,
+        "samples": 30,
+        "knownInputCopyBytes": 1488,
+        "inputPackingMs": 0.01079200000003766,
+        "timings": {
+          "geojson": {
+            "p50Ms": 0.12374999999997272,
+            "p95Ms": 0.23299999999994725
+          },
+          "rawFull": {
+            "p50Ms": 0.2383750000000191,
+            "p95Ms": 0.30320799999992687
+          },
+          "managedFull": {
+            "p50Ms": 0.2836250000000291,
+            "p95Ms": 0.42791699999997945
+          },
+          "geometry": {
+            "p50Ms": 0.07520800000008876,
+            "p95Ms": 0.1113749999999527
+          },
+          "snapshot": {
+            "p50Ms": 0.07504099999994196,
+            "p95Ms": 0.14658300000007785
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0.0005830000000059954,
+            "p95Ms": 0.002417000000036751
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0.0004589999999780048,
+            "p95Ms": 0.0006670000000212895
+          },
+          "snapshotCopy": {
+            "p50Ms": 0.0012500000000272848,
+            "p95Ms": 0.007875000000012733
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.14650000000006003,
+            "output_flatten_ms": 0.016666999999984,
+            "packed_output_bytes": 1728
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.1771249999999327,
+            "output_flatten_ms": 0.019833000000062384,
+            "packed_output_bytes": 1728
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.001125000000001819,
+            "output_flatten_ms": 0.0030420000000503933,
+            "packed_output_bytes": 1728
+          }
+        },
+        "packedOutputBytes": 1728,
+        "wasmMemoryHighWaterBytes": 2031616,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      }
+    ]
+  },
+  "browser": {
+    "coldInitializationMs": 111.69999992847443,
+    "workloads": [
+      {
+        "name": "interactive",
+        "lineCount": 1,
+        "polygonCount": 1,
+        "samples": 30,
+        "knownInputCopyBytes": 88,
+        "inputPackingMs": 0.10000002384185791,
+        "timings": {
+          "geojson": {
+            "p50Ms": 0,
+            "p95Ms": 0.10000002384185791
+          },
+          "rawFull": {
+            "p50Ms": 0.10000002384185791,
+            "p95Ms": 0.2999999523162842
+          },
+          "managedFull": {
+            "p50Ms": 0.10000002384185791,
+            "p95Ms": 0.10000002384185791
+          },
+          "geometry": {
+            "p50Ms": 0,
+            "p95Ms": 0.20000004768371582
+          },
+          "snapshot": {
+            "p50Ms": 0,
+            "p95Ms": 0.10000002384185791
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "snapshotCopy": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 108
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 108
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 108
+          }
+        },
+        "packedOutputBytes": 108,
+        "wasmMemoryHighWaterBytes": 1376256,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      },
+      {
+        "name": "disconnected-256",
+        "lineCount": 256,
+        "polygonCount": 256,
+        "samples": 30,
+        "knownInputCopyBytes": 22528,
+        "inputPackingMs": 0.10000002384185791,
+        "timings": {
+          "geojson": {
+            "p50Ms": 1.9000000953674316,
+            "p95Ms": 3.1999999284744263
+          },
+          "rawFull": {
+            "p50Ms": 3.100000023841858,
+            "p95Ms": 3.799999952316284
+          },
+          "managedFull": {
+            "p50Ms": 3,
+            "p95Ms": 3.200000047683716
+          },
+          "geometry": {
+            "p50Ms": 1,
+            "p95Ms": 1.100000023841858
+          },
+          "snapshot": {
+            "p50Ms": 1.100000023841858,
+            "p95Ms": 1.1999999284744263
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "snapshotCopy": {
+            "p50Ms": 0,
+            "p95Ms": 0.09999990463256836
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 1.899999976158142,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 27648
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 1.899999976158142,
+            "output_flatten_ms": 0.10000002384185791,
+            "packed_output_bytes": 27648
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0,
+            "output_flatten_ms": 0.10000002384185791,
+            "packed_output_bytes": 27648
+          }
+        },
+        "packedOutputBytes": 27648,
+        "wasmMemoryHighWaterBytes": 2031616,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      },
+      {
+        "name": "dirty",
+        "lineCount": 18,
+        "polygonCount": 16,
+        "samples": 30,
+        "knownInputCopyBytes": 1488,
+        "inputPackingMs": 0,
+        "timings": {
+          "geojson": {
+            "p50Ms": 0.10000002384185791,
+            "p95Ms": 0.20000004768371582
+          },
+          "rawFull": {
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.40000009536743164
+          },
+          "managedFull": {
+            "p50Ms": 0.20000004768371582,
+            "p95Ms": 0.3999999761581421
+          },
+          "geometry": {
+            "p50Ms": 0.10000002384185791,
+            "p95Ms": 0.10000002384185791
+          },
+          "snapshot": {
+            "p50Ms": 0.10000002384185791,
+            "p95Ms": 0.10000002384185791
+          },
+          "managedBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "geometryBorrowConsume": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          },
+          "snapshotCopy": {
+            "p50Ms": 0,
+            "p95Ms": 0
+          }
+        },
+        "boundary": {
+          "rawFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.09999990463256836,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 1728
+          },
+          "managedFull": {
+            "schema_version": 1,
+            "report_materialize_ms": 0.09999990463256836,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 1728
+          },
+          "geometry": {
+            "schema_version": 1,
+            "report_materialize_ms": 0,
+            "output_flatten_ms": 0,
+            "packed_output_bytes": 1728
+          }
+        },
+        "packedOutputBytes": 1728,
+        "wasmMemoryHighWaterBytes": 2031616,
+        "unsupportedMetrics": [
+          "separate wasm-bindgen slice-copy duration",
+          "Rust allocator counts",
+          "browser JS heap when performance.memory is unavailable"
+        ]
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36"
+  }
+}
