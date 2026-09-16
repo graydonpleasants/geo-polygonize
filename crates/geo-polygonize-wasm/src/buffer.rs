@@ -32,7 +32,20 @@ pub fn parse_buffer_lines(
     }
 
     let stride = usize::from(stride);
-    let mut lines = Vec::new();
+    let segment_count = offsets
+        .iter()
+        .enumerate()
+        .try_fold(0usize, |count, (i, &start)| {
+            let end = offsets
+                .get(i + 1)
+                .map_or(coords.len() / stride, |&offset| offset as usize);
+            count.checked_add(end.saturating_sub(start as usize).saturating_sub(1))
+        })
+        .ok_or_else(|| BufferError {
+            name: "ResourceLimitExceeded",
+            message: "input segment count exceeds addressable capacity".to_string(),
+        })?;
+    let mut lines = Vec::with_capacity(segment_count);
     for (i, &start) in offsets.iter().enumerate() {
         let start = start as usize;
         let end = offsets

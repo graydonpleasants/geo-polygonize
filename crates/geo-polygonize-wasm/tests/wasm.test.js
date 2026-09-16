@@ -309,6 +309,7 @@ describe('WASM Polygonizer', () => {
             polygonizeFingerprintWithOptions,
             polygonizeReportWithOptions,
             polygonizeTraceWithOptions,
+            polygonizeGeometryWithOptionsBuffer,
             polygonizeWithOptions,
             polygonizeWithOptionsBuffer,
         } = await import('../../../dist/standard/es/index.js');
@@ -348,11 +349,23 @@ describe('WASM Polygonizer', () => {
                 new Uint32Array(fixture.line_ids),
             ).topology_fingerprint,
         ).toEqual(fixture.expected_fingerprint);
+        const geometry = polygonizeGeometryWithOptionsBuffer(
+            new Float64Array(fixture.coords),
+            new Uint32Array(fixture.offsets),
+            fixture.stride,
+            fixture.options,
+            new Uint32Array(fixture.line_ids),
+        );
+        expect(geometry.projection).toBe('geometry');
+        expect(geometry.topology_fingerprint).toBeUndefined();
+        expect(geometry.polygon_offsets_len()).toBe(fixture.expected_fingerprint.polygons.length);
+        geometry.free();
     });
 
     it('should expose normalized core errors through every canonical Wasm shape', async () => {
         const {
             default: initModule,
+            polygonizeGeometryWithOptionsBuffer,
             polygonizeFingerprintWithOptions,
             polygonizeReportWithOptions,
             polygonizeTraceWithOptions,
@@ -391,6 +404,13 @@ describe('WASM Polygonizer', () => {
             JSON.stringify(crossing), options, 'summary', 0,
         ))).toEqual(expected);
         expect(normalizedError(() => polygonizeWithOptionsBuffer(
+            new Float64Array([-1, 0, 1, 0, 0, -1, 0, 1]),
+            new Uint32Array([0, 2]),
+            2,
+            options,
+            new Uint32Array([0, 1]),
+        ))).toEqual(expected);
+        expect(normalizedError(() => polygonizeGeometryWithOptionsBuffer(
             new Float64Array([-1, 0, 1, 0, 0, -1, 0, 1]),
             new Uint32Array([0, 2]),
             2,
@@ -711,6 +731,182 @@ describe('WASM Polygonizer', () => {
             expect(result.diagnostics.dangle_count).toBe(fixture.expected.dangleCount);
             expect(result.diagnostics.cut_edge_count).toBe(fixture.expected.cutEdgeCount);
             expect(result.diagnostics.invalid_ring_count).toBe(fixture.expected.invalidRingCount);
+        }
+    });
+
+    it('should manage borrowed and owned packed results', async () => {
+        const wasm = await import('../../../dist/standard/es/index.js');
+        await wasm.default();
+        const fixture = JSON.parse(readFileSync(
+            resolve('crates/geo-polygonize-core/tests/fixtures/conformance/axis_aligned_ring_v1.json'),
+            'utf8',
+        ));
+        const args = [
+            new Float64Array(fixture.coords),
+            new Uint32Array(fixture.offsets),
+            fixture.stride,
+            fixture.options,
+            new Uint32Array(fixture.line_ids),
+        ];
+        const full = wasm.polygonizePackedWithOptions(...args);
+        const geometry = wasm.polygonizePackedGeometryWithOptions(...args);
+
+        expect(full.projection).toBe('full');
+        expect(full.fullReport.topologyFingerprint).toEqual(fixture.expected_fingerprint);
+        expect(geometry.projection).toBe('geometry');
+        expect(geometry.fullReport).toBeUndefined();
+        expect(full.boundaryMetrics).toMatchObject({
+            schema_version: 1,
+            packed_output_bytes: expect.any(Number),
+        });
+
+        const borrowed = geometry.withBorrowed((buffers) => ({
+            coordinates: Array.from(buffers.coordinates),
+            ringOffsets: Array.from(buffers.ringOffsets),
+            polygonOffsets: Array.from(buffers.polygonOffsets),
+            representativeLineIds: Array.from(buffers.representativeLineIds),
+        }));
+        expect(borrowed.coordinates).toHaveLength(borrowed.representativeLineIds.length * 2);
+        expect(borrowed.ringOffsets).toEqual([0]);
+        expect(borrowed.polygonOffsets).toEqual([0]);
+        const fullSnapshot = full.snapshot();
+        const geometrySnapshot = geometry.snapshot();
+        expect({ ...fullSnapshot, projection: 'geometry' }).toEqual(geometrySnapshot);
+        expect(geometry.toGeoJSON()).toEqual(
+            JSON.parse(wasm.polygonizeWithOptions(JSON.stringify(fixture.geojson), fixture.options)),
+        );
+
+        const snapshot = geometry.snapshot();
+        const expectedCoordinates = Array.from(snapshot.coordinates);
+        geometry.dispose();
+        geometry.dispose();
+        expect(() => geometry.snapshot()).toThrow(/disposed/);
+        expect(Array.from(snapshot.coordinates)).toEqual(expectedCoordinates);
+
+        const transferList = wasm.packedSnapshotTransferList(snapshot);
+        const transferred = structuredClone(snapshot, { transfer: transferList });
+        expect(Array.from(transferred.coordinates)).toEqual(expectedCoordinates);
+        expect(snapshot.coordinates.byteLength).toBe(0);
+
+        expect(() => full.withBorrowed(() => {
+            throw new Error('consumer failed');
+        })).toThrow(/consumer failed/);
+        expect(full.withBorrowed(({ polygonOffsets }) => polygonOffsets.length)).toBe(1);
+        expect(() => full.withBorrowed(async () => 1)).toThrow(/synchronously/);
+        full.free();
+
+        const empty = wasm.polygonizePackedGeometryWithOptions(
+            new Float64Array(),
+            new Uint32Array(),
+            2,
+            {},
+        );
+        expect(empty.snapshot()).toMatchObject({
+            coordinates: new Float64Array(),
+            ringOffsets: new Uint32Array(),
+            polygonOffsets: new Uint32Array(),
+            representativeLineIds: new Uint32Array(),
+        });
+        empty.dispose();
+
+        const threeDimensional = wasm.polygonizePackedGeometryWithOptions(
+            new Float64Array([0, 0, 7, 1, 0, 7, 1, 1, 7, 0, 1, 7, 0, 0, 7]),
+            new Uint32Array([0]),
+            3,
+            {},
+            new Uint32Array([9]),
+        );
+        const threeDimensionalSnapshot = threeDimensional.snapshot();
+        expect(threeDimensionalSnapshot.stride).toBe(3);
+        expect(Array.from(threeDimensionalSnapshot.coordinates)
+            .filter((_, index) => index % 3 === 2)).toEqual([7, 7, 7, 7, 7]);
+        expect(threeDimensionalSnapshot.representativeLineIds)
+            .toEqual(new Uint32Array([9, 9, 9, 9, 0]));
+        threeDimensional.dispose();
+    });
+
+    it('should keep live packed owners independent and reacquire views after later calls', async () => {
+        const wasm = await import('../../../dist/standard/es/index.js');
+        await wasm.default();
+        const coordinates = new Float64Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0]);
+        const offsets = new Uint32Array([0]);
+        const first = wasm.polygonizePackedGeometryWithOptions(coordinates, offsets, 2, {});
+        const expected = first.snapshot();
+        const escaped = first.withBorrowed(({ coordinates: values }) => values);
+        const second = wasm.polygonizePackedGeometryWithOptions(coordinates, offsets, 2, {});
+
+        expect(first.withBorrowed(({ coordinates: values }) => Array.from(values)))
+            .toEqual(Array.from(expected.coordinates));
+        second.dispose();
+
+        const largeCoordinates = new Float64Array(200_000);
+        const largeOffsets = new Uint32Array(50_000);
+        for (let index = 0; index < largeOffsets.length; index += 1) {
+            largeOffsets[index] = index * 2;
+            largeCoordinates[index * 4] = index;
+            largeCoordinates[index * 4 + 2] = index + 0.5;
+        }
+        const large = wasm.polygonizePackedGeometryWithOptions(
+            largeCoordinates,
+            largeOffsets,
+            2,
+            {},
+        );
+        large.dispose();
+        const reacquired = first.withBorrowed(({ coordinates: values }) => ({
+            buffer: values.buffer,
+            values: Array.from(values),
+        }));
+        expect(reacquired.values).toEqual(Array.from(expected.coordinates));
+        expect(reacquired.buffer).not.toBe(escaped.buffer);
+        expect(escaped.byteLength).toBe(0);
+        first.dispose();
+    });
+
+    it('should bind packed handles to separate standard and slim module memories', async () => {
+        const standard = await import('../../../dist/standard/es/index.js');
+        const slim = await import('../../../dist/slim/es/index_slim.js');
+        await standard.default();
+        const slimWasm = await slim.initBest({
+            module: await WebAssembly.compile(readFileSync(resolve('dist/geo_polygonize.wasm'))),
+        });
+        const args = [
+            new Float64Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0]),
+            new Uint32Array([0]),
+            2,
+            {},
+        ];
+        const standardResult = standard.polygonizePackedGeometryWithOptions(...args);
+        const slimResult = slimWasm.polygonizePackedGeometryWithOptions(...args);
+        expect(standardResult.snapshot()).toEqual(slimResult.snapshot());
+        standardResult.dispose();
+        slimResult.dispose();
+    });
+
+    it('should preserve packed structure across holes and reported output families', async () => {
+        const wasm = await import('../../../dist/standard/es/index.js');
+        await wasm.default();
+        for (const path of [
+            'crates/geo-polygonize-core/tests/fixtures/basic/square_with_hole.json',
+            'crates/geo-polygonize-core/tests/fixtures/topology/reported_outputs.json',
+        ]) {
+            const fixture = JSON.parse(readFileSync(resolve(path), 'utf8'));
+            const coordinates = new Float64Array(fixture.inputs.flatMap(({ start, end }) => [
+                start.x, start.y, end.x, end.y,
+            ]));
+            const offsets = Uint32Array.from(fixture.inputs, (_, index) => index * 2);
+            const lineIds = Uint32Array.from(fixture.inputs, ({ id }) => id);
+            const args = [coordinates, offsets, 2, fixture.options, lineIds];
+            const full = wasm.polygonizePackedWithOptions(...args);
+            const geometry = wasm.polygonizePackedGeometryWithOptions(...args);
+            const fullSnapshot = full.snapshot();
+            expect({ ...fullSnapshot, projection: 'geometry' }).toEqual(geometry.snapshot());
+            expect(fullSnapshot.polygonOffsets).toHaveLength(fixture.expected.polygons.length);
+            expect(full.fullReport.dangles).toEqual(fixture.expected.dangles);
+            expect(full.fullReport.cutEdges).toEqual(fixture.expected.cut_edges);
+            expect(full.fullReport.invalidRings).toEqual(fixture.expected.invalid_rings);
+            full.dispose();
+            geometry.dispose();
         }
     });
 

@@ -39,3 +39,11 @@ export declare function polygonizeWithOptionsBuffer(
     options_val: Partial<PolygonizerOptions>,
     line_ids?: Uint32Array | null
 ): WasmPolygonResult;
+
+export declare function polygonizeGeometryWithOptionsBuffer(
+    coords: Float64Array,
+    offsets: Uint32Array,
+    stride: number,
+    options_val: Partial<PolygonizerOptions>,
+    line_ids?: Uint32Array | null
+): WasmPolygonResult;

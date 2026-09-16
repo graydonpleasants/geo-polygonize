@@ -4,9 +4,12 @@ import wasmSimdUrl from "../pkg-simd/geo_polygonize_bg.wasm";
 import type { PolygonizerOptions } from "./bindings/PolygonizerOptions";
 import type { TopologyTraceLevelV1 } from "./topology_trace";
 import { selectRuntime } from "./runtime";
+import { createPackedPolygonizer } from "./packed";
 
 // Cache the initialization promise
-let initPromise: Promise<typeof exports> | undefined;
+type PackedApi = ReturnType<typeof createPackedPolygonizer>;
+let initPromise: Promise<typeof exports & PackedApi> | undefined;
+let packedApi: PackedApi | undefined;
 
 // We re-export everything from the scalar package.
 // The JS bindings in pkg-scalar/geo_polygonize.js are identical to pkg-simd/geo_polygonize.js
@@ -34,6 +37,32 @@ export * from "./bindings/TopologyFingerprintV1";
 export * from "./bindings/NormalizedPolygonizeErrorV1";
 export * from "./cfb";
 export * from "./topology_trace";
+export { PackedPolygonResult, packedBuffersToGeoJSON, packedSnapshotTransferList } from "./packed";
+export type {
+    BorrowedPackedBuffers,
+    GeoJsonFeatureCollection,
+    PackedBoundaryMetrics,
+    PackedFullReport,
+    PackedPolygonSnapshot,
+    PackedProjection,
+} from "./packed";
+
+function requirePackedApi(): PackedApi {
+    if (!packedApi) throw new Error("geo-polygonize must be initialized before packed use");
+    return packedApi;
+}
+
+export function polygonizePackedWithOptions(
+    ...args: Parameters<PackedApi["polygonizePackedWithOptions"]>
+) {
+    return requirePackedApi().polygonizePackedWithOptions(...args);
+}
+
+export function polygonizePackedGeometryWithOptions(
+    ...args: Parameters<PackedApi["polygonizePackedGeometryWithOptions"]>
+) {
+    return requirePackedApi().polygonizePackedGeometryWithOptions(...args);
+}
 
 export type WasmWorkerOptions = {
     signal?: AbortSignal;
@@ -144,15 +173,16 @@ export function polygonizeTraceWithOptionsAsync(
 
 // Override the init function
 // input is ignored because we are using inlined Wasm
-export default function init(_input?: any): Promise<typeof exports> {
+export default function init(_input?: unknown): Promise<typeof exports & PackedApi> {
     if (initPromise) return initPromise;
 
     const runtime = selectRuntime(wasmScalarUrl, wasmSimdUrl);
 
     // Create the promise and cache it
     initPromise = (async () => {
-        await wasmInit(runtime.module);
-        return exports;
+        const instance = await wasmInit(runtime.module);
+        packedApi = createPackedPolygonizer(exports, instance.memory);
+        return { ...exports, ...packedApi };
     })();
 
     return initPromise;

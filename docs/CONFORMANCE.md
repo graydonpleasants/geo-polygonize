@@ -39,6 +39,8 @@ entrypoint retains:
 | Python | `polygonize_with_options`, legacy `polygonize` with `output="report"` | Exact `topology_fingerprint` serialized by Rust |
 | Python projections | `output="buffers"`, `output="objects"`, and `return_polygons=True` | Only their exposed buffers or objects; these modes do not carry a topology fingerprint |
 | Wasm full-result | `polygonizeFingerprintWithOptions`, `polygonizeReportWithOptions`, `polygonizeTraceWithOptions`, `polygonizeWithOptionsBuffer`, legacy `polygonize_buffers`, and the async report/trace wrappers | Exact fingerprint, or the exact `topology` member for traces |
+| Wasm managed full-result | `polygonizePackedWithOptions` | Exact `TopologyFingerprintV1` plus complete packed polygon structure and coordinates |
+| Wasm managed geometry projection | `polygonizePackedGeometryWithOptions` | Complete retained polygon structure, coordinates, stride, and representative IDs; report fields and complete provenance are intentionally omitted |
 | Wasm polygon projections | `polygonizeWithOptions`, legacy `polygonize`, and the async polygon wrapper | Polygon GeoJSON only |
 | Wasm Arrow IPC | `polygonizeGeoArrowWithOptions`, legacy `polygonize_geoarrow` | XY polygon structure only |
 | Arrow Rust API | `polygonize_arrow` | XY polygon structure only |

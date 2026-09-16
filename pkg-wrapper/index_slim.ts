@@ -1,5 +1,6 @@
 import initScalar, * as scalarExports from "../pkg-scalar/geo_polygonize.js";
 import { selectRuntime } from "./runtime";
+import { createPackedPolygonizer } from "./packed";
 
 // We re-export everything. The user is responsible for calling init with the correct module/url.
 export * from "../pkg-scalar/geo_polygonize.js";
@@ -22,17 +23,47 @@ export * from "./bindings/ZOptions";
 export * from "./bindings/ZPolicy";
 export * from "./cfb";
 export * from "./topology_trace";
+export { PackedPolygonResult, packedBuffersToGeoJSON, packedSnapshotTransferList } from "./packed";
+export type {
+    BorrowedPackedBuffers,
+    GeoJsonFeatureCollection,
+    PackedBoundaryMetrics,
+    PackedFullReport,
+    PackedPolygonSnapshot,
+    PackedProjection,
+} from "./packed";
+
+type PackedApi = ReturnType<typeof createPackedPolygonizer>;
+let packedApi: PackedApi | undefined;
+
+function requirePackedApi(): PackedApi {
+    if (!packedApi) throw new Error("geo-polygonize must be initialized before packed use");
+    return packedApi;
+}
+
+export function polygonizePackedWithOptions(
+    ...args: Parameters<PackedApi["polygonizePackedWithOptions"]>
+) {
+    return requirePackedApi().polygonizePackedWithOptions(...args);
+}
+
+export function polygonizePackedGeometryWithOptions(
+    ...args: Parameters<PackedApi["polygonizePackedGeometryWithOptions"]>
+) {
+    return requirePackedApi().polygonizePackedGeometryWithOptions(...args);
+}
 
 // We provide a helper to choose based on feature detection if the user wants to use it
-function normalizeInitInput(input: any) {
+function normalizeInitInput(input: unknown): Parameters<typeof initScalar>[0] {
     if (input && typeof input === "object" && "module" in input && !("module_or_path" in input)) {
         return { ...input, module_or_path: input.module };
     }
-    return input;
+    return input as Parameters<typeof initScalar>[0];
 }
 
-export async function initBest(scalarModule: any, simdModule?: any) {
+export async function initBest(scalarModule: unknown, simdModule?: unknown) {
     const runtime = selectRuntime(scalarModule, simdModule ?? scalarModule);
-    await initScalar(normalizeInitInput(runtime.module));
-    return scalarExports;
+    const instance = await initScalar(normalizeInitInput(runtime.module));
+    packedApi = createPackedPolygonizer(scalarExports, instance.memory);
+    return { ...scalarExports, ...packedApi };
 }
