@@ -418,6 +418,8 @@ pub struct WasmPolygonResult {
     invalid_rings: JsValue,
     diagnostics: JsValue,
     topology_fingerprint: JsValue,
+    boundary_metrics: JsValue,
+    projection: &'static str,
 }
 
 #[wasm_bindgen]
@@ -482,6 +484,16 @@ impl WasmPolygonResult {
     pub fn topology_fingerprint(&self) -> JsValue {
         self.topology_fingerprint.clone()
     }
+
+    #[wasm_bindgen(getter)]
+    pub fn boundary_metrics(&self) -> JsValue {
+        self.boundary_metrics.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn projection(&self) -> String {
+        self.projection.to_string()
+    }
 }
 
 #[wasm_bindgen(js_name = polygonizeWithOptionsBuffer)]
@@ -506,7 +518,32 @@ pub fn polygonize_with_options_buffer_js(
     let lines = parse_buffer_lines(coords, offsets, stride, line_ids.as_deref())
         .map_err(|error| to_js_error(error.name, error.message))?;
 
-    polygonize_and_flatten(lines, options, stride)
+    polygonize_and_flatten(lines, options, stride, ResultProjection::Full)
+}
+
+#[wasm_bindgen(js_name = polygonizeGeometryWithOptionsBuffer)]
+/// Returns only packed polygon coordinates, offsets, representative line IDs, and stride.
+///
+/// This intentionally omits the topology fingerprint, diagnostics, provenance, dangles,
+/// cut edges, and invalid rings retained by [`polygonize_with_options_buffer_js`].
+pub fn polygonize_geometry_with_options_buffer_js(
+    coords: &[f64],
+    offsets: &[u32],
+    stride: u8,
+    options_val: JsValue,
+    line_ids: Option<Vec<u32>>,
+) -> Result<WasmPolygonResult, JsValue> {
+    let options: geo_polygonize_core::PolygonizerOptions =
+        serde_wasm_bindgen::from_value(options_val).map_err(|e| {
+            to_js_error(
+                "InvalidArgumentType",
+                format!("Failed to parse options: {e}"),
+            )
+        })?;
+    let lines = parse_buffer_lines(coords, offsets, stride, line_ids.as_deref())
+        .map_err(|error| to_js_error(error.name, error.message))?;
+
+    polygonize_and_flatten(lines, options, stride, ResultProjection::Geometry)
 }
 
 #[wasm_bindgen]
@@ -533,7 +570,7 @@ pub fn polygonize_buffers(
     let lines = parse_buffer_lines(coords, offsets, stride, line_ids.as_deref())
         .map_err(|error| to_js_error(error.name, error.message))?;
 
-    polygonize_and_flatten(lines, options, stride)
+    polygonize_and_flatten(lines, options, stride, ResultProjection::Full)
 }
 
 #[wasm_bindgen(js_name = polygonizeGeoArrowWithOptions)]
@@ -659,31 +696,96 @@ fn polygonize_geoarrow_internal(
     Ok(output_buffer)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultProjection {
+    Full,
+    Geometry,
+}
+
+fn monotonic_now() -> f64 {
+    let performance = js_sys::Reflect::get(&js_sys::global(), &"performance".into()).ok();
+    let now = performance
+        .as_ref()
+        .and_then(|value| js_sys::Reflect::get(value, &"now".into()).ok())
+        .and_then(|value| value.dyn_into::<js_sys::Function>().ok())
+        .and_then(|function| function.call0(performance.as_ref()?).ok())
+        .and_then(|value| value.as_f64());
+    now.unwrap_or_else(js_sys::Date::now)
+}
+
 fn polygonize_and_flatten(
     lines: Vec<Line3D>,
     options: geo_polygonize_core::PolygonizerOptions,
     stride: u8,
+    projection: ResultProjection,
 ) -> Result<WasmPolygonResult, JsValue> {
     let mut result = polygonize_lines(lines, &options).map_err(from_polygonizer_error)?;
-    let topology_fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)
-        .map_err(from_polygonizer_error)?;
-    let topology_fingerprint = js_sys::JSON::parse(
-        &serde_json::to_string(&topology_fingerprint)
-            .map_err(|e| to_js_error("InternalInvariantViolation", e))?,
-    )
-    .map_err(|e| to_js_error("InternalInvariantViolation", format!("{e:?}")))?;
+    let report_started = monotonic_now();
+    let topology_fingerprint = if projection == ResultProjection::Full {
+        let fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)
+            .map_err(from_polygonizer_error)?;
+        js_sys::JSON::parse(
+            &serde_json::to_string(&fingerprint)
+                .map_err(|e| to_js_error("InternalInvariantViolation", e))?,
+        )
+        .map_err(|e| to_js_error("InternalInvariantViolation", format!("{e:?}")))?
+    } else {
+        JsValue::UNDEFINED
+    };
+    let report_materialize_ms = monotonic_now() - report_started;
 
-    let flatten_started = js_sys::Date::now();
-    let mut flat_coords = Vec::new();
-    let mut ring_offsets = Vec::new();
-    let mut polygon_offsets = Vec::new();
-    let mut flat_line_ids = Vec::new();
-    let mut provenances = Vec::new();
+    let flatten_started = monotonic_now();
+    let capacity_error = || {
+        to_js_error(
+            "ResourceLimitExceeded",
+            "packed result capacity exceeds addressable memory",
+        )
+    };
+    let point_count = result
+        .polygons
+        .iter()
+        .try_fold(0usize, |count, polygon| {
+            polygon
+                .interiors
+                .iter()
+                .try_fold(count.checked_add(polygon.exterior.len())?, |count, ring| {
+                    count.checked_add(ring.len())
+                })
+        })
+        .ok_or_else(capacity_error)?;
+    let ring_count = result
+        .polygons
+        .iter()
+        .try_fold(0usize, |count, polygon| {
+            count
+                .checked_add(1)
+                .and_then(|count| count.checked_add(polygon.interiors.len()))
+        })
+        .ok_or_else(capacity_error)?;
+    let coordinate_capacity = point_count
+        .checked_mul(usize::from(stride))
+        .ok_or_else(capacity_error)?;
+    let mut flat_coords = Vec::with_capacity(coordinate_capacity);
+    let mut ring_offsets = Vec::with_capacity(ring_count);
+    let mut polygon_offsets = Vec::with_capacity(result.polygons.len());
+    let mut flat_line_ids = Vec::with_capacity(point_count);
+    let mut provenances = Vec::with_capacity(result.polygons.len());
 
-    let js_dangles = serde_wasm_bindgen::to_value(&result.dangles).unwrap_or(JsValue::NULL);
-    let js_cut_edges = serde_wasm_bindgen::to_value(&result.cut_edges).unwrap_or(JsValue::NULL);
-    let js_invalid_rings =
-        serde_wasm_bindgen::to_value(&result.invalid_rings).unwrap_or(JsValue::NULL);
+    let js_dangles = if projection == ResultProjection::Full {
+        serde_wasm_bindgen::to_value(&result.dangles).unwrap_or(JsValue::NULL)
+    } else {
+        JsValue::UNDEFINED
+    };
+    let js_cut_edges = if projection == ResultProjection::Full {
+        serde_wasm_bindgen::to_value(&result.cut_edges).unwrap_or(JsValue::NULL)
+    } else {
+        JsValue::UNDEFINED
+    };
+    let js_invalid_rings = if projection == ResultProjection::Full {
+        serde_wasm_bindgen::to_value(&result.invalid_rings).unwrap_or(JsValue::NULL)
+    } else {
+        JsValue::UNDEFINED
+    };
     let offset = |value: usize, name: &str| {
         u32::try_from(value).map_err(|_| {
             to_js_error(
@@ -694,7 +796,9 @@ fn polygonize_and_flatten(
     };
 
     for poly in result.polygons {
-        provenances.push(poly.provenance);
+        if projection == ResultProjection::Full {
+            provenances.push(poly.provenance);
+        }
         polygon_offsets.push(offset(ring_offsets.len(), "polygon ring offset")?);
 
         let exterior = poly.exterior;
@@ -737,7 +841,9 @@ fn polygonize_and_flatten(
         }
     }
 
-    let js_provenance = if provenances.is_empty() {
+    let js_provenance = if projection == ResultProjection::Geometry {
+        JsValue::UNDEFINED
+    } else if provenances.is_empty() {
         JsValue::NULL
     } else {
         serde_wasm_bindgen::to_value(&provenances).unwrap_or(JsValue::NULL)
@@ -745,13 +851,29 @@ fn polygonize_and_flatten(
 
     if let Some(diag) = result.diagnostics.as_mut() {
         diag.phase_times.output_flatten =
-            std::time::Duration::from_secs_f64((js_sys::Date::now() - flatten_started) / 1_000.0);
+            std::time::Duration::from_secs_f64((monotonic_now() - flatten_started) / 1_000.0);
     }
-    let js_diagnostics = if let Some(ref diag) = result.diagnostics {
+    let js_diagnostics = if projection == ResultProjection::Geometry {
+        JsValue::UNDEFINED
+    } else if let Some(ref diag) = result.diagnostics {
         serde_wasm_bindgen::to_value(diag).unwrap_or(JsValue::NULL)
     } else {
         JsValue::NULL
     };
+
+    let flatten_ms = monotonic_now() - flatten_started;
+    let output_bytes = flat_coords.len() * size_of::<f64>()
+        + (ring_offsets.len() + polygon_offsets.len() + flat_line_ids.len()) * size_of::<u32>();
+    let boundary_metrics = js_sys::Object::new();
+    for (name, value) in [
+        ("schema_version", 1.0),
+        ("report_materialize_ms", report_materialize_ms),
+        ("output_flatten_ms", flatten_ms),
+        ("packed_output_bytes", output_bytes as f64),
+    ] {
+        js_sys::Reflect::set(&boundary_metrics, &name.into(), &value.into())
+            .map_err(|error| to_js_error("InternalInvariantViolation", format!("{error:?}")))?;
+    }
 
     Ok(WasmPolygonResult {
         coords: flat_coords,
@@ -765,6 +887,12 @@ fn polygonize_and_flatten(
         invalid_rings: js_invalid_rings,
         diagnostics: js_diagnostics,
         topology_fingerprint,
+        boundary_metrics: boundary_metrics.into(),
+        projection: if projection == ResultProjection::Full {
+            "full"
+        } else {
+            "geometry"
+        },
     })
 }
 

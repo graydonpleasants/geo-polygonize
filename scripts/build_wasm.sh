@@ -133,17 +133,10 @@ build_variant_threads() {
 }
 
 mock_threads_package() {
-    mkdir -p pkg-threads
-    cat > pkg-threads/geo_polygonize.js <<'EOF'
-export const polygonizeWithOptions = () => {};
-export const initThreadPool = () => {};
-export default async function init() {}
-EOF
-    cat > pkg-threads/geo_polygonize.d.ts <<'EOF'
-export declare const polygonizeWithOptions: () => void;
-export declare const initThreadPool: () => void;
-export default function init(): Promise<void>;
-EOF
+    rm -rf pkg-threads
+    cp -r pkg-scalar pkg-threads
+    printf '\nexport const initThreadPool = async () => {};\n' >> pkg-threads/geo_polygonize.js
+    printf '\nexport declare const initThreadPool: () => Promise<void>;\n' >> pkg-threads/geo_polygonize.d.ts
 }
 
 build_requested_wasm() {

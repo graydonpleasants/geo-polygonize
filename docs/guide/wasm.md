@@ -51,6 +51,12 @@ arguments only for the synchronous call. Rust parses them into owned linework
 before polygonization; callers may reuse the JavaScript input arrays after the
 call returns.
 
+Application code should use `polygonizePackedWithOptions` when it needs the
+full canonical report or `polygonizePackedGeometryWithOptions` when it needs
+only polygon buffers. Their managed result offers synchronous `withBorrowed`
+access, an owned `snapshot`, explicit `toGeoJSON`, and idempotent `dispose`.
+Snapshots, not Wasm views, may cross workers or async boundaries.
+
 `WasmPolygonResult` owns its flattened output vectors. Its pointer methods expose
 views into Wasm linear memory, not JavaScript-owned copies. Keep the result alive
 while reading those views, and recreate every view after any call that may grow
