@@ -206,10 +206,26 @@ Reading:
   Active batches evaluate the same floating-point expression, so crossing
   decisions cannot change.
 
-Decision: keep as benchmark-only evidence. Promotion needs x86-64 runs (where
-the two-half `wide` layout and SSE/VEX division costs differ), an estimate of
-the straddle density in real hole-assignment workloads, and an end-to-end
-containment benchmark under the promotion gate.
+GitHub-hosted Linux runners (cross-architecture workflow, run 36373484118),
+1,024 probes, kernel time relative to plain `wide` in the same job:
+
+| Runner | circle, skip vs `wide` | sawtooth, skip vs `wide` | circle 1,024, skip vs scalar |
+|---|---|---|---|
+| x86-64 generic | 0.43–0.57× | 1.08–1.12× | 0.51× |
+| x86-64 v3 | 0.46–0.57× | 1.01–1.06× | 0.34× |
+| AArch64 | 0.36–0.61× | 1.42–1.46× | 0.67× |
+
+- On x86-64 the downside on dense rings is small (at most 12% generic, 6% v3),
+  while sparse rings run about twice as fast as either `wide` or scalar.
+- On Linux AArch64, production always selects scalar. Plain `wide` is about
+  1.8× slower than scalar there, which confirms that choice, but the skip beats
+  scalar by 33% on circles and loses to it by about 14% on sawtooth rings.
+
+Decision: keep as benchmark-only evidence until straddle density is measured on
+real hole-assignment workloads. If real rings resemble the circle fixture,
+promote the skip into `contains_simd`, re-derive the scalar crossover per
+target, and confirm with the end-to-end containment benchmarks under the
+promotion gate.
 
 ### Existing benchmark locations
 
