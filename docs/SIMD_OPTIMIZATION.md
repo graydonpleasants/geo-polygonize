@@ -138,9 +138,23 @@ Same-host timings on Apple M-series (`point_in_ring_crossover/repeated`,
 | 1,024 | 787.1 µs | 858.1 µs | 792.4 µs | 901.7 µs |
 
 This is consistent with the existing 257-coordinate scalar crossover on
-non-Linux-AArch64 hosts. x86-64 timings for the generic-versus-v3 rows need a
-Linux x86-64 runner and are still outstanding; until they exist, do not
-attribute x86 point-in-ring gains to AVX2.
+non-Linux-AArch64 hosts.
+
+The cross-architecture workflow runs the same group on a GitHub-hosted Linux
+x86-64 runner, once with the generic target and once with
+`-C target-cpu=x86-64-v3` in the same job (run 36373484118):
+
+| Edges | scalar generic | wide generic | scalar v3 | wide v3 |
+|---:|---:|---:|---:|---:|
+| 32 | 40.8 µs | 37.7 µs | 30.3 µs | 24.3 µs |
+| 128 | 160.1 µs | 143.8 µs | 154.9 µs | 93.7 µs |
+| 256 | 322.8 µs | 291.4 µs | 266.1 µs | 189.0 µs |
+| 1,024 | 1.23 ms | 1.14 ms | 936 µs | 773 µs |
+
+The 256-bit loop makes `wide` about 1.5× faster than the two-half loop that
+portable x86-64 artifacts execute. Part of the gap is compiler-only: scalar
+also improves by about 24% at 1,024 edges under v3. Shared runners vary by
+about 10% between groups, so compare only within one job.
 
 The benchmark copy of the kernel in `hole_sort_bench.rs` places the
 `multiversion` boundary around the whole ring traversal, and the
