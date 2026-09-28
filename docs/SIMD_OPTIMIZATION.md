@@ -168,6 +168,49 @@ lost target-feature context would not change the executed instructions there.
 The confound can only matter for x86 runs of that harness. Those runs need an
 explicit-loop comparison before their numbers are reused.
 
+### Empty-batch skip experiment (September 2026)
+
+`wide_contains` computes the intersection x-coordinate, including a division,
+for every batch even when no lane straddles the probe's y. The scalar kernel
+short-circuits before that arithmetic. `hole_sort_bench.rs` now carries a
+benchmark-only `wide_contains_skip_empty` that tests `in_range.move_mask() == 0`
+first and otherwise evaluates the unchanged expression. The
+`point_in_ring_empty_batch_skip` group compares it with scalar, `wide`, and the
+production adaptive `SimdRing::contains` on two fixtures:
+
+- `circle`: about two straddling edges per probe, so nearly every batch is
+  empty;
+- `sawtooth`: a zigzag boundary where nearly every edge straddles every probe.
+
+Apple M-series, generic build, 1,024 probes, Criterion mean:
+
+| Fixture | Edges | scalar | wide | wide_skip_empty | adaptive |
+|---|---:|---:|---:|---:|---:|
+| circle | 32 | 31.8 µs | 29.0 µs | 20.7 µs | 35.5 µs |
+| circle | 128 | 130.1 µs | 118.5 µs | 58.5 µs | 125.2 µs |
+| circle | 256 | 237.2 µs | 231.4 µs | 116.7 µs | 264.6 µs |
+| circle | 1,024 | 870.6 µs | 901.5 µs | 446.3 µs | 927.1 µs |
+| sawtooth | 32 | 53.2 µs | 28.9 µs | 48.2 µs | 32.3 µs |
+| sawtooth | 128 | 216.2 µs | 112.4 µs | 170.0 µs | 131.3 µs |
+| sawtooth | 256 | 440.3 µs | 236.3 µs | 314.9 µs | 454.4 µs |
+| sawtooth | 1,024 | 1.63 ms | 1.03 ms | 1.49 ms | 1.73 ms |
+
+Reading:
+
+- On sparse-straddle rings the skip halves kernel time at every size and beats
+  scalar at 1,024 edges, where production currently selects scalar. If
+  promoted, the 257-coordinate crossover would need to be re-derived.
+- On dense-straddle rings the extra mask extraction and branch cost 30–45%
+  against plain `wide`, but the skip still beats scalar at every size.
+- Crossing counts are asserted equal to scalar for every kernel and fixture.
+  Active batches evaluate the same floating-point expression, so crossing
+  decisions cannot change.
+
+Decision: keep as benchmark-only evidence. Promotion needs x86-64 runs (where
+the two-half `wide` layout and SSE/VEX division costs differ), an estimate of
+the straddle density in real hole-assignment workloads, and an end-to-end
+containment benchmark under the promotion gate.
+
 ### Existing benchmark locations
 
 Extend rather than replace these suites:
