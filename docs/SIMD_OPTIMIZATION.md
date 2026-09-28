@@ -88,6 +88,72 @@ four or eight probe points × one prepared ring
 
 This may win when many holes or shell probes query the same prepared shell.
 
+### Code-generation audit (September 2026)
+
+Dispatch labels are not evidence of the executed vector width. `wide` 0.7
+selects the `f64x4` representation with compile-time
+`cfg(target_feature = "avx")`: one `__m256d` when the whole crate is built with
+AVX, otherwise two `f64x2` halves. A `multiversion` clone enables AVX2 for the
+clone's body but cannot re-run `wide`'s conditional compilation, so the clone
+still operates on the two-half representation.
+
+`scripts/simd_codegen_audit.sh` emits release assembly (`codegen-units = 1`,
+no default features) and summarizes each function that holds the
+`contains_simd` loop. Results at `727ee5c`, Rust 1.96.1:
+
+| Build | Function holding the loop | 256-bit ops | Vector ops per 4 edges |
+|---|---|---:|---|
+| x86-64 generic | `contains_simd` SSE2 clone | 0 | 2 × 128-bit, legacy SSE encoding |
+| x86-64 generic | `contains_simd` AVX clone | 0 | 2 × 128-bit, VEX encoding |
+| x86-64 generic | `contains_simd` AVX2 clone | 0 | identical to the AVX clone |
+| `target-cpu=x86-64-v3` | inlined into `SimdRing::contains` | 18 | 1 × 256-bit, `vdivpd ymm`, `popcnt` |
+| AArch64 (Apple host) | inlined into `SimdRing::contains` | n/a | 2 × 128-bit NEON `.2d` |
+
+Observations:
+
+- Portable x86-64 artifacts (wheels, crates.io consumers without target flags)
+  never execute 256-bit arithmetic in this kernel. The AVX2 clone gains only
+  three-operand VEX encoding over SSE2; its instruction stream matches the AVX
+  clone. The AVX2 target entry is therefore redundant with AVX for this kernel.
+- Only an AVX-enabled whole-crate build produces a 256-bit loop. That build
+  changes the hardware floor and must not be used for portable artifacts.
+- In the two-half builds the overlapping `x[i + 1..i + 5]` load is assembled
+  lane by lane (`vmovsd`/`vunpcklpd`/`vmovhpd` on x86, `mov.d`/`ld1.d` on NEON)
+  instead of one unaligned load; the 256-bit build uses `vmovupd` plus one
+  `vinsertf128`.
+- `move_mask` on NEON is emulated with about ten scalar lane extractions per
+  batch before `cnt`/`addv`.
+- No hot-loop helper calls or stack spills appear in any build; the only calls
+  are cold bounds-check panics. Runtime dispatch in the generic build is one
+  indirect jump per ring traversal, not per batch.
+
+Same-host timings on Apple M-series (`point_in_ring_crossover/repeated`,
+1,024 queries) show generic and `target-cpu=native` within noise:
+
+| Edges | scalar generic | wide generic | scalar native | wide native |
+|---:|---:|---:|---:|---:|
+| 32 | 28.5 µs | 27.1 µs | 28.7 µs | 27.3 µs |
+| 128 | 117.6 µs | 107.7 µs | 120.9 µs | 106.4 µs |
+| 256 | 220.7 µs | 216.4 µs | 213.2 µs | 216.0 µs |
+| 1,024 | 787.1 µs | 858.1 µs | 792.4 µs | 901.7 µs |
+
+This is consistent with the existing 257-coordinate scalar crossover on
+non-Linux-AArch64 hosts. x86-64 timings for the generic-versus-v3 rows need a
+Linux x86-64 runner and are still outstanding; until they exist, do not
+attribute x86 point-in-ring gains to AVX2.
+
+The benchmark copy of the kernel in `hole_sort_bench.rs` places the
+`multiversion` boundary around the whole ring traversal, and the
+`.filter().count()` iterator sits outside it. The iterator-closure
+target-feature propagation issue reported upstream (linebender/fearless_simd
+#380) therefore does not apply to the current benchmark. It may still apply to
+the archived Fearless SIMD comparison from PR #795, where `dispatch!` wrapped a
+`.filter().count()` chain around the kernel. Its published numbers were
+measured on an M1 Max, where NEON is part of the AArch64 baseline, so a
+lost target-feature context would not change the executed instructions there.
+The confound can only matter for x86 runs of that harness. Those runs need an
+explicit-loop comparison before their numbers are reused.
+
 ### Existing benchmark locations
 
 Extend rather than replace these suites:
@@ -705,6 +771,12 @@ Reviewers and agents should reject a SIMD change when any answer is unclear:
 - Which validator checks the output?
 - Which small/sparse workloads regress?
 - What is the architecture-enabled scalar baseline?
+- Does the runtime-dispatched context contain the entire hot loop and its
+  helpers, with no iterator closure or non-inlined call between the dispatch
+  boundary and the vector operations?
+- Does the emitted assembly for the portable build show the claimed vector
+  width? Rerun `scripts/simd_codegen_audit.sh` for kernels built on
+  compile-time-selected SIMD types such as `wide`.
 - What evidence justifies the dispatch threshold?
 - Can the prototype be removed cleanly if it loses?
 
