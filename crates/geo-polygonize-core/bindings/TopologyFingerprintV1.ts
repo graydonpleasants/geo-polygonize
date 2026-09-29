@@ -6,7 +6,7 @@ import type { TopologyDiagnosticsFingerprintV1 } from "./TopologyDiagnosticsFing
 /**
  * A versioned, structured canonical representation of a successful run.
  */
-export type TopologyFingerprintV1 = { schema_version: number,
+export type TopologyFingerprintV1 = { schema_version: number, 
 /**
  * The serialized canonical options object is part of the semantic contract.
  */

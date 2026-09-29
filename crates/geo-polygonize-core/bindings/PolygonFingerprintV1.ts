@@ -3,7 +3,7 @@ import type { CoordinateFingerprintV1 } from "./CoordinateFingerprintV1";
 import type { ProvenanceFingerprintV1 } from "./ProvenanceFingerprintV1";
 import type { RingFingerprintV1 } from "./RingFingerprintV1";
 
-export type PolygonFingerprintV1 = { exterior: Array<CoordinateFingerprintV1>, interiors: Array<RingFingerprintV1>,
+export type PolygonFingerprintV1 = { exterior: Array<CoordinateFingerprintV1>, interiors: Array<RingFingerprintV1>, 
 /**
  * Per-edge representative input IDs, encoded as fixed-width hex strings.
  */
