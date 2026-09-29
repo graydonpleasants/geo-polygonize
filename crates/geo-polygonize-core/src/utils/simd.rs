@@ -416,6 +416,80 @@ mod tests {
     }
 
     #[test]
+    fn simd_matches_scalar_on_degenerate_and_dense_probes() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut rings: Vec<Vec<Coord<f64>>> = Vec::new();
+
+        // Random star-shaped rings with sizes that exercise every tail length.
+        for edges in [3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 64, 129, 300] {
+            let mut ring: Vec<_> = (0..edges)
+                .map(|i| {
+                    let angle = std::f64::consts::TAU * i as f64 / edges as f64;
+                    let radius = rng.gen_range(1.0..10.0);
+                    Coord {
+                        x: (radius * angle.cos()).round(),
+                        y: (radius * angle.sin()).round(),
+                    }
+                })
+                .collect();
+            ring.push(ring[0]);
+            rings.push(ring);
+        }
+
+        // Zigzag rings where nearly every batch has a straddling edge.
+        for teeth in [5, 12, 33] {
+            let mut ring = vec![Coord { x: 0.0, y: -1.0 }];
+            ring.extend((0..=teeth).map(|i| Coord {
+                x: i as f64,
+                y: if i % 2 == 0 { 0.0 } else { 2.0 },
+            }));
+            ring.push(Coord {
+                x: teeth as f64,
+                y: -1.0,
+            });
+            ring.push(ring[0]);
+            rings.push(ring);
+        }
+
+        for coords in &rings {
+            let ring = SimdRing::new(coords);
+            let mut probes: Vec<Coord<f64>> = Vec::new();
+            for pair in coords.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                // Vertices, edge midpoints, and points level with each vertex.
+                probes.push(a);
+                probes.push(Coord {
+                    x: (a.x + b.x) / 2.0,
+                    y: (a.y + b.y) / 2.0,
+                });
+                probes.push(Coord {
+                    x: a.x - 0.5,
+                    y: a.y,
+                });
+                probes.push(Coord {
+                    x: a.x + 0.5,
+                    y: a.y,
+                });
+            }
+            for _ in 0..200 {
+                probes.push(Coord {
+                    x: rng.gen_range(-11.0..40.0),
+                    y: rng.gen_range(-11.0..11.0),
+                });
+            }
+
+            for point in probes {
+                assert_eq!(
+                    contains_scalar(&ring.x, &ring.y, ring.len, point),
+                    contains_simd(&ring.x, &ring.y, ring.len, point),
+                    "SIMD and scalar disagree for {point:?} in ring of {} coords",
+                    ring.len
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_simd_ring_boundary_documented_behavior() {
         // Documenting the specific behavior of the current implementation for boundary points.
         // Logic: Ray casting to +infinity X.
