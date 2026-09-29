@@ -17,10 +17,13 @@
 //! it identically.
 //!
 //! Usage:
-//!   cargo run --release -p geo-polygonize-core --example ring_straddle_density -- PATH...
+//!   cargo run --release -p geo-polygonize-core --example ring_straddle_density -- [--node] PATH...
 //!
 //! Each PATH is a GeoJSON file, a CFB fixture (`*.fixture.json`), or a
-//! directory searched recursively for either.
+//! directory searched recursively for either. Pass `--node` to set
+//! `node_input` for GeoJSON inputs, as the floating benchmark lane does for
+//! unnoded linework such as the OSM production tiers. CFB fixtures always use
+//! their declared options profile.
 
 use geo_polygonize_core::{polygonize, Coord3D, Line3D, PolygonizerOptions};
 use geojson::{GeoJson, Value};
@@ -198,7 +201,7 @@ fn geojson_lines(value: &Value, id: u32, lines: &mut Vec<Line3D>) {
 
 /// Returns the input segments and the options profile, or `None` when the file
 /// is neither a CFB fixture nor a GeoJSON document with line geometry.
-fn load(path: &Path) -> Option<(Vec<Line3D>, PolygonizerOptions)> {
+fn load(path: &Path, node_geojson: bool) -> Option<(Vec<Line3D>, PolygonizerOptions)> {
     let text = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
 
@@ -239,7 +242,11 @@ fn load(path: &Path) -> Option<(Vec<Line3D>, PolygonizerOptions)> {
         }
         GeoJson::Geometry(geometry) => geojson_lines(&geometry.value, 1, &mut lines),
     }
-    (!lines.is_empty()).then(|| (lines, PolygonizerOptions::default()))
+    let options = PolygonizerOptions {
+        node_input: node_geojson,
+        ..PolygonizerOptions::default()
+    };
+    (!lines.is_empty()).then_some((lines, options))
 }
 
 /// The `circle` and `sawtooth` fixtures from `point_in_ring_empty_batch_skip`,
@@ -293,9 +300,18 @@ fn print_row(label: &str, tally: Tally) {
 }
 
 fn main() {
-    let args: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
+    let mut node_geojson = false;
+    let args: Vec<PathBuf> = std::env::args()
+        .skip(1)
+        .filter(|arg| {
+            let is_flag = arg == "--node";
+            node_geojson |= is_flag;
+            !is_flag
+        })
+        .map(PathBuf::from)
+        .collect();
     if args.is_empty() {
-        eprintln!("usage: ring_straddle_density PATH...");
+        eprintln!("usage: ring_straddle_density [--node] PATH...");
         std::process::exit(2);
     }
     let mut inputs = Vec::new();
@@ -306,7 +322,7 @@ fn main() {
     let mut total = Report::default();
     let mut used = 0;
     for path in &inputs {
-        let Some((lines, options)) = load(path) else {
+        let Some((lines, options)) = load(path, node_geojson) else {
             continue;
         };
         let result = match polygonize(lines, &options) {

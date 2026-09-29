@@ -273,16 +273,32 @@ Reading:
 - Small rings have a higher active fraction than the 32-edge circle, because
   there are few batches and any straddle activates one. Even at 5–32
   coordinates, two thirds of full batches are empty.
-- The evidence comes mostly from one anonymized CFB block. The OSM production
-  corpus described in `docs/guide/production-corpus.md` has not been
-  materialized for this measurement, and the synthetic clips produce few or no
-  rings under default options.
+- The synthetic clips produce few or no rings under default options, so the
+  local evidence comes mostly from one anonymized CFB block.
+
+The OSM production tiers (`docs/guide/production-corpus.md`, materialized from
+`california-260801.osm.pbf` on 2026-09-29) were measured with `--node`, matching
+the floating lane's `node_input`. The 1k tier yields no rings, the 10k tier 8
+shells, and the 100k tier 704 shells and 5 holes (rings up to 501 coordinates):
+
+| Family / ring coordinates | Queries | Active batches | Straddling edges per query |
+|---|---:|---:|---:|
+| hole assignment / 5–32 | 146 | 41.5% | 1.92 |
+| hole assignment / 33–128 | 104 | 9.4% | 2.60 |
+| hole assignment / 257+ | 80 | 1.8% | 2.25 |
+| interior probe / 5–32 | 14,496 | 42.3% | 1.65 |
+| interior probe / 33–128 | 6,208 | 12.9% | 2.48 |
+| interior probe / 129–256 | 1,230 | 9.4% | 3.84 |
+| interior probe / 257+ | 1,588 | 3.0% | 3.25 |
+
+Road-network faces are smaller than CFB lots, so more queries fall in the 5–32
+bucket, but crossings per query stay between two and four. Both real sources
+resemble the circle fixture.
 
 Decision: the straddle-density precondition for promoting the empty-batch skip
-is met on the available real input. The next step is a production change to
+is met on both real sources. The next step is a production change to
 `contains_simd`, gated on the end-to-end containment benchmarks and a
-re-derived scalar crossover per target. Confirm the density figures on the
-production corpus when it is materialized.
+re-derived scalar crossover per target.
 
 ### Existing benchmark locations
 
