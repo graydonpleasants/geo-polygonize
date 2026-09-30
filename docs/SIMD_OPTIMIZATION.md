@@ -300,6 +300,50 @@ is met on both real sources. The next step is a production change to
 `contains_simd`, gated on the end-to-end containment benchmarks and a
 re-derived scalar crossover per target.
 
+### Empty-batch skip promotion decision (September 2026)
+
+A candidate production change added the skip to `contains_simd` and, on x86-64
+and Apple AArch64, removed the 257-coordinate scalar crossover. With the skip,
+the wide kernel beat scalar at every measured size on those targets, including
+4,096-edge circle (1.51 ms vs 3.10 ms) and sawtooth (4.42 ms vs 5.50 ms) rings
+on Apple M-series. Linux AArch64 and Wasm kept their crossovers.
+
+Correctness held. A new differential test compares `contains_simd` with
+`contains_scalar` on vertices, edge midpoints, points level with each vertex,
+and random probes for rings of 4–301 coordinates and dense zigzag rings. The
+canonical topology fingerprint, including provenance, was identical before and
+after on the CFB and OSM inputs.
+
+The end-to-end gate failed. Apple M-series, 41 repetitions per build in three
+interleaved rounds, median of each round:
+
+| Input | Total before | Total after | Containment before | Containment after |
+|---|---:|---:|---:|---:|
+| CFB curb-snap-gap block | 73.2–73.4 ms | 73.2–73.5 ms | 1.49–1.55 ms | 1.51–1.54 ms |
+| CFB unassigned-hole block | 5.74–5.84 ms | 5.76–5.87 ms | 0.21–0.22 ms | 0.20–0.23 ms |
+| OSM highways 10k | 12.1–12.3 ms | 12.2–12.4 ms | 0.52–0.53 ms | 0.53 ms |
+| OSM highways 100k | 162.9–163.5 ms | 161.2–164.0 ms | 5.87–5.93 ms | 5.88–5.94 ms |
+
+The Criterion containment groups (`filter_shells`, `assign_holes`,
+`assign_one_hole`, `touch_policy`, `end_to_end/1000_holes`, `reused_graph`)
+moved by less than ±1.2%, except `reused_graph/100_holes/geometry_fallback`
+at +2.7%.
+
+`ContainmentStats` explains the result. A whole polygonize run makes 21
+point-in-ring calls on the CFB curb-snap-gap block (1,253 shells, 55 envelope
+candidates) and 74 on the OSM 100k tier (704 shells, 327 envelope candidates).
+Envelope and area filters, the interval locator, and graph-identity touch
+checks handle the rest. Containment is 2–4% of total time, and point-in-ring
+evaluation is a small part of that. The straddle-density harness counts
+batches per replayed query; it does not estimate how many queries production
+makes.
+
+Decision: rejected. Production keeps the current kernel and crossovers, and
+`wide_contains_skip_empty` remains a benchmark-only experiment. Keep the
+differential test. Revisit only if a workload shows point-in-ring calls
+materially contributing to containment time, for example many holes against
+large shells with few interval-locator hits, and re-run this gate then.
+
 ### Existing benchmark locations
 
 Extend rather than replace these suites:
