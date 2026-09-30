@@ -227,6 +227,79 @@ promote the skip into `contains_simd`, re-derive the scalar crossover per
 target, and confirm with the end-to-end containment benchmarks under the
 promotion gate.
 
+### Straddle density on real rings (September 2026)
+
+`crates/geo-polygonize-core/examples/ring_straddle_density.rs` polygonizes
+inputs and replays approximations of the two production point-in-ring query
+families:
+
+- hole-assignment probes near each hole vertex, tested against every output
+  shell whose envelope contains the probe;
+- interior-probe candidates near each ring's own vertices, tested against that
+  ring.
+
+For each query it counts the full four-edge batches that contain at least one
+straddling edge. The skip variant can bypass only the batches without one.
+
+```bash
+cargo run --release -p geo-polygonize-core --example ring_straddle_density -- \
+  fixtures/cfb/cases crates/geo-polygonize-core/tests/workloads/clips examples/data
+```
+
+Results for every local input (35 files, 14 with output rings). The CFB
+`large_lot_block_anon_curb_snap_gap` fixture supplies about 93% of the queries
+(1,253 shells, 10 holes, rings up to 820 coordinates):
+
+| Family / ring coordinates | Queries | Active batches | Straddling edges per query |
+|---|---:|---:|---:|
+| hole assignment / 5–32 | 1,775 | 31.6% | 1.67 |
+| hole assignment / 33–128 | 2,788 | 12.0% | 1.94 |
+| hole assignment / 129–256 | 3,128 | 4.8% | 2.17 |
+| hole assignment / 257+ | 5,356 | 2.4% | 3.20 |
+| interior probe / 5–32 | 23,930 | 32.9% | 1.56 |
+| interior probe / 33–128 | 23,440 | 12.2% | 1.96 |
+| interior probe / 129–256 | 11,070 | 4.9% | 2.31 |
+| interior probe / 257+ | 17,056 | 2.6% | 3.14 |
+| calibration circle / 32 edges | 1,024 | 18.3% | 1.46 |
+| calibration circle / 256 edges | 1,024 | 2.3% | 1.46 |
+| calibration circle / 1,024 edges | 1,024 | 0.6% | 1.46 |
+| calibration sawtooth / any size | 1,024 | 100% | edges − 2 |
+
+Reading:
+
+- Real rings cross a probe's horizontal line about two or three times,
+  whatever their size. That matches the circle fixture and is far from the
+  sawtooth fixture, where every batch is active.
+- Small rings have a higher active fraction than the 32-edge circle, because
+  there are few batches and any straddle activates one. Even at 5–32
+  coordinates, two thirds of full batches are empty.
+- The synthetic clips produce few or no rings under default options, so the
+  local evidence comes mostly from one anonymized CFB block.
+
+The OSM production tiers (`docs/guide/production-corpus.md`, materialized from
+`california-260801.osm.pbf` on 2026-09-29) were measured with `--node`, matching
+the floating lane's `node_input`. The 1k tier yields no rings, the 10k tier 8
+shells, and the 100k tier 704 shells and 5 holes (rings up to 501 coordinates):
+
+| Family / ring coordinates | Queries | Active batches | Straddling edges per query |
+|---|---:|---:|---:|
+| hole assignment / 5–32 | 146 | 41.5% | 1.92 |
+| hole assignment / 33–128 | 104 | 9.4% | 2.60 |
+| hole assignment / 257+ | 80 | 1.8% | 2.25 |
+| interior probe / 5–32 | 14,496 | 42.3% | 1.65 |
+| interior probe / 33–128 | 6,208 | 12.9% | 2.48 |
+| interior probe / 129–256 | 1,230 | 9.4% | 3.84 |
+| interior probe / 257+ | 1,588 | 3.0% | 3.25 |
+
+Road-network faces are smaller than CFB lots, so more queries fall in the 5–32
+bucket, but crossings per query stay between two and four. Both real sources
+resemble the circle fixture.
+
+Decision: the straddle-density precondition for promoting the empty-batch skip
+is met on both real sources. The next step is a production change to
+`contains_simd`, gated on the end-to-end containment benchmarks and a
+re-derived scalar crossover per target.
+
 ### Existing benchmark locations
 
 Extend rather than replace these suites:
