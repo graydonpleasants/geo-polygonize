@@ -13,6 +13,7 @@ on:
       - ".github/workflows/cross-architecture-benchmarks.yml"
       - "scripts/benchmark_wasm_browser.mjs"
       - "scripts/build_wasm.sh"
+      - "scripts/simd_codegen_audit.sh"
       - "crates/geo-polygonize-core/src/tiling.rs"
       - "crates/geo-polygonize-wasm/**"
       - "crates/geo-polygonize-core/benches/polygonize_bench.rs"
@@ -64,6 +65,22 @@ jobs:
           cargo bench --locked -p geo-polygonize-core --bench polygonize_bench -- noding_workloads --noplot | tee native-${{ matrix.arch }}-noding.txt
           cargo bench --locked -p geo-polygonize-core --bench polygonize_bench -- partition_router/long_sparse_sine_v1 --noplot | tee native-${{ matrix.arch }}-partition-router.txt
           cargo bench --locked -p geo-polygonize-core --bench hole_sort_bench -- point_in_ring_crossover --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-${{ matrix.arch }}-point-in-ring.txt
+          cargo bench --locked -p geo-polygonize-core --bench hole_sort_bench -- point_in_ring_empty_batch_skip --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-${{ matrix.arch }}-point-in-ring-skip.txt
+
+      # Portable builds keep wide's two-half f64x4 layout even inside the
+      # AVX2 multiversion clone; only a whole-crate x86-64-v3 build runs the
+      # 256-bit loop. See "Code-generation audit" in docs/SIMD_OPTIMIZATION.md.
+      - name: SIMD codegen audit and x86-64-v3 point-in-ring
+        if: matrix.arch == 'x86_64'
+        env:
+          BENCH_FAST_CI: "1"
+          CARGO_TARGET_DIR: target/x86-64-v3
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+        run: |
+          set -o pipefail
+          grep -m1 -o -w avx2 /proc/cpuinfo || { echo "runner lacks AVX2; skipping v3 run"; exit 0; }
+          scripts/simd_codegen_audit.sh target/simd-codegen-audit | tee native-x86_64-simd-codegen.txt
+          cargo bench --locked -p geo-polygonize-core --bench hole_sort_bench -- 'point_in_ring_(crossover|empty_batch_skip)' --noplot --warm-up-time 1 --measurement-time 2 --sample-size 30 | tee native-x86_64-v3-point-in-ring.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -73,7 +90,11 @@ jobs:
             native-${{ matrix.arch }}-noding.txt
             native-${{ matrix.arch }}-partition-router.txt
             native-${{ matrix.arch }}-point-in-ring.txt
+            native-${{ matrix.arch }}-point-in-ring-skip.txt
+            native-x86_64-simd-codegen.txt
+            native-x86_64-v3-point-in-ring.txt
             target/criterion/
+            target/x86-64-v3/criterion/
           retention-days: 30
 
   wasm:

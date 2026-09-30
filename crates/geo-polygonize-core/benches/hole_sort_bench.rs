@@ -137,6 +137,75 @@ fn wide_contains(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
     crossings % 2 != 0
 }
 
+/// Closed ring whose top boundary zigzags between y = 0 and y = 2, so a probe
+/// with 0 < y < 2 straddles nearly every edge. This is the dense-crossing
+/// counterpart to `circle_points`, where only about two edges straddle a probe.
+fn sawtooth_ring(edges: usize) -> Vec<Coord3D> {
+    let teeth = edges - 3;
+    let mut points = Vec::with_capacity(edges + 1);
+    points.push(Coord3D::new(0.0, -1.0, 0.0));
+    for i in 0..=teeth {
+        let y = if i % 2 == 0 { 0.0 } else { 2.0 };
+        points.push(Coord3D::new(i as f64, y, 0.0));
+    }
+    points.push(Coord3D::new(teeth as f64, -1.0, 0.0));
+    points.push(points[0]);
+    points
+}
+
+fn sawtooth_query_points(count: usize, teeth: usize) -> Vec<Coord<f64>> {
+    (0..count)
+        .map(|i| Coord {
+            x: (i as f64 + 0.5) * teeth as f64 / count as f64,
+            y: 0.25 + 1.5 * (i % 7) as f64 / 6.0,
+        })
+        .collect()
+}
+
+/// Benchmark-only variant of `wide_contains` that skips the intersection
+/// arithmetic, including the division, when no lane straddles the probe's y.
+/// Active batches compute exactly the same expression as `wide_contains`.
+#[multiversion(targets(
+    "x86_64+avx2",
+    "x86+avx2",
+    "x86_64+avx",
+    "x86+avx",
+    "x86_64+sse2",
+    "x86+sse2",
+))]
+fn wide_contains_skip_empty(x: &[f64], y: &[f64], len: usize, point: Coord<f64>) -> bool {
+    let px = f64x4::splat(point.x);
+    let py = f64x4::splat(point.y);
+    let mut crossings = 0;
+    let mut i = 0;
+    let segments = len - 1;
+
+    while i + 4 <= segments {
+        let yi = f64x4::from(&y[i..i + 4]);
+        let yj = f64x4::from(&y[i + 1..i + 5]);
+        let in_range = yi.cmp_gt(py) ^ yj.cmp_gt(py);
+        if in_range.move_mask() == 0 {
+            i += 4;
+            continue;
+        }
+        let xi = f64x4::from(&x[i..i + 4]);
+        let xj = f64x4::from(&x[i + 1..i + 5]);
+        let crossings_mask = in_range & (((xj - xi) * (py - yi) / (yj - yi)) + xi).cmp_gt(px);
+        crossings += crossings_mask.move_mask().count_ones();
+        i += 4;
+    }
+
+    while i < segments {
+        if ((y[i] > point.y) != (y[i + 1] > point.y))
+            && point.x < (x[i + 1] - x[i]) * (point.y - y[i]) / (y[i + 1] - y[i]) + x[i]
+        {
+            crossings += 1;
+        }
+        i += 1;
+    }
+    crossings % 2 != 0
+}
+
 fn bench_point_in_ring_crossover(c: &mut Criterion) {
     let points = locator_query_points(1_024);
 
@@ -181,6 +250,76 @@ fn bench_point_in_ring_crossover(c: &mut Criterion) {
                     black_box(queries)
                         .iter()
                         .filter(|point| wide_contains(&ring.x, &ring.y, len, **point))
+                        .count()
+                });
+            });
+        }
+        group.finish();
+    }
+}
+
+fn bench_point_in_ring_empty_batch_skip(c: &mut Criterion) {
+    type Kernel = fn(&[f64], &[f64], usize, Coord<f64>) -> bool;
+    let kernels: [(&str, Kernel); 3] = [
+        ("scalar", scalar_contains),
+        ("wide", wide_contains),
+        ("wide_skip_empty", wide_contains_skip_empty),
+    ];
+
+    for fixture in ["circle", "sawtooth"] {
+        let mut group = c.benchmark_group(format!("point_in_ring_empty_batch_skip/{fixture}"));
+        for edges in [32, 128, 256, 1_024] {
+            let (exterior, queries) = if fixture == "circle" {
+                let polygon = circle_polygon(0.0, 0.0, 100.0, edges);
+                (polygon.exterior, locator_query_points(1_024))
+            } else {
+                (
+                    sawtooth_ring(edges),
+                    sawtooth_query_points(1_024, edges - 3),
+                )
+            };
+            let ring = SimdRing::new_3d(&exterior);
+            let len = exterior.len();
+
+            let expected = queries
+                .iter()
+                .filter(|point| scalar_contains(&ring.x, &ring.y, len, **point))
+                .count();
+            for (name, kernel) in kernels {
+                assert_eq!(
+                    expected,
+                    queries
+                        .iter()
+                        .filter(|point| kernel(&ring.x, &ring.y, len, **point))
+                        .count(),
+                    "{name} diverged on {fixture}/{edges}"
+                );
+            }
+            assert_eq!(
+                expected,
+                queries
+                    .iter()
+                    .filter(|point| ring.contains(**point))
+                    .count()
+            );
+
+            group.throughput(Throughput::Elements((edges * queries.len()) as u64));
+            for (name, kernel) in kernels {
+                group.bench_function(BenchmarkId::new(name, edges), |b| {
+                    b.iter(|| {
+                        black_box(&queries)
+                            .iter()
+                            .filter(|point| kernel(&ring.x, &ring.y, len, **point))
+                            .count()
+                    });
+                });
+            }
+            // Production adaptive dispatch, including the scalar crossover.
+            group.bench_function(BenchmarkId::new("adaptive", edges), |b| {
+                b.iter(|| {
+                    black_box(&queries)
+                        .iter()
+                        .filter(|point| ring.contains(**point))
                         .count()
                 });
             });
@@ -449,6 +588,7 @@ fn bench_end_to_end(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_point_in_ring_crossover,
+    bench_point_in_ring_empty_batch_skip,
     bench_point_locators,
     bench_preparation,
     bench_filtering,
