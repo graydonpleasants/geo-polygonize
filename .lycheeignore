@@ -1,0 +1,3 @@
+# deepwiki.com rate-limits GitHub-hosted runners (HTTP 429), which fails the
+# docs link check on unrelated changes. The README badge is decorative.
+^https://deepwiki\.com/
