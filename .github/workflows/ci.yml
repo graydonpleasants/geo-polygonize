@@ -86,6 +86,16 @@ jobs:
           cargo test --locked -p geo-polygonize-core --no-default-features --lib --tests
           cargo check --locked -p geo-polygonize-core --all-targets --all-features
 
+      - name: Check ts-rs bindings are up to date
+        run: |
+          bindings=crates/geo-polygonize-core/bindings
+          if [ -n "$(git status --porcelain -- "$bindings")" ]; then
+            echo "::error::Running the tests changed $bindings. Run 'cargo test -p geo-polygonize-core' and commit the regenerated bindings."
+            git status --short -- "$bindings"
+            git diff -- "$bindings"
+            exit 1
+          fi
+
   msrv:
     name: MSRV (Rust 1.87.0)
     runs-on: ubuntu-latest
