@@ -15,7 +15,7 @@ import type { ZOptions } from "./ZOptions";
  * This struct controls every aspect of the polygonization pipeline, including
  * topological robustness, feature output, containment policies, noding, and determinism.
  */
-export type PolygonizerOptions = {
+export type PolygonizerOptions = { 
 /**
  * Whether to robustly node the input before polygonization.
  *
@@ -25,13 +25,13 @@ export type PolygonizerOptions = {
  *
  * Default: `false`
  */
-node_input: boolean,
+node_input: boolean, 
 /**
  * Coordinate precision used for topology and noding.
  *
  * Default: `PrecisionModel::Floating`
  */
-precision_model: PrecisionModel,
+precision_model: PrecisionModel, 
 /**
  * Snap input segments to nearby vertices from exact-noded input linework before grid noding.
  *
@@ -41,7 +41,7 @@ precision_model: PrecisionModel,
  *
  * Default: `0.0`
  */
-pre_snap_tolerance: number,
+pre_snap_tolerance: number, 
 /**
  * If `true`, only pure, outermost polygonal shells are returned.
  *
@@ -49,7 +49,7 @@ pre_snap_tolerance: number,
  *
  * Default: `false`
  */
-extract_only_polygonal: boolean,
+extract_only_polygonal: boolean, 
 /**
  * Controls robust snap noding and output coordinate handling.
  *
@@ -58,36 +58,36 @@ extract_only_polygonal: boolean,
  *
  * Default: `SnapStrategy::Grid`
  */
-snap_strategy: SnapStrategy,
+snap_strategy: SnapStrategy, 
 /**
  * Configures the noding engine backend and behavior.
  */
-noding: NodingOptions,
+noding: NodingOptions, 
 /**
  * Configures how topological relationships (containment) are calculated
  * during face formation.
  */
-containment: ContainmentOptions,
+containment: ContainmentOptions, 
 /**
  * Configuration for enforcing exact topological determinism.
  */
-determinism: DeterminismOptions,
+determinism: DeterminismOptions, 
 /**
  * Options for capturing diagnostic topology failures.
  */
-diagnostics: DiagnosticsOptions,
+diagnostics: DiagnosticsOptions, 
 /**
  * Options for mapping final faces back to original input geometry IDs.
  */
-provenance: ProvenanceOptions,
+provenance: ProvenanceOptions, 
 /**
  * Controls Z reconstruction and same-XY conflict handling.
  */
-z: ZOptions,
+z: ZOptions, 
 /**
  * Optional application-level filtering applied after topology is established.
  */
-output_filter: OutputFilterOptions,
+output_filter: OutputFilterOptions, 
 /**
  * An optional identifier for the input dataset.
  */
