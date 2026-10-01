@@ -1,0 +1,4 @@
+# ts-rs output is committed verbatim and checked in CI; trimming trailing
+# whitespace on save makes it drift from what `cargo test` regenerates.
+[crates/geo-polygonize-core/bindings/**]
+trim_trailing_whitespace = false
