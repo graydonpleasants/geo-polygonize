@@ -81,6 +81,11 @@ jobs:
       - name: Run tests
         run: cargo test --locked --verbose
 
+      - name: Verify GeoParquet adapter
+        run: |
+          cargo clippy --locked -p geo-polygonize-arrow --features geoparquet -- -D warnings
+          cargo test --locked -p geo-polygonize-arrow --features geoparquet
+
       - name: Verify supported core feature combinations
         run: |
           cargo test --locked -p geo-polygonize-core --no-default-features --lib --tests

@@ -68,6 +68,33 @@ Supported Cargo feature combinations are intentionally small:
 Combinations outside this table are not release gates. SIMD is selected with a
 target feature rather than a Cargo feature.
 
+### GeoParquet polygonization
+
+`geo_polygonize_arrow::geoparquet_api::polygonize_geoparquet_file` treats one
+input file as one complete topology domain. It reads all linework before
+polygonizing, so a face may span Parquet row groups or Arrow record batches.
+The complete input and polygonization result must fit in memory. Independent
+drawings or coordinate systems must be processed separately.
+
+The input must contain exactly the requested geometry column, with the same
+XY LineString and planar-edge constraints as `polygonize_arrow`. Additional
+columns, including source attributes and bbox covering columns, are rejected:
+polygonization can change row counts and has no positional mapping from input
+lines to output faces. Callers must explicitly project the geometry column
+before using this adapter and keep source attributes separately. Applications
+that require entity attribution must use an interface that returns provenance.
+
+The output is a geometry-only polygon dataset using the requested column name
+and preserving the geometry CRS. GeoParquet geometry types and bounds are
+generated from the output. Empty inputs and inputs with no closed faces still
+produce valid zero-row polygon files. The destination is replaced only after a
+temporary output file in the same directory has been written and closed
+successfully; an error leaves an existing destination unchanged.
+
+Earlier versions attempted to copy additional columns to output polygons.
+That behavior could misattribute data even when row counts matched, and is
+replaced by an explicit `UnsupportedOptionCombination` error.
+
 ## Versions, semver, and deprecation
 
 The supported facade follows standard semantic versioning. Patch releases are

@@ -1061,6 +1061,7 @@ dependencies = [
  "parquet",
  "rand",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
