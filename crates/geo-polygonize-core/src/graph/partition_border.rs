@@ -648,6 +648,17 @@ pub(crate) struct PartitionBorderPhysicalTopologyEdge {
     pub(crate) face_id: FaceId,
 }
 
+/// A canonical physical directed slot with every contributing local face claim.
+/// The vector position is the physical slot ID. Borrowing keeps all local
+/// links, face/component identities, sources, and raw Z without copying payloads;
+/// selected Z and physical links remain on the physical edge.
+/// Each alias retains the existing first-sorted-source representative policy.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderPhysicalSlot<'a> {
+    pub(crate) physical_edge: &'a PartitionBorderPhysicalTopologyEdge,
+    pub(crate) local_aliases: Vec<&'a PartitionBorderGlobalFaceEdge>,
+}
+
 /// Private physical-arrangement evidence, independent of face-claim readiness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalArrangementWitness {
@@ -2466,11 +2477,11 @@ impl PartitionBorderGraph {
 
     /// Validates the many-to-one payload map without selecting a representative
     /// local face claim. Every local edge remains available in its physical slot.
-    pub(crate) fn global_arrangement_aliases(
-        &self,
-        witness: &PartitionBorderGlobalArrangementWitness,
+    pub(crate) fn global_arrangement_slots<'a>(
+        &'a self,
+        witness: &'a PartitionBorderGlobalArrangementWitness,
         execution_policy: &ExecutionPolicy,
-    ) -> crate::Result<Option<Vec<Vec<usize>>>> {
+    ) -> crate::Result<Option<Vec<PartitionBorderPhysicalSlot<'a>>>> {
         let stage = "partition_border_global_arrangement_aliases";
         execution_policy.check_cancelled(stage)?;
         let local_count = self.global_face_edge_map.len();
@@ -2485,7 +2496,14 @@ impl PartitionBorderGraph {
         {
             return Ok(None);
         }
-        let mut aliases = vec![Vec::new(); physical_count];
+        let mut slots = witness
+            .physical_edges
+            .iter()
+            .map(|physical_edge| PartitionBorderPhysicalSlot {
+                physical_edge,
+                local_aliases: Vec::new(),
+            })
+            .collect::<Vec<_>>();
         let mut sources = vec![BTreeSet::new(); physical_count];
         for (local, edge) in self.global_face_edge_map.iter().enumerate() {
             execution_policy.check_cancelled_every(stage, local)?;
@@ -2519,7 +2537,7 @@ impl PartitionBorderGraph {
             {
                 return Ok(None);
             }
-            aliases[physical].push(local);
+            slots[physical].local_aliases.push(edge);
             sources[physical].extend(edge.source_line_ids.iter().copied());
         }
         let mut predecessors = vec![0usize; physical_count];
@@ -2531,7 +2549,7 @@ impl PartitionBorderGraph {
             ) else {
                 return Ok(None);
             };
-            if aliases[physical].is_empty()
+            if slots[physical].local_aliases.is_empty()
                 || !sources[physical]
                     .iter()
                     .copied()
@@ -2553,12 +2571,12 @@ impl PartitionBorderGraph {
         if predecessors.iter().any(|&count| count != 1) {
             return Ok(None);
         }
-        Ok(Some(aliases))
+        Ok(Some(slots))
     }
 
     /// Atomically adopts physical successors into the detached candidate only.
     /// Extraction still runs every existing application, face, and payload gate.
-    /// ponytail: one local edge per slot; alias-aware extraction is required for duplicates.
+    /// shortcut: adoption requires one local claim per slot, upgrade after face-qualified alias resolution.
     pub(crate) fn adopt_global_arrangement_candidate(
         &mut self,
         witness: &PartitionBorderGlobalArrangementWitness,
@@ -2586,16 +2604,17 @@ impl PartitionBorderGraph {
         {
             return Ok(None);
         }
-        let Some(aliases) = self.global_arrangement_aliases(witness, execution_policy)? else {
+        let Some(slots) = self.global_arrangement_slots(witness, execution_policy)? else {
             return Ok(None);
         };
-        if aliases.iter().any(|locals| locals.len() != 1) {
+        if slots.iter().any(|slot| slot.local_aliases.len() != 1) {
             return Ok(None);
         }
         let mut next = vec![None; edge_count];
         for (local, &physical) in witness.physical_edge_by_local_edge.iter().enumerate() {
             execution_policy.check_cancelled_every(stage, local)?;
-            next[local] = Some(aliases[witness.physical_edges[physical].next][0]);
+            next[local] =
+                Some(slots[slots[physical].physical_edge.next].local_aliases[0].global_dir_edge_id);
         }
         let mut visited = vec![false; edge_count];
         let mut starts = Vec::new();
@@ -11851,7 +11870,7 @@ mod tests {
     }
 
     #[test]
-    fn physical_aliases_preserve_all_local_sources_without_enabling_adoption() {
+    fn physical_slots_borrow_complete_alias_lineage_without_enabling_adoption() {
         let policy = ExecutionPolicy::default();
         let mut graph = PartitionBorderGraph::default();
         let points = [
@@ -11861,17 +11880,17 @@ mod tests {
             coord(0.0, 1.0, 4.0),
         ];
         for index in 0..8 {
-            graph
-                .insert_local_face_graph(local_face_graph(
-                    index,
-                    0,
-                    0,
-                    0,
-                    points[index % 4],
-                    points[(index + 1) % 4],
-                    index as u32,
-                ))
-                .unwrap();
+            let mut from = points[index % 4];
+            let mut to = points[(index + 1) % 4];
+            from.z += (index / 4) as f64;
+            to.z += (index / 4) as f64;
+            let mut local =
+                local_face_graph(index, index + 10, 0, index + 20, from, to, index as u32);
+            for edge in &mut local.directed_edges {
+                edge.source_line_ids.push(index as u32 + 100);
+            }
+            local.directed_edges[1].local_face_is_unbounded = true;
+            graph.insert_local_face_graph(local).unwrap();
         }
         graph.reconcile_global_face_edge_map(&policy).unwrap();
         graph
@@ -11880,19 +11899,83 @@ mod tests {
         graph.reconcile_global_topology_candidate(&policy).unwrap();
         let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
         let before = graph.clone();
-        let aliases = graph
-            .global_arrangement_aliases(&witness, &policy)
+        let slots = graph
+            .global_arrangement_slots(&witness, &policy)
             .unwrap()
             .unwrap();
-        assert_eq!(aliases.len(), 8);
-        assert!(aliases.iter().all(|locals| locals.len() == 2));
-        let mut retained = aliases.into_iter().flatten().collect::<Vec<_>>();
+        assert_eq!(slots.len(), 8);
+        let mut retained = Vec::new();
+        for (physical, slot) in slots.iter().enumerate() {
+            assert!(std::ptr::eq(
+                slot.physical_edge,
+                &witness.physical_edges[physical]
+            ));
+            assert_eq!(slot.local_aliases.len(), 2);
+            assert_eq!(slot.physical_edge.from_z_bits, 4.0f64.to_bits());
+            assert_eq!(slot.physical_edge.to_z_bits, 4.0f64.to_bits());
+            assert_ne!(
+                slot.local_aliases[0].face_ref,
+                slot.local_aliases[1].face_ref
+            );
+            for &alias in &slot.local_aliases {
+                let local = alias.global_dir_edge_id;
+                assert!(std::ptr::eq(alias, &graph.global_face_edge_map[local]));
+                assert_eq!(alias.component_id, alias.partition_id + 10);
+                assert_eq!(alias.local_dir_edge_id, local % 2);
+                assert_eq!(
+                    alias.face_ref,
+                    Some(face(
+                        alias.partition_id,
+                        alias.component_id,
+                        alias.partition_id + 20 + local % 2
+                    ))
+                );
+                assert_eq!(alias.local_face_is_unbounded, local % 2 == 1);
+                assert_eq!(
+                    alias.source_line_ids,
+                    vec![alias.partition_id as u32, alias.partition_id as u32 + 100]
+                );
+                assert_eq!(
+                    alias.source_line_ids.first().copied(),
+                    Some(alias.partition_id as u32)
+                );
+                let raw_z = (4.0 + (alias.partition_id / 4) as f64).to_bits();
+                assert_eq!(alias.from_z_bits, raw_z);
+                assert_eq!(alias.to_z_bits, raw_z);
+                assert_eq!(alias.local_face_successor_global_dir_edge_id, Some(local));
+                assert_eq!(alias.cross_border_twin_global_dir_edge_id, None);
+                assert_eq!(
+                    witness.physical_edge_by_local_edge[alias.symmetric_global_dir_edge_id],
+                    slot.physical_edge.symmetric
+                );
+                retained.push(local);
+            }
+        }
         retained.sort_unstable();
         assert_eq!(retained, (0..16).collect::<Vec<_>>());
         assert!(witness
             .physical_edges
             .iter()
-            .all(|edge| edge.source_line_ids.len() == 2));
+            .all(|edge| edge.source_line_ids.len() == 4));
+        let mut permuted = PartitionBorderGraph::default();
+        for snapshot in graph.local_face_graphs.iter().rev() {
+            permuted.insert_local_face_graph(snapshot.clone()).unwrap();
+        }
+        permuted.reconcile_global_face_edge_map(&policy).unwrap();
+        permuted
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let permuted_witness = permuted
+            .global_arrangement_witness(&policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            slots,
+            permuted
+                .global_arrangement_slots(&permuted_witness, &policy)
+                .unwrap()
+                .unwrap()
+        );
         assert!(graph
             .adopt_global_arrangement_candidate(&witness, true, &policy)
             .unwrap()
@@ -11914,12 +11997,12 @@ mod tests {
                 }
             }
             assert!(graph
-                .global_arrangement_aliases(&invalid, &policy)
+                .global_arrangement_slots(&invalid, &policy)
                 .unwrap()
                 .is_none());
         }
         assert!(matches!(
-            graph.global_arrangement_aliases(
+            graph.global_arrangement_slots(
                 &witness,
                 &ExecutionPolicy {
                     max_graph_edges: Some(0),
@@ -11931,7 +12014,7 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
         assert!(matches!(
-            graph.global_arrangement_aliases(
+            graph.global_arrangement_slots(
                 &witness,
                 &ExecutionPolicy {
                     cancellation_token: Some(token),
