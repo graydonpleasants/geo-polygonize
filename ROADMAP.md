@@ -418,18 +418,21 @@ tracked by
 Tracked by
 [#1391](https://github.com/graydonpleasants/geo-polygonize/issues/1391).
 
-Canonical physical directed slots now borrow every contributing local edge,
+Canonical physical directed slots borrow every contributing local edge,
 retaining distinct face-qualified claims without copying source or Z payloads.
-The remaining blocker is resolving those claims and consuming the slots in
-detached topology; physical agreement alone does not make claims ready.
+Claim resolution admits only complete interior claims or one exact complementary
+face pair backed by two topology-ready observations and complete alias coverage.
+Typed witnesses distinguish absent, incompatible, and ambiguous evidence; full
+observation groups are checked before eligibility filtering. The remaining
+blocker is consuming resolved slots in detached topology.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
 - [x] Retain complete local twin, successor, face, component, source,
   representative-ID, and raw/selected Z lineage per alias.
-- [ ] Resolve complementary face-qualified claims independently from physical
+- [x] Resolve complementary face-qualified claims independently from physical
   edge deduplication.
-- [ ] Preserve ambiguous four-claim and oversubscribed groups as explicit
+- [x] Preserve ambiguous four-claim and oversubscribed groups as explicit
   fail-closed evidence.
 - [ ] Build alias-aware global twin and successor candidates.
 - [ ] Reconcile global components and one global unbounded face.

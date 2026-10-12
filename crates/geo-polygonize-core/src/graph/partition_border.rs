@@ -659,6 +659,51 @@ pub(crate) struct PartitionBorderPhysicalSlot<'a> {
     pub(crate) local_aliases: Vec<&'a PartitionBorderGlobalFaceEdge>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionBorderPhysicalClaimStatus {
+    Ready,
+    Incomplete,
+    Ambiguous,
+    Conflict,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PartitionBorderPhysicalClaimReason {
+    AliasMultiplicity,
+    ObservationMultiplicity,
+    MissingFace,
+    InvalidFace,
+    MissingObservation,
+    MissingCorroboration,
+    MissingAlias,
+    IncompatibleObservation,
+    NotTopologyReady,
+    MissingTwin,
+    TwinMultiplicity,
+    IncompatibleTwin,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderPhysicalFacePair {
+    pub(crate) twin_key: PartitionBorderTwinKey,
+    pub(crate) forward_face_ref: PartitionFaceRef,
+    pub(crate) reverse_face_ref: PartitionFaceRef,
+}
+
+/// Claim readiness is independent of physical face IDs and global extraction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderPhysicalClaimResolution {
+    pub(crate) physical_dir_edge_ids: [usize; 2],
+    pub(crate) local_dir_edge_ids: Vec<usize>,
+    pub(crate) observation_count: usize,
+    pub(crate) eligible_observation_count: usize,
+    pub(crate) status: PartitionBorderPhysicalClaimStatus,
+    pub(crate) reason: Option<PartitionBorderPhysicalClaimReason>,
+    pub(crate) face_pair: Option<PartitionBorderPhysicalFacePair>,
+}
+
 /// Private physical-arrangement evidence, independent of face-claim readiness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalArrangementWitness {
@@ -2572,6 +2617,219 @@ impl PartitionBorderGraph {
             return Ok(None);
         }
         Ok(Some(slots))
+    }
+
+    /// Resolves only complete local claims or one exact, topology-ready face pair.
+    /// Full observation groups are checked before eligibility can hide ambiguity.
+    pub(crate) fn resolve_global_arrangement_claims(
+        &self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        eligible_observation_ids: &BTreeSet<PartitionBorderObservationId>,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<Vec<PartitionBorderPhysicalClaimResolution>>> {
+        use PartitionBorderPhysicalClaimReason as Reason;
+        use PartitionBorderPhysicalClaimStatus as Status;
+
+        let stage = "partition_border_global_arrangement_claims";
+        execution_policy.check_cancelled(stage)?;
+        execution_policy.check(
+            stage,
+            execution_policy.max_graph_edges,
+            self.observations.len(),
+        )?;
+        execution_policy.check(
+            stage,
+            execution_policy.max_graph_edges,
+            self.applied_face_twins.len(),
+        )?;
+        let Some(slots) = self.global_arrangement_slots(witness, execution_policy)? else {
+            return Ok(None);
+        };
+        let mut twins_by_key = BTreeMap::<_, Vec<_>>::new();
+        for (index, twin) in self.applied_face_twins.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            twins_by_key.entry(twin.twin.key()).or_default().push(twin);
+        }
+        let mut resolutions = Vec::with_capacity(witness.physical_edge_count);
+        let mut visited_aliases = 0;
+        for (physical, slot) in slots.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, physical)?;
+            let symmetric = slot.physical_edge.symmetric;
+            if physical > symmetric {
+                continue;
+            }
+            let reverse_slot = &slots[symmetric];
+            let edge_key = slot.local_aliases[0].edge_key;
+            let observations = self.edges.get(&edge_key);
+            let mut aliases = Vec::new();
+            for &alias in slot.local_aliases.iter().chain(&reverse_slot.local_aliases) {
+                execution_policy.check_cancelled_every(stage, visited_aliases)?;
+                visited_aliases += 1;
+                aliases.push(alias);
+            }
+            aliases.sort_unstable_by_key(|alias| alias.global_dir_edge_id);
+            let local_dir_edge_ids = aliases
+                .iter()
+                .map(|alias| alias.global_dir_edge_id)
+                .collect::<Vec<_>>();
+            let observation_count = observations.map_or(0, BTreeSet::len);
+            let eligible_observation_count = observations.map_or(0, |observations| {
+                observations
+                    .iter()
+                    .filter(|observation| {
+                        eligible_observation_ids.contains(&observation.observation_id())
+                    })
+                    .count()
+            });
+            let classify = || {
+                let decline = |status, reason| (status, Some(reason), None);
+                if slot.local_aliases.len() > 2
+                    || reverse_slot.local_aliases.len() > 2
+                    || aliases
+                        .iter()
+                        .map(|alias| alias.partition_id)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        != slot.local_aliases.len()
+                {
+                    return decline(Status::Ambiguous, Reason::AliasMultiplicity);
+                }
+                if observation_count > 2 {
+                    return decline(Status::Ambiguous, Reason::ObservationMultiplicity);
+                }
+                let mut face_markers = BTreeMap::new();
+                for alias in &aliases {
+                    let Some(face_ref) = alias.face_ref else {
+                        return decline(Status::Incomplete, Reason::MissingFace);
+                    };
+                    if face_ref.partition_id != alias.partition_id
+                        || face_ref.component_id != alias.component_id
+                        || face_markers
+                            .insert(face_ref, alias.local_face_is_unbounded)
+                            .is_some_and(|unbounded| unbounded != alias.local_face_is_unbounded)
+                    {
+                        return decline(Status::Conflict, Reason::InvalidFace);
+                    }
+                }
+                if observation_count == 0
+                    && slot.local_aliases.len() == 1
+                    && reverse_slot.local_aliases.len() == 1
+                {
+                    return (Status::Ready, None, None);
+                }
+                if observation_count < 2 {
+                    return decline(Status::Incomplete, Reason::MissingObservation);
+                }
+                let observations = observations.unwrap();
+                let (start, end) = edge_key.endpoints();
+                let Some(forward) = observations
+                    .iter()
+                    .find(|observation| observation.from == start && observation.to == end)
+                else {
+                    return decline(Status::Conflict, Reason::IncompatibleObservation);
+                };
+                let Some(reverse) = observations
+                    .iter()
+                    .find(|observation| observation.from == end && observation.to == start)
+                else {
+                    return decline(Status::Conflict, Reason::IncompatibleObservation);
+                };
+                if forward.partition_id == reverse.partition_id {
+                    return decline(Status::Incomplete, Reason::MissingCorroboration);
+                }
+                if !self
+                    .adjacencies
+                    .iter()
+                    .any(|adjacency| adjacency.matches(forward, reverse))
+                    || forward.source_line_ids != reverse.source_line_ids
+                    || forward.representative_line_id != reverse.representative_line_id
+                    || forward.from_z_bits != reverse.to_z_bits
+                    || forward.to_z_bits != reverse.from_z_bits
+                {
+                    return decline(Status::Conflict, Reason::IncompatibleObservation);
+                }
+                let mut anchors = Vec::with_capacity(2);
+                for observation in [forward, reverse] {
+                    let Some(face_ref) = observation.face_ref else {
+                        return decline(Status::Incomplete, Reason::MissingFace);
+                    };
+                    let Some(&alias) = aliases.iter().find(|alias| {
+                        alias.partition_id == observation.partition_id
+                            && alias.local_dir_edge_id == observation.local_dir_edge_id
+                    }) else {
+                        return decline(Status::Incomplete, Reason::MissingAlias);
+                    };
+                    if alias.face_ref != Some(face_ref)
+                        || alias.from != observation.from
+                        || alias.to != observation.to
+                        || alias.from_z_bits != observation.from_z_bits
+                        || alias.to_z_bits != observation.to_z_bits
+                        || alias.source_line_ids != observation.source_line_ids
+                        || alias.source_line_ids.first().copied()
+                            != observation.representative_line_id
+                        || alias.local_face_is_unbounded != observation.local_face_is_unbounded
+                    {
+                        return decline(Status::Conflict, Reason::IncompatibleObservation);
+                    }
+                    anchors.push(alias);
+                }
+                if eligible_observation_count != 2 {
+                    return decline(Status::Incomplete, Reason::NotTopologyReady);
+                }
+                let twin = PartitionBorderTwin {
+                    edge_key,
+                    forward: forward.observation_id(),
+                    reverse: reverse.observation_id(),
+                };
+                let Some(matching_twins) = twins_by_key.get(&twin.key()) else {
+                    return decline(Status::Incomplete, Reason::MissingTwin);
+                };
+                if matching_twins.len() != 1 {
+                    return decline(Status::Ambiguous, Reason::TwinMultiplicity);
+                }
+                let applied = matching_twins[0];
+                let mut covered = vec![
+                    anchors[0].global_dir_edge_id,
+                    anchors[1].global_dir_edge_id,
+                    anchors[0].symmetric_global_dir_edge_id,
+                    anchors[1].symmetric_global_dir_edge_id,
+                ];
+                covered.sort_unstable();
+                if covered != local_dir_edge_ids
+                    || anchors[0].cross_border_twin_global_dir_edge_id
+                        != Some(anchors[1].global_dir_edge_id)
+                    || anchors[1].cross_border_twin_global_dir_edge_id
+                        != Some(anchors[0].global_dir_edge_id)
+                    || applied.forward_face_ref != forward.face_ref.unwrap()
+                    || applied.reverse_face_ref != reverse.face_ref.unwrap()
+                    || self.twin_payload_from_edges(&self.edges, twin).as_ref()
+                        != Some(&applied.payload)
+                {
+                    return decline(Status::Conflict, Reason::IncompatibleTwin);
+                }
+                (
+                    Status::Ready,
+                    None,
+                    Some(PartitionBorderPhysicalFacePair {
+                        twin_key: twin.key(),
+                        forward_face_ref: applied.forward_face_ref,
+                        reverse_face_ref: applied.reverse_face_ref,
+                    }),
+                )
+            };
+            let (status, reason, face_pair) = classify();
+            resolutions.push(PartitionBorderPhysicalClaimResolution {
+                physical_dir_edge_ids: [physical, symmetric],
+                local_dir_edge_ids,
+                observation_count,
+                eligible_observation_count,
+                status,
+                reason,
+                face_pair,
+            });
+        }
+        execution_policy.check_cancelled(stage)?;
+        Ok(Some(resolutions))
     }
 
     /// Atomically adopts physical successors into the detached candidate only.
@@ -12023,6 +12281,354 @@ mod tests {
             ),
             Err(crate::PolygonizeError::Cancelled { .. })
         ));
+        assert_eq!(graph, before);
+    }
+
+    fn physical_face_claim_graph(observation_count: usize, reversed: bool) -> PartitionBorderGraph {
+        let points = [
+            coord(0.0, 0.0, 4.0),
+            coord(1.0, 0.0, 4.0),
+            coord(1.0, 1.0, 4.0),
+            coord(0.0, 1.0, 4.0),
+        ];
+        let mut observations = Vec::new();
+        for (partition_id, local_id, side, is_unbounded) in [
+            (1, 0, PartitionBorderSide::MinY, false),
+            (2, 1, PartitionBorderSide::MaxY, true),
+            (1, 1, PartitionBorderSide::MinY, true),
+            (2, 0, PartitionBorderSide::MaxY, false),
+        ]
+        .into_iter()
+        .take(observation_count)
+        {
+            let (from, to) = if local_id == 0 {
+                (points[0], points[1])
+            } else {
+                (points[1], points[0])
+            };
+            let mut observation = PartitionBorderHalfEdge::new_with_face_ref(
+                partition_id,
+                local_id,
+                Some(face(partition_id, 0, local_id)),
+                side,
+                from,
+                to,
+                [7],
+            )
+            .unwrap();
+            observation.local_face_successor = Some(if local_id == 0 { 2 } else { 7 });
+            observation.local_face_is_unbounded = is_unbounded;
+            observations.push(observation);
+        }
+        let mut snapshots = Vec::new();
+        for partition_id in [1, 2] {
+            let mut snapshot = local_face_graph(partition_id, 0, 0, 0, points[0], points[1], 7);
+            for index in 1..4 {
+                snapshot.directed_edges.extend(
+                    local_face_graph(
+                        partition_id,
+                        0,
+                        index * 2,
+                        0,
+                        points[index],
+                        points[(index + 1) % 4],
+                        7,
+                    )
+                    .directed_edges,
+                );
+            }
+            for edge in &mut snapshot.directed_edges {
+                let index = edge.local_dir_edge_id / 2;
+                let reverse = edge.local_dir_edge_id % 2 == 1;
+                edge.local_face_successor = Some(if reverse {
+                    ((index + 3) % 4) * 2 + 1
+                } else {
+                    ((index + 1) % 4) * 2
+                });
+                edge.local_face_is_unbounded = reverse;
+            }
+            snapshots.push(snapshot);
+        }
+        if reversed {
+            observations.reverse();
+            snapshots.reverse();
+        }
+        let mut graph = PartitionBorderGraph::default();
+        graph.declare_adjacency(
+            PartitionBorderAdjacency::new(
+                1,
+                PartitionBorderSide::MinY,
+                2,
+                PartitionBorderSide::MaxY,
+                0.0,
+            )
+            .unwrap(),
+        );
+        for observation in observations {
+            graph.insert(observation).unwrap();
+        }
+        for snapshot in snapshots {
+            graph.insert_local_face_graph(snapshot).unwrap();
+        }
+        let eligible = graph.observations.keys().copied().collect();
+        let policy = ExecutionPolicy::default();
+        graph
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        graph
+    }
+
+    #[test]
+    fn physical_claim_resolution_retains_exact_face_pair_and_all_aliases() {
+        let policy = ExecutionPolicy::default();
+        let mut signatures = Vec::new();
+        for reversed in [false, true] {
+            let graph = physical_face_claim_graph(2, reversed);
+            let before = graph.clone();
+            let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+            let eligible = graph.observations.keys().copied().collect();
+            let resolutions = graph
+                .resolve_global_arrangement_claims(&witness, &eligible, &policy)
+                .unwrap()
+                .unwrap();
+            assert_eq!(resolutions.len(), 4);
+            let paired = resolutions
+                .iter()
+                .find(|claim| claim.local_dir_edge_ids.contains(&0))
+                .unwrap();
+            assert_eq!(paired.status, PartitionBorderPhysicalClaimStatus::Ready);
+            assert_eq!(paired.reason, None);
+            assert_eq!(paired.local_dir_edge_ids, vec![0, 1, 8, 9]);
+            assert_eq!(paired.observation_count, 2);
+            assert_eq!(paired.eligible_observation_count, 2);
+            let pair = paired.face_pair.unwrap();
+            assert_eq!(pair.twin_key, graph.applied_face_twins[0].twin.key());
+            assert_eq!(pair.forward_face_ref, face(1, 0, 0));
+            assert_eq!(pair.reverse_face_ref, face(2, 0, 1));
+            assert!(!graph.global_face_edge_map[0].local_face_is_unbounded);
+            assert!(graph.global_face_edge_map[9].local_face_is_unbounded);
+            assert_eq!(
+                resolutions
+                    .iter()
+                    .filter(|claim| claim.status == PartitionBorderPhysicalClaimStatus::Incomplete)
+                    .count(),
+                3
+            );
+            assert_eq!(graph, before);
+            signatures.push(resolutions);
+        }
+        assert_eq!(signatures[0], signatures[1]);
+
+        let mut interior = physical_face_claim_graph(0, false);
+        interior.local_face_graphs.truncate(1);
+        interior.reconcile_global_face_edge_map(&policy).unwrap();
+        interior
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let witness = interior
+            .global_arrangement_witness(&policy)
+            .unwrap()
+            .unwrap();
+        assert!(interior
+            .resolve_global_arrangement_claims(&witness, &BTreeSet::new(), &policy)
+            .unwrap()
+            .unwrap()
+            .iter()
+            .all(
+                |claim| claim.status == PartitionBorderPhysicalClaimStatus::Ready
+                    && claim.face_pair.is_none()
+            ));
+    }
+
+    #[test]
+    fn physical_claim_resolution_distinguishes_absent_and_incompatible_evidence() {
+        use PartitionBorderPhysicalClaimReason as Reason;
+        use PartitionBorderPhysicalClaimStatus as Status;
+        let policy = ExecutionPolicy::default();
+        for (mutation, expected_status, expected_reason) in [
+            (0, Status::Incomplete, Reason::MissingFace),
+            (1, Status::Conflict, Reason::InvalidFace),
+            (2, Status::Incomplete, Reason::NotTopologyReady),
+            (3, Status::Incomplete, Reason::MissingTwin),
+            (4, Status::Ambiguous, Reason::TwinMultiplicity),
+            (5, Status::Conflict, Reason::IncompatibleTwin),
+            (6, Status::Conflict, Reason::IncompatibleTwin),
+            (7, Status::Conflict, Reason::IncompatibleObservation),
+            (8, Status::Incomplete, Reason::MissingAlias),
+            (9, Status::Conflict, Reason::InvalidFace),
+        ] {
+            let mut graph = physical_face_claim_graph(2, false);
+            let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+            let mut eligible = graph.observations.keys().copied().collect::<BTreeSet<_>>();
+            match mutation {
+                0 => graph.global_face_edge_map[0].face_ref = None,
+                1 => graph.global_face_edge_map[0].face_ref = Some(face(1, 99, 0)),
+                2 => {
+                    eligible.pop_first();
+                }
+                3 => graph.applied_face_twins.clear(),
+                4 => graph
+                    .applied_face_twins
+                    .push(graph.applied_face_twins[0].clone()),
+                5 => graph.applied_face_twins[0].payload.source_line_ids.push(99),
+                6 => graph.global_face_edge_map[0].cross_border_twin_global_dir_edge_id = None,
+                7 => {
+                    let edge_key = graph.global_face_edge_map[0].edge_key;
+                    let observations = graph.edges.get_mut(&edge_key).unwrap();
+                    *observations = observations
+                        .iter()
+                        .cloned()
+                        .map(|mut observation| {
+                            if observation.partition_id == 1 {
+                                observation.from_z_bits = 99.0f64.to_bits();
+                            }
+                            observation
+                        })
+                        .collect();
+                }
+                8 => graph.global_face_edge_map[0].local_dir_edge_id = 99,
+                _ => graph.global_face_edge_map[1].face_ref = Some(face(1, 0, 0)),
+            }
+            let before = graph.clone();
+            let resolutions = graph
+                .resolve_global_arrangement_claims(&witness, &eligible, &policy)
+                .unwrap()
+                .unwrap();
+            let claim = resolutions
+                .iter()
+                .find(|claim| claim.local_dir_edge_ids.contains(&0))
+                .unwrap();
+            assert_eq!(
+                (claim.status, claim.reason),
+                (expected_status, Some(expected_reason)),
+                "mutation {mutation}"
+            );
+            assert!(claim.face_pair.is_none());
+            assert_eq!(graph, before);
+        }
+        for count in [0, 1] {
+            let graph = physical_face_claim_graph(count, false);
+            let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+            let eligible = graph.observations.keys().copied().collect();
+            let resolutions = graph
+                .resolve_global_arrangement_claims(&witness, &eligible, &policy)
+                .unwrap()
+                .unwrap();
+            assert!(resolutions
+                .iter()
+                .all(|claim| claim.status == Status::Incomplete
+                    && claim.reason == Some(Reason::MissingObservation)));
+        }
+    }
+
+    #[test]
+    fn physical_claim_resolution_never_filters_four_claims_into_a_ready_pair() {
+        let policy = ExecutionPolicy::default();
+        for reversed in [false, true] {
+            let mut graph = physical_face_claim_graph(4, reversed);
+            let eligible = graph
+                .observations
+                .keys()
+                .copied()
+                .filter(|id| {
+                    (id.partition_id, id.local_dir_edge_id) == (1, 0)
+                        || (id.partition_id, id.local_dir_edge_id) == (2, 1)
+                })
+                .collect();
+            assert_eq!(
+                graph
+                    .apply_topology_ready_face_twins(&eligible, &policy)
+                    .unwrap()
+                    .applied_twin_count,
+                1
+            );
+            graph.reconcile_global_face_edge_map(&policy).unwrap();
+            graph
+                .reconcile_global_face_nodes(ZOptions::default(), &policy)
+                .unwrap();
+            let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+            let before = graph.clone();
+            let resolutions = graph
+                .resolve_global_arrangement_claims(&witness, &eligible, &policy)
+                .unwrap()
+                .unwrap();
+            let claim = resolutions
+                .iter()
+                .find(|claim| claim.observation_count == 4)
+                .unwrap();
+            assert_eq!(claim.eligible_observation_count, 2);
+            assert_eq!(claim.status, PartitionBorderPhysicalClaimStatus::Ambiguous);
+            assert_eq!(
+                claim.reason,
+                Some(PartitionBorderPhysicalClaimReason::ObservationMultiplicity)
+            );
+            assert!(claim.face_pair.is_none());
+            assert_eq!(graph, before);
+        }
+    }
+
+    #[test]
+    fn physical_claim_resolution_rejects_oversubscription_and_observes_policy() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = physical_face_claim_graph(2, false);
+        let mut extra = graph.local_face_graphs[0].clone();
+        extra.partition_id = 3;
+        for edge in &mut extra.directed_edges {
+            edge.face_ref.as_mut().unwrap().partition_id = 3;
+        }
+        graph.insert_local_face_graph(extra).unwrap();
+        let eligible = graph.observations.keys().copied().collect();
+        graph
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let before = graph.clone();
+        let resolutions = graph
+            .resolve_global_arrangement_claims(&witness, &eligible, &policy)
+            .unwrap()
+            .unwrap();
+        assert!(resolutions.iter().all(|claim| claim.status
+            == PartitionBorderPhysicalClaimStatus::Ambiguous
+            && claim.reason == Some(PartitionBorderPhysicalClaimReason::AliasMultiplicity)
+            && claim.face_pair.is_none()));
+        assert!(matches!(
+            graph.resolve_global_arrangement_claims(
+                &witness,
+                &eligible,
+                &ExecutionPolicy {
+                    max_graph_edges: Some(0),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            graph.resolve_global_arrangement_claims(
+                &witness,
+                &eligible,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
+        let mut invalid = witness.clone();
+        invalid.physical_edges[0].symmetric = usize::MAX;
+        assert!(graph
+            .resolve_global_arrangement_claims(&invalid, &eligible, &policy)
+            .unwrap()
+            .is_none());
         assert_eq!(graph, before);
     }
 
