@@ -6,6 +6,7 @@
   "scripts": {
     "build": "./scripts/build_wasm.sh",
     "test": "vitest run",
+    "test:threads": "node scripts/test_wasm_threads_package.mjs",
     "prepare": "husky",
     "build:site-lib": "SITE_BUILD=1 ./scripts/build_wasm.sh",
     "docs:extract": "cargo run -p xtask -- docs extract",

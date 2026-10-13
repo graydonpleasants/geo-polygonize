@@ -99,3 +99,15 @@ async helpers belong to the standard entry point, while the threads entry point
 owns a Rayon pool for its lifetime. Use the scalar fallback when SIMD is not
 available; use the standard package when shared memory or isolation is not
 available.
+
+Before publishing a built package, verify its threaded runtime from the tarball
+with an installed Chrome browser (or set `CHROME_PATH`):
+
+```sh
+npm pack --ignore-scripts
+npm run test:threads -- ./geo-polygonize-1.2.0.tgz
+```
+
+The smoke test installs the tarball in a temporary consumer and serves ordinary
+static files with isolation headers. It checks shared Wasm memory, a real
+two-worker Rayon pool, and a managed packed polygon result.
