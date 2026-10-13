@@ -116,6 +116,16 @@ mod tests {
                 candidate["blocked_span_count"],
                 report.partition_border_global_arrangement_blocked_span_count
             );
+            let faces = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_faces")
+                .unwrap()
+                .payload;
+            assert_eq!(faces["reconciled"], false);
+            assert!(faces["faces"].is_null());
+            assert!(faces["components"].is_null());
             let adoption = result
                 .trace
                 .events
@@ -225,6 +235,29 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+        let faces = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_faces")
+            .unwrap()
+            .payload;
+        assert_eq!(faces["reconciled"], true);
+        assert_eq!(faces["components"].as_array().unwrap().len(), 1);
+        assert_eq!(faces["faces"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            faces["face_id_by_local_dir_edge"].as_array().unwrap().len(),
+            8
+        );
+        assert_eq!(
+            faces["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|face| face["unbounded"] == true)
+                .count(),
+            1
         );
     }
 

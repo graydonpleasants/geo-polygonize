@@ -427,8 +427,14 @@ observation groups are checked before eligibility filtering. The
 detached twin and successor candidate uses physical slot IDs and retains every
 local alias. Construction requires ready claims, complete span evidence,
 reciprocal twins, node-continuous successor cycles, and the physical arrangement
-proofs. Global component and face reconciliation must consume this topology
-before it can reach extraction; candidate construction does not promote output.
+proofs. Connected polygonal candidates reconcile complete local component
+coverage through exact claim pairs, project every retained alias onto a physical
+face cycle, and prove one exterior cycle covering every qualified local exterior
+marker. Bounded local faces cannot split across global faces; clipped exterior
+aliases can enter bounded cycles only with an exact paired bounded corroborator.
+Uncorroborated node-only joins and disconnected/containment-dependent arrangements
+remain blocked. The reconciled component and face tables still require extraction
+and same-options equivalence before output promotion.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
@@ -439,7 +445,8 @@ before it can reach extraction; candidate construction does not promote output.
 - [x] Preserve ambiguous four-claim and oversubscribed groups as explicit
   fail-closed evidence.
 - [x] Build alias-aware global twin and successor candidates.
-- [ ] Reconcile global components and one global unbounded face.
+- [x] Reconcile global components and one global unbounded face for connected
+  polygonal candidates.
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.
