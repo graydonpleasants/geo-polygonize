@@ -224,17 +224,42 @@ def verify_registries(version: str, attempts: int, delay_seconds: float) -> list
     return records
 
 
-def github_runs(repository: str, token: str, tag: str) -> list[dict]:
-    data = request_json(
-        f"https://api.github.com/repos/{repository}/actions/runs?event=push&per_page=100", token
-    )
+def github_tag_sha(repository: str, token: str, tag: str) -> str:
+    encoded = urllib.parse.quote(tag, safe="")
+    data = request_json(f"https://api.github.com/repos/{repository}/commits/{encoded}", token)
+    sha = data.get("sha") if isinstance(data, dict) else None
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise VerificationError(f"release tag {tag} has no valid commit SHA")
+    return sha
+
+
+def github_runs(repository: str, token: str, tag: str, head_sha: str) -> list[dict]:
     runs = []
-    for run_info in data.get("workflow_runs", []):
-        if run_info.get("head_branch") != tag:
+    for filename, workflow_name in PUBLISH_WORKFLOWS.items():
+        candidates = []
+        for page in range(1, 11):
+            query = urllib.parse.urlencode(
+                {"event": "push", "branch": tag, "head_sha": head_sha, "per_page": 100, "page": page}
+            )
+            data = request_json(
+                f"https://api.github.com/repos/{repository}/actions/workflows/{filename}/runs?{query}", token
+            )
+            page_runs = data.get("workflow_runs", [])
+            candidates.extend(
+                run_info for run_info in page_runs
+                if run_info.get("head_branch") == tag
+                and run_info.get("head_sha") == head_sha
+                and run_info.get("event") == "push"
+                and run_info.get("name") == workflow_name
+            )
+            if len(page_runs) < 100 or page * 100 >= data.get("total_count", float("inf")):
+                break
+        else:
+            raise VerificationError(f"publication workflow {filename} exceeds 1000 runs for tag {tag}")
+        if not candidates:
             continue
-        workflow_name = run_info.get("name")
-        if workflow_name not in PUBLISH_WORKFLOWS.values():
-            continue
+        # Reruns update the same ID; a newer exact-tag run supersedes older success or failure.
+        run_info = max(candidates, key=lambda run: (run.get("created_at") or "", run["id"]))
         runs.append(
             {
                 "workflow": workflow_name,
@@ -248,6 +273,20 @@ def github_runs(repository: str, token: str, tag: str) -> list[dict]:
             }
         )
     return sorted(runs, key=lambda value: (value["workflow"], value["created_at"] or ""))
+
+
+def wait_for_publishers(
+    repository: str, token: str, tag: str, head_sha: str, attempts: int, delay_seconds: float
+) -> list[dict]:
+    for attempt in range(attempts):
+        runs = github_runs(repository, token, tag, head_sha)
+        if any(run["status"] == "completed" and run["conclusion"] != "success" for run in runs):
+            return runs
+        if len(runs) == len(PUBLISH_WORKFLOWS) and all(run["status"] == "completed" for run in runs):
+            return runs
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+    return runs
 
 
 def smoke_rust(version: str) -> dict:
@@ -426,15 +465,53 @@ def smoke_registry_installs(version: str) -> dict:
     return results
 
 
-def report_complete(report: dict) -> bool:
+def report_complete(report: dict, head_sha: str | None = None) -> bool:
+    if not isinstance(report, dict) or report.get("schema_version") != REPORT_SCHEMA_VERSION:
+        return False
+    tag, version = report.get("tag"), report.get("release_version")
+    if not isinstance(tag, str) or not isinstance(version, str):
+        return False
+    try:
+        if version_from_tag(tag) != version:
+            return False
+    except VerificationError:
+        return False
     registries = report.get("registries", [])
-    expected = len(CRATE_PACKAGES) + 2
+    workflows = report.get("workflows", [])
+    smoke = report.get("smoke", {})
+    expected_registries = {("crates.io", package) for package in CRATE_PACKAGES} | {
+        ("npm", "geo-polygonize"), ("pypi", "geo-polygonize-py")
+    }
+    expected_smoke = {"rust": "geo-polygonize-core", "npm": "geo-polygonize", "python": "geo-polygonize-py"}
+    if not isinstance(registries, list) or not isinstance(workflows, list) or not isinstance(smoke, dict):
+        return False
+    if not all(isinstance(record, dict) for record in registries + workflows):
+        return False
+    if not all(isinstance(record.get("registry"), str) and isinstance(record.get("package"), str) for record in registries):
+        return False
+    if not all(isinstance(record.get("workflow"), str) for record in workflows):
+        return False
+    expected_sha = head_sha if head_sha is not None else report.get("head_sha")
+    if ("head_sha" in report or head_sha is not None) and (
+        not isinstance(expected_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_sha)
+    ):
+        return False
     return (
-        len(registries) == expected
-        and all(record.get("status") == "available" for record in registries)
-        and all(record.get("conclusion") == "success" for record in report.get("workflows", []))
-        and len(report.get("workflows", [])) == len(PUBLISH_WORKFLOWS)
-        and all(result.get("status") == "passed" for result in report.get("smoke", {}).values())
+        len(registries) == len(expected_registries)
+        and {(record["registry"], record["package"]) for record in registries} == expected_registries
+        and all(record.get("status") == "available" and record.get("version") == version for record in registries)
+        and len(workflows) == len(PUBLISH_WORKFLOWS)
+        and {record["workflow"] for record in workflows} == set(PUBLISH_WORKFLOWS.values())
+        and all(record.get("status") == "completed" and record.get("conclusion") == "success" for record in workflows)
+        and all(isinstance(record.get("head_sha"), str) and re.fullmatch(r"[0-9a-f]{40}", record["head_sha"])
+                for record in workflows)
+        and len({record["head_sha"] for record in workflows}) == 1
+        and (expected_sha is None or all(record["head_sha"] == expected_sha for record in workflows))
+        and ("head_sha" not in report or report["head_sha"] == expected_sha)
+        and set(smoke) == set(expected_smoke)
+        and all(isinstance(result, dict) and result.get("status") == "passed"
+                and result.get("package") == expected_smoke[name] and result.get("version") == version
+                for name, result in smoke.items())
     )
 
 
@@ -446,14 +523,17 @@ def release_report(
     attempts: int,
     delay_seconds: float,
 ) -> dict:
+    head_sha = github_tag_sha(repository, token, tag)
+    workflows = wait_for_publishers(repository, token, tag, head_sha, attempts, delay_seconds)
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "release_version": version,
         "tag": tag,
         "verified_at": utc_now(),
         "repository": repository,
+        "head_sha": head_sha,
         "registries": verify_registries(version, attempts, delay_seconds),
-        "workflows": github_runs(repository, token, tag),
+        "workflows": workflows,
         "smoke": smoke_registry_installs(version),
         "complete": False,
     }
@@ -506,7 +586,10 @@ def check_previous_report(repository: str, token: str, root: Path) -> None:
         path = root / "release" / "reports" / f"{tag}.json"
         if path.is_file():
             report = json.loads(path.read_text())
-    if not report or report.get("release_version") != version or report.get("tag") != tag or not report.get("complete"):
+    head_sha = github_tag_sha(repository, token, tag)
+    if (not isinstance(report, dict) or report.get("release_version") != version or report.get("tag") != tag
+            or report.get("repository") != repository or report.get("complete") is not True
+            or not report_complete(report, head_sha)):
         raise VerificationError(
             f"previous release {tag} has no complete publication report; repair/verify it before publishing another version"
         )
