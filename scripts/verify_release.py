@@ -363,16 +363,22 @@ def smoke_npm(version: str) -> dict:
             ],
             root,
         )
+        shutil.copyfile(
+            Path(__file__).with_name("release_npm_packed_smoke.mjs"), root / "packed_smoke.mjs"
+        )
         (root / "smoke.mjs").write_text(
             '''import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as standard from "geo-polygonize";
 import * as slim from "geo-polygonize/slim";
+import { checkPacked } from "./packed_smoke.mjs";
 
 const square = JSON.stringify({ type: "LineString", coordinates: [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]] });
 const invalidOptions = { node_input: false, pre_snap_tolerance: 1 };
 const packageJson = JSON.parse(await readFile(join(process.cwd(), "node_modules/geo-polygonize/package.json"), "utf8"));
 if (packageJson.version !== process.env.EXPECTED_VERSION) throw new Error(`package version ${packageJson.version}`);
+const [major, minor] = packageJson.version.split(".").map(Number);
+const packedRequired = major > 1 || (major === 1 && minor >= 2);
 
 async function check(name, module) {
   const report = JSON.parse(module.polygonizeReportWithOptions(square, {}));
@@ -383,13 +389,14 @@ async function check(name, module) {
   } catch (error) {
     if (error.normalized?.family !== "invalid_argument" || error.normalized?.code !== "unsupported_option_combination") throw error;
   }
+  console.log(`${name}-packed=${checkPacked(name, module, packedRequired, square)}`);
 }
 
 await standard.default();
 await check("standard", standard);
 const wasm = await readFile(join(process.cwd(), "node_modules/geo-polygonize/dist/geo_polygonize.wasm"));
-const slimExports = await slim.initBest({ module: wasm });
-await check("slim", slimExports);
+await slim.initBest({ module: wasm });
+await check("slim", slim);
 console.log(`version=${packageJson.version}`);
 console.log("standard=passed");
 console.log("slim=passed");
