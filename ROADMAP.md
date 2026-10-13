@@ -433,8 +433,12 @@ face cycle, and prove one exterior cycle covering every qualified local exterior
 marker. Bounded local faces cannot split across global faces; clipped exterior
 aliases can enter bounded cycles only with an exact paired bounded corroborator.
 Uncorroborated node-only joins and disconnected/containment-dependent arrangements
-remain blocked. The reconciled component and face tables still require extraction
-and same-options equivalence before output promotion.
+remain blocked. Private physical-table extraction retains canonical simple ring
+XYZ, ordered representative IDs, complete source sets, every owned local alias,
+and the complete retained dangle/cut/invalid-ring payload ledger. Stale tables,
+ambiguous or missing payload evidence, self-touching rings, and nested/containment
+cases remain blocked. These payloads require global non-polygon ownership,
+shell/hole assembly where needed, and same-options equivalence before promotion.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
@@ -447,12 +451,18 @@ and same-options equivalence before output promotion.
 - [x] Build alias-aware global twin and successor candidates.
 - [x] Reconcile global components and one global unbounded face for connected
   polygonal candidates.
+- [x] Materialize private physical-table ring and alias payloads with complete
+  source, representative-ID, raw/selected Z, and retained non-polygon evidence.
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.
 - [ ] Pass arrangement, Euler, containment, limits, cancellation, trace, and
   same-options untiled-equivalence gates.
 - [ ] Publish end-to-end performance and peak-memory evidence.
+
+Stack #1529 reaches its five-open-PR limit with the physical-table extraction
+layer. Keep the follow-up `codex/p5-physical-extraction-conformance` local until
+capacity is available; do not merge parents or open a sixth layer to make room.
 
 **Promotion gate:** stitched output may become selectable only for a documented
 input/options class when the same call produces ready stitched output, checks

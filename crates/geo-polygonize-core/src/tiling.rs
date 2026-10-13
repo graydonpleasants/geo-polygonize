@@ -5240,9 +5240,9 @@ impl<'a> TiledPolygonizer<'a> {
                     local_face_graphs,
                     capture_truncated,
                     boundary_noding_stats,
-                    dangles,
-                    cut_edges,
-                    invalid_rings,
+                    _,
+                    _,
+                    _,
                     _noded_segments,
                     _boundary_noded_segments,
                     snapshot,
@@ -5313,13 +5313,6 @@ impl<'a> TiledPolygonizer<'a> {
                         return Err(error);
                     }
                 }
-                partition_border_graph.retain_global_non_polygon_extraction_payloads(
-                    &self.execution_policy,
-                    tile_index,
-                    dangles,
-                    cut_edges,
-                    invalid_rings,
-                )?;
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
@@ -5383,7 +5376,7 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .collect();
 
-            for (partition_id, result) in tile_results?.into_iter().enumerate() {
+            for result in tile_results? {
                 let (
                     polygons,
                     report,
@@ -5392,9 +5385,9 @@ impl<'a> TiledPolygonizer<'a> {
                     local_face_graphs,
                     _,
                     _,
-                    dangles,
-                    cut_edges,
-                    invalid_rings,
+                    _,
+                    _,
+                    _,
                     _,
                     _,
                     snapshot,
@@ -5402,13 +5395,6 @@ impl<'a> TiledPolygonizer<'a> {
                 for observation in border_observations {
                     partition_border_graph.insert(observation)?;
                 }
-                partition_border_graph.retain_global_non_polygon_extraction_payloads(
-                    &self.execution_policy,
-                    partition_id,
-                    dangles,
-                    cut_edges,
-                    invalid_rings,
-                )?;
                 partition_border_local_face_graphs.extend(local_face_graphs);
                 tile_polygons.push(polygons);
                 tile_reports.push(report);
@@ -5755,6 +5741,31 @@ impl<'a> TiledPolygonizer<'a> {
                 &self.execution_policy,
                 partition_border_global_face_ring_extraction_readiness,
             )?;
+        // Topology reconciliation invalidates payload candidates; restore the
+        // complete current ledger from validated snapshots after its final pass.
+        let decode_non_polygon = |payloads: &[Vec<[u64; 3]>]| -> Result<Vec<Vec<Coord3D>>> {
+            payloads
+                .iter()
+                .map(|coords| {
+                    self.execution_policy.check_uncancellable_sort(
+                        "tiled_non_polygon_payload_restore",
+                        coords.len(),
+                    )?;
+                    Ok(coords.iter().copied().map(coord3d_from_bits).collect())
+                })
+                .collect()
+        };
+        for (index, snapshot) in partition_snapshots.iter().enumerate() {
+            self.execution_policy
+                .check_cancelled_every("tiled_non_polygon_payload_restore", index)?;
+            partition_border_graph.retain_global_non_polygon_extraction_payloads(
+                &self.execution_policy,
+                snapshot.partition_id,
+                decode_non_polygon(&snapshot.non_polygon.dangles)?,
+                decode_non_polygon(&snapshot.non_polygon.cut_edges)?,
+                decode_non_polygon(&snapshot.non_polygon.invalid_rings)?,
+            )?;
+        }
         let partition_border_global_non_polygon_extraction = partition_border_graph
             .materialize_global_non_polygon_extraction_payloads(&self.execution_policy)?;
         let partition_border_global_extraction_readiness = partition_border_graph
@@ -5773,6 +5784,19 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_ring_extraction_payloads,
                 partition_border_global_non_polygon_extraction,
             )?;
+        let arrangement_extraction = match (&global_arrangement_witness, &arrangement_construction)
+        {
+            (Some(witness), Some(construction)) => partition_border_graph
+                .extract_physical_table_payloads(
+                    witness,
+                    construction,
+                    &topology_ready_observation_ids,
+                    arrangement_blocked_span_count == 0,
+                    partition_border_global_non_polygon_extraction,
+                    &self.execution_policy,
+                )?,
+            _ => None,
+        };
         let stitched_output = if partition_border_global_private_extraction.extraction_ready {
             promote_global_private_extraction(
                 &partition_border_graph,
@@ -5872,6 +5896,36 @@ impl<'a> TiledPolygonizer<'a> {
                     "face_id_by_physical_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_physical_dir_edge),
                     "face_id_by_local_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_local_dir_edge),
                     "unbounded_face_id": arrangement_faces.map(|faces| faces.unbounded_face_id),
+                }));
+                trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_extraction", serde_json::json!({
+                    "materialized": arrangement_extraction.is_some(),
+                    "rings": arrangement_extraction.as_ref().map(|extraction| &extraction.ring_payloads),
+                    "local_aliases": arrangement_extraction.as_ref().map(|extraction| extraction.local_aliases.iter().map(|alias| serde_json::json!({
+                        "global_dir_edge_id": alias.global_dir_edge_id,
+                        "partition_id": alias.partition_id,
+                        "component_id": alias.component_id,
+                        "local_dir_edge_id": alias.local_dir_edge_id,
+                        "symmetric_global_dir_edge_id": alias.symmetric_global_dir_edge_id,
+                        "local_face_successor_global_dir_edge_id": alias.local_face_successor_global_dir_edge_id,
+                        "cross_border_twin_global_dir_edge_id": alias.cross_border_twin_global_dir_edge_id,
+                        "from_global_node_id": alias.from_global_node_id,
+                        "to_global_node_id": alias.to_global_node_id,
+                        "from": alias.from.xy_bits(), "to": alias.to.xy_bits(),
+                        "from_z_bits": alias.from_z_bits, "to_z_bits": alias.to_z_bits,
+                        "face_ref": alias.face_ref.map(|face_ref| [face_ref.partition_id, face_ref.component_id, face_ref.face_id]),
+                        "local_face_is_unbounded": alias.local_face_is_unbounded,
+                        "source_line_ids": alias.source_line_ids,
+                        "representative_line_id": alias.source_line_ids.first(),
+                    })).collect::<Vec<_>>()),
+                    "non_polygon_payloads": arrangement_extraction.as_ref().map(|extraction| extraction.non_polygon_payloads.iter().map(|payload| serde_json::json!({
+                        "partition_id": payload.partition_id,
+                        "kind": match payload.kind {
+                            crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::Dangle => "dangle",
+                            crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => "cut_edge",
+                            crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => "invalid_ring",
+                        },
+                        "coordinate_bits": payload.coordinate_bits,
+                    })).collect::<Vec<_>>()),
                 }));
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
                     "adopted": arrangement_adopted,

@@ -126,6 +126,16 @@ mod tests {
             assert_eq!(faces["reconciled"], false);
             assert!(faces["faces"].is_null());
             assert!(faces["components"].is_null());
+            let extraction = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_extraction")
+                .unwrap()
+                .payload;
+            assert_eq!(extraction["materialized"], false);
+            assert!(extraction["rings"].is_null());
+            assert!(extraction["local_aliases"].is_null());
             let adoption = result
                 .trace
                 .events
@@ -258,6 +268,77 @@ mod tests {
                 .filter(|face| face["unbounded"] == true)
                 .count(),
             1
+        );
+        let extraction = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_extraction")
+            .unwrap()
+            .payload;
+        assert_eq!(extraction["materialized"], true);
+        assert_eq!(extraction["rings"].as_array().unwrap().len(), 2);
+        assert_eq!(extraction["local_aliases"].as_array().unwrap().len(), 8);
+        assert!(extraction["non_polygon_payloads"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn physical_table_extraction_retains_tiled_dangles_without_promoting_output() {
+        let geometry = Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (3.0, 1.0),
+            (3.0, 3.0),
+            (1.0, 3.0),
+            (1.0, 1.0),
+        ]));
+        let dangle = Geometry::LineString(LineString::from(vec![(3.25, 3.25), (3.5, 3.25)]));
+        let mut tiled = TiledPolygonizer::new(
+            Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 }),
+            4.0,
+        )
+        .with_buffer(0.0)
+        .with_untiled_equivalence_check();
+        tiled.add_geometry(&geometry);
+        tiled.add_geometry(&dangle);
+        let ordinary = tiled.polygonize().unwrap();
+        assert_eq!(
+            ordinary
+                .stitching_report
+                .partition_border_global_non_polygon_extraction_dangle_count,
+            1
+        );
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let report = &traced.result.stitching_report;
+        assert_eq!(
+            report.partition_border_global_non_polygon_extraction_dangle_count,
+            1
+        );
+        assert_eq!(traced.result.polygons.len(), 1);
+        assert!(!report.partition_border_global_stitched_output_ready);
+        assert!(!report.partition_border_global_untiled_equivalence_checked);
+        assert!(!report.partition_border_global_untiled_equivalence_ready);
+        let extraction = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_extraction")
+            .unwrap()
+            .payload;
+        assert_eq!(extraction["materialized"], true);
+        let payloads = extraction["non_polygon_payloads"].as_array().unwrap();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0]["kind"], "dangle");
+        assert_eq!(
+            payloads[0]["coordinate_bits"],
+            serde_json::json!([
+                [3.25f64.to_bits(), 3.25f64.to_bits(), 0.0f64.to_bits()],
+                [3.5f64.to_bits(), 3.25f64.to_bits(), 0.0f64.to_bits()],
+            ])
         );
     }
 

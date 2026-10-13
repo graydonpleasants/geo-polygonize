@@ -751,6 +751,26 @@ pub(crate) struct PartitionBorderPhysicalTopologyConstruction {
     pub(crate) faces: Option<PartitionBorderPhysicalFaceReconciliation>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub(crate) struct PartitionBorderPhysicalRingPayload {
+    pub(crate) face_id: usize,
+    pub(crate) physical_dir_edge_ids: Vec<usize>,
+    pub(crate) local_dir_edge_ids_by_edge: Vec<Vec<usize>>,
+    pub(crate) coordinate_bits: Vec<[u64; 3]>,
+    pub(crate) representative_line_ids: Vec<u32>,
+    pub(crate) source_line_ids: Vec<u32>,
+    pub(crate) unbounded: bool,
+}
+
+/// Owned private payloads preserve raw aliases alongside selected ring XYZ.
+/// Materialization does not certify non-polygon stitching or promote output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderPhysicalTableExtraction {
+    pub(crate) ring_payloads: Vec<PartitionBorderPhysicalRingPayload>,
+    pub(crate) local_aliases: Vec<PartitionBorderGlobalFaceEdge>,
+    pub(crate) non_polygon_payloads: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
+}
+
 /// Private physical-arrangement evidence, independent of face-claim readiness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalArrangementWitness {
@@ -3364,6 +3384,288 @@ impl PartitionBorderGraph {
             face_id_by_physical_dir_edge,
             face_id_by_local_dir_edge,
             unbounded_face_id,
+        }))
+    }
+
+    /// Copies canonical rings and all retained aliases after rechecking the
+    /// current claim/table snapshot and complete non-polygon payload evidence.
+    pub(crate) fn extract_physical_table_payloads(
+        &self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        construction: &PartitionBorderPhysicalTopologyConstruction,
+        eligible_observation_ids: &BTreeSet<PartitionBorderObservationId>,
+        span_evidence_ready: bool,
+        non_polygon_stats: PartitionBorderGlobalNonPolygonExtractionStats,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<PartitionBorderPhysicalTableExtraction>> {
+        let stage = "partition_border_physical_table_extraction";
+        execution_policy.check_cancelled(stage)?;
+        let (Some(candidate), Some(faces)) = (&construction.candidate, &construction.faces) else {
+            return Ok(None);
+        };
+        if !span_evidence_ready
+            || !non_polygon_stats.payload_ready
+            || non_polygon_stats.evidence_mismatch_count != 0
+            || non_polygon_stats.duplicate_payload_count != 0
+            || non_polygon_stats.invalid_coordinate_count != 0
+            || self
+                .construct_global_arrangement_candidate(
+                    witness,
+                    eligible_observation_ids,
+                    span_evidence_ready,
+                    execution_policy,
+                )?
+                .as_ref()
+                != Some(construction)
+        {
+            return Ok(None);
+        }
+        execution_policy.check(stage, execution_policy.max_rings, faces.faces.len())?;
+        let shell_count = faces.faces.iter().filter(|face| !face.unbounded).count();
+        execution_policy.check(stage, execution_policy.max_output_polygons, shell_count)?;
+        let shell_coordinate_count = faces
+            .faces
+            .iter()
+            .filter(|face| !face.unbounded)
+            .try_fold(0usize, |count, face| {
+                count
+                    .checked_add(face.physical_dir_edge_ids.len())
+                    .and_then(|count| count.checked_add(1))
+            })
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "physical extraction coordinate count overflow".to_string(),
+            })?;
+        let output_coordinate_count = shell_coordinate_count
+            .checked_add(non_polygon_stats.coordinate_count)
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "physical extraction coordinate count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            stage,
+            execution_policy.max_output_coordinates,
+            output_coordinate_count,
+        )?;
+        let pair_work = faces
+            .faces
+            .len()
+            .checked_mul(faces.faces.len())
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "physical extraction containment pair count overflow".to_string(),
+            })?;
+        execution_policy.check(stage, execution_policy.max_candidate_pairs, pair_work)?;
+
+        execution_policy.check(
+            stage,
+            execution_policy.max_graph_edges,
+            self.global_non_polygon_extraction_payload_candidates.len(),
+        )?;
+        let mut retained_coordinates = 0usize;
+        for (index, payload) in self
+            .global_non_polygon_extraction_payload_candidates
+            .iter()
+            .enumerate()
+        {
+            execution_policy.check_cancelled_every(stage, index)?;
+            retained_coordinates = retained_coordinates
+                .checked_add(payload.coordinate_bits.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "physical extraction coordinate count overflow".to_string(),
+                })?;
+        }
+        execution_policy.check_uncancellable_sort(stage, retained_coordinates)?;
+        execution_policy.check(
+            stage,
+            execution_policy.max_output_coordinates,
+            shell_coordinate_count
+                .checked_add(retained_coordinates)
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "physical extraction coordinate count overflow".to_string(),
+                })?,
+        )?;
+        let mut expected_non_polygon = self
+            .global_non_polygon_extraction_payload_candidates
+            .iter()
+            .collect::<Vec<_>>();
+        execution_policy.check_uncancellable_sort(stage, expected_non_polygon.len())?;
+        expected_non_polygon.sort_unstable_by(|left, right| {
+            (left.kind, &left.coordinate_bits, left.partition_id).cmp(&(
+                right.kind,
+                &right.coordinate_bits,
+                right.partition_id,
+            ))
+        });
+        if expected_non_polygon.len() != self.global_non_polygon_extraction_payloads.len()
+            || expected_non_polygon
+                .iter()
+                .zip(&self.global_non_polygon_extraction_payloads)
+                .any(|(expected, actual)| *expected != actual)
+        {
+            return Ok(None);
+        }
+        let mut counts = [0usize; 3];
+        let mut non_polygon_coordinates = 0usize;
+        let mut non_polygon_payloads = Vec::with_capacity(expected_non_polygon.len());
+        for (index, payload) in self
+            .global_non_polygon_extraction_payloads
+            .iter()
+            .enumerate()
+        {
+            execution_policy.check_cancelled_every(stage, index)?;
+            match payload.kind {
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle => counts[0] += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => counts[1] += 1,
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => counts[2] += 1,
+            }
+            for bits in &payload.coordinate_bits {
+                execution_policy.check_cancelled_every(stage, non_polygon_coordinates)?;
+                non_polygon_coordinates += 1;
+                if bits.iter().any(|bits| !f64::from_bits(*bits).is_finite()) {
+                    return Ok(None);
+                }
+            }
+            let actual_output_coordinates = shell_coordinate_count
+                .checked_add(non_polygon_coordinates)
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "physical extraction coordinate count overflow".to_string(),
+                })?;
+            execution_policy.check(
+                stage,
+                execution_policy.max_output_coordinates,
+                actual_output_coordinates,
+            )?;
+            if payload.coordinate_bits.is_empty()
+                || (index > 0
+                    && self.global_non_polygon_extraction_payloads[index - 1].kind == payload.kind
+                    && self.global_non_polygon_extraction_payloads[index - 1].coordinate_bits
+                        == payload.coordinate_bits)
+            {
+                return Ok(None);
+            }
+            execution_policy.check_uncancellable_sort(stage, payload.coordinate_bits.len())?;
+            non_polygon_payloads.push(payload.clone());
+        }
+        if counts
+            != [
+                non_polygon_stats.dangle_count,
+                non_polygon_stats.cut_edge_count,
+                non_polygon_stats.invalid_ring_count,
+            ]
+            || non_polygon_coordinates != non_polygon_stats.coordinate_count
+        {
+            return Ok(None);
+        }
+
+        let mut ring_payloads = Vec::with_capacity(faces.faces.len());
+        let mut polygons = Vec::with_capacity(faces.faces.len());
+        let mut interior_points = Vec::with_capacity(faces.faces.len());
+        let mut visited_edges = 0;
+        let mut visited_aliases = 0;
+        for (face_id, face) in faces.faces.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, face_id)?;
+            let mut coords = Vec::with_capacity(face.physical_dir_edge_ids.len() + 1);
+            let mut representatives = Vec::with_capacity(face.physical_dir_edge_ids.len());
+            let mut sources = BTreeSet::new();
+            let mut vertices = BTreeSet::new();
+            let mut aliases_by_edge = Vec::with_capacity(face.physical_dir_edge_ids.len());
+            for &physical in &face.physical_dir_edge_ids {
+                execution_policy.check_cancelled_every(stage, visited_edges)?;
+                visited_edges += 1;
+                let edge = &witness.physical_edges[physical];
+                if !vertices.insert(edge.from) {
+                    return Ok(None);
+                }
+                let bits = [edge.from[0], edge.from[1], edge.from_z_bits];
+                if bits.iter().any(|bits| !f64::from_bits(*bits).is_finite()) {
+                    return Ok(None);
+                }
+                coords.push(Coord3D::new(
+                    f64::from_bits(bits[0]),
+                    f64::from_bits(bits[1]),
+                    f64::from_bits(bits[2]),
+                ));
+                let Some(&representative) = edge.source_line_ids.first() else {
+                    return Ok(None);
+                };
+                representatives.push(representative);
+                execution_policy.check_uncancellable_sort(stage, edge.source_line_ids.len())?;
+                sources.extend(edge.source_line_ids.iter().copied());
+                let mut aliases = Vec::new();
+                for &local in &candidate.slots[physical].local_dir_edge_ids {
+                    execution_policy.check_cancelled_every(stage, visited_aliases)?;
+                    visited_aliases += 1;
+                    aliases.push(local);
+                }
+                aliases_by_edge.push(aliases);
+            }
+            if vertices.len() < 3 {
+                return Ok(None);
+            }
+            coords.push(coords[0]);
+            execution_policy.check_uncancellable_sort(stage, coords.len())?;
+            let area = Polygon3D::ring_signed_area_2d(&coords);
+            if !area.is_finite()
+                || (face.unbounded && area >= 0.0)
+                || (!face.unbounded && area <= 0.0)
+            {
+                return Ok(None);
+            }
+            let rotation = canonicalize_ring(&mut coords, Some(&mut representatives));
+            let mut physical_dir_edge_ids = face.physical_dir_edge_ids.clone();
+            physical_dir_edge_ids.rotate_left(rotation);
+            aliases_by_edge.rotate_left(rotation);
+            let polygon = Polygon::new(
+                LineString(coords.iter().map(|coord| coord.to_coord_2d()).collect()),
+                Vec::new(),
+            );
+            let Some(interior) = polygon.interior_point() else {
+                return Ok(None);
+            };
+            polygons.push(polygon);
+            interior_points.push(interior);
+            ring_payloads.push(PartitionBorderPhysicalRingPayload {
+                face_id,
+                physical_dir_edge_ids,
+                local_dir_edge_ids_by_edge: aliases_by_edge,
+                coordinate_bits: coords
+                    .into_iter()
+                    .map(|coord| [coord.x.to_bits(), coord.y.to_bits(), coord.z.to_bits()])
+                    .collect(),
+                representative_line_ids: representatives,
+                source_line_ids: sources.into_iter().collect(),
+                unbounded: face.unbounded,
+            });
+        }
+        for (outer, polygon) in polygons.iter().enumerate() {
+            for (inner, point) in interior_points.iter().enumerate() {
+                execution_policy.check_cancelled_every(stage, outer * polygons.len() + inner)?;
+                if outer == inner || faces.faces[inner].unbounded {
+                    continue;
+                }
+                execution_policy
+                    .check_uncancellable_sort(stage, ring_payloads[outer].coordinate_bits.len())?;
+                let contains = polygon.contains(point);
+                if contains != faces.faces[outer].unbounded {
+                    // shortcut: unnested simple shells, upgrade with containment-aware hole assembly.
+                    return Ok(None);
+                }
+            }
+        }
+        if visited_edges != candidate.slots.len()
+            || visited_aliases != self.global_face_edge_map.len()
+        {
+            return Ok(None);
+        }
+        let mut local_aliases = Vec::with_capacity(visited_aliases);
+        for (index, alias) in self.global_face_edge_map.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            execution_policy.check_uncancellable_sort(stage, alias.source_line_ids.len())?;
+            local_aliases.push(alias.clone());
+        }
+        execution_policy.check_cancelled(stage)?;
+        Ok(Some(PartitionBorderPhysicalTableExtraction {
+            ring_payloads,
+            local_aliases,
+            non_polygon_payloads,
         }))
     }
 
@@ -13744,6 +14046,584 @@ mod tests {
             ),
             Err(crate::PolygonizeError::Cancelled { .. })
         ));
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn physical_table_extraction_preserves_aliases_sources_representatives_and_xyz() {
+        let policy = ExecutionPolicy::default();
+        for ignore_z in [false, true] {
+            let z_options = ZOptions {
+                policy: if ignore_z {
+                    ZPolicy::Ignore
+                } else {
+                    ZPolicy::InterpolateAlongEdge
+                },
+                ..Default::default()
+            };
+            let mut signatures = Vec::new();
+            for reversed in [false, true] {
+                let mut graph = physical_face_claim_graph_with_layout(2, reversed, true);
+                for snapshot in &mut graph.local_face_graphs {
+                    for edge in &mut snapshot.directed_edges {
+                        let index = edge.local_dir_edge_id / 2;
+                        let source = if index == 0 {
+                            7
+                        } else {
+                            snapshot.partition_id as u32 * 10 + index as u32
+                        };
+                        edge.source_line_ids = vec![source, source + 100];
+                        let raw_z = 4.0 + if ignore_z { index as f64 } else { 0.0 };
+                        edge.from_z_bits = raw_z.to_bits();
+                        edge.to_z_bits = raw_z.to_bits();
+                    }
+                }
+                for observation in graph.observations.values_mut() {
+                    observation.source_line_ids = vec![7, 107];
+                }
+                for observations in graph.edges.values_mut() {
+                    *observations = observations
+                        .iter()
+                        .cloned()
+                        .map(|mut observation| {
+                            observation.source_line_ids = vec![7, 107];
+                            observation
+                        })
+                        .collect();
+                }
+                let eligible = graph.observations.keys().copied().collect();
+                graph
+                    .apply_topology_ready_face_twins(&eligible, &policy)
+                    .unwrap();
+                graph.reconcile_global_face_edge_map(&policy).unwrap();
+                graph
+                    .reconcile_global_face_nodes(z_options, &policy)
+                    .unwrap();
+                let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                let construction = graph
+                    .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+                    .unwrap()
+                    .unwrap();
+                let non_polygon = graph
+                    .materialize_global_non_polygon_extraction_payloads(&policy)
+                    .unwrap();
+                let before = graph.clone();
+                let extraction = graph
+                    .extract_physical_table_payloads(
+                        &witness,
+                        &construction,
+                        &eligible,
+                        true,
+                        non_polygon,
+                        &policy,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(extraction.local_aliases, graph.global_face_edge_map);
+                assert_eq!(extraction.ring_payloads.len(), 3);
+                assert!(extraction.non_polygon_payloads.is_empty());
+                let mut retained_edges = Vec::new();
+                let mut retained_aliases = Vec::new();
+                for ring in &extraction.ring_payloads {
+                    assert_eq!(
+                        ring.coordinate_bits.len(),
+                        ring.representative_line_ids.len() + 1
+                    );
+                    assert_eq!(ring.coordinate_bits.first(), ring.coordinate_bits.last());
+                    let mut sources = BTreeSet::new();
+                    for (index, &physical) in ring.physical_dir_edge_ids.iter().enumerate() {
+                        retained_edges.push(physical);
+                        let edge = &witness.physical_edges[physical];
+                        assert_eq!(
+                            ring.coordinate_bits[index],
+                            [edge.from[0], edge.from[1], edge.from_z_bits]
+                        );
+                        assert_eq!(ring.representative_line_ids[index], edge.source_line_ids[0]);
+                        sources.extend(&edge.source_line_ids);
+                        for &local in &ring.local_dir_edge_ids_by_edge[index] {
+                            retained_aliases.push(local);
+                            assert_eq!(witness.physical_edge_by_local_edge[local], physical);
+                            assert_eq!(
+                                ring.unbounded,
+                                construction.faces.as_ref().unwrap().faces[ring.face_id].unbounded
+                            );
+                            assert_eq!(
+                                extraction.local_aliases[local],
+                                graph.global_face_edge_map[local]
+                            );
+                            if ignore_z {
+                                assert_ne!(
+                                    extraction.local_aliases[local].from_z_bits,
+                                    ring.coordinate_bits[index][2]
+                                );
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        ring.source_line_ids,
+                        sources.into_iter().copied().collect::<Vec<_>>()
+                    );
+                }
+                retained_edges.sort_unstable();
+                retained_aliases.sort_unstable();
+                assert_eq!(retained_edges, (0..14).collect::<Vec<_>>());
+                assert_eq!(retained_aliases, (0..16).collect::<Vec<_>>());
+
+                let mut reference = crate::Polygonizer::with_options(crate::PolygonizerOptions {
+                    z: z_options,
+                    provenance: crate::ProvenanceOptions {
+                        enabled: true,
+                        include_boundary_line_ids: true,
+                    },
+                    input_profile_id: Some("physical-table-test".to_string()),
+                    ..Default::default()
+                });
+                let mut lines = Vec::new();
+                for snapshot in &graph.local_face_graphs {
+                    for edge in snapshot
+                        .directed_edges
+                        .iter()
+                        .filter(|edge| edge.local_dir_edge_id % 2 == 0)
+                    {
+                        let from = coord(
+                            f64::from_bits(edge.from.xy_bits[0]),
+                            f64::from_bits(edge.from.xy_bits[1]),
+                            f64::from_bits(edge.from_z_bits),
+                        );
+                        let to = coord(
+                            f64::from_bits(edge.to.xy_bits[0]),
+                            f64::from_bits(edge.to.xy_bits[1]),
+                            f64::from_bits(edge.to_z_bits),
+                        );
+                        for &source in &edge.source_line_ids {
+                            lines.push(Line3D::new(from, to, source));
+                        }
+                    }
+                }
+                reference.add_lines(lines);
+                let result = reference.polygonize().unwrap();
+                assert_eq!(result.polygons.len(), 2);
+                for ring in extraction
+                    .ring_payloads
+                    .iter()
+                    .filter(|ring| !ring.unbounded)
+                {
+                    let expected = result
+                        .polygons
+                        .iter()
+                        .find(|polygon| {
+                            polygon
+                                .exterior
+                                .iter()
+                                .map(|coord| {
+                                    [coord.x.to_bits(), coord.y.to_bits(), coord.z.to_bits()]
+                                })
+                                .collect::<Vec<_>>()
+                                == ring.coordinate_bits
+                        })
+                        .unwrap();
+                    assert_eq!(expected.exterior_ids, ring.representative_line_ids);
+                    assert_eq!(expected.boundary_source_line_ids, ring.source_line_ids);
+                    assert_eq!(
+                        expected.provenance.as_ref().unwrap().boundary_line_ids,
+                        ring.source_line_ids
+                            .iter()
+                            .copied()
+                            .map(u64::from)
+                            .collect::<Vec<_>>()
+                    );
+                    assert!(expected.interiors.is_empty());
+                }
+                assert_eq!(graph, before);
+                let owned_sources = extraction.local_aliases[0].source_line_ids.clone();
+                graph.global_face_edge_map[0].source_line_ids.clear();
+                assert_eq!(extraction.local_aliases[0].source_line_ids, owned_sources);
+                signatures.push(extraction);
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn physical_table_extraction_keeps_every_non_polygon_family_and_rejects_missing_evidence() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = physical_face_claim_graph_with_layout(2, false, true);
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let eligible = graph.observations.keys().copied().collect();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let dangle = vec![coord(3.0, 3.0, 9.0), coord(4.0, 3.0, 10.0)];
+        graph
+            .retain_global_non_polygon_extraction_payloads(
+                &policy,
+                1,
+                vec![dangle.clone()],
+                vec![vec![coord(5.0, 3.0, 11.0), coord(6.0, 3.0, 12.0)]],
+                vec![vec![
+                    coord(7.0, 3.0, 13.0),
+                    coord(8.0, 4.0, 14.0),
+                    coord(7.0, 4.0, 15.0),
+                    coord(8.0, 3.0, 16.0),
+                    coord(7.0, 3.0, 13.0),
+                ]],
+            )
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let before = graph.clone();
+        let extraction = graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            extraction.non_polygon_payloads,
+            graph.global_non_polygon_extraction_payloads
+        );
+        assert_eq!(extraction.non_polygon_payloads.len(), 3);
+        assert_eq!(
+            (
+                stats.dangle_count,
+                stats.cut_edge_count,
+                stats.invalid_ring_count,
+                stats.coordinate_count
+            ),
+            (1, 1, 1, 9)
+        );
+        assert_eq!(graph, before);
+        let mut missing = graph.clone();
+        missing.global_non_polygon_extraction_payloads.pop();
+        assert!(missing
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        let mut bad_stats = stats;
+        bad_stats.cut_edge_count = 0;
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                bad_stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        let mut bad_coordinates = stats;
+        bad_coordinates.coordinate_count = 0;
+        assert!(matches!(
+            graph.extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                bad_coordinates,
+                &ExecutionPolicy {
+                    max_output_coordinates: Some(10),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        graph
+            .retain_global_non_polygon_extraction_payloads(&policy, 2, vec![dangle], vec![], vec![])
+            .unwrap();
+        let rejected = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert!(!rejected.payload_ready);
+        let before = graph.clone();
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                rejected,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(graph, before);
+        assert_eq!(extraction.non_polygon_payloads.len(), 3);
+    }
+
+    #[test]
+    fn physical_table_extraction_rechecks_ambiguity_and_table_lineage() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = physical_face_claim_graph_with_layout(2, false, true);
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let eligible = graph.observations.keys().copied().collect::<BTreeSet<_>>();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let before = graph.clone();
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                false,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        let mut ineligible = eligible.clone();
+        ineligible.pop_first();
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &ineligible,
+                true,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        for mutation in 0..3 {
+            let mut invalid = construction.clone();
+            match mutation {
+                0 => invalid.faces.as_mut().unwrap().face_id_by_local_dir_edge[0] += 1,
+                1 => invalid.candidate.as_mut().unwrap().slots[0]
+                    .local_dir_edge_ids
+                    .clear(),
+                _ => {
+                    invalid
+                        .claims
+                        .iter_mut()
+                        .find(|claim| claim.face_pair.is_some())
+                        .unwrap()
+                        .face_pair = None;
+                }
+            }
+            assert!(
+                graph
+                    .extract_physical_table_payloads(
+                        &witness, &invalid, &eligible, true, stats, &policy
+                    )
+                    .unwrap()
+                    .is_none(),
+                "mutation {mutation}"
+            );
+        }
+        assert_eq!(graph, before);
+        let mut ambiguous = physical_face_claim_graph_with_layout(4, false, true);
+        ambiguous
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        ambiguous.reconcile_global_face_edge_map(&policy).unwrap();
+        ambiguous
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let stats = ambiguous
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let before = ambiguous.clone();
+        assert!(ambiguous
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(ambiguous, before);
+    }
+
+    #[test]
+    fn physical_table_extraction_observes_limits_and_cancellation_without_mutation() {
+        let policy = ExecutionPolicy::default();
+        let mut graph = physical_face_claim_graph_with_layout(2, false, true);
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let eligible = graph.observations.keys().copied().collect();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let before = graph.clone();
+        for limited in [
+            ExecutionPolicy {
+                max_rings: Some(2),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_polygons: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(9),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(8),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                graph.extract_physical_table_payloads(
+                    &witness,
+                    &construction,
+                    &eligible,
+                    true,
+                    stats,
+                    &limited
+                ),
+                Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            graph.extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
+        let token = CancellationToken::new();
+        assert!(matches!(
+            graph.extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token.clone()),
+                    cancel_at_work_item: Some((token, 3)),
+                    ..Default::default()
+                }
+            ),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
+        assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn physical_table_extraction_rejects_a_self_touching_exterior() {
+        let policy = ExecutionPolicy::default();
+        let mut touching = physical_face_claim_graph(0, false);
+        for edge in &mut touching.local_face_graphs[1].directed_edges {
+            let translate = |key: PartitionBorderNodeKey| {
+                PartitionBorderNodeKey::from_coord(coord(
+                    f64::from_bits(key.xy_bits[0]) + 1.0,
+                    f64::from_bits(key.xy_bits[1]) + 1.0,
+                    4.0,
+                ))
+            };
+            edge.from = translate(edge.from);
+            edge.to = translate(edge.to);
+            edge.edge_key = PartitionBorderEdgeKey::new(edge.from, edge.to).unwrap();
+        }
+        touching.reconcile_global_face_edge_map(&policy).unwrap();
+        touching
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let witness = touching
+            .global_arrangement_witness(&policy)
+            .unwrap()
+            .unwrap();
+        let mut graph = PartitionBorderGraph::default();
+        graph
+            .insert_local_face_graph(PartitionBorderLocalFaceGraph {
+                partition_id: 1,
+                component_id: 0,
+                graph_state: PartitionLocalGraphState::default(),
+                directed_edges: witness
+                    .physical_edges
+                    .iter()
+                    .enumerate()
+                    .map(|(id, edge)| {
+                        let from = PartitionBorderNodeKey { xy_bits: edge.from };
+                        let to = PartitionBorderNodeKey { xy_bits: edge.to };
+                        PartitionBorderLocalDirectedEdge {
+                            local_dir_edge_id: id,
+                            symmetric_local_dir_edge_id: edge.symmetric,
+                            local_face_successor: Some(edge.next),
+                            from,
+                            to,
+                            from_z_bits: edge.from_z_bits,
+                            to_z_bits: edge.to_z_bits,
+                            edge_key: PartitionBorderEdgeKey::new(from, to).unwrap(),
+                            face_ref: Some(face(1, 0, edge.face_id)),
+                            local_face_is_unbounded: witness
+                                .unbounded_face_ids
+                                .contains(&edge.face_id),
+                            source_line_ids: edge.source_line_ids.clone(),
+                        }
+                    })
+                    .collect(),
+            })
+            .unwrap();
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(ZOptions::default(), &policy)
+            .unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &BTreeSet::new(), true, &policy)
+            .unwrap()
+            .unwrap();
+        assert!(construction.faces.is_some());
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let before = graph.clone();
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &BTreeSet::new(),
+                true,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
         assert_eq!(graph, before);
     }
 
