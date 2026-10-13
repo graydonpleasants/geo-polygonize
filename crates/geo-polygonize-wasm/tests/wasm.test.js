@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import init, { polygonize, cfbRobustOptions } from '../../../dist/standard/es/index.js';
 import { selectRuntime } from '../../../pkg-wrapper/runtime.ts';
 
@@ -20,6 +20,26 @@ describe('WASM Polygonizer', () => {
         expect(existsSync(resolve('dist/threads/pkg-threads/geo_polygonize.d.ts'))).toBe(true);
         for (const variant of ['standard', 'slim', 'threads']) {
             expect(existsSync(resolve(`dist/${variant}/es/topology_trace.d.ts`))).toBe(true);
+        }
+    });
+
+    it('should publish the complete threaded runtime with explicit worker imports', () => {
+        const runtime = resolve('dist/threads/pkg-threads/geo_polygonize.js');
+        expect(existsSync(runtime)).toBe(true);
+        expect(existsSync(resolve('dist/threads/pkg-threads/geo_polygonize_bg.wasm'))).toBe(true);
+        const source = readFileSync(runtime, 'utf8');
+        const snippets = [...source.matchAll(/from ['"](\.\/snippets\/[^'"]+)['"]/g)];
+        if (!source.includes('export const initThreadPool = async () => {};')) {
+            expect(snippets.some(([, snippet]) => snippet.endsWith('/workerHelpers.js'))).toBe(true);
+        }
+        for (const [, snippet] of snippets) {
+            const helper = resolve(dirname(runtime), snippet);
+            expect(existsSync(helper)).toBe(true);
+            if (helper.endsWith('/workerHelpers.js')) {
+                const workerSource = readFileSync(helper, 'utf8');
+                expect(workerSource).toContain("import('../../../geo_polygonize.js')");
+                expect(resolve(dirname(helper), '../../../geo_polygonize.js')).toBe(runtime);
+            }
         }
     });
 

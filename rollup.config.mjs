@@ -2,7 +2,6 @@ import url from "@rollup/plugin-url";
 import commonjs from "@rollup/plugin-commonjs";
 import resolve from "@rollup/plugin-node-resolve";
 import typescript from "@rollup/plugin-typescript";
-import path from "path";
 
 const rolls = (fmt, env) => {
   let input;
@@ -16,6 +15,7 @@ const rolls = (fmt, env) => {
 
   return {
     input,
+    external: env === "threads" ? ["../pkg-threads/geo_polygonize.js"] : [],
     output: {
       dir: `dist/${env}/${fmt}`,
       format: fmt,
@@ -35,22 +35,6 @@ const rolls = (fmt, env) => {
         limit: Infinity, // Always inline as data:application/wasm;base64,...
         emitFiles: false,
       }),
-      env === "threads" && url({
-        include: ["**/*.wasm"],
-        limit: 0, // Never inline
-        emitFiles: true,
-        fileName: "[name][extname]",
-      }),
-      // Handle wasm-bindgen-rayon workerHelpers import
-      env === "threads" && {
-        name: 'wasm-bindgen-rayon-workaround',
-        resolveId(source, importer) {
-          if (source === '../../..') {
-            return { id: path.resolve('pkg-threads/geo_polygonize.js') };
-          }
-          return null;
-        }
-      },
     ].filter(Boolean),
   };
 };

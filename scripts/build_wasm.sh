@@ -92,7 +92,7 @@ patch_threads_worker() {
     echo "Patching wasm-bindgen-rayon workerHelpers.js..."
     for worker_helpers in $(find pkg-threads/snippets -name "workerHelpers.js" 2>/dev/null); do
         temp_file=$(mktemp)
-        sed -e "s/new URL('.\/workerHelpers.js', import.meta.url)/import.meta.resolve('.\/workerHelpers.js')/g" "$worker_helpers" > "$temp_file"
+        sed -e "s#import('\.\./\.\./\.\.')#import('../../../geo_polygonize.js')#g" "$worker_helpers" > "$temp_file"
         mv "$temp_file" "$worker_helpers"
     done
 }
@@ -215,7 +215,8 @@ copy_wasm_bindgen_types() {
     mkdir -p dist/standard/pkg-scalar dist/slim/pkg-scalar dist/threads/pkg-threads
     cp pkg-scalar/*.d.ts dist/standard/pkg-scalar/
     cp pkg-scalar/*.d.ts dist/slim/pkg-scalar/
-    cp pkg-threads/*.d.ts dist/threads/pkg-threads/
+    rm -rf dist/threads/pkg-threads
+    cp -r pkg-threads dist/threads/pkg-threads
 }
 
 bundle_package() {
@@ -228,6 +229,7 @@ bundle_package() {
         npm install
     fi
 
+    patch_threads_worker
     patch_vite_urls
     export_bindings
 
