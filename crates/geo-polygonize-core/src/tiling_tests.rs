@@ -103,6 +103,19 @@ mod tests {
                 .collect::<Vec<_>>();
             retained_claims.sort_unstable();
             assert_eq!(retained_claims, (0..32).collect::<Vec<_>>());
+            let candidate = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_candidate")
+                .unwrap()
+                .payload;
+            assert_eq!(candidate["constructed"], false);
+            assert!(candidate["candidate"].is_null());
+            assert_eq!(
+                candidate["blocked_span_count"],
+                report.partition_border_global_arrangement_blocked_span_count
+            );
             let adoption = result
                 .trace
                 .events
@@ -173,7 +186,10 @@ mod tests {
         .with_buffer(0.0)
         .with_untiled_equivalence_check();
         tiled.add_geometry(&geometry);
-        let result = tiled.polygonize().unwrap();
+        let traced = tiled
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let result = &traced.result;
         assert!(
             result
                 .stitching_report
@@ -190,6 +206,25 @@ mod tests {
                 .stitching_report
                 .partition_border_global_arrangement_blocked_span_count,
             0
+        );
+        let construction = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_candidate")
+            .unwrap()
+            .payload;
+        assert_eq!(construction["constructed"], true);
+        assert_eq!(
+            construction["candidate"]["slots"].as_array().unwrap().len(),
+            8
+        );
+        assert_eq!(
+            construction["candidate"]["cycle_start_physical_dir_edge_ids"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
         );
     }
 
