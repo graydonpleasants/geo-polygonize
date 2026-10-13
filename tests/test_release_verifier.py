@@ -350,6 +350,39 @@ def test_release_report_records_resolved_sha_and_final_publishers(monkeypatch):
     assert report["complete"] is True
 
 
+def test_release_report_waits_before_registry_snapshot(monkeypatch):
+    canonical = canonical_report()
+    sha = canonical["workflows"][0]["head_sha"]
+    events = []
+
+    def resolve(*args):
+        events.append("tag")
+        return sha
+
+    def wait(*args):
+        assert events == ["tag"]
+        events.append("publishers")
+        return canonical["workflows"]
+
+    def registries(*args):
+        assert events == ["tag", "publishers"]
+        events.append("registries")
+        return canonical["registries"]
+
+    def smoke(*args):
+        assert events == ["tag", "publishers", "registries"]
+        events.append("smoke")
+        return canonical["smoke"]
+
+    monkeypatch.setattr(VERIFY, "github_tag_sha", resolve)
+    monkeypatch.setattr(VERIFY, "wait_for_publishers", wait)
+    monkeypatch.setattr(VERIFY, "verify_registries", registries)
+    monkeypatch.setattr(VERIFY, "smoke_registry_installs", smoke)
+    report = VERIFY.release_report("1.0.0", canonical["tag"], VERIFY.REPOSITORY, "token", 2, 30)
+    assert events == ["tag", "publishers", "registries", "smoke"]
+    assert report["complete"] is True
+
+
 @pytest.mark.parametrize("invalid", ["complete_only", "repository", "sha", "smoke", "tag"])
 def test_previous_gate_revalidates_claimed_complete_report(monkeypatch, tmp_path, invalid):
     report = canonical_report()

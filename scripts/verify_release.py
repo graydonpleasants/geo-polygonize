@@ -524,6 +524,7 @@ def release_report(
     delay_seconds: float,
 ) -> dict:
     head_sha = github_tag_sha(repository, token, tag)
+    workflows = wait_for_publishers(repository, token, tag, head_sha, attempts, delay_seconds)
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "release_version": version,
@@ -532,7 +533,7 @@ def release_report(
         "repository": repository,
         "head_sha": head_sha,
         "registries": verify_registries(version, attempts, delay_seconds),
-        "workflows": wait_for_publishers(repository, token, tag, head_sha, attempts, delay_seconds),
+        "workflows": workflows,
         "smoke": smoke_registry_installs(version),
         "complete": False,
     }
