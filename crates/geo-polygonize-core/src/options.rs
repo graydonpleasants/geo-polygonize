@@ -290,14 +290,12 @@ impl PolygonizerOptions {
     }
 
     pub fn validate(&self) -> Result<()> {
-        for (field, value) in [("pre_snap_tolerance", self.pre_snap_tolerance)] {
-            if !value.is_finite() || value < 0.0 {
-                return Err(PolygonizeError::InvalidArgumentType {
-                    field: field.to_string(),
-                    expected: "a finite non-negative number".to_string(),
-                    actual: value.to_string(),
-                });
-            }
+        if !self.pre_snap_tolerance.is_finite() || self.pre_snap_tolerance < 0.0 {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: "pre_snap_tolerance".to_string(),
+                expected: "a finite non-negative number".to_string(),
+                actual: self.pre_snap_tolerance.to_string(),
+            });
         }
 
         if let PrecisionModel::FixedGrid { grid_size } = self.precision_model {

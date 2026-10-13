@@ -14,37 +14,7 @@ pub fn polygonize_arrow(
     field: &Field,
     options: PolygonizerOptions,
 ) -> Result<geoarrow::array::PolygonArray, PolygonizeError> {
-    let metadata = match GeoArrowType::from_extension_field(field)
-        .map_err(|e| PolygonizeError::ArrowError(e.to_string()))?
-    {
-        Some(GeoArrowType::LineString(typ)) => {
-            if typ.dimension() != Dimension::XY {
-                return Err(PolygonizeError::UnsupportedOptionCombination {
-                    reason: format!(
-                        "GeoArrow polygonization currently supports XY coordinates only, got {:?}",
-                        typ.dimension()
-                    ),
-                });
-            }
-            typ.metadata().clone()
-        }
-        Some(other) => {
-            return Err(PolygonizeError::InvalidArgumentType {
-                field: field.name().to_string(),
-                expected: "geoarrow.linestring".to_string(),
-                actual: format!("{other:?}"),
-            });
-        }
-        None => Arc::new(
-            Metadata::try_from(field).map_err(|e| PolygonizeError::ArrowError(e.to_string()))?,
-        ),
-    };
-
-    if let Some(edges) = metadata.edges() {
-        return Err(PolygonizeError::UnsupportedOptionCombination {
-            reason: format!("GeoArrow polygonization supports planar edges only, got {edges:?}"),
-        });
-    }
+    let metadata = linestring_metadata(field)?;
 
     let mut lines = Vec::new();
 
@@ -106,6 +76,41 @@ pub fn polygonize_arrow(
             .map_err(|e| PolygonizeError::ArrowError(format!("Failed to push polygon: {}", e)))?;
     }
     Ok(builder.finish())
+}
+
+pub(crate) fn linestring_metadata(field: &Field) -> Result<Arc<Metadata>, PolygonizeError> {
+    let metadata = match GeoArrowType::from_extension_field(field)
+        .map_err(|e| PolygonizeError::ArrowError(e.to_string()))?
+    {
+        Some(GeoArrowType::LineString(typ)) => {
+            if typ.dimension() != Dimension::XY {
+                return Err(PolygonizeError::UnsupportedOptionCombination {
+                    reason: format!(
+                        "GeoArrow polygonization currently supports XY coordinates only, got {:?}",
+                        typ.dimension()
+                    ),
+                });
+            }
+            typ.metadata().clone()
+        }
+        Some(other) => {
+            return Err(PolygonizeError::InvalidArgumentType {
+                field: field.name().to_string(),
+                expected: "geoarrow.linestring".to_string(),
+                actual: format!("{other:?}"),
+            });
+        }
+        None => Arc::new(
+            Metadata::try_from(field).map_err(|e| PolygonizeError::ArrowError(e.to_string()))?,
+        ),
+    };
+
+    if let Some(edges) = metadata.edges() {
+        return Err(PolygonizeError::UnsupportedOptionCombination {
+            reason: format!("GeoArrow polygonization supports planar edges only, got {edges:?}"),
+        });
+    }
+    Ok(metadata)
 }
 
 fn process_linestring_array(
