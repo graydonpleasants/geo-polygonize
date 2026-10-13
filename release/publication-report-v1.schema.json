@@ -21,6 +21,7 @@
     "tag": { "type": "string", "pattern": "^(?:v|geo-polygonize-v)[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
     "verified_at": { "type": "string", "format": "date-time" },
     "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "registries": {
       "type": "array",
       "minItems": 6,
