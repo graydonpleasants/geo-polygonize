@@ -2,6 +2,31 @@ import url from "@rollup/plugin-url";
 import commonjs from "@rollup/plugin-commonjs";
 import resolve from "@rollup/plugin-node-resolve";
 import typescript from "@rollup/plugin-typescript";
+import { rm } from "node:fs/promises";
+
+const nodeCommonJS = (env) => ({
+  name: "node-commonjs-runtime",
+  async buildStart() {
+    await rm(`dist/${env}/cjs/${env === "slim" ? "index_slim" : "index"}.js`, { force: true });
+  },
+  resolveImportMeta(property) {
+    return property === "url"
+      ? "require('node:url').pathToFileURL(__filename).href"
+      : null;
+  },
+  transform(code, id) {
+    if (!id.replaceAll("\\", "/").endsWith("/pkg-scalar/geo_polygonize.js")) return null;
+    const fallback = /new URL\((?:\/\* @vite-ignore \*\/\s*)?'geo_polygonize_bg\.wasm', import\.meta\.url\)/g;
+    if (code.match(fallback)?.length !== 1) {
+      throw new Error("Expected one wasm-bindgen default Wasm URL for CommonJS");
+    }
+    return {
+      code: code.replace(fallback,
+        "require('node:fs').readFileSync(require('node:path').join(__dirname, '../../geo_polygonize.wasm'))"),
+      map: null,
+    };
+  },
+});
 
 const rolls = (fmt, env) => {
   let input;
@@ -19,7 +44,7 @@ const rolls = (fmt, env) => {
     output: {
       dir: `dist/${env}/${fmt}`,
       format: fmt,
-      entryFileNames: env === "slim" ? "index_slim.js" : "index.js",
+      entryFileNames: `${env === "slim" ? "index_slim" : "index"}.${fmt === "cjs" ? "cjs" : "js"}`,
       exports: "named",
     },
     plugins: [
@@ -35,6 +60,7 @@ const rolls = (fmt, env) => {
         limit: Infinity, // Always inline as data:application/wasm;base64,...
         emitFiles: false,
       }),
+      fmt === "cjs" && nodeCommonJS(env),
     ].filter(Boolean),
   };
 };

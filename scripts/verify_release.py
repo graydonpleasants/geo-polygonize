@@ -368,6 +368,7 @@ def smoke_npm(version: str) -> dict:
         )
         (root / "smoke.mjs").write_text(
             '''import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import * as standard from "geo-polygonize";
 import * as slim from "geo-polygonize/slim";
@@ -397,6 +398,17 @@ await check("standard", standard);
 const wasm = await readFile(join(process.cwd(), "node_modules/geo-polygonize/dist/geo_polygonize.wasm"));
 await slim.initBest({ module: wasm });
 await check("slim", slim);
+if (packedRequired) {
+  const require = createRequire(import.meta.url);
+  const standardCjs = require("geo-polygonize");
+  const slimCjs = require("geo-polygonize/slim");
+  await standardCjs.default();
+  await check("standard-cjs", standardCjs);
+  await slimCjs.initBest();
+  await check("slim-cjs", slimCjs);
+  console.log("standard-cjs=passed");
+  console.log("slim-cjs=passed");
+}
 console.log(`version=${packageJson.version}`);
 console.log("standard=passed");
 console.log("slim=passed");

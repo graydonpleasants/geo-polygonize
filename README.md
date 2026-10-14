@@ -286,6 +286,16 @@ async function run() {
 }
 ```
 
+**Node CommonJS:**
+Load the standard package with `const wasm = require("geo-polygonize")`, then
+call `await wasm.default()` inside an async function. The slim package uses
+`const slim = require("geo-polygonize/slim")`; `await slim.initBest()` loads
+the packaged scalar Wasm in Node. You can also pass bytes, a compiled
+`WebAssembly.Module`, or the existing `{ module }` / `{ module_or_path }` options.
+For filesystem inputs, read `require.resolve("geo-polygonize/geo_polygonize.wasm")`
+into bytes with `node:fs` before passing it; Node's `fetch` does not load file URLs.
+The asynchronous worker helpers require a browser Worker.
+
 **Slim Usage (Apps / Manual Loading):**
 For Vite and other app bundlers, import from `geo-polygonize/slim` and pass explicit Wasm asset URLs.
 
