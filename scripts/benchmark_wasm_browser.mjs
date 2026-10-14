@@ -68,6 +68,10 @@ try {
   const result = await page.evaluate(async ({ selectedVariant, requestedThreadCount, sizes }) => {
     const wasm = await import(`/pkg-${selectedVariant}/geo_polygonize.js`);
     const instance = await wasm.default();
+    if (typeof wasm.__partitionRouterComparison !== "function"
+        || typeof wasm.__benchmarkPartitionRouter !== "function") {
+      throw new Error("router benchmark build requires WASM_ROUTER_BENCHMARKS=1");
+    }
 
     let threadCount = 1;
     if (selectedVariant === "threads") {

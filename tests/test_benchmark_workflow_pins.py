@@ -29,3 +29,14 @@ def test_comparison_workflows_pin_toolchains_and_references():
     assert "Shapely==2.1.2 numpy==2.3.2" in maintenance
     assert "node-version: '22.17.1'" in maintenance
     assert "wasm-pack@0.13.1" in maintenance
+
+
+def test_router_feature_is_only_enabled_by_the_research_benchmark_job():
+    cross_arch = workflow("cross-architecture-benchmarks.yml")
+    wasm_job = cross_arch.split("  wasm:", 1)[1].split("  attach-to-release:", 1)[0]
+    assert 'WASM_ROUTER_BENCHMARKS: "1"' in wasm_job
+    assert "THREADS_TOOLCHAIN: nightly-2026-07-15" in wasm_job
+    assert "node scripts/test_wasm_router_exports.mjs pkg-scalar research" in wasm_job
+    assert '- "scripts/test_wasm_router_exports.mjs"' in cross_arch
+    for name in ["ci.yml", "publish-npm.yml", "docs-pages.yml"]:
+        assert "WASM_ROUTER_BENCHMARKS" not in workflow(name)

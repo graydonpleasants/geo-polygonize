@@ -202,3 +202,14 @@ Input arrays still cross the generated `wasm-bindgen` slice ABI by copy, then
 Rust constructs owned linework. Packed output removes GeoJSON serialization and
 nested-coordinate allocation; it is not a zero-copy input API. See
 [the design note](./wasm-packed-results-design.md) for the complete boundary.
+
+## Private router benchmarks
+
+The hidden `__partitionRouterComparison` and `__benchmarkPartitionRouter`
+research exports are omitted from default scalar, SIMD, and threaded packages.
+Build them explicitly with the Rust `router-benchmarks` feature, or run
+`WASM_ROUTER_BENCHMARKS=1 ./scripts/build_wasm.sh --variant scalar --no-bundle`
+before `node scripts/benchmark_wasm_browser.mjs scalar 1`. The same opt-in works
+with `--variant threads`; keep these research builds separate from release
+packages. The benchmark workflow enables the feature and retains its oracle,
+local-snapshot, and stable-work checks.

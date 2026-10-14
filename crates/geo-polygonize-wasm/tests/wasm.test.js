@@ -238,40 +238,16 @@ describe('WASM Polygonizer', () => {
         })).features).toHaveLength(0);
     });
 
-    it('should expose correctness-gated partition router research evidence', async () => {
-        const {
-            __benchmarkPartitionRouter,
-            __partitionRouterComparison,
-            default: initModule,
-        } = await import('../../../dist/standard/es/index.js');
-        await initModule();
-        const input = JSON.stringify({
-            type: 'FeatureCollection',
-            features: [
-                {
-                    type: 'Feature',
-                    geometry: { type: 'LineString', coordinates: [[0, 0], [20, 20]] },
-                },
-                {
-                    type: 'Feature',
-                    geometry: { type: 'LineString', coordinates: [[2, 18], [18, 2]] },
-                },
-            ],
-        });
-
-        const comparison = JSON.parse(__partitionRouterComparison(input, 10, 1, {}));
-        expect(comparison).toMatchObject({
-            schema_version: 1,
-            oracle_difference: null,
-            routed_assignment_oracle_difference: null,
-            routed_local_snapshot_difference: null,
-        });
-        expect(comparison.routed_local_snapshot_checked_partition_count)
-            .toBe(comparison.assignments.length);
-        const benchmark = JSON.parse(__benchmarkPartitionRouter(input, 10, 1, {}, 1, 2, 2));
-        expect(benchmark.router_work).toEqual(comparison.router_work);
-        expect(benchmark.iterations_per_sample).toBe(2);
-        expect(benchmark.samples_ms).toHaveLength(2);
+    it('should omit private router exports from every default Wasm variant', () => {
+        for (const variant of ['scalar', 'simd', 'threads']) {
+            const bytes = readFileSync(resolve(`pkg-${variant}/geo_polygonize_bg.wasm`));
+            const exports = WebAssembly.Module.exports(new WebAssembly.Module(bytes))
+                .map(({ name }) => name);
+            expect(exports).not.toContain('__partitionRouterComparison');
+            expect(exports).not.toContain('__benchmarkPartitionRouter');
+            expect(exports).toContain('polygonizeGeometryWithOptionsBuffer');
+            expect(exports).toContain('wasmpolygonresult_projection');
+        }
     });
 
     it('should expose a versioned topology report with a bounded trace', async () => {

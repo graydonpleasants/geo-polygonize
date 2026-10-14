@@ -12,6 +12,7 @@ on:
     paths:
       - ".github/workflows/cross-architecture-benchmarks.yml"
       - "scripts/benchmark_wasm_browser.mjs"
+      - "scripts/test_wasm_router_exports.mjs"
       - "scripts/build_wasm.sh"
       - "scripts/simd_codegen_audit.sh"
       - "crates/geo-polygonize-core/src/tiling.rs"
@@ -100,6 +101,9 @@ jobs:
   wasm:
     name: Wasm crossover
     runs-on: ubuntu-24.04
+    env:
+      WASM_ROUTER_BENCHMARKS: "1"
+      THREADS_TOOLCHAIN: nightly-2026-07-15
     steps:
       - uses: actions/checkout@v4
 
@@ -131,6 +135,7 @@ jobs:
         run: |
           set -o pipefail
           ./scripts/build_wasm.sh --variant scalar --no-bundle
+          node scripts/test_wasm_router_exports.mjs pkg-scalar research
           node scripts/benchmark_wasm_browser.mjs scalar 1 | tee wasm-scalar-1.json
 
       - name: Build and benchmark threaded package
