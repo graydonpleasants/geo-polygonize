@@ -5930,6 +5930,27 @@ impl PartitionBorderGraph {
     ) -> crate::Result<PartitionBorderGlobalNonPolygonExtractionStats> {
         execution_policy
             .check_cancelled("partition_border_global_non_polygon_extraction_payloads")?;
+        if execution_policy.has_cancellation() {
+            let stage = "partition_border_global_non_polygon_extraction_payloads";
+            execution_policy.check_uncancellable_sort(
+                stage,
+                self.global_non_polygon_extraction_payload_candidates.len(),
+            )?;
+            let mut coordinate_count = 0usize;
+            for (index, payload) in self
+                .global_non_polygon_extraction_payload_candidates
+                .iter()
+                .enumerate()
+            {
+                execution_policy.check_cancelled_every(stage, index)?;
+                coordinate_count = coordinate_count
+                    .checked_add(payload.coordinate_bits.len())
+                    .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                        reason: "global non-polygon coordinate count overflow".to_string(),
+                    })?;
+            }
+            execution_policy.check_uncancellable_sort(stage, coordinate_count)?;
+        }
         let mut payloads = self
             .global_non_polygon_extraction_payload_candidates
             .clone();
@@ -20987,6 +21008,88 @@ mod tests {
             crate::PolygonizeError::Cancelled { ref stage }
                 if stage == "partition_border_global_non_polygon_extraction_payloads"
         ));
+    }
+
+    #[test]
+    fn global_non_polygon_materialization_bounds_aggregate_coordinates() {
+        let mut graph = PartitionBorderGraph::default();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        for partition_id in 0..1_001 {
+            policy.check_uncancellable_sort("restore", 1_000).unwrap();
+            graph
+                .retain_global_non_polygon_extraction_payloads(
+                    &policy,
+                    partition_id,
+                    vec![vec![Coord3D::new(partition_id as f64, 0.0, 0.0); 1_000]],
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap();
+        }
+        let before = graph.clone();
+        assert!(matches!(
+            graph.materialize_global_non_polygon_extraction_payloads(&policy),
+            Err(crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: crate::options::MAX_UNCANCELLABLE_SORT_ITEMS,
+                observed: 1_001_000,
+            }) if stage == "partition_border_global_non_polygon_extraction_payloads"
+        ));
+        assert_eq!(graph, before);
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(stats.coordinate_count, 1_001_000);
+        assert!(stats.payload_ready);
+    }
+
+    #[test]
+    fn global_non_polygon_materialization_bounds_payload_count_and_polls_cancellation() {
+        let mut graph = PartitionBorderGraph::default();
+        let payload = PartitionBorderGlobalNonPolygonExtractionPayload {
+            partition_id: 0,
+            kind: PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+            coordinate_bits: Vec::new(),
+        };
+        let count = crate::options::MAX_UNCANCELLABLE_SORT_ITEMS + 1;
+        graph.global_non_polygon_extraction_payload_candidates = vec![payload; count];
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            graph.materialize_global_non_polygon_extraction_payloads(&policy),
+            Err(crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: crate::options::MAX_UNCANCELLABLE_SORT_ITEMS,
+                observed,
+            }) if stage == "partition_border_global_non_polygon_extraction_payloads"
+                && observed == count
+        ));
+        assert!(graph.global_non_polygon_extraction_payloads.is_empty());
+        assert_eq!(
+            graph.global_non_polygon_extraction_payload_candidates.len(),
+            count
+        );
+        graph
+            .global_non_polygon_extraction_payload_candidates
+            .truncate(512);
+        let before = graph.clone();
+        let token = CancellationToken::new();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        assert!(matches!(
+            graph.materialize_global_non_polygon_extraction_payloads(&policy),
+            Err(crate::PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_border_global_non_polygon_extraction_payloads"
+        ));
+        assert_eq!(graph, before);
     }
 
     #[test]
