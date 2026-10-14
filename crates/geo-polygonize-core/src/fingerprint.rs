@@ -344,7 +344,7 @@ fn canonical_ring(ring: &[Coord3D]) -> crate::Result<Vec<CoordinateFingerprintV1
     Ok(canonical)
 }
 
-fn canonical_ring_with_ids(
+pub(crate) fn canonical_ring_with_ids(
     ring: &[Coord3D],
     ids: &[u32],
 ) -> crate::Result<(Vec<CoordinateFingerprintV1>, Vec<String>)> {

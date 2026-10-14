@@ -436,9 +436,16 @@ Uncorroborated node-only joins and disconnected/containment-dependent arrangemen
 remain blocked. Private physical-table extraction retains canonical simple ring
 XYZ, ordered representative IDs, complete source sets, every owned local alias,
 and the complete retained dangle/cut/invalid-ring payload ledger. Stale tables,
-ambiguous or missing payload evidence, self-touching rings, and nested/containment
+ambiguous or missing payload evidence, self-touching polygon face cycles, and nested/containment
 cases remain blocked. These payloads require global non-polygon ownership,
 shell/hole assembly where needed, and same-options equivalence before promotion.
+The local output adapter preserves selected XYZ and ordered representative IDs,
+applies the current provenance/profile and face-area options, and compares every
+output family against untiled output from the same call and options. Comparison
+canonicalizes coordinates and IDs together and rejects missing or mismatched
+IDs. Private conformance evidence is traced separately from selectable output;
+even a zero-mismatch candidate does not prove global non-polygon ownership or
+complete the promotion gates.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
@@ -453,6 +460,9 @@ shell/hole assembly where needed, and same-options equivalence before promotion.
   polygonal candidates.
 - [x] Materialize private physical-table ring and alias payloads with complete
   source, representative-ID, raw/selected Z, and retained non-polygon evidence.
+- [x] Adapt supported simple-ring payloads privately and check same-call,
+  same-options output conformance, including representative IDs and every
+  non-polygon family (private draft work).
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.
@@ -460,9 +470,16 @@ shell/hole assembly where needed, and same-options equivalence before promotion.
   same-options untiled-equivalence gates.
 - [ ] Publish end-to-end performance and peak-memory evidence.
 
-Stack #1529 reaches its five-open-PR limit with the physical-table extraction
-layer. Keep the follow-up `codex/p5-physical-extraction-conformance` local until
-capacity is available; do not merge parents or open a sixth layer to make room.
+Version 1.2.0 is published from `b00a20be`. The earlier native stack #1529
+(#1527 → #1528 → #1530 → #1534 → #1537) has merged into main and records
+post-release private alias-aware extraction progress. Its aggregate non-polygon
+ledger guard is retained. The follow-ups form five native draft layers:
+private output adapter → whole-core ownership → combined cross-core witnesses
+→ proof consumer → complete private candidate with its acceptance gate.
+Every layer remains private evidence with output selection disabled. Keep the
+family physical-component proof extension as a local sixth layer until stack
+capacity and separate review/validation are available. These private milestones
+do not change the published 1.2.0 artifacts or complete the promotion gates.
 
 **Promotion gate:** stitched output may become selectable only for a documented
 input/options class when the same call produces ready stitched output, checks

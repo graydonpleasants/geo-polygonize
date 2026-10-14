@@ -14190,7 +14190,7 @@ mod tests {
                 assert_eq!(retained_edges, (0..14).collect::<Vec<_>>());
                 assert_eq!(retained_aliases, (0..16).collect::<Vec<_>>());
 
-                let mut reference = crate::Polygonizer::with_options(crate::PolygonizerOptions {
+                let options = crate::PolygonizerOptions {
                     z: z_options,
                     provenance: crate::ProvenanceOptions {
                         enabled: true,
@@ -14198,7 +14198,8 @@ mod tests {
                     },
                     input_profile_id: Some("physical-table-test".to_string()),
                     ..Default::default()
-                });
+                };
+                let mut reference = crate::Polygonizer::with_options(options.clone());
                 let mut lines = Vec::new();
                 for snapshot in &graph.local_face_graphs {
                     for edge in snapshot
@@ -14221,9 +14222,37 @@ mod tests {
                         }
                     }
                 }
-                reference.add_lines(lines);
+                reference.add_lines(lines.clone());
                 let result = reference.polygonize().unwrap();
                 assert_eq!(result.polygons.len(), 2);
+                for (enabled, include_boundary_line_ids) in
+                    [(false, false), (true, false), (true, true)]
+                {
+                    let mut options = options.clone();
+                    options.provenance = crate::ProvenanceOptions {
+                        enabled,
+                        include_boundary_line_ids,
+                    };
+                    let mut reference = crate::Polygonizer::with_options(options.clone());
+                    reference.add_lines(lines.clone());
+                    let expected = reference.polygonize().unwrap();
+                    let adapted = crate::tiling::physical_table_output_candidate(
+                        &extraction,
+                        &options,
+                        &policy,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        serde_json::to_value(&adapted.polygons).unwrap(),
+                        serde_json::to_value(&expected.polygons).unwrap()
+                    );
+                    for (actual, expected) in adapted.polygons.iter().zip(&expected.polygons) {
+                        assert_eq!(
+                            actual.boundary_source_line_ids,
+                            expected.boundary_source_line_ids
+                        );
+                    }
+                }
                 for ring in extraction
                     .ring_payloads
                     .iter()
@@ -14320,6 +14349,99 @@ mod tests {
             ),
             (1, 1, 1, 9)
         );
+        let output = crate::tiling::physical_table_output_candidate(
+            &extraction,
+            &crate::PolygonizerOptions::default(),
+            &policy,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                output.polygons.len(),
+                output.dangles.len(),
+                output.cut_edges.len(),
+                output.invalid_rings.len()
+            ),
+            (2, 1, 1, 1)
+        );
+        assert_eq!(output.dangles[0], dangle);
+        for (kind, lines) in [
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+                &output.dangles,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+                &output.cut_edges,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+                &output.invalid_rings,
+            ),
+        ] {
+            let retained = extraction
+                .non_polygon_payloads
+                .iter()
+                .find(|payload| payload.kind == kind)
+                .unwrap();
+            assert_eq!(
+                lines[0]
+                    .iter()
+                    .map(|coord| [coord.x.to_bits(), coord.y.to_bits(), coord.z.to_bits()])
+                    .collect::<Vec<_>>(),
+                retained.coordinate_bits
+            );
+        }
+        let polygonal = crate::tiling::physical_table_output_candidate(
+            &extraction,
+            &crate::PolygonizerOptions {
+                extract_only_polygonal: true,
+                ..Default::default()
+            },
+            &policy,
+        )
+        .unwrap();
+        assert_eq!(polygonal.polygons.len(), 2);
+        assert_eq!(polygonal.dangles, output.dangles);
+        assert_eq!(polygonal.cut_edges, output.cut_edges);
+        assert_eq!(polygonal.invalid_rings, output.invalid_rings);
+        let extracted_before = extraction.clone();
+        for limited in [
+            ExecutionPolicy {
+                max_output_polygons: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(18),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                crate::tiling::physical_table_output_candidate(
+                    &extraction,
+                    &crate::PolygonizerOptions::default(),
+                    &limited
+                ),
+                Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1] {
+            let token = crate::CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                crate::tiling::physical_table_output_candidate(
+                    &extraction,
+                    &crate::PolygonizerOptions::default(),
+                    &cancelled
+                ),
+                Err(crate::PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(extraction, extracted_before);
         assert_eq!(graph, before);
         let mut missing = graph.clone();
         missing.global_non_polygon_extraction_payloads.pop();
