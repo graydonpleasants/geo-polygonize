@@ -771,6 +771,13 @@ pub(crate) struct PartitionBorderPhysicalTableExtraction {
     pub(crate) non_polygon_payloads: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>,
 }
 
+/// Polygon evidence alone; non-polygon output requires a separate global proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PartitionBorderPhysicalPolygonExtraction {
+    pub(crate) ring_payloads: Vec<PartitionBorderPhysicalRingPayload>,
+    pub(crate) local_aliases: Vec<PartitionBorderGlobalFaceEdge>,
+}
+
 /// Private physical-arrangement evidence, independent of face-claim readiness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalArrangementWitness {
@@ -2033,7 +2040,6 @@ impl PartitionBorderGraph {
         Ok(())
     }
 
-    #[cfg(test)]
     pub(crate) fn local_face_graphs(&self) -> &[PartitionBorderLocalFaceGraph] {
         &self.local_face_graphs
     }
@@ -3556,6 +3562,89 @@ impl PartitionBorderGraph {
             return Ok(None);
         }
 
+        let Some(polygons) = self.materialize_physical_polygon_payloads(
+            witness,
+            candidate,
+            faces,
+            execution_policy,
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(PartitionBorderPhysicalTableExtraction {
+            ring_payloads: polygons.ring_payloads,
+            local_aliases: polygons.local_aliases,
+            non_polygon_payloads,
+        }))
+    }
+
+    /// Replays the same physical claims, face/Euler and simple-shell containment gates.
+    pub(crate) fn extract_physical_polygon_payloads(
+        &self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        construction: &PartitionBorderPhysicalTopologyConstruction,
+        eligible_observation_ids: &BTreeSet<PartitionBorderObservationId>,
+        span_evidence_ready: bool,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<PartitionBorderPhysicalPolygonExtraction>> {
+        let stage = "partition_border_physical_table_extraction";
+        execution_policy.check_cancelled(stage)?;
+        let (Some(candidate), Some(faces)) = (&construction.candidate, &construction.faces) else {
+            return Ok(None);
+        };
+        if !span_evidence_ready
+            || self
+                .construct_global_arrangement_candidate(
+                    witness,
+                    eligible_observation_ids,
+                    span_evidence_ready,
+                    execution_policy,
+                )?
+                .as_ref()
+                != Some(construction)
+        {
+            return Ok(None);
+        }
+        execution_policy.check(stage, execution_policy.max_rings, faces.faces.len())?;
+        let shell_count = faces.faces.iter().filter(|face| !face.unbounded).count();
+        execution_policy.check(stage, execution_policy.max_output_polygons, shell_count)?;
+        let shell_coordinate_count = faces
+            .faces
+            .iter()
+            .filter(|face| !face.unbounded)
+            .try_fold(0usize, |count, face| {
+                count
+                    .checked_add(face.physical_dir_edge_ids.len())
+                    .and_then(|count| count.checked_add(1))
+            })
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "physical extraction coordinate count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            stage,
+            execution_policy.max_output_coordinates,
+            shell_coordinate_count,
+        )?;
+        let pair_work = faces
+            .faces
+            .len()
+            .checked_mul(faces.faces.len())
+            .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                reason: "physical extraction containment pair count overflow".to_string(),
+            })?;
+        execution_policy.check(stage, execution_policy.max_candidate_pairs, pair_work)?;
+        self.materialize_physical_polygon_payloads(witness, candidate, faces, execution_policy)
+    }
+
+    fn materialize_physical_polygon_payloads(
+        &self,
+        witness: &PartitionBorderGlobalArrangementWitness,
+        candidate: &PartitionBorderPhysicalTopologyCandidate,
+        faces: &PartitionBorderPhysicalFaceReconciliation,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<PartitionBorderPhysicalPolygonExtraction>> {
+        let stage = "partition_border_physical_table_extraction";
+        execution_policy.check_cancelled(stage)?;
         let mut ring_payloads = Vec::with_capacity(faces.faces.len());
         let mut polygons = Vec::with_capacity(faces.faces.len());
         let mut interior_points = Vec::with_capacity(faces.faces.len());
@@ -3663,10 +3752,9 @@ impl PartitionBorderGraph {
             local_aliases.push(alias.clone());
         }
         execution_policy.check_cancelled(stage)?;
-        Ok(Some(PartitionBorderPhysicalTableExtraction {
+        Ok(Some(PartitionBorderPhysicalPolygonExtraction {
             ring_payloads,
             local_aliases,
-            non_polygon_payloads,
         }))
     }
 
@@ -6434,6 +6522,12 @@ impl PartitionBorderGraph {
         &self,
     ) -> &[PartitionBorderGlobalFaceRingExtractionPayload] {
         &self.global_face_ring_extraction_payloads
+    }
+
+    pub(crate) fn global_non_polygon_extraction_payload_candidates(
+        &self,
+    ) -> &[PartitionBorderGlobalNonPolygonExtractionPayload] {
+        &self.global_non_polygon_extraction_payload_candidates
     }
 
     #[cfg(test)]
@@ -21093,6 +21187,59 @@ mod tests {
             graph.global_non_polygon_extraction_payloads(),
             reordered.global_non_polygon_extraction_payloads()
         );
+    }
+
+    #[test]
+    fn global_non_polygon_extraction_payloads_bound_aggregate_coordinates_atomically() {
+        const COORDINATES_PER_PAYLOAD: usize = 1_000;
+        let limit = crate::options::MAX_UNCANCELLABLE_SORT_ITEMS;
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        let payload = |partition_id: usize| PartitionBorderGlobalNonPolygonExtractionPayload {
+            partition_id,
+            kind: PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+            coordinate_bits: (0..COORDINATES_PER_PAYLOAD)
+                .map(|index| {
+                    [
+                        (partition_id as f64).to_bits(),
+                        (index as f64).to_bits(),
+                        0.0f64.to_bits(),
+                    ]
+                })
+                .collect(),
+        };
+        let payload_count = limit / COORDINATES_PER_PAYLOAD;
+        let mut graph = PartitionBorderGraph {
+            global_non_polygon_extraction_payload_candidates: (0..payload_count)
+                .map(payload)
+                .collect(),
+            ..Default::default()
+        };
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert_eq!(stats.coordinate_count, limit);
+        assert!(stats.payload_ready);
+        let before = graph.global_non_polygon_extraction_payloads().to_vec();
+        graph
+            .global_non_polygon_extraction_payload_candidates
+            .push(payload(payload_count));
+        let error = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: actual_limit,
+                observed,
+            } if stage == "partition_border_global_non_polygon_extraction_payloads"
+                && actual_limit == limit
+                && observed == (payload_count + 1) * COORDINATES_PER_PAYLOAD
+        ));
+        assert_eq!(graph.global_non_polygon_extraction_payloads(), before);
     }
 
     #[test]
