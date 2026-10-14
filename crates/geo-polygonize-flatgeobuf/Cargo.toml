@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-flatgeobuf"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 rust-version = "1.87"
 description = "FlatGeoBuf file adapter for geo-polygonize-core."
@@ -11,7 +11,7 @@ homepage = "https://github.com/graydonpleasants/geo-polygonize"
 readme = "../../README.md"
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "1.1.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "1.2.0" }
 flatgeobuf = { version = "6.0.1", default-features = false }
 geozero = { version = "0.15.1", default-features = false, features = ["with-geo"] }
 geo = "0.32"

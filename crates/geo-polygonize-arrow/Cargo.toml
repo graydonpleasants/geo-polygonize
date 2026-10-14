@@ -1,6 +1,6 @@
 [package]
 name = "geo-polygonize-arrow"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 rust-version = "1.87"
 description = "Arrow and GeoArrow adapters for geo-polygonize-core."
@@ -14,7 +14,7 @@ readme = "../../README.md"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-geo-polygonize-core = { path = "../geo-polygonize-core", version = "1.1.0" }
+geo-polygonize-core = { path = "../geo-polygonize-core", version = "1.2.0" }
 arrow = { version = "57", features = ["ffi"] }
 geoarrow = "0.7.0"
 geo = "0.32"
