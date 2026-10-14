@@ -1807,6 +1807,540 @@ struct PartitionNonPolygonOwnershipProof {
     payloads: Vec<PartitionOwnedNonPolygonPayload>,
 }
 
+type NonPolygonPayloadKey = (PartitionBorderGlobalNonPolygonPayloadKind, Vec<[u64; 3]>);
+type PhysicalNonPolygonSegments<'a> =
+    BTreeMap<(CoordinateFingerprintV1, CoordinateFingerprintV1), &'a PartitionNodedSegmentV1>;
+
+struct PreparedNonPolygonEvidence {
+    input_fingerprint_sha256: String,
+    snapshot_fingerprints: Vec<(usize, String)>,
+    source_segment_count: usize,
+    aliases: BTreeMap<PartitionNodedSegmentV1, Vec<[usize; 2]>>,
+    local_payloads: BTreeMap<NonPolygonPayloadKey, Vec<[usize; 2]>>,
+    global_payloads: BTreeMap<NonPolygonPayloadKey, usize>,
+    noded_segments: Vec<PartitionNodedSegment>,
+    reference: PolygonizerResult,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionNonPolygonAssemblySpan {
+    payload_edge_index: usize,
+    segment: PartitionNodedSegmentV1,
+    owner_partition_id: usize,
+    boundary_segment_aliases: Vec<[usize; 2]>,
+    // Local boundary rows can cover several globally atomic spans.
+    coarse_boundary_segment_aliases: Vec<[usize; 2]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionCrossCoreNonPolygonPayload {
+    kind: PartitionBorderGlobalNonPolygonPayloadKind,
+    coordinate_bits: Vec<[u64; 3]>,
+    global_payload_count: usize,
+    local_payload_aliases: Vec<[usize; 2]>,
+    spans: Vec<PartitionNonPolygonAssemblySpan>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionCrossCoreNonPolygonAssembly {
+    input_fingerprint_sha256: String,
+    snapshot_fingerprints: Vec<(usize, String)>,
+    payloads: Vec<PartitionCrossCoreNonPolygonPayload>,
+    whole_core_payloads: Vec<PartitionOwnedNonPolygonPayload>,
+}
+
+fn replay_non_polygon_boundary_segments(
+    segments: &[PartitionNodedSegment],
+    boundaries: &[(usize, Rect<f64>)],
+    execution_policy: &ExecutionPolicy,
+) -> Result<Vec<PartitionNodedSegmentV1>> {
+    let stage = "cross_core_non_polygon_assembly";
+    execution_policy.check_uncancellable_sort(stage, segments.len())?;
+    let metadata = partition_noded_segments(segments)?;
+    let sources = metadata
+        .iter()
+        .map(|segment| {
+            (
+                (segment.start.clone(), segment.end.clone()),
+                &segment.source_line_ids,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut graph = crate::graph::planar_graph::PlanarGraph::new();
+    graph.bulk_load_with_execution_policy(
+        segments.iter().map(|segment| segment.line).collect(),
+        execution_policy,
+    )?;
+    for (index, edge) in graph.edges.iter_mut().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let a = crate::fingerprint::coordinate_fingerprint(edge.line.start)?;
+        let b = crate::fingerprint::coordinate_fingerprint(edge.line.end)?;
+        let key = if a <= b { (a, b) } else { (b, a) };
+        let Some(ids) = sources.get(&key) else {
+            return Err(PolygonizeError::InternalInvariantViolation {
+                reason: "boundary replay changed a prepared noded segment".to_string(),
+            });
+        };
+        execution_policy.check_uncancellable_sort(stage, ids.len())?;
+        for &source in *ids {
+            edge.sources.merge_line_id(source);
+        }
+    }
+    for (index, &(partition_id, bounds)) in boundaries.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        graph.node_partition_boundaries_with_execution_policy(
+            partition_id,
+            bounds,
+            execution_policy,
+            None,
+        )?;
+    }
+    let mut split = Vec::new();
+    for (index, edge) in graph.edges.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if !edge.deleted {
+            split.push(PartitionNodedSegment {
+                line: edge.line,
+                source_line_ids: edge.sources.line_ids.to_vec(),
+                representative_line_id: edge.line.line_id,
+            });
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, split.len())?;
+    let split = partition_noded_segments(&split)?;
+    execution_policy.check_cancelled(stage)?;
+    Ok(split)
+}
+
+fn prepared_non_polygon_coordinate(point: &CoordinateFingerprintV1) -> Result<Coord3D> {
+    let value = |bits: &str| -> Result<f64> {
+        bits.strip_prefix("0x")
+            .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+            .map(f64::from_bits)
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "invalid prepared span coordinate".to_string(),
+            })
+    };
+    Ok(Coord3D::new(
+        value(&point.x)?,
+        value(&point.y)?,
+        value(&point.z)?,
+    ))
+}
+
+fn non_polygon_owners_share_side(
+    first_partition: usize,
+    second_partition: usize,
+    mosaic: &PartitionMosaic,
+    tiles: &[Rect<f64>],
+) -> bool {
+    let (first, second) = (tiles[first_partition], tiles[second_partition]);
+    let shared_side = if first.max().x == second.min().x
+        && first.min().y == second.min().y
+        && first.max().y == second.max().y
+    {
+        Some((1, 0, first.max().x))
+    } else if second.max().x == first.min().x
+        && first.min().y == second.min().y
+        && first.max().y == second.max().y
+    {
+        Some((0, 1, first.min().x))
+    } else if first.max().y == second.min().y
+        && first.min().x == second.min().x
+        && first.max().x == second.max().x
+    {
+        Some((3, 2, first.max().y))
+    } else if second.max().y == first.min().y
+        && first.min().x == second.min().x
+        && first.max().x == second.max().x
+    {
+        Some((2, 3, first.min().y))
+    } else {
+        None
+    };
+    let Some((side, neighbor_side, coordinate)) = shared_side else {
+        return false;
+    };
+    [
+        (first_partition, second_partition, side, neighbor_side),
+        (second_partition, first_partition, neighbor_side, side),
+    ]
+    .iter()
+    .all(|&(partition, neighbor, side, neighbor_side)| {
+        mosaic.partitions[&partition]
+            .declared_adjacencies
+            .iter()
+            .any(|adjacency| {
+                adjacency.neighbor_partition_id == neighbor
+                    && adjacency.side == side
+                    && adjacency.neighbor_side == neighbor_side
+                    && adjacency.coordinate_bits == canonical_coordinate_bits(coordinate)
+            })
+    })
+}
+
+/// Constructs evidence only; the raw duplicate-payload extraction gate remains
+/// independent and no local copy is discarded or selected for output.
+fn assemble_cross_core_non_polygon(
+    evidence: &PreparedNonPolygonEvidence,
+    mosaic: &PartitionMosaic,
+    tiles: &[Rect<f64>],
+    domain: Rect<f64>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionCrossCoreNonPolygonAssembly>> {
+    let stage = "cross_core_non_polygon_assembly";
+    execution_policy.check_cancelled(stage)?;
+    if evidence.local_payloads.is_empty()
+        || mosaic.partitions.len() != tiles.len()
+        || evidence.snapshot_fingerprints.len() != tiles.len()
+    {
+        return Ok(None);
+    }
+    for (index, (partition, fingerprint)) in evidence.snapshot_fingerprints.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if mosaic
+            .partitions
+            .get(partition)
+            .is_none_or(|snapshot| snapshot.fingerprint_sha256() != *fingerprint)
+        {
+            return Ok(None);
+        }
+    }
+    let mut payload_edge_count = 0usize;
+    for (index, (_, bits)) in evidence.local_payloads.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        payload_edge_count = payload_edge_count
+            .checked_add(bits.len() - 1)
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "cross-core assembly payload edge count overflow".to_string(),
+            })?;
+    }
+    let search_work = tiles
+        .len()
+        .checked_mul(tiles.len())
+        .and_then(|count| count.checked_mul(2))
+        .and_then(|count| count.checked_add(evidence.noded_segments.len()))
+        .and_then(|count| count.checked_mul(payload_edge_count))
+        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+            reason: "cross-core assembly candidate count overflow".to_string(),
+        })?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, search_work)?;
+    let mut native_by_key = BTreeMap::new();
+    for (index, segment) in evidence.noded_segments.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        execution_policy.check_uncancellable_sort(stage, segment.source_line_ids.len())?;
+        let mut key = partition_noded_segments(std::slice::from_ref(segment))?;
+        if native_by_key
+            .insert(key.pop().unwrap(), segment.clone())
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut boundary_aliases = BTreeMap::<PartitionNodedSegmentV1, Vec<[usize; 2]>>::new();
+    for (partition_id, tile) in tiles.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, partition_id)?;
+        let snapshot = &mosaic.partitions[&partition_id];
+        let local_segments = snapshot
+            .local_noded_segments
+            .iter()
+            .map(|key| native_by_key[key].clone())
+            .collect::<Vec<_>>();
+        if replay_non_polygon_boundary_segments(
+            &local_segments,
+            &[(partition_id, *tile)],
+            execution_policy,
+        )? != snapshot.boundary_noded_segments
+        {
+            return Ok(None);
+        }
+        for (local_id, segment) in snapshot.boundary_noded_segments.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, local_id)?;
+            boundary_aliases
+                .entry(segment.clone())
+                .or_default()
+                .push([partition_id, local_id]);
+        }
+    }
+    let physical_segments = evidence
+        .aliases
+        .keys()
+        .map(|segment| ((segment.start.clone(), segment.end.clone()), segment))
+        .collect::<PhysicalNonPolygonSegments<'_>>();
+    let mut payloads = Vec::new();
+    let mut whole_core_payloads = Vec::new();
+    for (key, claims) in &evidence.local_payloads {
+        let (kind, bits) = key;
+        execution_policy
+            .check_cancelled_every(stage, payloads.len() + whole_core_payloads.len())?;
+        let claimants = claims.iter().map(|claim| claim[0]).collect::<BTreeSet<_>>();
+        if claimants.len() == 1 {
+            let Some(owned) = prove_whole_non_polygon_payload(
+                evidence,
+                &physical_segments,
+                key,
+                claims,
+                tiles,
+                domain,
+                execution_policy,
+            )?
+            else {
+                return Ok(None);
+            };
+            whole_core_payloads.push(owned);
+            continue;
+        }
+        let closed = *kind == PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing;
+        // shortcut: one open edge or one closed cycle, upgrade with branched payload proofs.
+        if claimants.len() < 2
+            || if closed {
+                bits.len() < 4 || bits.first() != bits.last()
+            } else {
+                bits.len() != 2
+            }
+        {
+            return Ok(None);
+        }
+        let a = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(bits[0]))?;
+        let b =
+            crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(bits[bits.len() - 1]))?;
+        let boundaries = claimants
+            .iter()
+            .map(|&partition| (partition, tiles[partition]))
+            .collect::<Vec<_>>();
+        let mut spans = Vec::new();
+        let mut owners = BTreeSet::new();
+        let mut payload_segments = BTreeSet::new();
+        for (payload_edge_index, pair) in bits.windows(2).enumerate() {
+            execution_policy.check_cancelled_every(stage, payload_edge_index)?;
+            let a = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[0]))?;
+            let b = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[1]))?;
+            let native = native_by_key
+                .iter()
+                .find(|(key, _)| key.start == a && key.end == b || key.start == b && key.end == a);
+            let Some((native_key, native)) = native else {
+                return Ok(None);
+            };
+            if !payload_segments.insert(native_key) {
+                return Ok(None);
+            }
+            let split = replay_non_polygon_boundary_segments(
+                std::slice::from_ref(native),
+                &boundaries,
+                execution_policy,
+            )?;
+            if split.is_empty() {
+                return Ok(None);
+            }
+            let mut coarse_aliases = BTreeMap::<PartitionNodedSegmentV1, Vec<[usize; 2]>>::new();
+            let atomic = split.iter().collect::<BTreeSet<_>>();
+            for (index, &[partition, _]) in evidence.aliases[native_key].iter().enumerate() {
+                execution_policy.check_cancelled_every(stage, index)?;
+                for local in replay_non_polygon_boundary_segments(
+                    std::slice::from_ref(native),
+                    &[(partition, tiles[partition])],
+                    execution_policy,
+                )? {
+                    let Some(aliases) = boundary_aliases.get(&local) else {
+                        return Ok(None);
+                    };
+                    let local_aliases = aliases
+                        .iter()
+                        .copied()
+                        .filter(|alias| alias[0] == partition)
+                        .collect::<Vec<_>>();
+                    if local_aliases.len() != 1 {
+                        return Ok(None);
+                    }
+                    let Some(representative_line_id) = local.representative_line_id else {
+                        return Ok(None);
+                    };
+                    let local_native = PartitionNodedSegment {
+                        line: Line3D::new(
+                            prepared_non_polygon_coordinate(&local.start)?,
+                            prepared_non_polygon_coordinate(&local.end)?,
+                            representative_line_id,
+                        ),
+                        source_line_ids: local.source_line_ids.clone(),
+                        representative_line_id,
+                    };
+                    for descendant in replay_non_polygon_boundary_segments(
+                        &[local_native],
+                        &boundaries,
+                        execution_policy,
+                    )? {
+                        if !atomic.contains(&descendant) {
+                            return Ok(None);
+                        }
+                        if descendant != local {
+                            coarse_aliases
+                                .entry(descendant)
+                                .or_default()
+                                .extend(&local_aliases);
+                        }
+                    }
+                }
+            }
+            for segment in split {
+                let Some(aliases) = boundary_aliases.get(&segment) else {
+                    return Ok(None);
+                };
+                let (start, end) = (
+                    prepared_non_polygon_coordinate(&segment.start)?,
+                    prepared_non_polygon_coordinate(&segment.end)?,
+                );
+                let midpoint = Coord {
+                    x: start.x * 0.5 + end.x * 0.5,
+                    y: start.y * 0.5 + end.y * 0.5,
+                };
+                if [(start.x, end.x, midpoint.x), (start.y, end.y, midpoint.y)]
+                    .iter()
+                    .any(|&(a, b, mid)| a != b && !(a.min(b) < mid && mid < a.max(b)))
+                {
+                    return Ok(None);
+                }
+                let mut span_owners = Vec::new();
+                for (partition_id, tile) in tiles.iter().enumerate() {
+                    execution_policy.check_cancelled_every(stage, partition_id)?;
+                    let closed = [start, end].iter().all(|point| {
+                        point.x >= tile.min().x
+                            && point.x <= tile.max().x
+                            && point.y >= tile.min().y
+                            && point.y <= tile.max().y
+                    });
+                    let interior = midpoint.x >= tile.min().x
+                        && (midpoint.x < tile.max().x
+                            || (tile.max().x == domain.max().x && midpoint.x <= tile.max().x))
+                        && midpoint.y >= tile.min().y
+                        && (midpoint.y < tile.max().y
+                            || (tile.max().y == domain.max().y && midpoint.y <= tile.max().y));
+                    if closed && interior {
+                        span_owners.push(partition_id);
+                    }
+                }
+                let [owner] = span_owners.as_slice() else {
+                    return Ok(None);
+                };
+                if !claimants.contains(owner) || !aliases.iter().any(|alias| alias[0] == *owner) {
+                    return Ok(None);
+                }
+                owners.insert(*owner);
+                spans.push(PartitionNonPolygonAssemblySpan {
+                    payload_edge_index,
+                    owner_partition_id: *owner,
+                    boundary_segment_aliases: aliases.clone(),
+                    coarse_boundary_segment_aliases: coarse_aliases
+                        .remove(&segment)
+                        .unwrap_or_default(),
+                    segment,
+                });
+            }
+        }
+        if owners != claimants {
+            return Ok(None);
+        }
+        let mut at_node = BTreeMap::<_, Vec<usize>>::new();
+        for (index, span) in spans.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            if span.segment.start == span.segment.end {
+                return Ok(None);
+            }
+            for node in [&span.segment.start, &span.segment.end] {
+                at_node.entry(node.clone()).or_default().push(index);
+            }
+        }
+        if !at_node.contains_key(&a)
+            || !at_node.contains_key(&b)
+            || at_node.iter().any(|(node, spans)| {
+                spans.len()
+                    != if !closed && (node == &a || node == &b) {
+                        1
+                    } else {
+                        2
+                    }
+            })
+        {
+            return Ok(None);
+        }
+        let mut remaining = spans.into_iter().map(Some).collect::<Vec<_>>();
+        let mut spans: Vec<PartitionNonPolygonAssemblySpan> = Vec::with_capacity(remaining.len());
+        let mut node = a;
+        while spans.is_empty() || node != b {
+            execution_policy.check_cancelled_every(stage, spans.len())?;
+            let mut next = at_node[&node].iter().filter(|&&index| {
+                remaining[index]
+                    .as_ref()
+                    .is_some_and(|span| !spans.is_empty() || span.payload_edge_index == 0)
+            });
+            let Some(&index) = next.next() else {
+                return Ok(None);
+            };
+            if next.next().is_some() {
+                return Ok(None);
+            }
+            let span = remaining[index].take().unwrap();
+            if let Some(previous) = spans.last() {
+                if span.payload_edge_index != previous.payload_edge_index
+                    && span.payload_edge_index != previous.payload_edge_index + 1
+                {
+                    return Ok(None);
+                }
+                if previous.owner_partition_id != span.owner_partition_id
+                    && !non_polygon_owners_share_side(
+                        previous.owner_partition_id,
+                        span.owner_partition_id,
+                        mosaic,
+                        tiles,
+                    )
+                {
+                    return Ok(None);
+                }
+            }
+            node = if span.segment.start == node {
+                span.segment.end.clone()
+            } else {
+                span.segment.start.clone()
+            };
+            spans.push(span);
+        }
+        if spans.len() != remaining.len()
+            || spans.last().unwrap().payload_edge_index != bits.len() - 2
+        {
+            return Ok(None);
+        }
+        if closed {
+            let (first, last) = (spans.first().unwrap(), spans.last().unwrap());
+            if first.owner_partition_id != last.owner_partition_id
+                && !non_polygon_owners_share_side(
+                    last.owner_partition_id,
+                    first.owner_partition_id,
+                    mosaic,
+                    tiles,
+                )
+            {
+                return Ok(None);
+            }
+        }
+        payloads.push(PartitionCrossCoreNonPolygonPayload {
+            kind: *kind,
+            coordinate_bits: bits.clone(),
+            global_payload_count: evidence.global_payloads[&(*kind, bits.clone())],
+            local_payload_aliases: claims.clone(),
+            spans,
+        });
+    }
+    if payloads.is_empty() {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionCrossCoreNonPolygonAssembly {
+        input_fingerprint_sha256: evidence.input_fingerprint_sha256.clone(),
+        snapshot_fingerprints: evidence.snapshot_fingerprints.clone(),
+        payloads,
+        whole_core_payloads,
+    }))
+}
+
 impl PartitionNonPolygonOwnershipProof {
     fn covers(
         &self,
@@ -1838,16 +2372,14 @@ impl PartitionNonPolygonOwnershipProof {
     }
 }
 
-/// Binds the complete local ledger to original-input noding/classification and
-/// one whole-payload owner; successful output equivalence alone is insufficient.
-fn prove_global_non_polygon_ownership(
+fn prepare_non_polygon_evidence(
     mosaic: &PartitionMosaic,
     tiles: &[Rect<f64>],
     geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
     domain: Rect<f64>,
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
-) -> Result<Option<(PartitionNonPolygonOwnershipProof, PolygonizerResult)>> {
+) -> Result<Option<PreparedNonPolygonEvidence>> {
     let stage = "global_non_polygon_ownership";
     execution_policy.check_cancelled(stage)?;
     if mosaic.partitions.len() != tiles.len()
@@ -1864,10 +2396,7 @@ fn prove_global_non_polygon_ownership(
     execution_policy.check_uncancellable_sort(stage, source_segments.len())?;
     let mut observed_sources = BTreeSet::new();
     let mut aliases = BTreeMap::<PartitionNodedSegmentV1, Vec<[usize; 2]>>::new();
-    let mut payloads = BTreeMap::<
-        (PartitionBorderGlobalNonPolygonPayloadKind, Vec<[u64; 3]>),
-        (usize, Vec<usize>),
-    >::new();
+    let mut payloads = BTreeMap::<NonPolygonPayloadKey, Vec<[usize; 2]>>::new();
     let mut snapshot_fingerprints = Vec::with_capacity(tiles.len());
     let mut work_items = 0;
     let mut alias_count = 0;
@@ -1964,13 +2493,10 @@ fn prove_global_non_polygon_ownership(
                 {
                     return Ok(None);
                 }
-                let (recorded_partition, indices) = payloads
+                payloads
                     .entry((kind, bits.clone()))
-                    .or_insert((partition_id, Vec::new()));
-                if *recorded_partition != partition_id {
-                    return Ok(None);
-                }
-                indices.push(payload_index);
+                    .or_default()
+                    .push([partition_id, payload_index]);
             }
         }
         execution_policy.check_uncancellable_sort(stage, snapshot.local_noded_segments.len())?;
@@ -1993,12 +2519,12 @@ fn prove_global_non_polygon_ownership(
     }
     let (global, _, _, _, noded, _) =
         reference.polygonize_with_partition_border_export_and_stats(usize::MAX, domain)?;
-    let noded = partition_noded_segments(&noded)?;
-    if !aliases.keys().eq(noded.iter()) {
+    let canonical_noded = partition_noded_segments(&noded)?;
+    if !aliases.keys().eq(canonical_noded.iter()) {
         return Ok(None);
     }
     let mut physical_segments = BTreeMap::new();
-    for (index, segment) in noded.iter().enumerate() {
+    for (index, segment) in canonical_noded.iter().enumerate() {
         execution_policy.check_cancelled_every(stage, index)?;
         if physical_segments
             .insert((segment.start.clone(), segment.end.clone()), segment)
@@ -2027,71 +2553,21 @@ fn prove_global_non_polygon_ownership(
             *expected_payloads.entry((kind, bits)).or_default() += 1;
         }
     }
-    if !payloads.keys().eq(expected_payloads.keys())
-        || payloads
-            .iter()
-            .any(|(key, (_, indices))| indices.len() != expected_payloads[key])
-    {
+    if !payloads.keys().eq(expected_payloads.keys()) {
         return Ok(None);
     }
-    let mut owned = Vec::with_capacity(payloads.len());
-    for ((kind, bits), (recorded_partition, local_payload_indices)) in payloads {
-        let mut owners = Vec::new();
-        for (partition_id, tile) in tiles.iter().enumerate() {
-            let mut contained = true;
-            for point in &bits {
-                execution_policy.check_cancelled_every(stage, work_items)?;
-                work_items += 1;
-                for (axis, value) in point[..2].iter().enumerate() {
-                    let value = f64::from_bits(*value);
-                    let (min, max, domain_max) = if axis == 0 {
-                        (tile.min().x, tile.max().x, domain.max().x)
-                    } else {
-                        (tile.min().y, tile.max().y, domain.max().y)
-                    };
-                    contained &=
-                        value >= min && (value < max || (max == domain_max && value <= max));
-                }
-            }
-            if contained {
-                owners.push(partition_id);
-            }
+    for (key, claims) in &payloads {
+        let mut counts = BTreeMap::<usize, usize>::new();
+        for (index, &[partition, _]) in claims.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            *counts.entry(partition).or_default() += 1;
         }
-        // shortcut: one complete core owner, upgrade with atomic cross-core payload assembly.
-        if owners.as_slice() != [recorded_partition] {
+        if counts
+            .values()
+            .any(|&count| count != expected_payloads[key])
+        {
             return Ok(None);
         }
-        let mut edges = Vec::with_capacity(bits.len() - 1);
-        for pair in bits.windows(2) {
-            execution_policy.check_cancelled_every(stage, work_items)?;
-            work_items += 1;
-            let a = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[0]))?;
-            let b = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[1]))?;
-            let key = if a <= b { (a, b) } else { (b, a) };
-            let Some(&segment) = physical_segments.get(&key) else {
-                return Ok(None);
-            };
-            if !aliases[segment]
-                .iter()
-                .any(|alias| alias[0] == recorded_partition)
-            {
-                return Ok(None);
-            }
-            edges.push(PartitionNonPolygonOwnershipEdge {
-                segment: segment.clone(),
-                local_segment_aliases: aliases[segment].clone(),
-            });
-        }
-        owned.push(PartitionOwnedNonPolygonPayload {
-            payload: PartitionBorderGlobalNonPolygonExtractionPayload {
-                partition_id: recorded_partition,
-                kind,
-                coordinate_bits: bits,
-            },
-            global_payload_count: local_payload_indices.len(),
-            local_payload_indices,
-            edges,
-        });
     }
     let input_fingerprint_sha256 = format!(
         "{:x}",
@@ -2101,16 +2577,156 @@ fn prove_global_non_polygon_ownership(
         )
     );
     execution_policy.check_cancelled(stage)?;
-    Ok(Some((
-        PartitionNonPolygonOwnershipProof {
-            input_fingerprint_sha256,
-            snapshot_fingerprints,
-            source_segment_count: source_segments.len(),
-            noded_segment_count: noded.len(),
-            payloads: owned,
+    Ok(Some(PreparedNonPolygonEvidence {
+        input_fingerprint_sha256,
+        snapshot_fingerprints,
+        source_segment_count: source_segments.len(),
+        aliases,
+        local_payloads: payloads,
+        global_payloads: expected_payloads,
+        noded_segments: noded,
+        reference: global,
+    }))
+}
+
+/// Binds ownership to the complete prepared input and one whole-payload owner.
+fn prove_whole_non_polygon_payload(
+    evidence: &PreparedNonPolygonEvidence,
+    physical_segments: &PhysicalNonPolygonSegments<'_>,
+    key: &NonPolygonPayloadKey,
+    claims: &[[usize; 2]],
+    tiles: &[Rect<f64>],
+    domain: Rect<f64>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionOwnedNonPolygonPayload>> {
+    let stage = "global_non_polygon_ownership";
+    execution_policy.check_cancelled(stage)?;
+    let (kind, bits) = key;
+    let mut work_items = 0;
+    let recorded_partition = claims[0][0];
+    if claims.iter().any(|claim| claim[0] != recorded_partition) {
+        return Ok(None);
+    }
+    let local_payload_indices = claims.iter().map(|claim| claim[1]).collect::<Vec<_>>();
+    let mut owners = Vec::new();
+    for (partition_id, tile) in tiles.iter().enumerate() {
+        let mut contained = true;
+        for point in bits {
+            execution_policy.check_cancelled_every(stage, work_items)?;
+            work_items += 1;
+            for (axis, value) in point[..2].iter().enumerate() {
+                let value = f64::from_bits(*value);
+                let (min, max, domain_max) = if axis == 0 {
+                    (tile.min().x, tile.max().x, domain.max().x)
+                } else {
+                    (tile.min().y, tile.max().y, domain.max().y)
+                };
+                contained &= value >= min && (value < max || (max == domain_max && value <= max));
+            }
+        }
+        if contained {
+            owners.push(partition_id);
+        }
+    }
+    // shortcut: one complete core owner, upgrade with atomic cross-core payload assembly.
+    if owners.as_slice() != [recorded_partition] {
+        return Ok(None);
+    }
+    let mut edges = Vec::with_capacity(bits.len() - 1);
+    for pair in bits.windows(2) {
+        execution_policy.check_cancelled_every(stage, work_items)?;
+        work_items += 1;
+        let a = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[0]))?;
+        let b = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[1]))?;
+        let key = if a <= b { (a, b) } else { (b, a) };
+        let Some(&segment) = physical_segments.get(&key) else {
+            return Ok(None);
+        };
+        if !evidence.aliases[segment]
+            .iter()
+            .any(|alias| alias[0] == recorded_partition)
+        {
+            return Ok(None);
+        }
+        edges.push(PartitionNonPolygonOwnershipEdge {
+            segment: segment.clone(),
+            local_segment_aliases: evidence.aliases[segment].clone(),
+        });
+    }
+    let owned = PartitionOwnedNonPolygonPayload {
+        payload: PartitionBorderGlobalNonPolygonExtractionPayload {
+            partition_id: recorded_partition,
+            kind: *kind,
+            coordinate_bits: bits.clone(),
         },
-        global,
-    )))
+        global_payload_count: local_payload_indices.len(),
+        local_payload_indices,
+        edges,
+    };
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(owned))
+}
+
+fn prove_whole_non_polygon_ownership(
+    evidence: &PreparedNonPolygonEvidence,
+    tiles: &[Rect<f64>],
+    domain: Rect<f64>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionNonPolygonOwnershipProof>> {
+    let stage = "global_non_polygon_ownership";
+    execution_policy.check_cancelled(stage)?;
+    let physical_segments = evidence
+        .aliases
+        .keys()
+        .map(|segment| ((segment.start.clone(), segment.end.clone()), segment))
+        .collect::<BTreeMap<_, _>>();
+    let mut owned = Vec::with_capacity(evidence.local_payloads.len());
+    for (index, (key, claims)) in evidence.local_payloads.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let Some(payload) = prove_whole_non_polygon_payload(
+            evidence,
+            &physical_segments,
+            key,
+            claims,
+            tiles,
+            domain,
+            execution_policy,
+        )?
+        else {
+            return Ok(None);
+        };
+        owned.push(payload);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionNonPolygonOwnershipProof {
+        input_fingerprint_sha256: evidence.input_fingerprint_sha256.clone(),
+        snapshot_fingerprints: evidence.snapshot_fingerprints.clone(),
+        source_segment_count: evidence.source_segment_count,
+        noded_segment_count: evidence.aliases.len(),
+        payloads: owned,
+    }))
+}
+
+#[cfg(test)]
+fn prove_global_non_polygon_ownership(
+    mosaic: &PartitionMosaic,
+    tiles: &[Rect<f64>],
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    domain: Rect<f64>,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<(PartitionNonPolygonOwnershipProof, PolygonizerResult)>> {
+    let Some(evidence) =
+        prepare_non_polygon_evidence(mosaic, tiles, geometries, domain, options, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    let Some(proof) =
+        prove_whole_non_polygon_ownership(&evidence, tiles, domain, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((proof, evidence.reference)))
 }
 
 fn canonical_polygon_output_key(poly: &Polygon3D) -> Option<CanonicalPolygonOutputKey> {
@@ -6407,8 +7023,8 @@ impl<'a> TiledPolygonizer<'a> {
                 )?,
             _ => None,
         };
-        let non_polygon_ownership = if self.untiled_equivalence_check {
-            prove_global_non_polygon_ownership(
+        let non_polygon_evidence = if self.untiled_equivalence_check {
+            prepare_non_polygon_evidence(
                 &partition_mosaic,
                 &tile_layout,
                 &self.geometries,
@@ -6419,8 +7035,37 @@ impl<'a> TiledPolygonizer<'a> {
         } else {
             None
         };
+        let non_polygon_ownership = non_polygon_evidence
+            .as_ref()
+            .map(|evidence| {
+                prove_whole_non_polygon_ownership(
+                    evidence,
+                    &tile_layout,
+                    self.bbox,
+                    &self.execution_policy,
+                )
+            })
+            .transpose()?
+            .flatten();
+        let cross_core_non_polygon = if non_polygon_ownership.is_none() {
+            non_polygon_evidence
+                .as_ref()
+                .map(|evidence| {
+                    assemble_cross_core_non_polygon(
+                        evidence,
+                        &partition_mosaic,
+                        &tile_layout,
+                        self.bbox,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
         let arrangement_output_candidate = match (&arrangement_extraction, &non_polygon_ownership) {
-            (Some(extraction), Some((proof, _)))
+            (Some(extraction), Some(proof))
                 if proof.covers(extraction, &partition_mosaic, &self.execution_policy)? =>
             {
                 Some(physical_table_output_candidate(
@@ -6431,11 +7076,12 @@ impl<'a> TiledPolygonizer<'a> {
             }
             _ => None,
         };
-        let arrangement_equivalence = match (&arrangement_output_candidate, &non_polygon_ownership)
-        {
-            (Some(output), Some((_, reference))) => {
-                compare_stitched_output_with_reference(output, reference, &self.execution_policy)?
-            }
+        let arrangement_equivalence = match (&arrangement_output_candidate, &non_polygon_evidence) {
+            (Some(output), Some(evidence)) => compare_stitched_output_with_reference(
+                output,
+                &evidence.reference,
+                &self.execution_policy,
+            )?,
             _ => TiledUntiledEquivalenceStats::default(),
         };
         let stitched_output = if partition_border_global_private_extraction.extraction_ready {
@@ -6471,7 +7117,16 @@ impl<'a> TiledPolygonizer<'a> {
                 "partition_border_global_non_polygon_ownership",
                 serde_json::json!({
                     "proven": non_polygon_ownership.is_some(),
-                    "proof": non_polygon_ownership.as_ref().map(|(proof, _)| proof),
+                    "proof": non_polygon_ownership,
+                    "output_selectable": false,
+                }),
+            );
+            trace.record(
+                TraceStageV1::Graph,
+                "partition_border_cross_core_non_polygon_assembly",
+                serde_json::json!({
+                    "constructed": cross_core_non_polygon.is_some(),
+                    "assembly": cross_core_non_polygon,
                     "output_selectable": false,
                 }),
             );
