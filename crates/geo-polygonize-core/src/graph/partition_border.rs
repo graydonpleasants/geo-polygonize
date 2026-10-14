@@ -6748,7 +6748,6 @@ impl PartitionBorderGraph {
         self.global_private_extraction.as_ref()
     }
 
-    #[cfg(test)]
     pub(crate) fn global_face_edge_map(&self) -> &[PartitionBorderGlobalFaceEdge] {
         &self.global_face_edge_map
     }
