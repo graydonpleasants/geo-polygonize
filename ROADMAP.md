@@ -519,6 +519,12 @@ core owners, retained halo copies and every output family; nesting, contact,
 boundary ambiguity and invalid-ring interactions remain rejected under the same
 coordinate changes. This coverage does not enable another input class or output
 selection.
+The complete family mixture also conforms across provenance/ID settings, both
+tiled dedup policies, polygonal mode, the exact face-area threshold and its next
+representable value, and conflict-rejecting Z policy on zero-Z inputs. These
+checks preserve invalid-ring multiplicity and raw-duplicate rejection. Proofs
+from a different options context remain rejected even when observable output
+is identical.
 Border-touching polygon components, branched rings and containment-dependent
 classes remain blocked. The bridge does not enable output selection or certify
 broader input classes.
