@@ -462,6 +462,19 @@ The witness also retains accompanying whole-core dangle/cut/invalid-ring
 payloads through the same owner checker used by the whole-core proof, including
 their complete source/edge aliases, local record indices and global multiplicity.
 One invalid member rejects the entire mixed witness; no subset is emitted.
+The private global non-polygon consumer replays the shared proof validators and
+rechecks current snapshot, tile and domain bindings before decoding any family.
+It retains every raw local record and complete proof aliases alongside the
+globally classified multiplicity; it does not choose a representative local
+copy. Selected XYZ is decoded without another Z-policy pass. Every materialized
+family must match the untiled result from the same prepared input/options call,
+using the same comparison as full-output conformance. Changed proofs, missing
+records, closure/ownership conflicts, family mismatches, limits or cancellation
+reject the complete consumer. Its family equivalence remains separate from full
+arrangement equivalence and selectable output. Current raw duplicate and
+physical-face extraction gates remain unchanged; integration into a complete
+private candidate still requires those gates, Euler/containment evidence and
+full-output equivalence.
 Shell/hole assembly where needed and the remaining promotion gates still apply.
 The local output adapter preserves selected XYZ and ordered representative IDs,
 applies the current provenance/profile and face-area options, and compares every
@@ -503,6 +516,13 @@ separately from selectable output; they do not complete the promotion gates.
   payload-edge chains, complete aliases and record multiplicity, including the
   closing owner transition; reject branched or incomplete witnesses as a whole
   (private draft work).
+- [x] Consume complete whole-core or cross-core proofs privately, retaining the
+  raw ledger and exact multiplicity while materializing and comparing all three
+  non-polygon families against the same-call reference; reject the complete
+  consumer on any binding, proof, resource or conformance failure (private draft work).
+- [ ] Combine verified non-polygon consumption with physical-face extraction
+  into a complete private candidate without bypassing ambiguity, duplicate,
+  Euler, containment or same-options equivalence gates.
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.

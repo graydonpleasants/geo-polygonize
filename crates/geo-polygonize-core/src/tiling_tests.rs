@@ -2071,6 +2071,486 @@ mod tests {
     }
 
     #[test]
+    fn global_non_polygon_consumer_materializes_all_families_and_retains_the_raw_ledger() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, consume_global_non_polygon,
+            non_polygon_output_mismatch_count, prepare_non_polygon_evidence,
+            prove_whole_non_polygon_ownership, PartitionMosaic,
+        };
+        let originals = vec![
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+            Geometry::LineString(LineString::from(vec![
+                (2.0, 1.0),
+                (10.0, 3.0),
+                (10.0, 1.0),
+                (2.0, 3.0),
+                (2.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![
+                (0.25, 0.25),
+                (0.5, 0.25),
+                (0.5, 0.375),
+                (0.5, 0.5),
+                (0.25, 0.5),
+                (0.25, 0.25),
+            ])),
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 0.25),
+                (1.25, 0.25),
+                (1.25, 0.5),
+                (1.0, 0.5),
+                (1.0, 0.375),
+                (1.0, 0.25),
+            ])),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (1.0, 0.375)])),
+        ];
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: false,
+            input_profile_id: Some("consumer-profile".to_string()),
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        for tile_size in [12.0, 4.0] {
+            let mut geometries = originals.clone();
+            let mut signatures = Vec::new();
+            for reverse in [false, true] {
+                if reverse {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        if let Geometry::LineString(line) = geometry {
+                            line.0.reverse();
+                        }
+                    }
+                }
+                let refs = geometries
+                    .iter()
+                    .map(|geometry| (geometry, None))
+                    .collect::<Vec<_>>();
+                let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                    .with_options(options.clone())
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let tiles = tiled.generate_tiles().unwrap();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in traced.result.partition_snapshots.iter().rev() {
+                    mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+                }
+                let evidence =
+                    prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                        .unwrap()
+                        .unwrap();
+                let ownership =
+                    prove_whole_non_polygon_ownership(&evidence, &tiles, domain, &policy).unwrap();
+                let assembly = if ownership.is_none() {
+                    assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                        .unwrap()
+                } else {
+                    None
+                };
+                let consumer = consume_global_non_polygon(
+                    &evidence,
+                    ownership.as_ref(),
+                    assembly.as_ref(),
+                    &mosaic,
+                    &tiles,
+                    domain,
+                    &policy,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(consumer.output.dangles.len(), 1);
+                assert_eq!(consumer.output.cut_edges.len(), 1);
+                assert_eq!(consumer.output.invalid_rings.len(), 2);
+                assert_eq!(consumer.payloads.len(), 3);
+                assert_eq!(
+                    consumer.input_fingerprint_sha256,
+                    evidence.input_fingerprint_sha256
+                );
+                assert_eq!(
+                    consumer.snapshot_fingerprints,
+                    evidence.snapshot_fingerprints
+                );
+                assert_eq!(
+                    non_polygon_output_mismatch_count(
+                        &consumer.output.dangles,
+                        &consumer.output.cut_edges,
+                        &consumer.output.invalid_rings,
+                        &evidence.reference,
+                        &policy
+                    )
+                    .unwrap(),
+                    0
+                );
+                let raw_count = mosaic
+                    .partitions
+                    .values()
+                    .map(|snapshot| {
+                        snapshot.non_polygon.dangles.len()
+                            + snapshot.non_polygon.cut_edges.len()
+                            + snapshot.non_polygon.invalid_rings.len()
+                    })
+                    .sum::<usize>();
+                assert_eq!(
+                    consumer
+                        .payloads
+                        .iter()
+                        .map(|payload| payload.local_payload_aliases.len())
+                        .sum::<usize>(),
+                    raw_count
+                );
+                assert_eq!(
+                    consumer
+                        .payloads
+                        .iter()
+                        .map(|payload| payload.global_payload_count)
+                        .sum::<usize>(),
+                    4
+                );
+                for payload in &consumer.payloads {
+                    assert_eq!(
+                        payload.local_payload_aliases,
+                        evidence.local_payloads[&(payload.kind, payload.coordinate_bits.to_vec())]
+                    );
+                }
+                for result in [&ordinary, &traced.result] {
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert_eq!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count,
+                        raw_count - 3
+                    );
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_untiled_equivalence_ready
+                    );
+                    assert!(result.stitched_output.is_none());
+                }
+                let event = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_non_polygon_consumer")
+                    .unwrap()
+                    .payload;
+                assert_eq!(event["constructed"], true);
+                assert_eq!(event["non_polygon_equivalence_ready"], true);
+                assert_eq!(event["output_selectable"], false);
+                assert_eq!(event["consumer"], serde_json::to_value(&consumer).unwrap());
+                signatures.push(serde_json::to_value(&consumer.payloads).unwrap());
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn global_non_polygon_consumer_rejects_forged_stale_or_mismatched_evidence_as_a_whole() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, consume_global_non_polygon,
+            prepare_non_polygon_evidence, prove_whole_non_polygon_ownership, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (2.0, 1.0),
+                (10.0, 3.0),
+                (10.0, 1.0),
+                (2.0, 3.0),
+                (2.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.5), (1.0, 0.5)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: false,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        for tile_size in [12.0, 4.0] {
+            let mut tiled = TiledPolygonizer::new(domain, tile_size).with_options(options.clone());
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let tiles = tiled.generate_tiles().unwrap();
+            let mut mosaic = PartitionMosaic::default();
+            for snapshot in tiled.polygonize().unwrap().partition_snapshots {
+                mosaic.replace_partition(snapshot, &policy).unwrap();
+            }
+            let evidence =
+                prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+                    .unwrap();
+            let ownership =
+                prove_whole_non_polygon_ownership(&evidence, &tiles, domain, &policy).unwrap();
+            let assembly = if ownership.is_none() {
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+            } else {
+                None
+            };
+            let expected = consume_global_non_polygon(
+                &evidence,
+                ownership.as_ref(),
+                assembly.as_ref(),
+                &mosaic,
+                &tiles,
+                domain,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            let before = mosaic.fingerprint_sha256();
+            if let Some(proof) = &ownership {
+                for mutation in 0..12 {
+                    let mut forged = proof.clone();
+                    let ring = forged
+                        .payloads
+                        .iter_mut()
+                        .find(|payload| payload.global_payload_count == 2)
+                        .unwrap();
+                    match mutation {
+                        0 => forged.input_fingerprint_sha256.push('0'),
+                        1 => forged.snapshot_fingerprints[0].1.push('0'),
+                        2 => forged.source_segment_count += 1,
+                        3 => forged.noded_segment_count += 1,
+                        4 => {
+                            forged.payloads.pop();
+                        }
+                        5 => ring.payload.partition_id = 1,
+                        6 => ring.global_payload_count = 1,
+                        7 => {
+                            ring.local_payload_indices.pop();
+                        }
+                        8 => ring.edges[0].local_segment_aliases.clear(),
+                        9 => ring.edges[0].segment.representative_line_id = None,
+                        10 => ring.edges[0].segment.source_line_ids.push(999),
+                        _ => ring.edges[0].segment.start.z = "0x3ff0000000000000".to_string(),
+                    }
+                    assert!(
+                        consume_global_non_polygon(
+                            &evidence,
+                            Some(&forged),
+                            None,
+                            &mosaic,
+                            &tiles,
+                            domain,
+                            &policy
+                        )
+                        .unwrap()
+                        .is_none(),
+                        "whole mutation {mutation}"
+                    );
+                }
+            } else {
+                let proof = assembly.as_ref().unwrap();
+                for mutation in 0..15 {
+                    let mut forged = proof.clone();
+                    let ring = &mut forged.payloads[0];
+                    match mutation {
+                        0 => forged.input_fingerprint_sha256.push('0'),
+                        1 => forged.snapshot_fingerprints[0].1.push('0'),
+                        2 => forged.whole_core_payloads.clear(),
+                        3 => {
+                            ring.local_payload_aliases.pop();
+                        }
+                        4 => ring.global_payload_count = 1,
+                        5 => {
+                            ring.spans.pop();
+                        }
+                        6 => {
+                            ring.spans[0].owner_partition_id =
+                                (ring.spans[0].owner_partition_id + 1) % tiles.len()
+                        }
+                        7 => ring.spans[0].boundary_segment_aliases.clear(),
+                        8 => ring
+                            .spans
+                            .iter_mut()
+                            .find(|span| !span.coarse_boundary_segment_aliases.is_empty())
+                            .unwrap()
+                            .coarse_boundary_segment_aliases
+                            .clear(),
+                        9 => ring.spans[0].payload_edge_index += 1,
+                        10 => ring.spans[0].segment.representative_line_id = None,
+                        11 => ring.spans[0].segment.source_line_ids.push(999),
+                        12 => ring.spans[0].segment.start.z = "0x3ff0000000000000".to_string(),
+                        13 => ring.coordinate_bits.last_mut().unwrap()[2] = 1.0f64.to_bits(),
+                        _ => ring.spans.swap(0, 1),
+                    }
+                    assert!(
+                        consume_global_non_polygon(
+                            &evidence,
+                            None,
+                            Some(&forged),
+                            &mosaic,
+                            &tiles,
+                            domain,
+                            &policy
+                        )
+                        .unwrap()
+                        .is_none(),
+                        "cross mutation {mutation}"
+                    );
+                }
+            }
+            assert!(consume_global_non_polygon(
+                &evidence, None, None, &mosaic, &tiles, domain, &policy
+            )
+            .unwrap()
+            .is_none());
+            let mut stale = mosaic.clone();
+            stale
+                .partitions
+                .get_mut(&0)
+                .unwrap()
+                .generation
+                .retry_attempt += 1;
+            assert!(consume_global_non_polygon(
+                &evidence,
+                ownership.as_ref(),
+                assembly.as_ref(),
+                &stale,
+                &tiles,
+                domain,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+            let changed_domain = Rect::new(domain.min(), Coord { x: 12.5, y: 4.0 });
+            assert!(consume_global_non_polygon(
+                &evidence,
+                ownership.as_ref(),
+                assembly.as_ref(),
+                &mosaic,
+                &tiles,
+                changed_domain,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+            let mut changed_tiles = tiles.clone();
+            changed_tiles[0] = Rect::new(Coord { x: 0.25, y: 0.0 }, changed_tiles[0].max());
+            assert!(consume_global_non_polygon(
+                &evidence,
+                ownership.as_ref(),
+                assembly.as_ref(),
+                &mosaic,
+                &changed_tiles,
+                domain,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+            for mutation in 0..3 {
+                let mut mismatched =
+                    prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                        .unwrap()
+                        .unwrap();
+                match mutation {
+                    0 => {
+                        mismatched.reference.invalid_rings.pop();
+                    }
+                    1 => mismatched.reference.dangles.clear(),
+                    _ => mismatched.reference.dangles[0][0].z = 1.0,
+                }
+                assert!(
+                    consume_global_non_polygon(
+                        &mismatched,
+                        ownership.as_ref(),
+                        assembly.as_ref(),
+                        &mosaic,
+                        &tiles,
+                        domain,
+                        &policy
+                    )
+                    .unwrap()
+                    .is_none(),
+                    "equivalence mutation {mutation}"
+                );
+            }
+            for limited in [
+                ExecutionPolicy {
+                    max_output_coordinates: Some(11),
+                    ..Default::default()
+                },
+                ExecutionPolicy {
+                    max_candidate_pairs: Some(0),
+                    ..Default::default()
+                },
+            ] {
+                assert!(matches!(
+                    consume_global_non_polygon(
+                        &evidence,
+                        ownership.as_ref(),
+                        assembly.as_ref(),
+                        &mosaic,
+                        &tiles,
+                        domain,
+                        &limited
+                    ),
+                    Err(PolygonizeError::ResourceLimitExceeded { .. })
+                ));
+            }
+            for cancel_at in [0, 1, 8] {
+                let token = CancellationToken::new();
+                let cancelled = ExecutionPolicy {
+                    cancellation_token: Some(token.clone()),
+                    cancel_at_work_item: Some((token, cancel_at)),
+                    ..Default::default()
+                };
+                assert!(matches!(
+                    consume_global_non_polygon(
+                        &evidence,
+                        ownership.as_ref(),
+                        assembly.as_ref(),
+                        &mosaic,
+                        &tiles,
+                        domain,
+                        &cancelled
+                    ),
+                    Err(PolygonizeError::Cancelled { .. })
+                ));
+            }
+            assert_eq!(before, mosaic.fingerprint_sha256());
+            assert_eq!(
+                serde_json::to_value(&expected).unwrap(),
+                serde_json::to_value(
+                    consume_global_non_polygon(
+                        &evidence,
+                        ownership.as_ref(),
+                        assembly.as_ref(),
+                        &mosaic,
+                        &tiles,
+                        domain,
+                        &policy
+                    )
+                    .unwrap()
+                    .unwrap()
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn mixed_non_polygon_assembly_keeps_whole_core_lineage_and_cross_core_copies() {
         let cross = Geometry::LineString(LineString::from(vec![(3.0, 2.0), (9.0, 2.0)]));
         let cases = [
