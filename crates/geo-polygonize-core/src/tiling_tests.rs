@@ -13,8 +13,25 @@ mod tests {
         TileCoverageResolutionKind, TileExcludedComponentIssue, TileExecutionPolicy, TileReport,
         TileRetryPolicy, TiledPolygonizeError, TiledPolygonizer, TiledStitchedOutput, ZOptions,
     };
-    use geo::{BoundingRect, Contains, Coord, Geometry, LineString, MultiLineString, Rect};
+    use geo::{
+        BoundingRect, Contains, Coord, Geometry, LineString, MapCoords, MultiLineString, Rect,
+    };
     use std::collections::BTreeSet;
+
+    type ProofCoordinateMap = fn(Coord<f64>) -> Coord<f64>;
+    const PHYSICAL_PROOF_REPRESENTATIONS: [(&str, ProofCoordinateMap); 5] = [
+        ("identity", |point| point),
+        ("vertical", |Coord { x, y }| Coord { x: y, y: x }),
+        ("negative", |Coord { x, y }| Coord {
+            x: x - 12.0,
+            y: y - 4.0,
+        }),
+        ("reflected", |Coord { x, y }| Coord { x: -x, y }),
+        ("large", |Coord { x, y }| Coord {
+            x: x + 1_000_000.0,
+            y: y - 1_000_000.0,
+        }),
+    ];
 
     #[test]
     fn coverage_global_arrangement_has_one_exterior_without_promoting_ambiguous_claims() {
@@ -661,120 +678,192 @@ mod tests {
             (1.0, 3.0),
             (1.0, 1.0),
         ]));
+        let mixed = [
+            cut.clone(),
+            vec![
+                invalid.clone(),
+                Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+            ],
+        ]
+        .concat();
+        let separate_input_lines = mixed
+            .iter()
+            .flat_map(|geometry| {
+                let Geometry::LineString(line) = geometry else {
+                    unreachable!()
+                };
+                line.0
+                    .windows(2)
+                    .map(|pair| Geometry::LineString(LineString(pair.to_vec())))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
         let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
-        for (originals, buffer, node_inputs, polygons, cuts, invalids) in [
-            (cut.clone(), 12.0, vec![false, true], 2, 1, 0),
+        let mut checked = 0;
+        for (originals, buffer, node_inputs, polygons, cuts, dangles, invalids, fragmented) in [
+            (cut.clone(), 12.0, vec![false, true], 2, 1, 0, 0, false),
             (
                 vec![square(0.25, 0.5), invalid.clone()],
                 0.0,
                 vec![false],
                 1,
                 0,
+                0,
                 2,
+                false,
             ),
-            (
-                [
-                    cut,
-                    vec![
-                        invalid,
-                        Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
-                    ],
-                ]
-                .concat(),
-                12.0,
-                vec![false],
-                2,
-                1,
-                2,
-            ),
+            (mixed, 12.0, vec![false], 2, 1, 1, 2, false),
+            (separate_input_lines, 12.0, vec![false], 2, 1, 1, 2, true),
         ] {
-            for tile_size in [4.0, 6.0] {
-                for reverse in [false, true] {
-                    for &node_input in &node_inputs {
-                        for minimum_face_area in [None, Some(1.0)] {
-                            let mut geometries = originals.clone();
-                            if reverse {
-                                geometries.reverse();
-                                for geometry in &mut geometries {
-                                    if let Geometry::LineString(line) = geometry {
-                                        line.0.reverse();
+            for (representation, project) in PHYSICAL_PROOF_REPRESENTATIONS {
+                let originals = originals
+                    .iter()
+                    .map(|geometry| geometry.map_coords(project))
+                    .collect::<Vec<_>>();
+                let domain = Rect::new(project(domain.min()), project(domain.max()));
+                for tile_size in [4.0, 6.0] {
+                    for reverse in [false, true] {
+                        for &node_input in &node_inputs {
+                            for minimum_face_area in [None, Some(1.0)] {
+                                // Keep the option matrix on the identity; transformed cases isolate coordinate handling.
+                                if representation != "identity"
+                                    && (tile_size != 4.0
+                                        || reverse
+                                        || node_input
+                                        || minimum_face_area.is_some())
+                                {
+                                    continue;
+                                }
+                                let mut geometries = originals.clone();
+                                if reverse {
+                                    geometries.reverse();
+                                    for geometry in &mut geometries {
+                                        if let Geometry::LineString(line) = geometry {
+                                            line.0.reverse();
+                                        }
                                     }
                                 }
-                            }
-                            let options = PolygonizerOptions {
-                                node_input,
-                                input_profile_id: Some("physical-components".to_string()),
-                                provenance: ProvenanceOptions {
-                                    enabled: true,
-                                    include_boundary_line_ids: true,
-                                },
-                                output_filter: crate::OutputFilterOptions { minimum_face_area },
-                                ..Default::default()
-                            };
-                            let mut tiled = TiledPolygonizer::new(domain, tile_size)
-                                .with_buffer(buffer)
-                                .with_options(options)
-                                .with_untiled_equivalence_check();
-                            for geometry in &geometries {
-                                tiled.add_geometry(geometry);
-                            }
-                            let ordinary = tiled.polygonize().unwrap();
-                            let traced = tiled
-                                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
-                                .unwrap();
-                            let conformance = &traced
-                                .trace
-                                .events
-                                .iter()
-                                .find(|event| {
-                                    event.kind == "partition_border_global_arrangement_conformance"
-                                })
-                                .unwrap()
-                                .payload;
-                            assert_eq!(conformance["candidate_built"], true, "cuts={cuts} invalids={invalids} tiles={tile_size} node={node_input} event={conformance} proofs={:?}", traced.trace.events.iter().filter(|event| event.kind == "partition_border_cross_core_non_polygon_assembly" || event.kind == "partition_border_global_non_polygon_consumer" || event.kind == "partition_border_cross_core_physical_proof").map(|event| (&event.kind, &event.payload["constructed"], &event.payload["proven"])).collect::<Vec<_>>());
-                            assert_eq!(conformance["equivalence_ready"], true);
-                            assert_eq!(conformance["equivalence_mismatch_count"], 0);
-                            assert_eq!(
-                                conformance["polygon_count"],
-                                if minimum_face_area.is_some() {
-                                    0
-                                } else {
-                                    polygons
+                                let options = PolygonizerOptions {
+                                    node_input,
+                                    input_profile_id: Some("physical-components".to_string()),
+                                    provenance: ProvenanceOptions {
+                                        enabled: true,
+                                        include_boundary_line_ids: true,
+                                    },
+                                    output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                    ..Default::default()
+                                };
+                                let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                                    .with_buffer(buffer)
+                                    .with_options(options)
+                                    .with_untiled_equivalence_check();
+                                for geometry in &geometries {
+                                    tiled.add_geometry(geometry);
                                 }
-                            );
-                            assert_eq!(conformance["cut_edge_count"], cuts);
-                            assert_eq!(conformance["invalid_ring_count"], invalids);
-                            assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
-                            assert_eq!(conformance["output_selectable"], false);
-                            let proof = &traced
-                                .trace
-                                .events
-                                .iter()
-                                .find(|event| {
-                                    event.kind == "partition_border_cross_core_physical_proof"
-                                })
-                                .unwrap()
-                                .payload;
-                            assert_eq!(proof["proven"], true);
-                            assert_eq!(
-                                proof["proof"]["components"].as_array().unwrap().len(),
-                                polygons as usize
-                            );
-                            assert_eq!(proof["output_selectable"], false);
-                            for result in [&ordinary, &traced.result] {
-                                assert!(
-                                    !result
-                                        .stitching_report
-                                        .partition_border_global_non_polygon_extraction_ready
+                                let ordinary = tiled.polygonize().unwrap();
+                                let traced = tiled
+                                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                                    .unwrap();
+                                let conformance = &traced
+                                    .trace
+                                    .events
+                                    .iter()
+                                    .find(|event| {
+                                        event.kind
+                                            == "partition_border_global_arrangement_conformance"
+                                    })
+                                    .unwrap()
+                                    .payload;
+                                assert_eq!(conformance["candidate_built"], true, "representation={representation} fragmented={fragmented} cuts={cuts} invalids={invalids} tiles={tile_size} node={node_input} event={conformance} proofs={:?}", traced.trace.events.iter().filter(|event| event.kind == "partition_border_cross_core_non_polygon_assembly" || event.kind == "partition_border_global_non_polygon_consumer" || event.kind == "partition_border_cross_core_physical_proof").map(|event| (&event.kind, &event.payload["constructed"], &event.payload["proven"])).collect::<Vec<_>>());
+                                assert_eq!(conformance["equivalence_ready"], true);
+                                assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                                assert_eq!(
+                                    conformance["polygon_count"],
+                                    if minimum_face_area.is_some() {
+                                        0
+                                    } else {
+                                        polygons
+                                    }
                                 );
-                                assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
-                                assert!(result.stitched_output.is_none());
+                                assert_eq!(conformance["cut_edge_count"], cuts);
+                                assert_eq!(conformance["dangle_count"], dangles);
+                                assert_eq!(conformance["invalid_ring_count"], invalids);
+                                assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                                assert_eq!(conformance["output_selectable"], false);
+                                let proof = &traced
+                                    .trace
+                                    .events
+                                    .iter()
+                                    .find(|event| {
+                                        event.kind == "partition_border_cross_core_physical_proof"
+                                    })
+                                    .unwrap()
+                                    .payload;
+                                assert_eq!(proof["proven"], true);
+                                assert_eq!(
+                                    proof["proof"]["components"].as_array().unwrap().len(),
+                                    polygons as usize
+                                );
+                                assert_eq!(proof["output_selectable"], false);
+                                let components = proof["proof"]["components"].as_array().unwrap();
+                                let last_partition =
+                                    (traced.result.partition_snapshots.len() - 1) as u64;
+                                let expected_owners = if polygons == 1 {
+                                    vec![if representation == "reflected" {
+                                        last_partition
+                                    } else {
+                                        0
+                                    }]
+                                } else {
+                                    vec![0, last_partition]
+                                }
+                                .into_iter()
+                                .collect::<BTreeSet<_>>();
+                                assert_eq!(
+                                    components
+                                        .iter()
+                                        .map(|component| component["owner_partition_id"]
+                                            .as_u64()
+                                            .unwrap())
+                                        .collect::<BTreeSet<_>>(),
+                                    expected_owners,
+                                    "representation={representation}"
+                                );
+                                for component in components {
+                                    assert_eq!(
+                                        component["copies"].as_array().unwrap().len(),
+                                        if buffer == 0.0 {
+                                            1
+                                        } else {
+                                            traced.result.partition_snapshots.len()
+                                        }
+                                    );
+                                }
+                                if fragmented {
+                                    for snapshot in &traced.result.partition_snapshots {
+                                        assert_eq!(
+                                            snapshot.selected_input_geometry_indices.len(),
+                                            geometries.len()
+                                        );
+                                    }
+                                }
+                                checked += 1;
+                                for result in [&ordinary, &traced.result] {
+                                    assert!(
+                                        !result
+                                            .stitching_report
+                                            .partition_border_global_non_polygon_extraction_ready
+                                    );
+                                    assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                                    assert!(result.stitched_output.is_none());
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        assert_eq!(checked, 56);
     }
 
     #[test]
@@ -802,7 +891,9 @@ mod tests {
             (2.0, 3.0),
             (2.0, 1.0),
         ]));
-        for (geometries, tile_size) in [
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let mut checked = 0;
+        for (originals, tile_size) in [
             (
                 vec![square(0.25, 0.25, 1.5, 1.5), square(0.5, 0.5, 1.0, 1.0)],
                 4.0,
@@ -816,48 +907,55 @@ mod tests {
             (vec![square(0.25, 0.25, 0.5, 0.5), boundary_crossing], 6.0),
             (vec![square(1.5, 1.75, 1.75, 2.0), invalid], 4.0),
         ] {
-            let mut tiled = TiledPolygonizer::new(
-                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
-                tile_size,
-            )
-            .with_buffer(12.0)
-            .with_options(PolygonizerOptions {
-                node_input: false,
-                ..Default::default()
-            })
-            .with_untiled_equivalence_check();
-            for geometry in &geometries {
-                tiled.add_geometry(geometry);
-            }
-            let dangle = Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]));
-            tiled.add_geometry(&dangle);
-            let traced = tiled
-                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
-                .unwrap();
-            let proof = &traced
-                .trace
-                .events
-                .iter()
-                .find(|event| event.kind == "partition_border_cross_core_physical_proof")
-                .unwrap()
-                .payload;
-            assert_eq!(
-                proof["proven"], false,
-                "geometries={geometries:?} proof={proof}"
-            );
-            let conformance = &traced
-                .trace
-                .events
-                .iter()
-                .find(|event| event.kind == "partition_border_global_arrangement_conformance")
-                .unwrap()
-                .payload;
-            assert_eq!(
+            for (representation, project) in PHYSICAL_PROOF_REPRESENTATIONS {
+                let geometries = originals
+                    .iter()
+                    .map(|geometry| geometry.map_coords(project))
+                    .collect::<Vec<_>>();
+                let domain = Rect::new(project(domain.min()), project(domain.max()));
+                let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                    .with_buffer(12.0)
+                    .with_options(PolygonizerOptions {
+                        node_input: false,
+                        ..Default::default()
+                    })
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let dangle = Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]))
+                    .map_coords(project);
+                tiled.add_geometry(&dangle);
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let proof = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                    .unwrap()
+                    .payload;
+                assert_eq!(
+                    proof["proven"], false,
+                    "representation={representation} geometries={geometries:?} proof={proof}"
+                );
+                let conformance = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                    .unwrap()
+                    .payload;
+                assert_eq!(
                 conformance["candidate_built"], false,
-                "geometries={geometries:?} conformance={conformance}"
+                "representation={representation} geometries={geometries:?} conformance={conformance}"
             );
-            assert!(traced.result.stitched_output.is_none());
+                assert!(traced.result.stitched_output.is_none());
+                checked += 1;
+            }
         }
+        assert_eq!(checked, 30);
     }
 
     #[test]
