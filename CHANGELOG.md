@@ -7,75 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.1.0...geo-polygonize-v1.2.0) (2026-10-14)
 
+### Supported changes and package repairs
 
-### Features
+- **Wasm packed results:** add managed packed geometry with synchronous borrowed
+  views, independent snapshots, GeoJSON conversion, and explicit, idempotent
+  disposal. Borrowed views stay within a synchronous callback; use snapshots
+  across async/worker boundaries. Geometry-only results omit report, provenance,
+  and non-polygon sidecars; existing full-result APIs remain available. Input
+  still copies through wasm-bindgen, and
+  representative IDs are not complete source provenance. See [#1511](https://github.com/graydonpleasants/geo-polygonize/pull/1511).
+- **GeoParquet correctness:** preserve one topology domain across storage batches,
+  write valid empty polygon files, and retain an existing destination when a
+  replacement fails. Inputs must contain only XY planar line geometry; additional
+  attribute and bbox-covering columns are rejected with
+  `UnsupportedOptionCombination`. Project the geometry column and handle
+  attribution separately. The complete topology domain must fit in memory. See
+  [#1526](https://github.com/graydonpleasants/geo-polygonize/pull/1526).
+- **Threaded package repair:** include the threaded Wasm binary and worker snippets
+  in the npm tarball, with explicit worker module resolution. The experimental
+  threads entrypoint requires cross-origin isolation and explicit thread-pool
+  initialization; this packaging fix does not change its support status. See
+  [#1535](https://github.com/graydonpleasants/geo-polygonize/pull/1535).
 
-* **core:** add inner-box routing proof ([#1466](https://github.com/graydonpleasants/geo-polygonize/issues/1466)) ([547a551](https://github.com/graydonpleasants/geo-polygonize/commit/547a551d928841e90d2d57a5b707b7b7da9af780))
-* **core:** add source-aware partition sink ([#1465](https://github.com/graydonpleasants/geo-polygonize/issues/1465)) ([231a8ef](https://github.com/graydonpleasants/geo-polygonize/commit/231a8ef21506fb16816c1d2eaf4197faf7beaba2))
-* **core:** add stitched benchmark evidence ([#1504](https://github.com/graydonpleasants/geo-polygonize/issues/1504)) ([78c264f](https://github.com/graydonpleasants/geo-polygonize/commit/78c264f055d10753e7c00bebb7459cef2c663fc3))
-* **core:** add transactional partition mosaic ([#1485](https://github.com/graydonpleasants/geo-polygonize/issues/1485)) ([979260a](https://github.com/graydonpleasants/geo-polygonize/commit/979260ab77c26d08122db0a3d87e9985158bfdc8))
-* **core:** adopt validated physical successor candidates ([#1509](https://github.com/graydonpleasants/geo-polygonize/issues/1509)) ([0ad1291](https://github.com/graydonpleasants/geo-polygonize/commit/0ad1291619a7d9f88f070c4b897e9784cbd4651e))
-* **core:** bound partition candidate visits ([#1468](https://github.com/graydonpleasants/geo-polygonize/issues/1468)) ([581cea6](https://github.com/graydonpleasants/geo-polygonize/commit/581cea6d9b724f5bcf41ded2243fc57cf861c397))
-* **core:** classify partition mosaic spans ([#1489](https://github.com/graydonpleasants/geo-polygonize/issues/1489)) ([0e2a24b](https://github.com/graydonpleasants/geo-polygonize/commit/0e2a24b6aa9e658977bb34708e05106552a66e01))
-* **core:** classify partition topology readiness ([#1494](https://github.com/graydonpleasants/geo-polygonize/issues/1494)) ([d5744a1](https://github.com/graydonpleasants/geo-polygonize/commit/d5744a10a0f234681c6110c05877655a97e35109))
-* **core:** complete partition snapshot evidence ([#1500](https://github.com/graydonpleasants/geo-polygonize/issues/1500)) ([a7eaaf3](https://github.com/graydonpleasants/geo-polygonize/commit/a7eaaf30a9d35cf8d89ec32e0d0614da9cf60062))
-* **core:** define partition corner obligations ([#1493](https://github.com/graydonpleasants/geo-polygonize/issues/1493)) ([7dde3b9](https://github.com/graydonpleasants/geo-polygonize/commit/7dde3b92d49fa8b312eed4c95375f5c2912e82d6))
-* **core:** define partition span obligations ([#1492](https://github.com/graydonpleasants/geo-polygonize/issues/1492)) ([c3279b5](https://github.com/graydonpleasants/geo-polygonize/commit/c3279b5ef6645df9ed21c638fc577276079304d8))
-* **core:** gate partition topology claims ([#1495](https://github.com/graydonpleasants/geo-polygonize/issues/1495)) ([4b956a9](https://github.com/graydonpleasants/geo-polygonize/commit/4b956a911cd6b86d58a2c6c24f430b8af144277a))
-* **core:** retain partition generation evidence ([#1499](https://github.com/graydonpleasants/geo-polygonize/issues/1499)) ([f3d8cb4](https://github.com/graydonpleasants/geo-polygonize/commit/f3d8cb414be68d9835bf1532ac415d059328164a))
-* **core:** retain partition mosaic span claims ([#1488](https://github.com/graydonpleasants/geo-polygonize/issues/1488)) ([44178bc](https://github.com/graydonpleasants/geo-polygonize/commit/44178bcc96a8405351b9dff26f69f3ae81779849))
-* **core:** retain reconciled physical arrangement witness ([#1507](https://github.com/graydonpleasants/geo-polygonize/issues/1507)) ([53ba3e1](https://github.com/graydonpleasants/geo-polygonize/commit/53ba3e1df34986ce0d40629959404b9ea713bfac))
-* **core:** stage halo retries transactionally ([#1501](https://github.com/graydonpleasants/geo-polygonize/issues/1501)) ([e0c4274](https://github.com/graydonpleasants/geo-polygonize/commit/e0c42749f84f06b709f07b4ba37df8d183881cf1))
-* **core:** stream boundary partition candidates ([#1467](https://github.com/graydonpleasants/geo-polygonize/issues/1467)) ([6fc8e84](https://github.com/graydonpleasants/geo-polygonize/commit/6fc8e8446e5443a8897df11b6c31e81423bb10ee))
-* **core:** validate partition snapshots for mosaic ([#1484](https://github.com/graydonpleasants/geo-polygonize/issues/1484)) ([7655af0](https://github.com/graydonpleasants/geo-polygonize/commit/7655af0fef853226b2606ca821ba694fccd2a0e1))
-* **core:** validate physical edge alias groups ([#1510](https://github.com/graydonpleasants/geo-polygonize/issues/1510)) ([cf04ab5](https://github.com/graydonpleasants/geo-polygonize/commit/cf04ab525f4330f15dd541f41fe803c1b4d2e2b2))
-* **wasm:** add managed packed results ([#1511](https://github.com/graydonpleasants/geo-polygonize/issues/1511)) ([727ee5c](https://github.com/graydonpleasants/geo-polygonize/commit/727ee5cb3b21b0d782ea66eb9e065981f0601bac))
+- **CommonJS repair:** use real `.cjs` entrypoints and initialize the packaged Wasm
+  binary from Node independently of the consumer working directory. Standard and
+  slim APIs retain packed-result lifecycle guarantees ([#1538](https://github.com/graydonpleasants/geo-polygonize/pull/1538)).
+- **Private benchmark gating:** omit router benchmark exports from default Wasm
+  packages; research builds opt in through `router-benchmarks` and
+  `WASM_ROUTER_BENCHMARKS=1` ([#1539](https://github.com/graydonpleasants/geo-polygonize/pull/1539)).
 
+### Release validation and delivery
 
-### Bug Fixes
+- Preserve generated ts-rs binding whitespace and fail CI if tests leave bindings
+  dirty ([#1525](https://github.com/graydonpleasants/geo-polygonize/pull/1525),
+  [#1522](https://github.com/graydonpleasants/geo-polygonize/pull/1522)).
+- Compare the supported Rust facade against 1.1.0, run required release regressions,
+  and pin the threaded publisher to the toolchain validated by CI
+  ([#1531](https://github.com/graydonpleasants/geo-polygonize/pull/1531)).
+- Verify publisher evidence for the exact release tag and commit, wait before
+  checking registry availability, and require complete version/smoke evidence
+  ([#1532](https://github.com/graydonpleasants/geo-polygonize/pull/1532)).
+- Exercise installed standard/slim packed-result lifecycles for releases from 1.2
+  onward while retaining historical 1.0/1.1 verification
+  ([#1533](https://github.com/graydonpleasants/geo-polygonize/pull/1533)).
 
-* **core:** avoid face-ring materialization in layout benchmark ([#1419](https://github.com/graydonpleasants/geo-polygonize/issues/1419)) ([2c47d92](https://github.com/graydonpleasants/geo-polygonize/commit/2c47d92b78872e4043d0e3302db95be407c9f987))
-* **core:** gate stitched output on untiled equivalence ([#1464](https://github.com/graydonpleasants/geo-polygonize/issues/1464)) ([dfcab3d](https://github.com/graydonpleasants/geo-polygonize/commit/dfcab3df41c9e7d13fa8b9b0d73e77c6f2db2f8b))
-* **core:** keep Rust builds warning-free ([#1497](https://github.com/graydonpleasants/geo-polygonize/issues/1497)) ([c1ad588](https://github.com/graydonpleasants/geo-polygonize/commit/c1ad588778b9632f4501cb3a6f6b18cc2fa40e18))
-* **core:** normalize MCIndex zero-event output ([#1424](https://github.com/graydonpleasants/geo-polygonize/issues/1424)) ([bb4875e](https://github.com/graydonpleasants/geo-polygonize/commit/bb4875e9e62fd09c935f412e770f4b1c1d81d519))
-* **core:** normalize MCIndex zero-length output ([#1431](https://github.com/graydonpleasants/geo-polygonize/issues/1431)) ([7d00882](https://github.com/graydonpleasants/geo-polygonize/commit/7d008824974d88b325e6b4b9a513af58a0da623a))
-* **core:** preserve repeated border twin identity ([#1505](https://github.com/graydonpleasants/geo-polygonize/issues/1505)) ([7e9a147](https://github.com/graydonpleasants/geo-polygonize/commit/7e9a1478b4bcbce09050da3108aaf6d912d9085a))
-* **core:** preserve whole-file GeoParquet topology ([#1526](https://github.com/graydonpleasants/geo-polygonize/issues/1526)) ([d0b5585](https://github.com/graydonpleasants/geo-polygonize/commit/d0b5585ecc072ddc9258c218b53f96df95997ff2))
-* **core:** reconcile unbounded markers within one global cycle ([#1506](https://github.com/graydonpleasants/geo-polygonize/issues/1506)) ([c5ada4f](https://github.com/graydonpleasants/geo-polygonize/commit/c5ada4f05d9db3c1bbffd86c9d39e2f87524806d))
-* **core:** reject incompatible partition snapshots ([#1503](https://github.com/graydonpleasants/geo-polygonize/issues/1503)) ([62d9109](https://github.com/graydonpleasants/geo-polygonize/commit/62d9109879b74ca957dccee8fa05affa768c3752))
-* **core:** reject partition mosaic span conflicts ([#1491](https://github.com/graydonpleasants/geo-polygonize/issues/1491)) ([36c4b1c](https://github.com/graydonpleasants/geo-polygonize/commit/36c4b1ce9461a70e91c3cc5f882b432cdde55b06))
-* **github:** accept legacy release report asset names ([#1409](https://github.com/graydonpleasants/geo-polygonize/issues/1409)) ([6d88614](https://github.com/graydonpleasants/geo-polygonize/commit/6d88614b081d0dd7feae92d2ed10822103183bf3))
-* **github:** attach benchmark release artifacts ([#1408](https://github.com/graydonpleasants/geo-polygonize/issues/1408)) ([441cdfe](https://github.com/graydonpleasants/geo-polygonize/commit/441cdfe7181d18f0bd52fa187a3ad959f12d319e))
-* **github:** verify exact release publication evidence ([28005fc](https://github.com/graydonpleasants/geo-polygonize/commit/28005fcfd6aca12b10d7e449acb50ac7c8f77015))
-* **github:** verify exact release publication evidence ([#1532](https://github.com/graydonpleasants/geo-polygonize/issues/1532)) ([59416e8](https://github.com/graydonpleasants/geo-polygonize/commit/59416e861145492781ebb5737027656f99cb2e65))
-* **github:** wait before recording registry evidence ([4a06ada](https://github.com/graydonpleasants/geo-polygonize/commit/4a06adacd9ae9a125dd8b6f08dc400927284643e))
-* **wasm:** repair CommonJS package entrypoints ([#1538](https://github.com/graydonpleasants/geo-polygonize/issues/1538)) ([0bce981](https://github.com/graydonpleasants/geo-polygonize/commit/0bce981265470f9e72d26f73f79eccdc49f48a87))
-* **wasm:** ship threaded runtime assets ([995b4c0](https://github.com/graydonpleasants/geo-polygonize/commit/995b4c09b2104095a94c14b6c5a8cfb1ed446353))
+### Private research and experimental work
 
+Partition routing, transactional mosaics, physical-arrangement witnesses,
+readiness diagnostics, provenance checks, and benchmark/fuzz evidence advance
+private topology research. CSR adjacency and MCIndex paths remain experiments.
+Single-component scratch-bypass measurements remain retained research: the
+recorded peak-memory promotion budget was not met. These changes do not select
+a new production backend or establish a general performance improvement.
 
-### Performance Improvements
-
-* **core:** add MCIndex publication experiment path ([#1437](https://github.com/graydonpleasants/geo-polygonize/issues/1437)) ([27397f8](https://github.com/graydonpleasants/geo-polygonize/commit/27397f8874b2b98658db954e3ec02491e15f4ca1))
-* **core:** benchmark packed CSR adjacency ([#1418](https://github.com/graydonpleasants/geo-polygonize/issues/1418)) ([92cc3a6](https://github.com/graydonpleasants/geo-polygonize/commit/92cc3a651e4f7b4ff33de76ca214deb45ad026f7))
-* **core:** benchmark partition router natively ([#1482](https://github.com/graydonpleasants/geo-polygonize/issues/1482)) ([6851e7d](https://github.com/graydonpleasants/geo-polygonize/commit/6851e7d631778fad432a4a659fdb6237fe2f5ba5))
-* **core:** bypass scratch for single component ([#1414](https://github.com/graydonpleasants/geo-polygonize/issues/1414)) ([e3902be](https://github.com/graydonpleasants/geo-polygonize/commit/e3902bef3a1a8060ce5f5ed02f7f8d479854b698))
-* **core:** expose partition router evidence ([#1476](https://github.com/graydonpleasants/geo-polygonize/issues/1476)) ([b90542e](https://github.com/graydonpleasants/geo-polygonize/commit/b90542ecd5e91fc2a726573f9a8b1faa11190a2f))
-* **core:** prototype CSR adjacency oracle ([#1416](https://github.com/graydonpleasants/geo-polygonize/issues/1416)) ([d881afb](https://github.com/graydonpleasants/geo-polygonize/commit/d881afb40f41baf4209d9445cca9cbe1fd0df5a7))
-* **core:** record CSR layout memory evidence ([#1417](https://github.com/graydonpleasants/geo-polygonize/issues/1417)) ([47a498c](https://github.com/graydonpleasants/geo-polygonize/commit/47a498cf208a8cb976c046f7f8b3c77ee5343dd8))
-* **core:** record partition router evidence ([#1477](https://github.com/graydonpleasants/geo-polygonize/issues/1477)) ([0e12d2a](https://github.com/graydonpleasants/geo-polygonize/commit/0e12d2a458709466399064c033b22036f7950180))
-* **core:** record partition router peak memory ([#1483](https://github.com/graydonpleasants/geo-polygonize/issues/1483)) ([59b29ea](https://github.com/graydonpleasants/geo-polygonize/commit/59b29eaabc8be0ac84dccba9dc93ca07b8317e62))
-* **core:** record partition router work ([#1474](https://github.com/graydonpleasants/geo-polygonize/issues/1474)) ([3a19fc0](https://github.com/graydonpleasants/geo-polygonize/commit/3a19fc0f649acd4bf2b1d47ae384467ca9c6093a))
-* **core:** record single-component benchmark decision ([#1415](https://github.com/graydonpleasants/geo-polygonize/issues/1415)) ([a32d3e7](https://github.com/graydonpleasants/geo-polygonize/commit/a32d3e7234f0972c501722e7a3fe6fec0ac588af))
-* **core:** route MCIndex through shared noding path ([#1420](https://github.com/graydonpleasants/geo-polygonize/issues/1420)) ([1c15e0d](https://github.com/graydonpleasants/geo-polygonize/commit/1c15e0d394d2ce807d29f460e3edb5ae52038e1f))
-* **core:** skip empty MCIndex fallback scan ([#1438](https://github.com/graydonpleasants/geo-polygonize/issues/1438)) ([397ea8d](https://github.com/graydonpleasants/geo-polygonize/commit/397ea8d70f32bfab8837f21b23f0962839c9913d))
-* **core:** summarize partition router publications ([#1479](https://github.com/graydonpleasants/geo-polygonize/issues/1479)) ([1eaea58](https://github.com/graydonpleasants/geo-polygonize/commit/1eaea58edae9d079146989720940c81d4b3ef041))
-* **wasm:** benchmark partition router in browser ([#1481](https://github.com/graydonpleasants/geo-polygonize/issues/1481)) ([bb99cb1](https://github.com/graydonpleasants/geo-polygonize/commit/bb99cb159b379538d3109c656c00643e253f595c))
-* **wasm:** expose partition router evidence ([#1480](https://github.com/graydonpleasants/geo-polygonize/issues/1480)) ([0e1280d](https://github.com/graydonpleasants/geo-polygonize/commit/0e1280d4b349caad7ce59dfbd14acab1e16a050b))
-
-
-### Build System
-
-* **wasm:** gate private router benchmark exports ([#1539](https://github.com/graydonpleasants/geo-polygonize/issues/1539)) ([23d3a37](https://github.com/graydonpleasants/geo-polygonize/commit/23d3a37bb75e69e109b20aedb725f9783d430552))
+Graph-stitched output, production streamed routing, incremental topology, and
+out-of-core polygonization remain gated. Replicate-and-own tiling is distinct
+from graph stitching. The supported 1.x facade retains its existing contract;
+private research milestones are not new supported APIs.
 
 ## [1.1.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.0.0...geo-polygonize-v1.1.0) (2026-08-20)
 
