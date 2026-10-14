@@ -472,9 +472,26 @@ using the same comparison as full-output conformance. Changed proofs, missing
 records, closure/ownership conflicts, family mismatches, limits or cancellation
 reject the complete consumer. Its family equivalence remains separate from full
 arrangement equivalence and selectable output. Current raw duplicate and
-physical-face extraction gates remain unchanged; integration into a complete
-private candidate still requires those gates, Euler/containment evidence and
-full-output equivalence.
+physical-face extraction gates remain unchanged. The complete private candidate
+revalidates either the whole-core raw extraction or separate physical polygon
+evidence paired with a complete cross-core consumer. Both replay the same
+physical claim, face/Euler and simple-shell containment checks and bind the
+local face graphs and options to the current snapshots. The cross-core path
+also binds every raw non-polygon row and its exact extraction counts to those
+snapshots before joining globally classified families. Raw duplicates still
+fail the original extraction gate; every local alias remains in the consumer
+and source ledger. No representative raw copy is selected or discarded.
+The adapter retains polygon provenance, representative IDs and selected XYZ;
+determinism applies after the join, and aggregate limits apply before filtering
+or copying joined families. Full-output conformance gates the complete private
+candidate against the same prepared reference: any polygon or non-polygon
+mismatch rejects it as a whole, retaining checked/ready/mismatch diagnostics.
+Trace distinguishes a materialized candidate from one accepted after comparison;
+missing reference evidence cannot accept a candidate. Physical-ready
+multi-boundary dangles with whole-core
+companions now conform privately. Cross-core invalid-ring and disconnected
+cut-edge arrangements lacking physical face proofs remain blocked; the bridge
+does not enable output selection or certify broader input classes.
 Shell/hole assembly where needed and the remaining promotion gates still apply.
 The local output adapter preserves selected XYZ and ordered representative IDs,
 applies the current provenance/profile and face-area options, and compares every
@@ -497,32 +514,27 @@ separately from selectable output; they do not complete the promotion gates.
   polygonal candidates.
 - [x] Materialize private physical-table ring and alias payloads with complete
   source, representative-ID, raw/selected Z, and retained non-polygon evidence.
-- [x] Adapt supported simple-ring payloads privately and check same-call,
-  same-options output conformance, including representative IDs and every
-  non-polygon family (private draft work).
-- [x] Prove global dangle/cut/invalid-ring ownership for complete whole-core
-  payloads, retaining all edge aliases and exact invalid-ring multiplicity
-  without bypassing ambiguity or duplicate-payload gates (private draft work).
-- [x] Construct private two-core dangle/cut assembly witnesses with complete
-  raw-copy retention, boundary-table replay and exact atomic span owners
-  (private draft work).
-- [x] Retain validated whole-core companion families in mixed assembly
-  witnesses, rejecting incomplete, stale, ambiguous or incompatible members
-  without partial output (private draft work).
-- [x] Extend open-edge witnesses across multiple shared boundaries with exact
-  endpoint chains, unique owners and complete atomic/coarse alias retention;
-  reject any invalid member as a whole (private draft work).
-- [x] Construct private cross-core invalid-ring witnesses with exact closed
-  payload-edge chains, complete aliases and record multiplicity, including the
-  closing owner transition; reject branched or incomplete witnesses as a whole
-  (private draft work).
-- [x] Consume complete whole-core or cross-core proofs privately, retaining the
-  raw ledger and exact multiplicity while materializing and comparing all three
-  non-polygon families against the same-call reference; reject the complete
-  consumer on any binding, proof, resource or conformance failure (private draft work).
-- [ ] Combine verified non-polygon consumption with physical-face extraction
-  into a complete private candidate without bypassing ambiguity, duplicate,
-  Euler, containment or same-options equivalence gates.
+- [x] Adapt eligible simple-ring physical payloads privately, preserving selected
+  XYZ, representative IDs, provenance/profile and face-area options, and compare
+  every output family against the same-call, same-options reference (draft layer 1).
+- [x] Prove complete whole-core dangle/cut/invalid-ring ownership against current
+  input and snapshot inventories, retaining all aliases and exact multiplicity;
+  preflight cancellation-enabled source work before extraction (draft layer 2).
+- [x] Construct private cross-core witnesses for open payload edges and unbranched
+  closed invalid-ring chains, including mixed whole-core companions, complete
+  atomic/coarse lineage and every owner transition; reject the complete witness
+  on a bad member (draft layer 3).
+- [x] Consume revalidated complete ownership or cross-core proofs privately,
+  retaining the raw ledger and exact multiplicity, decoding selected XYZ, and
+  requiring equivalence of all three non-polygon families (draft layer 4).
+- [x] Join current physical polygon evidence with a complete revalidated consumer
+  into a private candidate, preserving snapshot/options/source bindings and all
+  existing gate outcomes. Accept only after full same-call conformance; missing
+  reference evidence or any family mismatch rejects the complete candidate while
+  trace distinguishes materialization from acceptance (draft layer 5).
+- [ ] Complete representation review and remaining cross-core input-class
+  proofs before promotion; family ownership does not replace polygon, Euler
+  or containment evidence.
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.

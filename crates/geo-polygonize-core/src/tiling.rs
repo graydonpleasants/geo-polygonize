@@ -4,7 +4,8 @@ use crate::graph::partition_border::{
     PartitionBorderAdjacency, PartitionBorderEdgeKey,
     PartitionBorderGlobalNonPolygonExtractionPayload, PartitionBorderGlobalNonPolygonPayloadKind,
     PartitionBorderGraph, PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph,
-    PartitionBorderNodeKey, PartitionBorderObservationId, PartitionBorderPhysicalTableExtraction,
+    PartitionBorderNodeKey, PartitionBorderObservationId, PartitionBorderPhysicalPolygonExtraction,
+    PartitionBorderPhysicalRingPayload, PartitionBorderPhysicalTableExtraction,
     PartitionBorderSide, PartitionLocalGraphState,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
@@ -1849,7 +1850,7 @@ struct PartitionCrossCoreNonPolygonAssembly {
     whole_core_payloads: Vec<PartitionOwnedNonPolygonPayload>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(tag = "scope", content = "evidence", rename_all = "snake_case")]
 enum PartitionNonPolygonConsumedProof<'a> {
     WholeCore(&'a PartitionOwnedNonPolygonPayload),
@@ -1879,7 +1880,7 @@ impl<'a> PartitionNonPolygonConsumedProof<'a> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 struct PartitionNonPolygonConsumedPayload<'a> {
     kind: PartitionBorderGlobalNonPolygonPayloadKind,
     coordinate_bits: &'a [[u64; 3]],
@@ -1888,19 +1889,42 @@ struct PartitionNonPolygonConsumedPayload<'a> {
     proof: PartitionNonPolygonConsumedProof<'a>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 struct PartitionGlobalNonPolygonOutput {
     dangles: Vec<Vec<Coord3D>>,
     cut_edges: Vec<Vec<Coord3D>>,
     invalid_rings: Vec<Vec<Coord3D>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 struct PartitionGlobalNonPolygonConsumer<'a> {
     input_fingerprint_sha256: &'a str,
     snapshot_fingerprints: &'a [(usize, String)],
     payloads: Vec<PartitionNonPolygonConsumedPayload<'a>>,
     output: PartitionGlobalNonPolygonOutput,
+}
+
+struct PartitionGlobalCandidateInputs<'a> {
+    graph: &'a PartitionBorderGraph,
+    witness: &'a crate::graph::partition_border::PartitionBorderGlobalArrangementWitness,
+    construction: &'a crate::graph::partition_border::PartitionBorderPhysicalTopologyConstruction,
+    eligible_observation_ids: &'a BTreeSet<PartitionBorderObservationId>,
+    span_evidence_ready: bool,
+    non_polygon_stats:
+        crate::graph::partition_border::PartitionBorderGlobalNonPolygonExtractionStats,
+    evidence: &'a PreparedNonPolygonEvidence,
+    ownership: Option<&'a PartitionNonPolygonOwnershipProof>,
+    assembly: Option<&'a PartitionCrossCoreNonPolygonAssembly>,
+    mosaic: &'a PartitionMosaic,
+    tiles: &'a [Rect<f64>],
+    domain: Rect<f64>,
+    options: &'a PolygonizerOptions,
+}
+
+#[derive(Clone, Copy)]
+enum PartitionGlobalCandidateExtraction<'a> {
+    WholeCore(&'a PartitionBorderPhysicalTableExtraction),
+    CrossCore(&'a PartitionBorderPhysicalPolygonExtraction),
 }
 
 fn replay_non_polygon_boundary_segments(
@@ -3123,6 +3147,21 @@ fn compare_stitched_output_with_reference(
     })
 }
 
+fn gate_private_candidate_conformance(
+    candidate: Option<TiledStitchedOutput>,
+    reference: Option<&PolygonizerResult>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<(Option<TiledStitchedOutput>, TiledUntiledEquivalenceStats)> {
+    execution_policy.check_cancelled("tiled_private_candidate_conformance")?;
+    let (Some(candidate), Some(reference)) = (candidate, reference) else {
+        return Ok((None, TiledUntiledEquivalenceStats::default()));
+    };
+    let equivalence =
+        compare_stitched_output_with_reference(&candidate, reference, execution_policy)?;
+    execution_policy.check_cancelled("tiled_private_candidate_conformance")?;
+    Ok((equivalence.ready.then_some(candidate), equivalence))
+}
+
 fn coord3d_from_bits(bits: [u64; 3]) -> Coord3D {
     Coord3D::new(
         f64::from_bits(bits[0]),
@@ -3135,6 +3174,20 @@ fn coord3d_from_bits(bits: [u64; 3]) -> Coord3D {
 /// payloads still lack global ownership proof and cannot select stitched output.
 pub(crate) fn physical_table_output_candidate(
     extraction: &PartitionBorderPhysicalTableExtraction,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<TiledStitchedOutput> {
+    physical_payload_output_candidate(
+        &extraction.ring_payloads,
+        &extraction.non_polygon_payloads,
+        options,
+        execution_policy,
+    )
+}
+
+fn physical_payload_output_candidate(
+    ring_payloads: &[PartitionBorderPhysicalRingPayload],
+    non_polygon_payloads: &[PartitionBorderGlobalNonPolygonExtractionPayload],
     options: &PolygonizerOptions,
     execution_policy: &ExecutionPolicy,
 ) -> Result<TiledStitchedOutput> {
@@ -3173,11 +3226,7 @@ pub(crate) fn physical_table_output_candidate(
         Ok(count)
     };
     // Extraction rejects nesting, so polygonal-shell filtering keeps every shell.
-    for payload in extraction
-        .ring_payloads
-        .iter()
-        .filter(|ring| !ring.unbounded)
-    {
+    for payload in ring_payloads.iter().filter(|ring| !ring.unbounded) {
         next_coordinate_count(coordinate_count, payload.coordinate_bits.len())?;
         execution_policy.check_uncancellable_sort(stage, payload.source_line_ids.len())?;
         let mut polygon = Polygon3D::new(
@@ -3223,7 +3272,7 @@ pub(crate) fn physical_table_output_candidate(
         }
     }
     // The core retains these families even in polygonal-shell mode.
-    for payload in &extraction.non_polygon_payloads {
+    for payload in non_polygon_payloads {
         coordinate_count = next_coordinate_count(coordinate_count, payload.coordinate_bits.len())?;
         let coordinates = decode(&payload.coordinate_bits)?;
         use crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind;
@@ -3248,6 +3297,270 @@ pub(crate) fn physical_table_output_candidate(
     )?;
     execution_policy.check_cancelled(stage)?;
     Ok(output)
+}
+
+/// Binds every raw record to its current snapshot without accepting raw duplicates as output.
+fn private_raw_non_polygon_ledger_bound(
+    inputs: &PartitionGlobalCandidateInputs<'_>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<bool> {
+    let stage = "tiled_complete_private_candidate";
+    let retained = inputs
+        .graph
+        .global_non_polygon_extraction_payload_candidates();
+    execution_policy.check_uncancellable_sort(stage, retained.len())?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, retained.len())?;
+    let mut stats =
+        crate::graph::partition_border::PartitionBorderGlobalNonPolygonExtractionStats::default();
+    for (index, payload) in retained.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        stats.coordinate_count = stats
+            .coordinate_count
+            .checked_add(payload.coordinate_bits.len())
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "global non-polygon coordinate count overflow".to_string(),
+            })?;
+        match payload.kind {
+            PartitionBorderGlobalNonPolygonPayloadKind::Dangle => stats.dangle_count += 1,
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => stats.cut_edge_count += 1,
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => {
+                stats.invalid_ring_count += 1
+            }
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, stats.coordinate_count)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        stats.coordinate_count,
+    )?;
+    let expected = inputs.mosaic.partitions.values().flat_map(|snapshot| {
+        [
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+                &snapshot.non_polygon.dangles,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+                &snapshot.non_polygon.cut_edges,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+                &snapshot.non_polygon.invalid_rings,
+            ),
+        ]
+        .into_iter()
+        .flat_map(move |(kind, family)| {
+            family
+                .iter()
+                .map(move |bits| (snapshot.partition_id, kind, bits.as_slice()))
+        })
+    });
+    if !retained
+        .iter()
+        .map(|payload| {
+            (
+                payload.partition_id,
+                payload.kind,
+                payload.coordinate_bits.as_slice(),
+            )
+        })
+        .eq(expected)
+    {
+        return Ok(false);
+    }
+    let mut keys = retained
+        .iter()
+        .map(|payload| (payload.kind, payload.coordinate_bits.as_slice()))
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    for (index, (kind, bits)) in keys.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if bits.iter().any(|point| {
+            point
+                .iter()
+                .any(|&value| !f64::from_bits(value).is_finite())
+        }) {
+            stats.invalid_coordinate_count += 1;
+        }
+        if index > 0 && keys[index - 1] == (*kind, *bits) {
+            stats.duplicate_payload_count += 1;
+        }
+    }
+    stats.payload_ready = stats.invalid_coordinate_count == 0 && stats.duplicate_payload_count == 0;
+    stats.evidence_mismatch_count = usize::from(!stats.payload_ready);
+    execution_policy.check_cancelled(stage)?;
+    Ok(stats == inputs.non_polygon_stats && stats.invalid_coordinate_count == 0)
+}
+
+/// Joins current polygon evidence with a complete, revalidated global consumer.
+fn integrate_private_global_candidate(
+    inputs: &PartitionGlobalCandidateInputs<'_>,
+    extraction: PartitionGlobalCandidateExtraction<'_>,
+    consumer: &PartitionGlobalNonPolygonConsumer<'_>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<TiledStitchedOutput>> {
+    let stage = "tiled_complete_private_candidate";
+    execution_policy.check_cancelled(stage)?;
+    let options_key = serde_json::to_value(inputs.options).expect("validated options serialize");
+    for (index, snapshot) in inputs.mosaic.partitions.values().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if snapshot.topology.options != options_key {
+            return Ok(None);
+        }
+    }
+    let local_graphs = inputs.graph.local_face_graphs();
+    let mut graph_items = local_graphs.len();
+    for (index, edge) in local_graphs
+        .iter()
+        .flat_map(|graph| &graph.directed_edges)
+        .enumerate()
+    {
+        execution_policy.check_cancelled_every(stage, index)?;
+        graph_items = graph_items
+            .checked_add(1)
+            .and_then(|count| count.checked_add(edge.source_line_ids.len()))
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "physical snapshot binding item count overflow".to_string(),
+            })?;
+    }
+    execution_policy.check_uncancellable_sort(stage, graph_items)?;
+    if !partition_local_face_graphs(local_graphs).iter().eq(inputs
+        .mosaic
+        .partitions
+        .values()
+        .flat_map(|snapshot| &snapshot.local_face_graphs))
+    {
+        return Ok(None);
+    }
+    if matches!(extraction, PartitionGlobalCandidateExtraction::CrossCore(_))
+        && !private_raw_non_polygon_ledger_bound(inputs, execution_policy)?
+    {
+        return Ok(None);
+    }
+    let validated = consume_global_non_polygon(
+        inputs.evidence,
+        inputs.ownership,
+        inputs.assembly,
+        inputs.mosaic,
+        inputs.tiles,
+        inputs.domain,
+        execution_policy,
+    )?;
+    if validated.as_ref() != Some(consumer) {
+        return Ok(None);
+    }
+    let mut output = match (extraction, inputs.ownership, inputs.assembly) {
+        (PartitionGlobalCandidateExtraction::WholeCore(extraction), Some(ownership), None) => {
+            if inputs
+                .graph
+                .extract_physical_table_payloads(
+                    inputs.witness,
+                    inputs.construction,
+                    inputs.eligible_observation_ids,
+                    inputs.span_evidence_ready,
+                    inputs.non_polygon_stats,
+                    execution_policy,
+                )?
+                .as_ref()
+                != Some(extraction)
+                || !ownership.covers(extraction, inputs.mosaic, execution_policy)?
+            {
+                return Ok(None);
+            }
+            let output =
+                physical_table_output_candidate(extraction, inputs.options, execution_policy)?;
+            if non_polygon_output_mismatch_count(
+                &output.dangles,
+                &output.cut_edges,
+                &output.invalid_rings,
+                &inputs.evidence.reference,
+                execution_policy,
+            )? != 0
+            {
+                return Ok(None);
+            }
+            output
+        }
+        (PartitionGlobalCandidateExtraction::CrossCore(extraction), None, Some(_)) => {
+            let retained_coordinate_count = extraction
+                .ring_payloads
+                .iter()
+                .filter(|ring| !ring.unbounded)
+                .try_fold(inputs.non_polygon_stats.coordinate_count, |count, ring| {
+                    count.checked_add(ring.coordinate_bits.len())
+                })
+                .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                    reason: "physical extraction coordinate count overflow".to_string(),
+                })?;
+            execution_policy.check_uncancellable_sort(stage, retained_coordinate_count)?;
+            execution_policy.check(
+                stage,
+                execution_policy.max_output_coordinates,
+                retained_coordinate_count,
+            )?;
+            if inputs
+                .graph
+                .extract_physical_polygon_payloads(
+                    inputs.witness,
+                    inputs.construction,
+                    inputs.eligible_observation_ids,
+                    inputs.span_evidence_ready,
+                    execution_policy,
+                )?
+                .as_ref()
+                != Some(extraction)
+            {
+                return Ok(None);
+            }
+            physical_payload_output_candidate(
+                &extraction.ring_payloads,
+                &[],
+                inputs.options,
+                execution_policy,
+            )?
+        }
+        _ => return Ok(None),
+    };
+    let mut coordinates = output
+        .polygons
+        .iter()
+        .flat_map(|polygon| std::iter::once(&polygon.exterior).chain(&polygon.interiors))
+        .map(Vec::len)
+        .chain(
+            consumer
+                .output
+                .dangles
+                .iter()
+                .chain(&consumer.output.cut_edges)
+                .chain(&consumer.output.invalid_rings)
+                .map(Vec::len),
+        );
+    let coordinate_count = coordinates
+        .try_fold(0usize, |count, length| count.checked_add(length))
+        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+            reason: "complete private candidate coordinate count overflow".to_string(),
+        })?;
+    execution_policy.check_uncancellable_sort(stage, coordinate_count)?;
+    execution_policy.check(
+        "output_coordinates",
+        execution_policy.max_output_coordinates,
+        coordinate_count,
+    )?;
+    output.dangles = consumer.output.dangles.clone();
+    output.cut_edges = consumer.output.cut_edges.clone();
+    output.invalid_rings = consumer.output.invalid_rings.clone();
+    output.polygons = apply_determinism(
+        output.polygons,
+        &mut output.dangles,
+        &mut output.cut_edges,
+        &mut output.invalid_rings,
+        inputs.options,
+        execution_policy,
+        None,
+    )?;
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(output))
 }
 
 fn promote_global_private_extraction(
@@ -7295,26 +7608,80 @@ impl<'a> TiledPolygonizer<'a> {
             })
             .transpose()?
             .flatten();
-        let arrangement_output_candidate = match (&arrangement_extraction, &non_polygon_ownership) {
-            (Some(extraction), Some(proof))
-                if proof.covers(extraction, &partition_mosaic, &self.execution_policy)? =>
-            {
-                Some(physical_table_output_candidate(
-                    extraction,
-                    &self.options,
+        let cross_core_polygon_extraction = match (
+            &cross_core_non_polygon,
+            &non_polygon_consumer,
+            &global_arrangement_witness,
+            &arrangement_construction,
+        ) {
+            (Some(_), Some(_), Some(witness), Some(construction)) => partition_border_graph
+                .extract_physical_polygon_payloads(
+                    witness,
+                    construction,
+                    &topology_ready_observation_ids,
+                    arrangement_blocked_span_count == 0,
                     &self.execution_policy,
-                )?)
+                )?,
+            _ => None,
+        };
+        let candidate_extraction = match (
+            &non_polygon_ownership,
+            &cross_core_non_polygon,
+            &arrangement_extraction,
+            &cross_core_polygon_extraction,
+        ) {
+            (Some(_), None, Some(extraction), _) => {
+                Some(PartitionGlobalCandidateExtraction::WholeCore(extraction))
+            }
+            (None, Some(_), _, Some(extraction)) => {
+                Some(PartitionGlobalCandidateExtraction::CrossCore(extraction))
             }
             _ => None,
         };
-        let arrangement_equivalence = match (&arrangement_output_candidate, &non_polygon_evidence) {
-            (Some(output), Some(evidence)) => compare_stitched_output_with_reference(
-                output,
-                &evidence.reference,
+        let arrangement_output_candidate = match (
+            candidate_extraction,
+            &non_polygon_evidence,
+            &non_polygon_consumer,
+            &global_arrangement_witness,
+            &arrangement_construction,
+        ) {
+            (
+                Some(extraction),
+                Some(evidence),
+                Some(consumer),
+                Some(witness),
+                Some(construction),
+            ) => integrate_private_global_candidate(
+                &PartitionGlobalCandidateInputs {
+                    graph: &partition_border_graph,
+                    witness,
+                    construction,
+                    eligible_observation_ids: &topology_ready_observation_ids,
+                    span_evidence_ready: arrangement_blocked_span_count == 0,
+                    non_polygon_stats: partition_border_global_non_polygon_extraction,
+                    evidence,
+                    ownership: non_polygon_ownership.as_ref(),
+                    assembly: cross_core_non_polygon.as_ref(),
+                    mosaic: &partition_mosaic,
+                    tiles: &tile_layout,
+                    domain: self.bbox,
+                    options: &self.options,
+                },
+                extraction,
+                consumer,
                 &self.execution_policy,
             )?,
-            _ => TiledUntiledEquivalenceStats::default(),
+            _ => None,
         };
+        let arrangement_candidate_materialized = arrangement_output_candidate.is_some();
+        let (arrangement_output_candidate, arrangement_equivalence) =
+            gate_private_candidate_conformance(
+                arrangement_output_candidate,
+                non_polygon_evidence
+                    .as_ref()
+                    .map(|evidence| &evidence.reference),
+                &self.execution_policy,
+            )?;
         let stitched_output = if partition_border_global_private_extraction.extraction_ready {
             promote_global_private_extraction(
                 &partition_border_graph,
@@ -7372,6 +7739,7 @@ impl<'a> TiledPolygonizer<'a> {
                 }),
             );
             trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_conformance", serde_json::json!({
+                "candidate_materialized": arrangement_candidate_materialized,
                 "candidate_built": arrangement_output_candidate.is_some(),
                 "polygon_count": arrangement_output_candidate.as_ref().map(|output| output.polygons.len()),
                 "dangle_count": arrangement_output_candidate.as_ref().map(|output| output.dangles.len()),
@@ -7381,6 +7749,10 @@ impl<'a> TiledPolygonizer<'a> {
                 "equivalence_ready": arrangement_equivalence.ready,
                 "equivalence_mismatch_count": arrangement_equivalence.mismatch_count,
                 "non_polygon_ownership_proven": non_polygon_ownership.is_some(),
+                "consumer_bound": arrangement_output_candidate.is_some(),
+                "physical_extraction_bound": arrangement_output_candidate.is_some(),
+                "cross_core_assembly_bound": arrangement_output_candidate.is_some() && cross_core_non_polygon.is_some(),
+                "raw_non_polygon_ledger_bound": arrangement_output_candidate.is_some(),
                 "output_selectable": false,
             }));
             let (
@@ -7454,6 +7826,12 @@ impl<'a> TiledPolygonizer<'a> {
                     "face_id_by_physical_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_physical_dir_edge),
                     "face_id_by_local_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_local_dir_edge),
                     "unbounded_face_id": arrangement_faces.map(|faces| faces.unbounded_face_id),
+                }));
+                trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_polygon_extraction", serde_json::json!({
+                    "materialized": cross_core_polygon_extraction.is_some(),
+                    "rings": cross_core_polygon_extraction.as_ref().map(|extraction| &extraction.ring_payloads),
+                    "local_alias_count": cross_core_polygon_extraction.as_ref().map(|extraction| extraction.local_aliases.len()),
+                    "output_selectable": false,
                 }));
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_extraction", serde_json::json!({
                     "materialized": arrangement_extraction.is_some(),

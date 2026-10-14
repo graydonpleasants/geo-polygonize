@@ -462,6 +462,9 @@ mod tests {
                                 .unwrap()
                                 .payload;
                             assert_eq!(conformance["candidate_built"], true, "tile_size={tile_size} reverse={reverse} polygonal={extract_only_polygonal} minimum={minimum_face_area:?} conformance={conformance}");
+                            assert_eq!(conformance["candidate_materialized"], true);
+                            assert_eq!(conformance["consumer_bound"], true);
+                            assert_eq!(conformance["physical_extraction_bound"], true);
                             assert_eq!(
                                 conformance["polygon_count"],
                                 usize::from(minimum_face_area.is_none())
@@ -479,6 +482,946 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn cross_core_complete_private_candidate_conforms_without_accepting_raw_duplicates() {
+        let originals = vec![
+            Geometry::LineString(LineString::from(vec![
+                (0.25, 0.25),
+                (0.5, 0.25),
+                (0.5, 0.5),
+                (0.25, 0.5),
+                (0.25, 0.25),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+            Geometry::LineString(LineString::from(vec![(0.75, 0.75), (1.0, 0.75)])),
+        ];
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        for tile_size in [4.0, 6.0] {
+            for reverse in [false, true] {
+                for node_input in [false, true] {
+                    for minimum_face_area in [None, Some(1.0)] {
+                        let mut geometries = originals.clone();
+                        if reverse {
+                            geometries.reverse();
+                            for geometry in &mut geometries {
+                                if let Geometry::LineString(line) = geometry {
+                                    line.0.reverse();
+                                }
+                            }
+                        }
+                        let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                            .with_buffer(0.0)
+                            .with_options(PolygonizerOptions {
+                                node_input,
+                                input_profile_id: Some("cross-candidate".to_string()),
+                                provenance: ProvenanceOptions {
+                                    enabled: true,
+                                    include_boundary_line_ids: true,
+                                },
+                                output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                        for geometry in &geometries {
+                            tiled.add_geometry(geometry);
+                        }
+                        let ordinary = tiled.polygonize().unwrap();
+                        let traced = tiled
+                            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                            .unwrap();
+                        let raw_count = traced
+                            .result
+                            .partition_snapshots
+                            .iter()
+                            .map(|snapshot| snapshot.non_polygon.dangles.len())
+                            .sum::<usize>();
+                        let conformance = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind == "partition_border_global_arrangement_conformance"
+                            })
+                            .unwrap()
+                            .payload;
+                        assert_eq!(conformance["candidate_built"], true, "tile={tile_size} reverse={reverse} noded={node_input} minimum={minimum_face_area:?} conformance={conformance}");
+                        assert_eq!(
+                            conformance["polygon_count"],
+                            usize::from(minimum_face_area.is_none())
+                        );
+                        assert_eq!(conformance["dangle_count"], 2);
+                        assert_eq!(conformance["candidate_materialized"], true);
+                        assert_eq!(conformance["consumer_bound"], true);
+                        assert_eq!(conformance["physical_extraction_bound"], true);
+                        assert_eq!(conformance["cross_core_assembly_bound"], true);
+                        assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                        assert_eq!(conformance["equivalence_checked"], true);
+                        assert_eq!(conformance["equivalence_ready"], true);
+                        assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                        assert_eq!(conformance["output_selectable"], false);
+                        let consumer = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind == "partition_border_global_non_polygon_consumer"
+                            })
+                            .unwrap()
+                            .payload;
+                        let payloads = consumer["consumer"]["payloads"].as_array().unwrap();
+                        assert_eq!(payloads.len(), 2);
+                        assert_eq!(
+                            payloads
+                                .iter()
+                                .map(|payload| payload["local_payload_aliases"]
+                                    .as_array()
+                                    .unwrap()
+                                    .len())
+                                .sum::<usize>(),
+                            raw_count
+                        );
+                        assert_eq!(
+                            payloads
+                                .iter()
+                                .map(|payload| payload["global_payload_count"].as_u64().unwrap())
+                                .sum::<u64>(),
+                            2
+                        );
+                        assert!(payloads
+                            .iter()
+                            .any(|payload| payload["proof"]["scope"] == "cross_core"));
+                        assert!(payloads
+                            .iter()
+                            .any(|payload| payload["proof"]["scope"] == "whole_core"));
+                        let raw_extraction = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind == "partition_border_global_arrangement_extraction"
+                            })
+                            .unwrap()
+                            .payload;
+                        assert_eq!(raw_extraction["materialized"], false);
+                        let polygon_extraction = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind
+                                    == "partition_border_global_arrangement_polygon_extraction"
+                            })
+                            .unwrap()
+                            .payload;
+                        assert_eq!(polygon_extraction["materialized"], true);
+                        for result in [&ordinary, &traced.result] {
+                            assert!(
+                                !result
+                                    .stitching_report
+                                    .partition_border_global_non_polygon_extraction_ready
+                            );
+                            assert_eq!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count, raw_count - 2);
+                            assert!(
+                                !result
+                                    .stitching_report
+                                    .partition_border_global_untiled_equivalence_ready
+                            );
+                            assert!(result.stitched_output.is_none());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cross_core_complete_private_candidate_rejects_any_changed_component_atomically() {
+        use crate::graph::partition_border::PartitionBorderGraph;
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, consume_global_non_polygon,
+            integrate_private_global_candidate, prepare_non_polygon_evidence,
+            PartitionGlobalCandidateExtraction, PartitionGlobalCandidateInputs, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (0.25, 0.25),
+                (0.5, 0.25),
+                (0.5, 0.5),
+                (0.25, 0.5),
+                (0.25, 0.25),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+            Geometry::LineString(LineString::from(vec![(0.75, 0.75), (1.0, 0.75)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: false,
+            input_profile_id: Some("cross-candidate".to_string()),
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            output_filter: crate::OutputFilterOptions {
+                minimum_face_area: Some(1.0),
+            },
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0)
+            .with_buffer(0.0)
+            .with_options(options.clone());
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut graph = PartitionBorderGraph::default();
+        let mut mosaic = PartitionMosaic::default();
+        for (partition_id, &tile) in tiles.iter().enumerate() {
+            let (_, _, _, observations, local_graphs, _, _, _, _, _, _, _, snapshot) = tiled
+                .process_tile(partition_id, tile, &tiles, &[], 0.0, 0, None)
+                .unwrap();
+            for observation in observations {
+                graph.insert(observation).unwrap();
+            }
+            for local in local_graphs {
+                graph.insert_local_face_graph(local).unwrap();
+            }
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let eligible = mosaic.topology_ready_observation_ids();
+        graph
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(options.z, &policy)
+            .unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let decode = |family: &[Vec<[u64; 3]>]| {
+            family
+                .iter()
+                .map(|bits| {
+                    bits.iter()
+                        .copied()
+                        .map(crate::tiling::coord3d_from_bits)
+                        .collect()
+                })
+                .collect()
+        };
+        for snapshot in mosaic.partitions.values() {
+            graph
+                .retain_global_non_polygon_extraction_payloads(
+                    &policy,
+                    snapshot.partition_id,
+                    decode(&snapshot.non_polygon.dangles),
+                    decode(&snapshot.non_polygon.cut_edges),
+                    decode(&snapshot.non_polygon.invalid_rings),
+                )
+                .unwrap();
+        }
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert!(!stats.payload_ready);
+        assert_eq!(stats.duplicate_payload_count, 2);
+        assert!(graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        let extraction = graph
+            .extract_physical_polygon_payloads(&witness, &construction, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let assembly = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let consumer = consume_global_non_polygon(
+            &evidence,
+            None,
+            Some(&assembly),
+            &mosaic,
+            &tiles,
+            domain,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let inputs = PartitionGlobalCandidateInputs {
+            graph: &graph,
+            witness: &witness,
+            construction: &construction,
+            eligible_observation_ids: &eligible,
+            span_evidence_ready: true,
+            non_polygon_stats: stats,
+            evidence: &evidence,
+            ownership: None,
+            assembly: Some(&assembly),
+            mosaic: &mosaic,
+            tiles: &tiles,
+            domain,
+            options: &options,
+        };
+        let materialize = |inputs: &PartitionGlobalCandidateInputs<'_>,
+                           extraction: &crate::graph::partition_border::PartitionBorderPhysicalPolygonExtraction,
+                           consumer: &crate::tiling::PartitionGlobalNonPolygonConsumer<'_>,
+                           policy: &ExecutionPolicy| {
+            integrate_private_global_candidate(
+                inputs,
+                PartitionGlobalCandidateExtraction::CrossCore(extraction),
+                consumer,
+                policy,
+            )
+        };
+        let expected = materialize(&inputs, &extraction, &consumer, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(expected.polygons.len(), 0);
+        assert_eq!(expected.dangles.len(), 2);
+        assert!(
+            crate::tiling::compare_stitched_output_with_reference(
+                &expected,
+                &evidence.reference,
+                &policy
+            )
+            .unwrap()
+            .ready
+        );
+        let graph_before = graph.clone();
+        let mosaic_before = mosaic.fingerprint_sha256();
+        let mut foreign_graph = PartitionBorderGraph::default();
+        for local in graph.local_face_graphs() {
+            let mut changed = local.clone();
+            for edge in &mut changed.directed_edges {
+                edge.source_line_ids = vec![99];
+            }
+            foreign_graph.insert_local_face_graph(changed).unwrap();
+        }
+        foreign_graph
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        foreign_graph
+            .reconcile_global_face_edge_map(&policy)
+            .unwrap();
+        foreign_graph
+            .reconcile_global_face_nodes(options.z, &policy)
+            .unwrap();
+        for snapshot in mosaic.partitions.values() {
+            foreign_graph
+                .retain_global_non_polygon_extraction_payloads(
+                    &policy,
+                    snapshot.partition_id,
+                    decode(&snapshot.non_polygon.dangles),
+                    decode(&snapshot.non_polygon.cut_edges),
+                    decode(&snapshot.non_polygon.invalid_rings),
+                )
+                .unwrap();
+        }
+        let foreign_witness = foreign_graph
+            .global_arrangement_witness(&policy)
+            .unwrap()
+            .unwrap();
+        let foreign_construction = foreign_graph
+            .construct_global_arrangement_candidate(&foreign_witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let foreign_extraction = foreign_graph
+            .extract_physical_polygon_payloads(
+                &foreign_witness,
+                &foreign_construction,
+                &eligible,
+                true,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+        let foreign_inputs = PartitionGlobalCandidateInputs {
+            graph: &foreign_graph,
+            witness: &foreign_witness,
+            construction: &foreign_construction,
+            ..inputs
+        };
+        assert!(
+            materialize(&foreign_inputs, &foreign_extraction, &consumer, &policy)
+                .unwrap()
+                .is_none()
+        );
+        for mutation in 0..7 {
+            let mut changed = extraction.clone();
+            match mutation {
+                0 => {
+                    changed.local_aliases.pop();
+                }
+                1 => changed.ring_payloads[0].coordinate_bits[0][2] = 1.0f64.to_bits(),
+                2 => changed.ring_payloads[0].representative_line_ids[0] = 99,
+                3 => changed.ring_payloads[0].source_line_ids.push(99),
+                4 => changed.ring_payloads[0].local_dir_edge_ids_by_edge[0].clear(),
+                5 => changed.local_aliases[0].from_z_bits = 1.0f64.to_bits(),
+                _ => {
+                    changed.ring_payloads.pop();
+                }
+            }
+            assert!(
+                materialize(&inputs, &changed, &consumer, &policy)
+                    .unwrap()
+                    .is_none(),
+                "physical mutation {mutation}"
+            );
+        }
+        for mutation in 0..5 {
+            let mut changed = consumer.clone();
+            match mutation {
+                0 => changed.input_fingerprint_sha256 = "stale",
+                1 => changed.payloads.clear(),
+                2 => changed.payloads[0].local_payload_aliases = &[],
+                3 => changed.payloads[0].global_payload_count += 1,
+                _ => changed.output.dangles[0][0].z = 1.0,
+            }
+            assert!(
+                materialize(&inputs, &extraction, &changed, &policy)
+                    .unwrap()
+                    .is_none(),
+                "consumer mutation {mutation}"
+            );
+        }
+        for mutation in 0..4 {
+            let mut changed = assembly.clone();
+            match mutation {
+                0 => {
+                    changed.payloads[0].spans.pop();
+                }
+                1 => changed.payloads[0].spans[0].owner_partition_id = 2,
+                2 => changed.payloads[0].spans[0]
+                    .boundary_segment_aliases
+                    .clear(),
+                _ => changed.whole_core_payloads.clear(),
+            }
+            let changed_inputs = PartitionGlobalCandidateInputs {
+                assembly: Some(&changed),
+                ..inputs
+            };
+            assert!(
+                materialize(&changed_inputs, &extraction, &consumer, &policy)
+                    .unwrap()
+                    .is_none(),
+                "assembly mutation {mutation}"
+            );
+        }
+        for mutation in 0..3 {
+            let mut changed_graph = graph.clone();
+            if mutation == 0 {
+                changed_graph = PartitionBorderGraph::default();
+                for local in graph.local_face_graphs() {
+                    changed_graph
+                        .insert_local_face_graph(local.clone())
+                        .unwrap();
+                }
+                changed_graph
+                    .apply_topology_ready_face_twins(&eligible, &policy)
+                    .unwrap();
+                changed_graph
+                    .reconcile_global_face_edge_map(&policy)
+                    .unwrap();
+                changed_graph
+                    .reconcile_global_face_nodes(options.z, &policy)
+                    .unwrap();
+                assert!(changed_graph
+                    .global_non_polygon_extraction_payload_candidates()
+                    .is_empty());
+            } else {
+                let mut dangle = decode(&mosaic.partitions[&0].non_polygon.dangles);
+                if mutation == 2 {
+                    dangle[0][0].z = 1.0;
+                }
+                changed_graph
+                    .retain_global_non_polygon_extraction_payloads(
+                        &policy,
+                        0,
+                        dangle,
+                        Vec::new(),
+                        Vec::new(),
+                    )
+                    .unwrap();
+            }
+            let changed_inputs = PartitionGlobalCandidateInputs {
+                graph: &changed_graph,
+                ..inputs
+            };
+            assert!(
+                materialize(&changed_inputs, &extraction, &consumer, &policy)
+                    .unwrap()
+                    .is_none(),
+                "raw mutation {mutation}"
+            );
+        }
+        for mutation in 0..4 {
+            let mut changed_stats = stats;
+            match mutation {
+                0 => changed_stats.payload_ready = true,
+                1 => changed_stats.duplicate_payload_count = 0,
+                2 => changed_stats.coordinate_count += 1,
+                _ => changed_stats.evidence_mismatch_count = 0,
+            }
+            let changed_inputs = PartitionGlobalCandidateInputs {
+                non_polygon_stats: changed_stats,
+                ..inputs
+            };
+            assert!(
+                materialize(&changed_inputs, &extraction, &consumer, &policy)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let mut stale = mosaic.clone();
+        stale
+            .partitions
+            .get_mut(&1)
+            .unwrap()
+            .generation
+            .retry_attempt += 1;
+        let mut changed_options = options.clone();
+        changed_options.input_profile_id = Some("other-profile".to_string());
+        let mut changed_construction = construction.clone();
+        changed_construction
+            .faces
+            .as_mut()
+            .unwrap()
+            .unbounded_face_id = usize::MAX;
+        let mut changed_tiles = tiles.clone();
+        changed_tiles.swap(0, 1);
+        for changed_inputs in [
+            PartitionGlobalCandidateInputs {
+                mosaic: &stale,
+                ..inputs
+            },
+            PartitionGlobalCandidateInputs {
+                options: &changed_options,
+                ..inputs
+            },
+            PartitionGlobalCandidateInputs {
+                construction: &changed_construction,
+                ..inputs
+            },
+            PartitionGlobalCandidateInputs {
+                tiles: &changed_tiles,
+                ..inputs
+            },
+            PartitionGlobalCandidateInputs {
+                span_evidence_ready: false,
+                ..inputs
+            },
+            PartitionGlobalCandidateInputs {
+                assembly: None,
+                ..inputs
+            },
+        ] {
+            assert!(
+                materialize(&changed_inputs, &extraction, &consumer, &policy)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_output_coordinates: Some(8),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_rings: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                materialize(&inputs, &extraction, &consumer, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                materialize(&inputs, &extraction, &consumer, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(graph, graph_before);
+        assert_eq!(mosaic.fingerprint_sha256(), mosaic_before);
+        let repeated = materialize(&inputs, &extraction, &consumer, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(repeated.dangles, expected.dangles);
+        assert!(
+            crate::tiling::compare_stitched_output_with_reference(
+                &repeated,
+                &evidence.reference,
+                &policy
+            )
+            .unwrap()
+            .ready
+        );
+    }
+
+    #[test]
+    fn complete_private_candidate_revalidates_both_components_and_rejects_a_bad_member() {
+        use crate::graph::partition_border::PartitionBorderGraph;
+        use crate::tiling::{
+            consume_global_non_polygon, integrate_private_global_candidate,
+            prepare_non_polygon_evidence, prove_whole_non_polygon_ownership,
+            PartitionGlobalCandidateExtraction, PartitionGlobalCandidateInputs, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 1.0),
+                (3.0, 1.0),
+                (3.0, 3.0),
+                (1.0, 3.0),
+                (1.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.25, 3.25), (3.5, 3.25)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            input_profile_id: Some("complete-candidate".to_string()),
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0).with_options(options.clone());
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let (_, _, _, observations, local_graphs, _, _, _, _, _, _, _, snapshot) = tiled
+            .process_tile(0, domain, &tiles, &[], 0.0, 0, None)
+            .unwrap();
+        let mut graph = PartitionBorderGraph::default();
+        for observation in observations {
+            graph.insert(observation).unwrap();
+        }
+        for local in local_graphs {
+            graph.insert_local_face_graph(local).unwrap();
+        }
+        let mut mosaic = PartitionMosaic::default();
+        mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+        let eligible = mosaic.topology_ready_observation_ids();
+        graph
+            .apply_topology_ready_face_twins(&eligible, &policy)
+            .unwrap();
+        graph.reconcile_global_face_edge_map(&policy).unwrap();
+        graph
+            .reconcile_global_face_nodes(options.z, &policy)
+            .unwrap();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let construction = graph
+            .construct_global_arrangement_candidate(&witness, &eligible, true, &policy)
+            .unwrap()
+            .unwrap();
+        let decode = |family: &[Vec<[u64; 3]>]| {
+            family
+                .iter()
+                .map(|bits| {
+                    bits.iter()
+                        .copied()
+                        .map(crate::tiling::coord3d_from_bits)
+                        .collect()
+                })
+                .collect()
+        };
+        graph
+            .retain_global_non_polygon_extraction_payloads(
+                &policy,
+                0,
+                decode(&snapshot.non_polygon.dangles),
+                decode(&snapshot.non_polygon.cut_edges),
+                decode(&snapshot.non_polygon.invalid_rings),
+            )
+            .unwrap();
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let extraction = graph
+            .extract_physical_table_payloads(
+                &witness,
+                &construction,
+                &eligible,
+                true,
+                stats,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let ownership = prove_whole_non_polygon_ownership(&evidence, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let consumer = consume_global_non_polygon(
+            &evidence,
+            Some(&ownership),
+            None,
+            &mosaic,
+            &tiles,
+            domain,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let inputs = PartitionGlobalCandidateInputs {
+            graph: &graph,
+            witness: &witness,
+            construction: &construction,
+            eligible_observation_ids: &eligible,
+            span_evidence_ready: true,
+            non_polygon_stats: stats,
+            evidence: &evidence,
+            ownership: Some(&ownership),
+            assembly: None,
+            mosaic: &mosaic,
+            tiles: &tiles,
+            domain,
+            options: &options,
+        };
+        let expected = integrate_private_global_candidate(
+            &inputs,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(expected.polygons.len(), 1);
+        assert_eq!(expected.dangles.len(), 1);
+        assert_eq!(
+            expected.polygons[0]
+                .provenance
+                .as_ref()
+                .unwrap()
+                .input_profile_id
+                .as_deref(),
+            Some("complete-candidate")
+        );
+        assert!(
+            crate::tiling::compare_stitched_output_with_reference(
+                &expected,
+                &evidence.reference,
+                &policy
+            )
+            .unwrap()
+            .ready
+        );
+        let before = graph.clone();
+        let mosaic_before = mosaic.fingerprint_sha256();
+        for mutation in 0..6 {
+            let mut changed = extraction.clone();
+            match mutation {
+                0 => {
+                    changed.local_aliases.pop();
+                }
+                1 => changed.ring_payloads[0].coordinate_bits[0][2] = 1.0f64.to_bits(),
+                2 => changed.ring_payloads[0].representative_line_ids[0] = 999,
+                3 => changed.ring_payloads[0].source_line_ids.push(999),
+                4 => changed.ring_payloads[0].local_dir_edge_ids_by_edge[0].clear(),
+                _ => {
+                    changed.non_polygon_payloads.pop();
+                }
+            }
+            assert!(
+                integrate_private_global_candidate(
+                    &inputs,
+                    PartitionGlobalCandidateExtraction::WholeCore(&changed),
+                    &consumer,
+                    &policy
+                )
+                .unwrap()
+                .is_none(),
+                "physical mutation {mutation}"
+            );
+        }
+        for mutation in 0..5 {
+            let mut changed = consumer.clone();
+            match mutation {
+                0 => changed.input_fingerprint_sha256 = "stale",
+                1 => changed.payloads.clear(),
+                2 => changed.payloads[0].local_payload_aliases = &[],
+                3 => changed.payloads[0].global_payload_count += 1,
+                _ => changed.output.dangles[0][0].z = 1.0,
+            }
+            assert!(
+                integrate_private_global_candidate(
+                    &inputs,
+                    PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+                    &changed,
+                    &policy
+                )
+                .unwrap()
+                .is_none(),
+                "consumer mutation {mutation}"
+            );
+        }
+        let mut blocked = PartitionGlobalCandidateInputs {
+            span_evidence_ready: false,
+            ..inputs
+        };
+        assert!(integrate_private_global_candidate(
+            &blocked,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        blocked.span_evidence_ready = true;
+        blocked.non_polygon_stats.duplicate_payload_count = 1;
+        assert!(integrate_private_global_candidate(
+            &blocked,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        let mut changed_options = options.clone();
+        changed_options.input_profile_id = Some("other-profile".to_string());
+        blocked.non_polygon_stats = stats;
+        blocked.options = &changed_options;
+        assert!(integrate_private_global_candidate(
+            &blocked,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        let mut stale = mosaic.clone();
+        stale
+            .partitions
+            .get_mut(&0)
+            .unwrap()
+            .generation
+            .retry_attempt += 1;
+        blocked.options = &options;
+        blocked.mosaic = &stale;
+        assert!(integrate_private_global_candidate(
+            &blocked,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        blocked.mosaic = &mosaic;
+        let mut stale_construction = construction.clone();
+        stale_construction.faces.as_mut().unwrap().unbounded_face_id = usize::MAX;
+        blocked.construction = &stale_construction;
+        assert!(integrate_private_global_candidate(
+            &blocked,
+            PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        blocked.construction = &construction;
+        for limited in [
+            ExecutionPolicy {
+                max_output_coordinates: Some(6),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_rings: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                integrate_private_global_candidate(
+                    &blocked,
+                    PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+                    &consumer,
+                    &limited
+                ),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                integrate_private_global_candidate(
+                    &blocked,
+                    PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+                    &consumer,
+                    &cancelled
+                ),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(graph, before);
+        assert_eq!(mosaic.fingerprint_sha256(), mosaic_before);
+        assert!(
+            crate::tiling::compare_stitched_output_with_reference(
+                &integrate_private_global_candidate(
+                    &blocked,
+                    PartitionGlobalCandidateExtraction::WholeCore(&extraction),
+                    &consumer,
+                    &policy
+                )
+                .unwrap()
+                .unwrap(),
+                &evidence.reference,
+                &policy
+            )
+            .unwrap()
+            .ready
+        );
     }
 
     #[test]
@@ -6661,6 +7604,15 @@ mod tests {
             }
         );
 
+        let (accepted, conformance) = crate::tiling::gate_private_candidate_conformance(
+            Some(stitched_output.clone()),
+            Some(&expected),
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
+        assert!(accepted.is_some());
+        assert_eq!(conformance, stats);
+
         for mutation in 0..9 {
             let mut mismatch = stitched_output.clone();
             let polygon = &mut mismatch.polygons[0];
@@ -6692,6 +7644,14 @@ mod tests {
             assert!(stats.checked);
             assert!(!stats.ready, "mutation {mutation}");
             assert_eq!(stats.mismatch_count, 1);
+            let (accepted, conformance) = crate::tiling::gate_private_candidate_conformance(
+                Some(mismatch),
+                Some(&expected),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+            assert!(accepted.is_none());
+            assert_eq!(conformance, stats);
         }
 
         for family in 0..3 {
@@ -6712,6 +7672,14 @@ mod tests {
             assert!(stats.checked);
             assert!(!stats.ready);
             assert_eq!(stats.mismatch_count, 1);
+            let (accepted, conformance) = crate::tiling::gate_private_candidate_conformance(
+                Some(mismatch),
+                Some(&expected),
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+            assert!(accepted.is_none());
+            assert_eq!(conformance, stats);
         }
 
         let mut mismatch = stitched_output;
@@ -6743,6 +7711,62 @@ mod tests {
             Err(PolygonizeError::Cancelled { stage })
                 if stage == "tiled_untiled_equivalence"
         ));
+    }
+
+    #[test]
+    fn private_candidate_conformance_requires_a_reference_and_preserves_cancellation_and_limits() {
+        use crate::tiling::{gate_private_candidate_conformance, TiledUntiledEquivalenceStats};
+        let reference = crate::PolygonizerResult {
+            polygons: Vec::new(),
+            dangles: Vec::new(),
+            cut_edges: Vec::new(),
+            invalid_rings: Vec::new(),
+            diagnostics: None,
+        };
+        let candidate = TiledStitchedOutput {
+            polygons: Vec::new(),
+            dangles: Vec::new(),
+            cut_edges: Vec::new(),
+            invalid_rings: Vec::new(),
+        };
+        for (output, reference) in [(Some(candidate.clone()), None), (None, Some(&reference))] {
+            let (accepted, conformance) =
+                gate_private_candidate_conformance(output, reference, &ExecutionPolicy::default())
+                    .unwrap();
+            assert!(accepted.is_none());
+            assert_eq!(conformance, TiledUntiledEquivalenceStats::default());
+        }
+        for cancel_at in [0, 1] {
+            let token = CancellationToken::new();
+            let policy = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            let mut output = candidate.clone();
+            output.dangles = vec![vec![Coord3D::new(0.0, 0.0, 0.0)]; 2];
+            assert!(matches!(
+                gate_private_candidate_conformance(Some(output), Some(&reference), &policy),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(
+            matches!(gate_private_candidate_conformance(None, None, &ExecutionPolicy {
+            cancellation_token: Some(token), ..Default::default()
+        }), Err(PolygonizeError::Cancelled { ref stage }) if stage == "tiled_private_candidate_conformance")
+        );
+        let mut oversized = candidate;
+        oversized.dangles.push(vec![
+            Coord3D::new(0.0, 0.0, 0.0);
+            crate::options::MAX_UNCANCELLABLE_SORT_ITEMS + 1
+        ]);
+        assert!(
+            matches!(gate_private_candidate_conformance(Some(oversized), Some(&reference), &ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()), ..Default::default()
+        }), Err(PolygonizeError::ResourceLimitExceeded { ref stage, .. }) if stage == "tiled_untiled_equivalence_dangles")
+        );
     }
 
     #[test]
