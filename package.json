@@ -7,6 +7,7 @@
     "build": "./scripts/build_wasm.sh",
     "test": "vitest run",
     "test:threads": "node scripts/test_wasm_threads_package.mjs",
+    "test:cjs": "node scripts/test_wasm_commonjs_package.mjs",
     "prepare": "husky",
     "build:site-lib": "SITE_BUILD=1 ./scripts/build_wasm.sh",
     "docs:extract": "cargo run -p xtask -- docs extract",
@@ -22,13 +23,13 @@
   "exports": {
     ".": {
       "import": "./dist/standard/es/index.js",
-      "require": "./dist/standard/cjs/index.js",
+      "require": "./dist/standard/cjs/index.cjs",
       "types": "./dist/standard/es/index.d.ts",
       "default": "./dist/standard/es/index.js"
     },
     "./slim": {
       "import": "./dist/slim/es/index_slim.js",
-      "require": "./dist/slim/cjs/index_slim.js",
+      "require": "./dist/slim/cjs/index_slim.cjs",
       "types": "./dist/slim/es/index_slim.d.ts",
       "default": "./dist/slim/es/index_slim.js"
     },

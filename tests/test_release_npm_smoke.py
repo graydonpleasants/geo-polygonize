@@ -27,7 +27,10 @@ def test_installed_npm_smoke_requires_packed_exports_from_1_2(monkeypatch, versi
             (package / "package.json").write_text(json.dumps({
                 "version": version,
                 "type": "module",
-                "exports": {".": "./index.js", "./slim": "./index.js"},
+                "exports": {
+                    name: {"import": "./index.js", "require": "./missing-commonjs.cjs"}
+                    for name in (".", "./slim")
+                },
             }))
             (package / "dist").mkdir()
             (package / "dist/geo_polygonize.wasm").write_bytes(b"")
