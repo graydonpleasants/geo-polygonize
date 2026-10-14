@@ -5585,6 +5585,17 @@ impl<'a> TiledPolygonizer<'a> {
                     })
                     .collect::<Vec<_>>()
             });
+        let arrangement_claims = global_arrangement_witness
+            .as_ref()
+            .map(|witness| {
+                partition_border_graph.resolve_global_arrangement_claims(
+                    witness,
+                    &topology_ready_observation_ids,
+                    &self.execution_policy,
+                )
+            })
+            .transpose()?
+            .flatten();
         let mut arrangement_adopted = false;
         if let Some(witness) = &global_arrangement_witness {
             if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(
@@ -5811,6 +5822,24 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_edge_map,
             );
             if let Some(witness) = &global_arrangement_witness {
+                if let Some(claims) = &arrangement_claims {
+                    trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_claims", serde_json::json!({
+                        "resolutions": claims.iter().map(|claim| serde_json::json!({
+                            "physical_dir_edge_ids": claim.physical_dir_edge_ids,
+                            "local_dir_edge_ids": claim.local_dir_edge_ids,
+                            "observation_count": claim.observation_count,
+                            "eligible_observation_count": claim.eligible_observation_count,
+                            "status": claim.status,
+                            "reason": claim.reason,
+                            "face_pair": claim.face_pair.map(|pair| serde_json::json!({
+                                "forward_observation": [pair.twin_key.forward.partition_id, pair.twin_key.forward.local_dir_edge_id],
+                                "reverse_observation": [pair.twin_key.reverse.partition_id, pair.twin_key.reverse.local_dir_edge_id],
+                                "forward_face_ref": [pair.forward_face_ref.partition_id, pair.forward_face_ref.component_id, pair.forward_face_ref.face_id],
+                                "reverse_face_ref": [pair.reverse_face_ref.partition_id, pair.reverse_face_ref.component_id, pair.reverse_face_ref.face_id],
+                            })),
+                        })).collect::<Vec<_>>(),
+                    }));
+                }
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
                     "adopted": arrangement_adopted,
                     "local_edges_by_physical_edge": arrangement_aliases,

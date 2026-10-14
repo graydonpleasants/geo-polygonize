@@ -68,6 +68,41 @@ mod tests {
             assert!(!report.partition_border_global_untiled_equivalence_checked);
             assert!(!report.partition_border_global_untiled_equivalence_ready);
             assert!(result.result.stitched_output.is_none());
+            let claims = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_claims")
+                .unwrap()
+                .payload["resolutions"];
+            let claims = claims.as_array().unwrap();
+            assert_eq!(claims.len(), 12);
+            assert_eq!(
+                claims
+                    .iter()
+                    .filter(|claim| claim["status"] == "ambiguous"
+                        && claim["reason"] == "observation_multiplicity")
+                    .count(),
+                4
+            );
+            assert_eq!(
+                claims
+                    .iter()
+                    .filter(|claim| claim["status"] == "incomplete"
+                        && claim["reason"] == "missing_corroboration")
+                    .count(),
+                8
+            );
+            assert!(claims
+                .iter()
+                .all(|claim| claim["status"] != "ready" && claim["face_pair"].is_null()));
+            let mut retained_claims = claims
+                .iter()
+                .flat_map(|claim| claim["local_dir_edge_ids"].as_array().unwrap())
+                .map(|id| id.as_u64().unwrap())
+                .collect::<Vec<_>>();
+            retained_claims.sort_unstable();
+            assert_eq!(retained_claims, (0..32).collect::<Vec<_>>());
             let adoption = result
                 .trace
                 .events
