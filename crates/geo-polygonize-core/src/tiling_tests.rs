@@ -90,6 +90,23 @@ mod tests {
             assert!(!report.partition_border_global_untiled_equivalence_checked);
             assert!(!report.partition_border_global_untiled_equivalence_ready);
             assert!(result.result.stitched_output.is_none());
+            let binding = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_input_bound_alias_view")
+                .unwrap()
+                .payload;
+            assert_eq!(binding["prepared"], true);
+            assert_eq!(binding["bound"], true);
+            assert_eq!(binding["output_selectable"], false);
+            assert_eq!(binding["view"]["source_segment_count"], 12);
+            assert_eq!(binding["view"]["noded_segment_count"], 12);
+            assert_eq!(binding["view"]["physical_slot_count"], 24);
+            assert_eq!(binding["view"]["active_alias_count"], 32);
+            assert_eq!(binding["view"]["raw_record_count"], 16);
+            assert_eq!(binding["view"]["raw_coordinate_count"], 32);
+            assert_eq!(binding["view"]["raw_segment_alias_count"], 16);
             let claims = &result
                 .trace
                 .events
@@ -221,6 +238,580 @@ mod tests {
             ));
         }
         assert_eq!(signatures[0], signatures[1]);
+    }
+
+    #[test]
+    fn input_bound_alias_view_retains_complete_grid_and_rejects_tampering() {
+        use crate::graph::partition_border::{PartitionBorderEdgeKey, PartitionBorderGraph};
+        use crate::tiling::{
+            classify_non_polygon_evidence, coord3d_from_bits, input_bound_physical_alias_view,
+            partition_local_face_graphs, prepare_partition_input_evidence, PartitionMosaic,
+        };
+        let mut geometries = Vec::new();
+        for axis in 0..=2 {
+            for segment in 0..2 {
+                let (a, b) = (axis as f64, segment as f64);
+                for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                    geometries.push(Geometry::LineString(LineString::from(coords)));
+                }
+            }
+        }
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 1.0).with_buffer(0.0);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut observations = Vec::new();
+        let mut locals = Vec::new();
+        let mut mosaic = PartitionMosaic::default();
+        // Reverse insertion must not change partition-qualified evidence.
+        for (partition, &tile) in tiles.iter().enumerate().rev() {
+            let (_, _, _, edges, local, _, _, _, _, _, _, _, snapshot) = tiled
+                .process_tile(partition, tile, &tiles, &[], 0.0, 0, None)
+                .unwrap();
+            observations.extend(edges);
+            locals.extend(local);
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let rebuild =
+            |locals: Vec<crate::graph::partition_border::PartitionBorderLocalFaceGraph>,
+             mosaic: &PartitionMosaic| {
+                let mut graph = PartitionBorderGraph::default();
+                for mut observation in observations.clone() {
+                    let Some(native) = locals
+                        .iter()
+                        .find(|local| {
+                            (local.partition_id, local.component_id)
+                                == (observation.partition_id, observation.component_id)
+                        })
+                        .and_then(|local| {
+                            local.directed_edges.iter().find(|edge| {
+                                edge.local_dir_edge_id == observation.local_dir_edge_id
+                            })
+                        })
+                    else {
+                        continue;
+                    };
+                    observation.from = native.from;
+                    observation.to = native.to;
+                    observation.from_z_bits = native.from_z_bits;
+                    observation.to_z_bits = native.to_z_bits;
+                    observation.edge_key = native.edge_key;
+                    observation.source_line_ids = native.source_line_ids.clone();
+                    observation.representative_line_id = native.source_line_ids.first().copied();
+                    observation.face_ref = native.face_ref;
+                    observation.face_id = native.face_ref.map(|face| face.face_id);
+                    observation.local_face_successor = native.local_face_successor;
+                    observation.local_face_is_unbounded = native.local_face_is_unbounded;
+                    graph.insert(observation).unwrap();
+                }
+                for local in locals {
+                    graph.insert_local_face_graph(local).unwrap();
+                }
+                graph.reconcile_global_face_edge_map(&policy).unwrap();
+                graph
+                    .reconcile_global_face_nodes(options.z, &policy)
+                    .unwrap();
+                let decode = |family: &[Vec<[u64; 3]>]| {
+                    family
+                        .iter()
+                        .map(|bits| bits.iter().copied().map(coord3d_from_bits).collect())
+                        .collect()
+                };
+                for snapshot in mosaic.partitions.values() {
+                    graph
+                        .retain_global_non_polygon_extraction_payloads(
+                            &policy,
+                            snapshot.partition_id,
+                            decode(&snapshot.non_polygon.dangles),
+                            decode(&snapshot.non_polygon.cut_edges),
+                            decode(&snapshot.non_polygon.invalid_rings),
+                        )
+                        .unwrap();
+                }
+                graph
+                    .materialize_global_non_polygon_extraction_payloads(&policy)
+                    .unwrap();
+                graph
+            };
+        let graph = rebuild(locals.clone(), &mosaic);
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let stats = graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert!(!stats.payload_ready);
+        assert_eq!(stats.duplicate_payload_count, 4);
+        let prepare = |mosaic: &PartitionMosaic| {
+            prepare_partition_input_evidence(mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap()
+        };
+        let prepared = prepare(&mosaic);
+        assert_eq!(prepared.reference.polygons.len(), 4);
+        assert!(prepared.reference.dangles.is_empty());
+        let before = mosaic.fingerprint_sha256();
+        let graph_before = format!("{graph:?}");
+        for _ in 0..2 {
+            let view = input_bound_physical_alias_view(
+                &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(view.prepared.source_segments.len(), 12);
+            assert_eq!(view.slots.len(), 24);
+            assert_eq!(view.active_aliases.len(), 32);
+            assert_eq!(view.raw_payloads.len(), 16);
+            let mut aliases = BTreeSet::new();
+            for bound in &view.active_aliases {
+                assert!(aliases.insert(bound.alias.global_dir_edge_id));
+                assert!(std::ptr::eq(
+                    bound.native_edge,
+                    graph
+                        .local_face_graphs()
+                        .iter()
+                        .find(|local| (local.partition_id, local.component_id)
+                            == (bound.alias.partition_id, bound.alias.component_id))
+                        .unwrap()
+                        .directed_edges
+                        .iter()
+                        .find(|edge| edge.local_dir_edge_id == bound.alias.local_dir_edge_id)
+                        .unwrap()
+                ));
+                assert_eq!(
+                    &bound.input.segment.source_line_ids,
+                    &bound.native_edge.source_line_ids
+                );
+            }
+            assert_eq!(aliases, (0..32).collect());
+            let mut records = BTreeSet::new();
+            for raw in &view.raw_payloads {
+                assert!(records.insert((
+                    raw.payload.partition_id,
+                    raw.payload.kind,
+                    raw.family_local_record_index
+                )));
+                assert_eq!(raw.segments.len(), raw.payload.coordinate_bits.len() - 1);
+                assert!(raw
+                    .segments
+                    .iter()
+                    .all(|bound| bound.local_segment_alias[0] == raw.payload.partition_id));
+            }
+            assert_eq!(records.len(), 16);
+        }
+        assert_eq!(mosaic.fingerprint_sha256(), before);
+        assert_eq!(format!("{graph:?}"), graph_before);
+        assert!(classify_non_polygon_evidence(prepare(&mosaic), &policy)
+            .unwrap()
+            .is_none());
+
+        // Stale context and raw family/record identity cannot reuse an old preparation.
+        for change in 0..8 {
+            let mut stale = mosaic.clone();
+            let snapshot = stale.partitions.get_mut(&0).unwrap();
+            match change {
+                0 => snapshot.generation.retry_attempt += 1,
+                1 => snapshot.tile_max.x = "0x4008000000000000".to_string(),
+                2 => snapshot.ownership_domain_max.y = "0x4008000000000000".to_string(),
+                3 => snapshot.non_polygon.dangles.reverse(),
+                4 => {
+                    snapshot.non_polygon.dangles.pop();
+                }
+                5 => snapshot
+                    .non_polygon
+                    .cut_edges
+                    .push(snapshot.non_polygon.dangles.pop().unwrap()),
+                6 => {
+                    snapshot.local_noded_segments.pop();
+                }
+                _ => {
+                    stale.partitions.remove(&3);
+                }
+            }
+            let changed_graph = rebuild(locals.clone(), &stale);
+            let changed_stats = changed_graph
+                .clone()
+                .materialize_global_non_polygon_extraction_payloads(&policy)
+                .unwrap();
+            assert!(
+                input_bound_physical_alias_view(
+                    &prepared,
+                    &changed_graph,
+                    &witness,
+                    &stale,
+                    &options,
+                    changed_stats,
+                    &policy,
+                )
+                .unwrap()
+                .is_none(),
+                "stale context/raw case {change}"
+            );
+        }
+        let mut changed_options = options.clone();
+        changed_options.node_input = !options.node_input;
+        assert!(input_bound_physical_alias_view(
+            &prepared,
+            &graph,
+            &witness,
+            &mosaic,
+            &changed_options,
+            stats,
+            &policy,
+        )
+        .unwrap()
+        .is_none());
+        for change in 0..5 {
+            let mut changed_witness = witness.clone();
+            let edge = &mut changed_witness.physical_edges[0];
+            match change {
+                0 => edge.next = usize::MAX,
+                1 => edge.symmetric = 0,
+                2 => edge.from_z_bits = 7.0f64.to_bits(),
+                3 => edge.source_line_ids = vec![99],
+                _ => edge.face_id = usize::MAX,
+            }
+            assert!(
+                input_bound_physical_alias_view(
+                    &prepared,
+                    &graph,
+                    &changed_witness,
+                    &mosaic,
+                    &options,
+                    stats,
+                    &policy,
+                )
+                .unwrap()
+                .is_none(),
+                "physical payload/link {change}"
+            );
+        }
+        let mut bad_representative = mosaic.clone();
+        bad_representative
+            .partitions
+            .get_mut(&0)
+            .unwrap()
+            .local_noded_segments[0]
+            .representative_line_id = Some(99);
+        assert!(prepare_partition_input_evidence(
+            &bad_representative,
+            &tiles,
+            &refs,
+            domain,
+            &options,
+            &policy,
+        )
+        .unwrap()
+        .is_none());
+
+        // Updating both graph and snapshot cannot replace original source/noded authority.
+        for change in 0..7 {
+            let mut changed_locals = locals.clone();
+            for local in &mut changed_locals {
+                for edge in &mut local.directed_edges {
+                    match change {
+                        0 => edge.source_line_ids = vec![99],
+                        1 => {
+                            edge.from_z_bits = 7.0f64.to_bits();
+                            edge.to_z_bits = 7.0f64.to_bits();
+                        }
+                        2 => {
+                            let shift =
+                                |key: crate::graph::partition_border::PartitionBorderNodeKey| {
+                                    let bits = key.xy_bits();
+                                    crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+                                        Coord3D::new(f64::from_bits(bits[0]) + 0.125,
+                                            f64::from_bits(bits[1]), 0.0),
+                                    )
+                                };
+                            edge.from = shift(edge.from);
+                            edge.to = shift(edge.to);
+                            edge.edge_key =
+                                PartitionBorderEdgeKey::new(edge.from, edge.to).unwrap();
+                        }
+                        3 => edge.local_face_successor = Some(edge.local_dir_edge_id),
+                        4 => edge.face_ref.as_mut().unwrap().component_id = 99,
+                        5 => {}
+                        _ => edge.local_face_successor = None,
+                    }
+                }
+            }
+            if change == 5 {
+                changed_locals.retain(|local| local.partition_id != 0);
+            }
+            let mut changed_mosaic = mosaic.clone();
+            for snapshot in changed_mosaic.partitions.values_mut() {
+                snapshot.local_face_graphs = partition_local_face_graphs(
+                    &changed_locals
+                        .iter()
+                        .filter(|local| local.partition_id == snapshot.partition_id)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                );
+            }
+            let changed_graph = rebuild(changed_locals, &changed_mosaic);
+            for snapshot in changed_mosaic.partitions.values_mut() {
+                snapshot.atomic_observations = crate::tiling::partition_atomic_observations(
+                    changed_graph
+                        .border_observations()
+                        .filter(|observation| observation.partition_id == snapshot.partition_id),
+                );
+            }
+            let changed_prepared = prepare(&changed_mosaic);
+            assert!(crate::tiling::private_physical_snapshots_bound(
+                &changed_graph,
+                &changed_mosaic,
+                &options,
+                &policy,
+            )
+            .unwrap());
+            let changed_witness = changed_graph
+                .global_arrangement_witness(&policy)
+                .unwrap()
+                .unwrap();
+            assert!(
+                input_bound_physical_alias_view(
+                    &changed_prepared,
+                    &changed_graph,
+                    &changed_witness,
+                    &changed_mosaic,
+                    &options,
+                    stats,
+                    &policy,
+                )
+                .unwrap()
+                .is_none(),
+                "coherent native forgery {change}"
+            );
+        }
+        let mut missing_raw = mosaic.clone();
+        missing_raw
+            .partitions
+            .get_mut(&0)
+            .unwrap()
+            .non_polygon
+            .dangles
+            .pop();
+        let missing_prepared = prepare(&missing_raw);
+        let missing_graph = rebuild(locals.clone(), &missing_raw);
+        let missing_stats = missing_graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert!(
+            input_bound_physical_alias_view(
+                &missing_prepared,
+                &missing_graph,
+                &witness,
+                &missing_raw,
+                &options,
+                missing_stats,
+                &policy,
+            )
+            .unwrap()
+            .is_none(),
+            "missing raw-only prepared local copy"
+        );
+
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                input_bound_physical_alias_view(
+                    &prepared, &graph, &witness, &mosaic, &options, stats, &limited,
+                ),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        assert!(matches!(
+            input_bound_physical_alias_view(
+                &prepared, &graph, &witness, &mosaic, &options, stats, &cancelled,
+            ),
+            Err(PolygonizeError::Cancelled { .. })
+        ));
+        let token = CancellationToken::new();
+        let midflight = ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        };
+        assert!(matches!(
+            input_bound_physical_alias_view(
+                &prepared, &graph, &witness, &mosaic, &options, stats, &midflight,
+            ),
+            Err(PolygonizeError::Cancelled { .. })
+        ));
+
+        // Every retained vector must be bounded before either entry point hashes it.
+        let limit = crate::options::MAX_UNCANCELLABLE_SORT_ITEMS;
+        let bounded = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        for inventory in 0..20 {
+            let mut oversized = mosaic.clone();
+            let snapshot = oversized.partitions.get_mut(&0).unwrap();
+            let empty_coordinate = crate::fingerprint::CoordinateFingerprintV1 {
+                x: String::new(),
+                y: String::new(),
+                z: String::new(),
+            };
+            let empty_ring = crate::fingerprint::RingFingerprintV1 {
+                coordinates: Vec::new(),
+                edge_ids: Vec::new(),
+            };
+            match inventory {
+                0 => snapshot.boundary_nodes[0].source_line_ids = vec![0; limit + 1],
+                1 => {
+                    snapshot.declared_adjacencies =
+                        vec![snapshot.declared_adjacencies[0].clone(); limit + 1]
+                }
+                2 => {
+                    let mut node = snapshot.boundary_nodes[0].clone();
+                    node.z_bits.clear();
+                    node.source_line_ids.clear();
+                    node.representative_line_ids.clear();
+                    node.face_refs.clear();
+                    snapshot.boundary_nodes = vec![node; limit + 1];
+                }
+                3 => snapshot.boundary_nodes[0].z_bits = vec![0; limit + 1],
+                4 => snapshot.boundary_nodes[0].representative_line_ids = vec![0; limit + 1],
+                5 => snapshot.boundary_nodes[0].face_refs = vec![[0; 3]; limit + 1],
+                6 => {
+                    snapshot.topology.polygons = vec![
+                        crate::fingerprint::PolygonFingerprintV1 {
+                            exterior: Vec::new(),
+                            interiors: Vec::new(),
+                            exterior_edge_ids: Vec::new(),
+                            provenance: None,
+                        };
+                        limit + 1
+                    ]
+                }
+                7 => snapshot.topology.polygons[0].exterior = vec![empty_coordinate; limit + 1],
+                8 => {
+                    snapshot.topology.polygons[0].exterior_edge_ids = vec![String::new(); limit + 1]
+                }
+                9 => snapshot.topology.polygons[0].interiors = vec![empty_ring; limit + 1],
+                10 | 11 => {
+                    let polygon = &mut snapshot.topology.polygons[0];
+                    polygon.interiors = vec![empty_ring];
+                    if inventory == 10 {
+                        polygon.interiors[0].coordinates = vec![empty_coordinate; limit + 1];
+                    } else {
+                        polygon.interiors[0].edge_ids = vec![String::new(); limit + 1];
+                    }
+                }
+                12 => {
+                    snapshot.topology.polygons[0].provenance =
+                        Some(crate::fingerprint::ProvenanceFingerprintV1 {
+                            boundary_line_ids: vec![String::new(); limit + 1],
+                            input_profile_id: None,
+                        })
+                }
+                13 => snapshot.topology.dangles = vec![Vec::new(); limit + 1],
+                14 => snapshot.topology.cut_edges = vec![Vec::new(); limit + 1],
+                15 => snapshot.topology.invalid_rings = vec![Vec::new(); limit + 1],
+                16 => {
+                    snapshot.topology.diagnostics =
+                        Some(crate::fingerprint::TopologyDiagnosticsFingerprintV1 {
+                            dangle_count: 0,
+                            cut_edge_count: 0,
+                            ring_count: 0,
+                            shell_count: 0,
+                            hole_count: 0,
+                            unassigned_hole_count: 0,
+                            unassigned_hole_area: String::new(),
+                            invalid_ring_count: 0,
+                            z_conflict_node_count: 0,
+                            z_conflicting_line_ids: vec![String::new(); limit + 1],
+                        })
+                }
+                17 => snapshot.topology.dangles = vec![vec![empty_coordinate; limit + 1]],
+                18 => snapshot.topology.cut_edges = vec![vec![empty_coordinate; limit + 1]],
+                _ => snapshot.topology.invalid_rings = vec![vec![empty_coordinate; limit + 1]],
+            }
+            if inventory == 0 {
+                crate::tiling::preflight_partition_input_snapshots(&oversized, &policy).unwrap();
+            }
+            for result in [
+                prepare_partition_input_evidence(
+                    &oversized, &tiles, &refs, domain, &options, &bounded,
+                )
+                .map(|value| value.is_some()),
+                input_bound_physical_alias_view(
+                    &prepared, &graph, &witness, &oversized, &options, stats, &bounded,
+                )
+                .map(|value| value.is_some()),
+            ] {
+                assert!(
+                    matches!(&result, Err(PolygonizeError::ResourceLimitExceeded { stage, .. })
+                    if stage == "partition_input_binding_preflight"),
+                    "inventory {inventory}: {result:?}"
+                );
+            }
+        }
+
+        // Each individual source/raw buffer fits; the aggregate must reject before hashing.
+        let mut oversized = mosaic.clone();
+        for snapshot in oversized.partitions.values_mut() {
+            for edge in snapshot
+                .local_face_graphs
+                .iter_mut()
+                .flat_map(|local| &mut local.directed_edges)
+            {
+                edge.source_line_ids = vec![0; 16_000];
+            }
+            for payload in &mut snapshot.non_polygon.dangles {
+                *payload = vec![[0; 3]; 32_000];
+            }
+        }
+        let bounded = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        for result in [
+            prepare_partition_input_evidence(&oversized, &tiles, &refs, domain, &options, &bounded)
+                .map(|value| value.is_some()),
+            input_bound_physical_alias_view(
+                &prepared, &graph, &witness, &oversized, &options, stats, &bounded,
+            )
+            .map(|value| value.is_some()),
+        ] {
+            assert!(
+                matches!(result, Err(PolygonizeError::ResourceLimitExceeded { stage, .. })
+                if stage == "partition_input_binding_preflight")
+            );
+        }
+        assert_eq!(mosaic.fingerprint_sha256(), before);
+        assert_eq!(format!("{graph:?}"), graph_before);
     }
 
     #[test]

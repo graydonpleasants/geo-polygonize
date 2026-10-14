@@ -592,6 +592,14 @@ separately from selectable output; they do not complete the promotion gates.
   existing gate outcomes. Accept only after full same-call conformance; missing
   reference evidence or any family mismatch rejects the complete candidate while
   trace distinguishes materialization from acceptance (#1545, merged).
+- [x] Extend family physical-component proofs with finite core-side and actual
+  neighbor checks (#1547, merged), then retain source/noded affinity across
+  coordinate representations (#1548, merged), options (#1549, merged), and
+  touch/filter ambiguity rejection (#1550, merged). These remain private proofs.
+- [x] Bind a private physical alias view to shared original-input preparation,
+  retaining every active native alias and raw family/record index independently
+  of global family classification. The 2×2 view retains 32 aliases, 24 slots,
+  and 16 raw dangles; ambiguity, family, adoption and selection gates stay closed.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
@@ -609,11 +617,13 @@ ledger guard is retained. Native stack #1546 (#1541 → #1542 → #1543 → #154
 → #1545) has also merged into main:
 private output adapter → whole-core ownership → combined cross-core witnesses
 → proof consumer → complete private candidate with its acceptance gate.
-The next draft extends the family physical-component proof, including finite
-core-side and actual-neighbor validation in the same layer. Coordinate and
-options conformance follow-ups build on that proof. Every layer remains private
-evidence with output selection disabled. These private milestones do not change
-the published 1.2.0 artifacts or complete the promotion gates.
+Native stack #1551 (#1547 → #1548 → #1549 → #1550) has also merged into main:
+family physical-component proof → coordinate/source affinity → options affinity
+→ touch/filter ambiguity rejection. Draft follow-ups cover fixed precision,
+container inventories, partial halos, and a complete input-bound physical alias
+view before family classification. Every layer remains private
+evidence with output selection disabled; the 2×2 promotion gate is incomplete.
+These private milestones do not change the published 1.2.0 artifacts.
 
 **Promotion gate:** stitched output may become selectable only for a documented
 input/options class when the same call produces ready stitched output, checks
