@@ -5585,17 +5585,24 @@ impl<'a> TiledPolygonizer<'a> {
                     })
                     .collect::<Vec<_>>()
             });
-        let arrangement_claims = global_arrangement_witness
+        let arrangement_construction = global_arrangement_witness
             .as_ref()
             .map(|witness| {
-                partition_border_graph.resolve_global_arrangement_claims(
+                partition_border_graph.construct_global_arrangement_candidate(
                     witness,
                     &topology_ready_observation_ids,
+                    arrangement_blocked_span_count == 0,
                     &self.execution_policy,
                 )
             })
             .transpose()?
             .flatten();
+        let arrangement_claims = arrangement_construction
+            .as_ref()
+            .map(|construction| &construction.claims);
+        let arrangement_candidate = arrangement_construction
+            .as_ref()
+            .and_then(|construction| construction.candidate.as_ref());
         let mut arrangement_adopted = false;
         if let Some(witness) = &global_arrangement_witness {
             if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(
@@ -5822,7 +5829,7 @@ impl<'a> TiledPolygonizer<'a> {
                 partition_border_global_face_edge_map,
             );
             if let Some(witness) = &global_arrangement_witness {
-                if let Some(claims) = &arrangement_claims {
+                if let Some(claims) = arrangement_claims {
                     trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_claims", serde_json::json!({
                         "resolutions": claims.iter().map(|claim| serde_json::json!({
                             "physical_dir_edge_ids": claim.physical_dir_edge_ids,
@@ -5840,6 +5847,15 @@ impl<'a> TiledPolygonizer<'a> {
                         })).collect::<Vec<_>>(),
                     }));
                 }
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_global_arrangement_candidate",
+                    serde_json::json!({
+                        "constructed": arrangement_candidate.is_some(),
+                        "candidate": arrangement_candidate,
+                        "blocked_span_count": arrangement_blocked_span_count,
+                    }),
+                );
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
                     "adopted": arrangement_adopted,
                     "local_edges_by_physical_edge": arrangement_aliases,

@@ -423,8 +423,12 @@ retaining distinct face-qualified claims without copying source or Z payloads.
 Claim resolution admits only complete interior claims or one exact complementary
 face pair backed by two topology-ready observations and complete alias coverage.
 Typed witnesses distinguish absent, incompatible, and ambiguous evidence; full
-observation groups are checked before eligibility filtering. The remaining
-blocker is consuming resolved slots in detached topology.
+observation groups are checked before eligibility filtering. The
+detached twin and successor candidate uses physical slot IDs and retains every
+local alias. Construction requires ready claims, complete span evidence,
+reciprocal twins, node-continuous successor cycles, and the physical arrangement
+proofs. Global component and face reconciliation must consume this topology
+before it can reach extraction; candidate construction does not promote output.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
@@ -434,7 +438,7 @@ blocker is consuming resolved slots in detached topology.
   edge deduplication.
 - [x] Preserve ambiguous four-claim and oversubscribed groups as explicit
   fail-closed evidence.
-- [ ] Build alias-aware global twin and successor candidates.
+- [x] Build alias-aware global twin and successor candidates.
 - [ ] Reconcile global components and one global unbounded face.
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
