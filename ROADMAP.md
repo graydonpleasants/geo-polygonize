@@ -488,10 +488,34 @@ candidate against the same prepared reference: any polygon or non-polygon
 mismatch rejects it as a whole, retaining checked/ready/mismatch diagnostics.
 Trace distinguishes a materialized candidate from one accepted after comparison;
 missing reference evidence cannot accept a candidate. Physical-ready
-multi-boundary dangles with whole-core
-companions now conform privately. Cross-core invalid-ring and disconnected
-cut-edge arrangements lacking physical face proofs remain blocked; the bridge
-does not enable output selection or certify broader input classes.
+multi-boundary dangles with whole-core companions now conform privately.
+Cross-core cuts, invalid rings and family mixtures also conform privately when
+the remaining polygon components have unique owners strictly inside core bounds.
+Cut deletion can leave disconnected cycles under one native component ID; split
+only complete reciprocal twin/successor groups, preserving every original ID.
+Every retained polygon copy must independently pass the existing connected
+physical claim, face/Euler and simple-shell extraction proofs, and every copy
+must agree on ring XYZ, representative IDs and source sets. Retain all copies
+and alias mappings alongside the explicit owner. Bind excluded non-polygon
+components to the consumer's complete atomic/coarse segment lineage and cover
+the entire prepared source inventory. Every polygon segment must retain a
+physical copy in every partition recorded by its prepared aliases; deleting a
+halo copy cannot be hidden by updating snapshot graphs. Mixed or unknown
+components reject the whole proof. Global interaction checks reject nested or
+touching polygon
+components and overlapping polygon/invalid-ring envelopes. Border observations
+are bound to current snapshots and prepared native-edge/non-polygon segment
+lineage, including source IDs, representative IDs and endpoint Z. Rebuild span
+groups on replay, require exact pairs, and reject stale caches; observations
+are never filtered to make a component eligible. Original ambiguity, raw
+duplicate and extraction gates remain unchanged.
+Each observation must lie along its claimed finite core side, and each pair
+must have reciprocal declarations between actually adjacent cores. Export and
+proof validation share the same side-membership predicate, so source-correct
+halo aliases cannot invent a border relationship.
+Border-touching polygon components, branched rings and containment-dependent
+classes remain blocked. The bridge does not enable output selection or certify
+broader input classes.
 Shell/hole assembly where needed and the remaining promotion gates still apply.
 The local output adapter preserves selected XYZ and ordered representative IDs,
 applies the current provenance/profile and face-area options, and compares every
@@ -516,22 +540,22 @@ separately from selectable output; they do not complete the promotion gates.
   source, representative-ID, raw/selected Z, and retained non-polygon evidence.
 - [x] Adapt eligible simple-ring physical payloads privately, preserving selected
   XYZ, representative IDs, provenance/profile and face-area options, and compare
-  every output family against the same-call, same-options reference (draft layer 1).
+  every output family against the same-call, same-options reference (#1541, merged).
 - [x] Prove complete whole-core dangle/cut/invalid-ring ownership against current
   input and snapshot inventories, retaining all aliases and exact multiplicity;
-  preflight cancellation-enabled source work before extraction (draft layer 2).
+  preflight cancellation-enabled source work before extraction (#1542, merged).
 - [x] Construct private cross-core witnesses for open payload edges and unbranched
   closed invalid-ring chains, including mixed whole-core companions, complete
   atomic/coarse lineage and every owner transition; reject the complete witness
-  on a bad member (draft layer 3).
+  on a bad member (#1543, merged).
 - [x] Consume revalidated complete ownership or cross-core proofs privately,
   retaining the raw ledger and exact multiplicity, decoding selected XYZ, and
-  requiring equivalence of all three non-polygon families (draft layer 4).
+  requiring equivalence of all three non-polygon families (#1544, merged).
 - [x] Join current physical polygon evidence with a complete revalidated consumer
   into a private candidate, preserving snapshot/options/source bindings and all
   existing gate outcomes. Accept only after full same-call conformance; missing
   reference evidence or any family mismatch rejects the complete candidate while
-  trace distinguishes materialization from acceptance (draft layer 5).
+  trace distinguishes materialization from acceptance (#1545, merged).
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
@@ -545,13 +569,15 @@ separately from selectable output; they do not complete the promotion gates.
 Version 1.2.0 is published from `b00a20be`. The earlier native stack #1529
 (#1527 → #1528 → #1530 → #1534 → #1537) has merged into main and records
 post-release private alias-aware extraction progress. Its aggregate non-polygon
-ledger guard is retained. The follow-ups form five native draft layers:
+ledger guard is retained. Native stack #1546 (#1541 → #1542 → #1543 → #1544
+→ #1545) has also merged into main:
 private output adapter → whole-core ownership → combined cross-core witnesses
 → proof consumer → complete private candidate with its acceptance gate.
-Every layer remains private evidence with output selection disabled. Keep the
-family physical-component proof extension as a local sixth layer until stack
-capacity and separate review/validation are available. These private milestones
-do not change the published 1.2.0 artifacts or complete the promotion gates.
+The next draft extends the family physical-component proof, including finite
+core-side and actual-neighbor validation in the same layer. Coordinate and
+options conformance follow-ups build on that proof. Every layer remains private
+evidence with output selection disabled. These private milestones do not change
+the published 1.2.0 artifacts or complete the promotion gates.
 
 **Promotion gate:** stitched output may become selectable only for a documented
 input/options class when the same call produces ready stitched output, checks

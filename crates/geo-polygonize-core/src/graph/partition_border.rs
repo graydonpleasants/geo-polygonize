@@ -20,6 +20,28 @@ pub enum PartitionBorderSide {
 }
 
 impl PartitionBorderSide {
+    pub(crate) fn contains_edge(
+        self,
+        from: PartitionBorderNodeKey,
+        to: PartitionBorderNodeKey,
+        bounds: Rect<f64>,
+    ) -> bool {
+        let axis = self.coordinate_index();
+        let (coordinate, minimum, maximum) = match self {
+            Self::MinX => (bounds.min().x, bounds.min().y, bounds.max().y),
+            Self::MaxX => (bounds.max().x, bounds.min().y, bounds.max().y),
+            Self::MinY => (bounds.min().y, bounds.min().x, bounds.max().x),
+            Self::MaxY => (bounds.max().y, bounds.min().x, bounds.max().x),
+        };
+        [from, to].into_iter().all(|node| {
+            let point = node.xy_bits();
+            let along = f64::from_bits(point[1 - axis]);
+            point[axis] == canonical_coordinate_bits(coordinate)
+                && along >= minimum
+                && along <= maximum
+        })
+    }
+
     fn coordinate_index(self) -> usize {
         match self {
             Self::MinX | Self::MaxX => 0,
@@ -2044,6 +2066,10 @@ impl PartitionBorderGraph {
         &self.local_face_graphs
     }
 
+    pub(crate) fn border_observations(&self) -> impl Iterator<Item = &PartitionBorderHalfEdge> {
+        self.observations.values()
+    }
+
     pub fn declare_adjacency(&mut self, adjacency: PartitionBorderAdjacency) {
         self.adjacencies.insert(adjacency);
         self.global_face_edge_map.clear();
@@ -3576,6 +3602,185 @@ impl PartitionBorderGraph {
             local_aliases: polygons.local_aliases,
             non_polygon_payloads,
         }))
+    }
+
+    /// Cut deletion can leave disconnected cycles under the original component ID.
+    /// Partition only complete reciprocal twin/successor groups and retain every ID.
+    pub(crate) fn physical_local_face_components(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<Vec<PartitionBorderLocalFaceGraph>>> {
+        let stage = "partition_border_physical_local_components";
+        execution_policy.check_cancelled(stage)?;
+        let mut items = self.local_face_graphs.len();
+        let mut edge_count = 0usize;
+        for (index, edge) in self
+            .local_face_graphs
+            .iter()
+            .flat_map(|graph| &graph.directed_edges)
+            .enumerate()
+        {
+            execution_policy.check_cancelled_every(stage, index)?;
+            edge_count += 1;
+            items = items
+                .checked_add(2)
+                .and_then(|items| items.checked_add(edge.source_line_ids.len()))
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "physical component item count overflow".to_string(),
+                })?;
+        }
+        execution_policy.check(stage, execution_policy.max_graph_edges, edge_count)?;
+        execution_policy.check_uncancellable_sort(stage, items)?;
+        let mut components = Vec::new();
+        let mut work = 0;
+        for graph in &self.local_face_graphs {
+            let by_id = graph
+                .directed_edges
+                .iter()
+                .map(|edge| (edge.local_dir_edge_id, edge))
+                .collect::<BTreeMap<_, _>>();
+            if by_id.len() != graph.directed_edges.len() {
+                return Ok(None);
+            }
+            let mut predecessors = BTreeMap::<usize, usize>::new();
+            for edge in &graph.directed_edges {
+                execution_policy.check_cancelled_every(stage, work)?;
+                work += 1;
+                let Some(&twin) = by_id.get(&edge.symmetric_local_dir_edge_id) else {
+                    return Ok(None);
+                };
+                if twin.symmetric_local_dir_edge_id != edge.local_dir_edge_id
+                    || twin.from != edge.to
+                    || twin.to != edge.from
+                    || twin.from_z_bits != edge.to_z_bits
+                    || twin.to_z_bits != edge.from_z_bits
+                    || twin.source_line_ids != edge.source_line_ids
+                    || twin.edge_key != edge.edge_key
+                    || PartitionBorderEdgeKey::new(edge.from, edge.to) != Some(edge.edge_key)
+                    || edge.face_ref.is_some_and(|face| {
+                        face.partition_id != graph.partition_id
+                            || face.component_id != graph.component_id
+                    })
+                {
+                    return Ok(None);
+                }
+                if let Some(next) = edge.local_face_successor {
+                    let Some(&next_edge) = by_id.get(&next) else {
+                        return Ok(None);
+                    };
+                    if next_edge.from != edge.to
+                        || next_edge.from_z_bits != edge.to_z_bits
+                        || next_edge.face_ref != edge.face_ref
+                    {
+                        return Ok(None);
+                    }
+                    *predecessors.entry(next).or_default() += 1;
+                }
+            }
+            if graph.directed_edges.iter().any(|edge| {
+                predecessors
+                    .get(&edge.local_dir_edge_id)
+                    .copied()
+                    .unwrap_or(0)
+                    != usize::from(edge.local_face_successor.is_some())
+            }) {
+                return Ok(None);
+            }
+            let mut visited = BTreeSet::new();
+            for &start in by_id.keys() {
+                if visited.contains(&start) {
+                    continue;
+                }
+                let mut members = BTreeSet::new();
+                let mut pending = vec![start];
+                while let Some(id) = pending.pop() {
+                    execution_policy.check_cancelled_every(stage, work)?;
+                    work += 1;
+                    if !visited.insert(id) {
+                        continue;
+                    }
+                    members.insert(id);
+                    let edge = by_id[&id];
+                    pending.push(edge.symmetric_local_dir_edge_id);
+                    pending.extend(edge.local_face_successor);
+                }
+                components.push(PartitionBorderLocalFaceGraph {
+                    partition_id: graph.partition_id,
+                    component_id: graph.component_id,
+                    graph_state: graph.graph_state,
+                    directed_edges: members.into_iter().map(|id| by_id[&id].clone()).collect(),
+                });
+            }
+        }
+        execution_policy.check_cancelled(stage)?;
+        Ok(Some(components))
+    }
+
+    /// Proves a complete projected component without filtering a border claim group.
+    pub(crate) fn extract_interior_component_physical_polygons(
+        &self,
+        component: &PartitionBorderLocalFaceGraph,
+        z_options: ZOptions,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<Option<PartitionBorderPhysicalPolygonExtraction>> {
+        let stage = "partition_border_interior_component_extraction";
+        execution_policy.check_cancelled(stage)?;
+        let Some(original) = self.local_face_graphs.iter().find(|graph| {
+            (graph.partition_id, graph.component_id)
+                == (component.partition_id, component.component_id)
+        }) else {
+            return Ok(None);
+        };
+        execution_policy.check(
+            stage,
+            execution_policy.max_graph_edges,
+            original.directed_edges.len(),
+        )?;
+        execution_policy.check_uncancellable_sort(stage, original.directed_edges.len())?;
+        let by_id = original
+            .directed_edges
+            .iter()
+            .map(|edge| (edge.local_dir_edge_id, edge))
+            .collect::<BTreeMap<_, _>>();
+        let mut items = component.directed_edges.len();
+        for (index, edge) in component.directed_edges.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            if self.edges.contains_key(&edge.edge_key)
+                || by_id.get(&edge.local_dir_edge_id).copied() != Some(edge)
+            {
+                return Ok(None);
+            }
+            items = items
+                .checked_add(edge.source_line_ids.len())
+                .ok_or_else(|| crate::PolygonizeError::InternalInvariantViolation {
+                    reason: "physical component item count overflow".to_string(),
+                })?;
+        }
+        execution_policy.check_uncancellable_sort(stage, items)?;
+        let mut graph = Self::default();
+        graph.insert_local_face_graph(component.clone())?;
+        graph.reconcile_global_face_edge_map(execution_policy)?;
+        graph.reconcile_global_face_nodes(z_options, execution_policy)?;
+        let Some(witness) = graph.global_arrangement_witness(execution_policy)? else {
+            return Ok(None);
+        };
+        let eligible = BTreeSet::new();
+        let Some(construction) = graph.construct_global_arrangement_candidate(
+            &witness,
+            &eligible,
+            true,
+            execution_policy,
+        )?
+        else {
+            return Ok(None);
+        };
+        graph.extract_physical_polygon_payloads(
+            &witness,
+            &construction,
+            &eligible,
+            true,
+            execution_policy,
+        )
     }
 
     /// Replays the same physical claims, face/Euler and simple-shell containment gates.
@@ -13597,6 +13802,135 @@ mod tests {
             .unwrap()
             .is_none());
         assert_eq!(graph, before);
+    }
+
+    #[test]
+    fn core_side_membership_requires_both_endpoints_within_the_finite_side() {
+        let bounds = Rect::new((0.0, 0.0), (4.0, 4.0));
+        let key = |[x, y]: [f64; 2]| PartitionBorderNodeKey::from_coord(coord(x, y, 7.0));
+        for (side, from, to) in [
+            (PartitionBorderSide::MinX, [0.0, 1.0], [0.0, 3.0]),
+            (PartitionBorderSide::MaxX, [4.0, 1.0], [4.0, 3.0]),
+            (PartitionBorderSide::MinY, [1.0, 0.0], [3.0, 0.0]),
+            (PartitionBorderSide::MaxY, [1.0, 4.0], [3.0, 4.0]),
+        ] {
+            assert!(side.contains_edge(key(from), key(to), bounds));
+            assert!(side.contains_edge(key(to), key(from), bounds));
+            let mut off_side = to;
+            off_side[side.coordinate_index()] += 1.0;
+            assert!(!side.contains_edge(key(from), key(off_side), bounds));
+            let mut outside_extent = from;
+            outside_extent[1 - side.coordinate_index()] = -1.0;
+            assert!(!side.contains_edge(key(outside_extent), key(to), bounds));
+            outside_extent[1 - side.coordinate_index()] = 5.0;
+            assert!(!side.contains_edge(key(outside_extent), key(to), bounds));
+        }
+        let negative = Rect::new((-4.0, -4.0), (0.0, 0.0));
+        assert!(PartitionBorderSide::MaxX.contains_edge(
+            key([-0.0, -3.0]),
+            key([0.0, -1.0]),
+            negative
+        ));
+        assert!(PartitionBorderSide::MinX.contains_edge(
+            key([-4.0, -4.0]),
+            key([-4.0, 0.0]),
+            negative
+        ));
+        let partial = Rect::new((8.0, 0.0), (10.0, 2.0));
+        assert!(PartitionBorderSide::MaxX.contains_edge(
+            key([10.0, 0.0]),
+            key([10.0, 2.0]),
+            partial
+        ));
+        assert!(!PartitionBorderSide::MaxX.contains_edge(
+            key([10.0, 0.0]),
+            key([10.0, 3.0]),
+            partial
+        ));
+    }
+
+    #[test]
+    fn physical_component_projection_preserves_links_and_cannot_filter_border_claims() {
+        let policy = ExecutionPolicy::default();
+        for count in [2, 4] {
+            let graph = physical_face_claim_graph_with_layout(count, false, true);
+            let before = graph.clone();
+            let components = graph
+                .physical_local_face_components(&policy)
+                .unwrap()
+                .unwrap();
+            assert_eq!(components.len(), 2);
+            assert_eq!(
+                components
+                    .iter()
+                    .map(|component| component.directed_edges.len())
+                    .sum::<usize>(),
+                graph
+                    .local_face_graphs
+                    .iter()
+                    .map(|component| component.directed_edges.len())
+                    .sum::<usize>()
+            );
+            for component in &components {
+                assert!(graph
+                    .extract_interior_component_physical_polygons(
+                        component,
+                        ZOptions::default(),
+                        &policy
+                    )
+                    .unwrap()
+                    .is_none());
+            }
+            assert_eq!(graph, before);
+        }
+        for mutation in 0..7 {
+            let mut graph = physical_face_claim_graph_with_layout(2, false, true);
+            let first = &mut graph.local_face_graphs[0].directed_edges[0];
+            match mutation {
+                0 => first.symmetric_local_dir_edge_id = usize::MAX,
+                1 => first.local_face_successor = Some(usize::MAX),
+                2 => first.source_line_ids.push(99),
+                3 => first.from_z_bits = 1.0f64.to_bits(),
+                4 => first.face_ref.as_mut().unwrap().component_id = 99,
+                5 => {
+                    first.edge_key = PartitionBorderEdgeKey::new(
+                        PartitionBorderNodeKey::from_coord(coord(2.0, 2.0, 0.0)),
+                        first.to,
+                    )
+                    .unwrap()
+                }
+                _ => {
+                    let duplicate = first.clone();
+                    graph.local_face_graphs[0].directed_edges.push(duplicate);
+                }
+            }
+            let before = graph.clone();
+            assert!(
+                graph
+                    .physical_local_face_components(&policy)
+                    .unwrap()
+                    .is_none(),
+                "mutation {mutation}"
+            );
+            assert_eq!(graph, before);
+        }
+        let graph = physical_face_claim_graph_with_layout(2, false, true);
+        assert!(matches!(
+            graph.physical_local_face_components(&ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            }),
+            Err(crate::PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            graph.physical_local_face_components(&ExecutionPolicy {
+                cancellation_token: Some(token),
+                ..Default::default()
+            }),
+            Err(crate::PolygonizeError::Cancelled { .. })
+        ));
     }
 
     #[test]
