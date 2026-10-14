@@ -31,6 +31,11 @@ mod tests {
         for reverse in [false, true] {
             if reverse {
                 geometries.reverse();
+                for geometry in &mut geometries {
+                    if let Geometry::LineString(line) = geometry {
+                        line.0.reverse();
+                    }
+                }
             }
             let mut tiled = TiledPolygonizer::new(
                 Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 2.0, y: 2.0 }),
@@ -136,6 +141,17 @@ mod tests {
             assert_eq!(extraction["materialized"], false);
             assert!(extraction["rings"].is_null());
             assert!(extraction["local_aliases"].is_null());
+            let conformance = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                .unwrap()
+                .payload;
+            assert_eq!(conformance["candidate_built"], false);
+            assert_eq!(conformance["equivalence_checked"], false);
+            assert_eq!(conformance["equivalence_ready"], false);
+            assert_eq!(conformance["output_selectable"], false);
             let adoption = result
                 .trace
                 .events
@@ -283,6 +299,20 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        let conformance = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+            .unwrap()
+            .payload;
+        assert_eq!(conformance["candidate_built"], true);
+        assert_eq!(conformance["polygon_count"], 1);
+        assert_eq!(conformance["equivalence_checked"], true);
+        assert_eq!(conformance["equivalence_ready"], true);
+        assert_eq!(conformance["equivalence_mismatch_count"], 0);
+        assert_eq!(conformance["non_polygon_ownership_proven"], false);
+        assert_eq!(conformance["output_selectable"], false);
     }
 
     #[test]
@@ -340,6 +370,170 @@ mod tests {
                 [3.5f64.to_bits(), 3.25f64.to_bits(), 0.0f64.to_bits()],
             ])
         );
+        let conformance = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+            .unwrap()
+            .payload;
+        assert_eq!(conformance["candidate_built"], true);
+        assert_eq!(conformance["dangle_count"], 1);
+        assert_eq!(conformance["equivalence_checked"], true);
+        assert_eq!(conformance["equivalence_ready"], true);
+        assert_eq!(conformance["equivalence_mismatch_count"], 0);
+        assert_eq!(conformance["non_polygon_ownership_proven"], false);
+        assert_eq!(conformance["output_selectable"], false);
+    }
+
+    #[test]
+    fn physical_output_conformance_uses_same_call_options_under_permutation_and_reversal() {
+        let ring = LineString::from(vec![
+            (1.0, 1.0),
+            (3.0, 1.0),
+            (3.0, 3.0),
+            (1.0, 3.0),
+            (1.0, 1.0),
+        ]);
+        let dangle = LineString::from(vec![(5.0, 5.0), (5.5, 5.0)]);
+        for tile_size in [4.0, 8.0] {
+            for reverse in [false, true] {
+                for extract_only_polygonal in [false, true] {
+                    for minimum_face_area in [None, Some(5.0)] {
+                        for touch_policy in [
+                            crate::TouchPolicy::AllowPointTouchDisallowEdgeShare,
+                            crate::TouchPolicy::TreatAnyTouchAsDisjoint,
+                            crate::TouchPolicy::AllowEdgeShare,
+                        ] {
+                            let mut geometries = vec![ring.clone(), dangle.clone()];
+                            if reverse {
+                                geometries.reverse();
+                                for geometry in &mut geometries {
+                                    geometry.0.reverse();
+                                }
+                            }
+                            let geometries = geometries
+                                .into_iter()
+                                .map(Geometry::LineString)
+                                .collect::<Vec<_>>();
+                            let mut tiled = TiledPolygonizer::new(
+                                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 8.0 }),
+                                tile_size,
+                            )
+                            .with_buffer(0.0)
+                            .with_options(PolygonizerOptions {
+                                extract_only_polygonal,
+                                containment: crate::ContainmentOptions { touch_policy },
+                                output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                provenance: ProvenanceOptions {
+                                    enabled: true,
+                                    include_boundary_line_ids: true,
+                                },
+                                input_profile_id: Some("physical-output-conformance".to_string()),
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                            for geometry in &geometries {
+                                tiled.add_geometry(geometry);
+                            }
+                            let ordinary = tiled.polygonize().unwrap();
+                            let traced = tiled
+                                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                                .unwrap();
+                            assert_eq!(
+                                crate::tiling::canonical_polygon_output_keys(
+                                    &ordinary.polygons,
+                                    &ExecutionPolicy::default()
+                                )
+                                .unwrap(),
+                                crate::tiling::canonical_polygon_output_keys(
+                                    &traced.result.polygons,
+                                    &ExecutionPolicy::default()
+                                )
+                                .unwrap()
+                            );
+                            let conformance = &traced
+                                .trace
+                                .events
+                                .iter()
+                                .find(|event| {
+                                    event.kind == "partition_border_global_arrangement_conformance"
+                                })
+                                .unwrap()
+                                .payload;
+                            assert_eq!(conformance["candidate_built"], true, "tile_size={tile_size} reverse={reverse} polygonal={extract_only_polygonal} minimum={minimum_face_area:?} conformance={conformance}");
+                            assert_eq!(
+                                conformance["polygon_count"],
+                                usize::from(minimum_face_area.is_none())
+                            );
+                            assert_eq!(conformance["dangle_count"], 1);
+                            assert_eq!(conformance["equivalence_checked"], true);
+                            assert_eq!(conformance["equivalence_ready"], true, "tile_size={tile_size} reverse={reverse} polygonal={extract_only_polygonal} minimum={minimum_face_area:?} conformance={conformance}");
+                            assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                            assert_eq!(conformance["non_polygon_ownership_proven"], false);
+                            assert_eq!(conformance["output_selectable"], false);
+                            assert!(ordinary.stitched_output.is_none());
+                            assert!(traced.result.stitched_output.is_none());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn physical_output_conformance_declines_holes_before_filtering() {
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 1.0),
+                (7.0, 1.0),
+                (7.0, 7.0),
+                (1.0, 7.0),
+                (1.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![
+                (2.0, 2.0),
+                (3.0, 2.0),
+                (3.0, 3.0),
+                (2.0, 3.0),
+                (2.0, 2.0),
+            ])),
+        ];
+        for extract_only_polygonal in [false, true] {
+            let mut tiled = TiledPolygonizer::new(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 8.0 }),
+                8.0,
+            )
+            .with_buffer(0.0)
+            .with_options(PolygonizerOptions {
+                extract_only_polygonal,
+                output_filter: crate::OutputFilterOptions {
+                    minimum_face_area: Some(2.0),
+                },
+                ..Default::default()
+            })
+            .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let ordinary = tiled.polygonize().unwrap();
+            let traced = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let conformance = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                .unwrap()
+                .payload;
+            assert_eq!(conformance["candidate_built"], false);
+            assert_eq!(conformance["equivalence_checked"], false);
+            assert_eq!(conformance["equivalence_ready"], false);
+            assert_eq!(conformance["output_selectable"], false);
+            assert!(ordinary.stitched_output.is_none());
+            assert!(traced.result.stitched_output.is_none());
+        }
     }
 
     #[test]
@@ -4182,6 +4376,59 @@ mod tests {
             }
         );
 
+        for mutation in 0..9 {
+            let mut mismatch = stitched_output.clone();
+            let polygon = &mut mismatch.polygons[0];
+            match mutation {
+                0 => polygon.exterior_ids[0] = 999,
+                1 => polygon.exterior_ids.clear(),
+                2 => polygon.interiors_ids.clear(),
+                3 => polygon.interiors_ids[0][0] = 999,
+                4 => polygon.boundary_source_line_ids.push(999),
+                5 => polygon
+                    .provenance
+                    .as_mut()
+                    .unwrap()
+                    .boundary_line_ids
+                    .push(999),
+                6 => polygon.provenance.as_mut().unwrap().input_profile_id = None,
+                7 => {
+                    polygon.exterior.pop();
+                }
+                _ => polygon.exterior[1].z = 123.0,
+            }
+            let stats = crate::tiling::compare_stitched_output_with_untiled(
+                Some(&mismatch),
+                &geometry_refs,
+                &options,
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+            assert!(stats.checked);
+            assert!(!stats.ready, "mutation {mutation}");
+            assert_eq!(stats.mismatch_count, 1);
+        }
+
+        for family in 0..3 {
+            let mut mismatch = stitched_output.clone();
+            let line = vec![Coord3D::new(20.0, 20.0, 1.0), Coord3D::new(21.0, 20.0, 2.0)];
+            match family {
+                0 => mismatch.dangles.push(line),
+                1 => mismatch.cut_edges.push(line),
+                _ => mismatch.invalid_rings.push(line),
+            }
+            let stats = crate::tiling::compare_stitched_output_with_untiled(
+                Some(&mismatch),
+                &geometry_refs,
+                &options,
+                &ExecutionPolicy::default(),
+            )
+            .unwrap();
+            assert!(stats.checked);
+            assert!(!stats.ready);
+            assert_eq!(stats.mismatch_count, 1);
+        }
+
         let mut mismatch = stitched_output;
         mismatch.polygons[0].exterior[0].x += 1.0;
         let stats = crate::tiling::compare_stitched_output_with_untiled(
@@ -4211,6 +4458,59 @@ mod tests {
             Err(PolygonizeError::Cancelled { stage })
                 if stage == "tiled_untiled_equivalence"
         ));
+    }
+
+    #[test]
+    fn conformance_canonicalizes_coordinates_and_edge_ids_together() {
+        let options = PolygonizerOptions::default();
+        let mut polygonizer = Polygonizer::with_options(options);
+        for (base, side) in [(0.0, 10.0), (2.0, 6.0)] {
+            let vertices = [
+                Coord3D::new(base, base, 4.0),
+                Coord3D::new(base + side, base, 4.0),
+                Coord3D::new(base + side, base + side, 4.0),
+                Coord3D::new(base, base + side, 4.0),
+            ];
+            polygonizer.add_lines(
+                (0..4)
+                    .map(|index| {
+                        Line3D::new(
+                            vertices[index],
+                            vertices[(index + 1) % 4],
+                            base as u32 * 10 + index as u32 + 1,
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        let expected = polygonizer.polygonize().unwrap();
+        let policy = ExecutionPolicy::default();
+        let keys = crate::tiling::canonical_polygon_output_keys(&expected.polygons, &policy)
+            .unwrap()
+            .unwrap();
+        let mut changed = expected.polygons.clone();
+        for polygon in &mut changed {
+            for (ring, ids) in std::iter::once((&mut polygon.exterior, &mut polygon.exterior_ids))
+                .chain(polygon.interiors.iter_mut().zip(&mut polygon.interiors_ids))
+            {
+                ring.pop();
+                ring.reverse();
+                ids.reverse();
+                ids.rotate_left(1);
+                ring.rotate_left(2);
+                ids.rotate_left(2);
+                ring.push(ring[0]);
+            }
+        }
+        assert_eq!(
+            Some(keys.clone()),
+            crate::tiling::canonical_polygon_output_keys(&changed, &policy).unwrap()
+        );
+        changed[0].exterior_ids.rotate_left(1);
+        assert_ne!(
+            Some(keys),
+            crate::tiling::canonical_polygon_output_keys(&changed, &policy).unwrap()
+        );
     }
 
     #[test]

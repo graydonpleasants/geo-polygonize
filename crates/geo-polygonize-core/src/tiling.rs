@@ -1,8 +1,10 @@
 use crate::diagnostics::ExecutionWorkTracker;
+use crate::fingerprint::{canonical_ring_with_ids, CoordinateFingerprintV1};
 use crate::graph::partition_border::{
     PartitionBorderAdjacency, PartitionBorderEdgeKey, PartitionBorderGraph,
     PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph, PartitionBorderNodeKey,
-    PartitionBorderObservationId, PartitionBorderSide, PartitionLocalGraphState,
+    PartitionBorderObservationId, PartitionBorderPhysicalTableExtraction, PartitionBorderSide,
+    PartitionLocalGraphState,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -61,8 +63,9 @@ fn canonical_polygon_key(poly: &Polygon3D) -> (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>
     (canonical_ring_key(&poly.exterior), interiors)
 }
 
+type CanonicalRingOutputKey = (Vec<CoordinateFingerprintV1>, Vec<String>);
 type CanonicalPolygonOutputKey = (
-    (Vec<[u64; 3]>, Vec<Vec<[u64; 3]>>),
+    (CanonicalRingOutputKey, Vec<CanonicalRingOutputKey>),
     Vec<u32>,
     Option<(Vec<u64>, Option<String>)>,
 );
@@ -1682,7 +1685,22 @@ impl PartitionMosaic {
     }
 }
 
-fn canonical_polygon_output_key(poly: &Polygon3D) -> CanonicalPolygonOutputKey {
+fn canonical_polygon_output_key(poly: &Polygon3D) -> Option<CanonicalPolygonOutputKey> {
+    if poly.interiors.len() != poly.interiors_ids.len()
+        || std::iter::once(&poly.exterior)
+            .chain(&poly.interiors)
+            .any(|ring| ring.len() < 4 || ring.first() != ring.last())
+    {
+        return None;
+    }
+    let exterior = canonical_ring_with_ids(&poly.exterior, &poly.exterior_ids).ok()?;
+    let mut interiors = poly
+        .interiors
+        .iter()
+        .zip(&poly.interiors_ids)
+        .map(|(ring, ids)| canonical_ring_with_ids(ring, ids).ok())
+        .collect::<Option<Vec<_>>>()?;
+    interiors.sort_unstable();
     let mut source_line_ids = poly.boundary_source_line_ids.clone();
     source_line_ids.sort_unstable();
     source_line_ids.dedup();
@@ -1692,7 +1710,7 @@ fn canonical_polygon_output_key(poly: &Polygon3D) -> CanonicalPolygonOutputKey {
         boundary_line_ids.dedup();
         (boundary_line_ids, provenance.input_profile_id.clone())
     });
-    (canonical_polygon_key(poly), source_line_ids, provenance)
+    Some(((exterior, interiors), source_line_ids, provenance))
 }
 
 fn canonical_open_line_key(line: &[Coord3D]) -> Vec<[u64; 3]> {
@@ -1714,14 +1732,34 @@ fn canonical_open_line_key(line: &[Coord3D]) -> Vec<[u64; 3]> {
 fn canonical_polygon_output_keys(
     polygons: &[Polygon3D],
     execution_policy: &ExecutionPolicy,
-) -> Result<Vec<CanonicalPolygonOutputKey>> {
+) -> Result<Option<Vec<CanonicalPolygonOutputKey>>> {
     let mut keys = Vec::with_capacity(polygons.len());
     for (index, polygon) in polygons.iter().enumerate() {
         execution_policy.check_cancelled_every("tiled_untiled_equivalence_polygons", index)?;
-        keys.push(canonical_polygon_output_key(polygon));
+        for ring in std::iter::once(&polygon.exterior).chain(&polygon.interiors) {
+            execution_policy
+                .check_uncancellable_sort("tiled_untiled_equivalence_ring", ring.len())?;
+        }
+        execution_policy.check_uncancellable_sort(
+            "tiled_untiled_equivalence_sources",
+            polygon.boundary_source_line_ids.len(),
+        )?;
+        execution_policy
+            .check_uncancellable_sort("tiled_untiled_equivalence_holes", polygon.interiors.len())?;
+        if let Some(provenance) = &polygon.provenance {
+            execution_policy.check_uncancellable_sort(
+                "tiled_untiled_equivalence_provenance",
+                provenance.boundary_line_ids.len(),
+            )?;
+        }
+        let Some(key) = canonical_polygon_output_key(polygon) else {
+            return Ok(None);
+        };
+        keys.push(key);
     }
+    execution_policy.check_uncancellable_sort("tiled_untiled_equivalence_polygons", keys.len())?;
     keys.sort_unstable();
-    Ok(keys)
+    Ok(Some(keys))
 }
 
 fn canonical_line_output_keys(
@@ -1733,12 +1771,14 @@ fn canonical_line_output_keys(
     let mut keys = Vec::with_capacity(lines.len());
     for (index, line) in lines.iter().enumerate() {
         execution_policy.check_cancelled_every(stage, index)?;
+        execution_policy.check_uncancellable_sort(stage, line.len())?;
         keys.push(if closed {
             canonical_ring_key(line)
         } else {
             canonical_open_line_key(line)
         });
     }
+    execution_policy.check_uncancellable_sort(stage, keys.len())?;
     keys.sort_unstable();
     Ok(keys)
 }
@@ -1766,9 +1806,10 @@ fn compare_stitched_output_with_untiled(
         polygonizer.add_borrowed_geometry(geometry);
     }
     let untiled = polygonizer.polygonize()?;
-    let polygon_mismatch =
-        canonical_polygon_output_keys(&stitched_output.polygons, execution_policy)?
-            != canonical_polygon_output_keys(&untiled.polygons, execution_policy)?;
+    let candidate_keys =
+        canonical_polygon_output_keys(&stitched_output.polygons, execution_policy)?;
+    let polygon_mismatch = candidate_keys.is_none()
+        || candidate_keys != canonical_polygon_output_keys(&untiled.polygons, execution_policy)?;
     let dangle_mismatch = canonical_line_output_keys(
         &stitched_output.dangles,
         false,
@@ -1819,6 +1860,125 @@ fn coord3d_from_bits(bits: [u64; 3]) -> Coord3D {
         f64::from_bits(bits[1]),
         f64::from_bits(bits[2]),
     )
+}
+
+/// Adapts fresh physical-table evidence for comparison only; local non-polygon
+/// payloads still lack global ownership proof and cannot select stitched output.
+pub(crate) fn physical_table_output_candidate(
+    extraction: &PartitionBorderPhysicalTableExtraction,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<TiledStitchedOutput> {
+    let stage = "tiled_physical_output_candidate";
+    execution_policy.check_cancelled(stage)?;
+    let mut work_items = 0usize;
+    let mut decode = |bits: &[[u64; 3]]| -> Result<Vec<Coord3D>> {
+        execution_policy.check_uncancellable_sort(stage, bits.len())?;
+        let mut coordinates = Vec::with_capacity(bits.len());
+        for &point in bits {
+            execution_policy.check_cancelled_every(stage, work_items)?;
+            work_items += 1;
+            coordinates.push(coord3d_from_bits(point));
+        }
+        Ok(coordinates)
+    };
+    let mut output = TiledStitchedOutput {
+        polygons: Vec::new(),
+        dangles: Vec::new(),
+        cut_edges: Vec::new(),
+        invalid_rings: Vec::new(),
+    };
+    let mut polygon_count = 0;
+    let mut coordinate_count = 0usize;
+    let next_coordinate_count = |count: usize, length: usize| -> Result<usize> {
+        let count = count.checked_add(length).ok_or_else(|| {
+            PolygonizeError::InternalInvariantViolation {
+                reason: "physical output coordinate count overflow".to_string(),
+            }
+        })?;
+        execution_policy.check(
+            "output_coordinates",
+            execution_policy.max_output_coordinates,
+            count,
+        )?;
+        Ok(count)
+    };
+    // Extraction rejects nesting, so polygonal-shell filtering keeps every shell.
+    for payload in extraction
+        .ring_payloads
+        .iter()
+        .filter(|ring| !ring.unbounded)
+    {
+        next_coordinate_count(coordinate_count, payload.coordinate_bits.len())?;
+        execution_policy.check_uncancellable_sort(stage, payload.source_line_ids.len())?;
+        let mut polygon = Polygon3D::new(
+            decode(&payload.coordinate_bits)?,
+            Vec::new(),
+            payload.representative_line_ids.clone(),
+            Vec::new(),
+        );
+        if options.provenance.enabled && options.provenance.include_boundary_line_ids {
+            polygon.set_boundary_source_line_ids(payload.source_line_ids.clone());
+        }
+        if options.provenance.enabled {
+            polygon.provenance = Some(PolygonProvenance {
+                boundary_line_ids: if options.provenance.include_boundary_line_ids {
+                    polygon
+                        .boundary_source_line_ids
+                        .iter()
+                        .copied()
+                        .filter(|line_id| *line_id != 0)
+                        .map(u64::from)
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+                input_profile_id: options.input_profile_id.clone(),
+            });
+        }
+        let area = polygon.unsigned_area_2d();
+        if area.is_finite()
+            && area > 0.0
+            && options
+                .output_filter
+                .minimum_face_area
+                .is_none_or(|minimum| area >= minimum)
+        {
+            account_polygon_output(
+                execution_policy,
+                &mut polygon_count,
+                &mut coordinate_count,
+                &polygon,
+            )?;
+            output.polygons.push(polygon);
+        }
+    }
+    // The core retains these families even in polygonal-shell mode.
+    for payload in &extraction.non_polygon_payloads {
+        coordinate_count = next_coordinate_count(coordinate_count, payload.coordinate_bits.len())?;
+        let coordinates = decode(&payload.coordinate_bits)?;
+        use crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind;
+        match payload.kind {
+            PartitionBorderGlobalNonPolygonPayloadKind::Dangle => output.dangles.push(coordinates),
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => {
+                output.cut_edges.push(coordinates)
+            }
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => {
+                output.invalid_rings.push(coordinates)
+            }
+        }
+    }
+    output.polygons = apply_determinism(
+        output.polygons,
+        &mut output.dangles,
+        &mut output.cut_edges,
+        &mut output.invalid_rings,
+        options,
+        execution_policy,
+        None,
+    )?;
+    execution_policy.check_cancelled(stage)?;
+    Ok(output)
 }
 
 fn promote_global_private_extraction(
@@ -5797,6 +5957,18 @@ impl<'a> TiledPolygonizer<'a> {
                 )?,
             _ => None,
         };
+        let arrangement_output_candidate = arrangement_extraction
+            .as_ref()
+            .map(|extraction| {
+                physical_table_output_candidate(extraction, &self.options, &self.execution_policy)
+            })
+            .transpose()?;
+        let arrangement_equivalence = compare_stitched_output_with_untiled(
+            arrangement_output_candidate.as_ref(),
+            &self.geometries,
+            &self.options,
+            &self.execution_policy,
+        )?;
         let stitched_output = if partition_border_global_private_extraction.extraction_ready {
             promote_global_private_extraction(
                 &partition_border_graph,
@@ -5825,6 +5997,18 @@ impl<'a> TiledPolygonizer<'a> {
             stitched_output
         };
         if let Some(trace) = trace.as_deref_mut() {
+            trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_conformance", serde_json::json!({
+                "candidate_built": arrangement_output_candidate.is_some(),
+                "polygon_count": arrangement_output_candidate.as_ref().map(|output| output.polygons.len()),
+                "dangle_count": arrangement_output_candidate.as_ref().map(|output| output.dangles.len()),
+                "cut_edge_count": arrangement_output_candidate.as_ref().map(|output| output.cut_edges.len()),
+                "invalid_ring_count": arrangement_output_candidate.as_ref().map(|output| output.invalid_rings.len()),
+                "equivalence_checked": arrangement_equivalence.checked,
+                "equivalence_ready": arrangement_equivalence.ready,
+                "equivalence_mismatch_count": arrangement_equivalence.mismatch_count,
+                "non_polygon_ownership_proven": false,
+                "output_selectable": false,
+            }));
             let (
                 stitched_polygon_count,
                 stitched_dangle_count,
