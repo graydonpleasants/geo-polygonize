@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(conformance["equivalence_checked"], true);
         assert_eq!(conformance["equivalence_ready"], true);
         assert_eq!(conformance["equivalence_mismatch_count"], 0);
-        assert_eq!(conformance["non_polygon_ownership_proven"], false);
+        assert_eq!(conformance["non_polygon_ownership_proven"], true);
         assert_eq!(conformance["output_selectable"], false);
     }
 
@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(conformance["equivalence_checked"], true);
         assert_eq!(conformance["equivalence_ready"], true);
         assert_eq!(conformance["equivalence_mismatch_count"], 0);
-        assert_eq!(conformance["non_polygon_ownership_proven"], false);
+        assert_eq!(conformance["non_polygon_ownership_proven"], true);
         assert_eq!(conformance["output_selectable"], false);
     }
 
@@ -470,7 +470,7 @@ mod tests {
                             assert_eq!(conformance["equivalence_checked"], true);
                             assert_eq!(conformance["equivalence_ready"], true, "tile_size={tile_size} reverse={reverse} polygonal={extract_only_polygonal} minimum={minimum_face_area:?} conformance={conformance}");
                             assert_eq!(conformance["equivalence_mismatch_count"], 0);
-                            assert_eq!(conformance["non_polygon_ownership_proven"], false);
+                            assert_eq!(conformance["non_polygon_ownership_proven"], true);
                             assert_eq!(conformance["output_selectable"], false);
                             assert!(ordinary.stitched_output.is_none());
                             assert!(traced.result.stitched_output.is_none());
@@ -537,6 +537,520 @@ mod tests {
     }
 
     #[test]
+    fn partition_source_inventory_bounds_work_before_fingerprint_allocation() {
+        use crate::options::MAX_UNCANCELLABLE_SORT_ITEMS;
+        use crate::tiling::partition_source_segments;
+
+        // Borrow the same small geometry repeatedly; source identities still
+        // distinguish each original input index without a huge input fixture.
+        let chunk = Geometry::LineString(LineString::from(vec![(0.0, 0.0); 1_001]));
+        let last = Geometry::LineString(LineString::from(vec![(0.0, 0.0); 2]));
+        let mut geometries = vec![(&chunk, None); MAX_UNCANCELLABLE_SORT_ITEMS / 1_000];
+        geometries.push((&last, None));
+        let indices = (0..geometries.len()).collect::<Vec<_>>();
+        let output =
+            partition_source_segments(&geometries, &indices, &ExecutionPolicy::default()).unwrap();
+        assert_eq!(output.len(), MAX_UNCANCELLABLE_SORT_ITEMS + 1);
+        assert_eq!(output.last().unwrap().geometry_index, geometries.len() - 1);
+        drop(output);
+
+        let invalid = Geometry::LineString(LineString::from(vec![(f64::NAN, 0.0); 1_001]));
+        geometries[..indices.len() - 1].fill((&invalid, None));
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        // If decoding runs before preflight, this returns InvalidGeometry at
+        // the first fingerprint instead of rejecting the full source count.
+        assert!(matches!(
+            partition_source_segments(&geometries, &indices, &policy),
+            Err(PolygonizeError::ResourceLimitExceeded {
+                ref stage,
+                limit: MAX_UNCANCELLABLE_SORT_ITEMS,
+                observed,
+            }) if stage == "partition_source_preflight"
+                && observed == MAX_UNCANCELLABLE_SORT_ITEMS + 1
+        ));
+    }
+
+    #[test]
+    fn partition_source_inventory_polls_preflight_copy_and_fingerprints() {
+        use crate::tiling::{partition_source_segment_sink, partition_source_segments};
+        let line = Geometry::LineString(LineString::from(vec![(0.0, 0.0); 513]));
+        let short = Geometry::LineString(LineString::from(vec![(0.0, 0.0); 2]));
+        let cancelled_policy = || {
+            let token = CancellationToken::new();
+            ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, 256)),
+                ..Default::default()
+            }
+        };
+        let geometries = vec![(&short, None); 300];
+        let indices = (0..geometries.len()).collect::<Vec<_>>();
+        assert!(matches!(
+            partition_source_segments(&geometries, &indices, &cancelled_policy()),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_preflight"
+        ));
+        let empty = Geometry::GeometryCollection(geo::GeometryCollection(Vec::new()));
+        let empty_geometries = vec![(&empty, None); 300];
+        assert!(matches!(
+            partition_source_segments(&empty_geometries, &indices, &cancelled_policy()),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_preflight"
+        ));
+        assert!(matches!(
+            partition_source_segments(&[(&line, None)], &[0], &cancelled_policy()),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_segments"
+        ));
+        let sink =
+            partition_source_segment_sink(&[(&line, None)], &[0], &ExecutionPolicy::default())
+                .unwrap();
+        assert!(matches!(
+            sink.snapshot_segments(&cancelled_policy()),
+            Err(PolygonizeError::Cancelled { ref stage })
+                if stage == "partition_source_fingerprints"
+        ));
+        assert_eq!(
+            sink.snapshot_segments(&ExecutionPolicy::default())
+                .unwrap()
+                .len(),
+            512
+        );
+    }
+
+    #[test]
+    fn partition_source_preflight_preserves_supported_geometry_inventory() {
+        use crate::tiling::partition_source_segments;
+        let line = LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]);
+        let ring = LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)]);
+        let polygon = geo::Polygon::new(ring.clone(), vec![ring]);
+        let geometry = Geometry::GeometryCollection(geo::GeometryCollection(vec![
+            Geometry::LineString(LineString::new(Vec::new())),
+            Geometry::LineString(line.clone()),
+            Geometry::MultiLineString(MultiLineString(vec![line])),
+            Geometry::Polygon(polygon.clone()),
+            Geometry::MultiPolygon(geo::MultiPolygon(vec![polygon])),
+            Geometry::GeometryCollection(geo::GeometryCollection(Vec::new())),
+            Geometry::Point(geo::Point::new(3.0, 4.0)),
+        ]));
+        let input = [(&geometry, None)];
+        let expected =
+            partition_source_segments(&input, &[0], &ExecutionPolicy::default()).unwrap();
+        let policy = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert_eq!(expected.len(), 16);
+        assert_eq!(
+            partition_source_segments(&input, &[0], &policy).unwrap(),
+            expected
+        );
+        assert!(partition_source_segments(&input, &[], &policy)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn global_non_polygon_ownership_proves_complete_dangle_and_cut_ledgers() {
+        use crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind;
+        use crate::tiling::{prove_global_non_polygon_ownership, PartitionMosaic};
+        let cases = [
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (1.0, 1.0),
+                    (2.0, 1.0),
+                ]))],
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+                4.0,
+            ),
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![
+                        (1.0, 1.0),
+                        (2.0, 1.0),
+                        (2.0, 1.5),
+                        (2.0, 2.0),
+                        (1.0, 2.0),
+                        (1.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![
+                        (4.0, 1.0),
+                        (5.0, 1.0),
+                        (5.0, 2.0),
+                        (4.0, 2.0),
+                        (4.0, 1.5),
+                        (4.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![(2.0, 1.5), (4.0, 1.5)])),
+                ],
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+                8.0,
+            ),
+        ];
+        let policy = ExecutionPolicy::default();
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 8.0 });
+        for (mut geometries, kind, tile_size) in cases {
+            let mut signatures = Vec::new();
+            for reverse in [false, true] {
+                if reverse {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        if let Geometry::LineString(line) = geometry {
+                            line.0.reverse();
+                        }
+                    }
+                }
+                let geometry_refs = geometries
+                    .iter()
+                    .map(|geometry| (geometry, None))
+                    .collect::<Vec<_>>();
+                let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                    .with_buffer(0.0)
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in traced.result.partition_snapshots.iter().rev() {
+                    mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+                }
+                let before = mosaic.fingerprint_sha256();
+                let (proof, reference) = prove_global_non_polygon_ownership(
+                    &mosaic,
+                    &tiled.generate_tiles().unwrap(),
+                    &geometry_refs,
+                    domain,
+                    &options,
+                    &policy,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(proof.payloads.len(), 1);
+                assert_eq!(proof.payloads[0].payload.kind, kind);
+                assert_eq!(proof.payloads[0].payload.partition_id, 0);
+                assert!(!proof.payloads[0].edges.is_empty());
+                for edge in &proof.payloads[0].edges {
+                    assert!(!edge.local_segment_aliases.is_empty());
+                    assert_eq!(edge.segment.source_line_ids, vec![0]);
+                    for &[partition, local] in &edge.local_segment_aliases {
+                        assert_eq!(
+                            edge.segment,
+                            mosaic.partitions[&partition].local_noded_segments[local]
+                        );
+                    }
+                }
+                assert_eq!(reference.dangles.len() + reference.cut_edges.len(), 1);
+                let event = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_non_polygon_ownership")
+                    .unwrap()
+                    .payload;
+                assert_eq!(event["proven"], true);
+                assert_eq!(event["proof"], serde_json::to_value(&proof).unwrap());
+                assert_eq!(event["output_selectable"], false);
+                assert!(traced.result.stitched_output.is_none());
+                assert_eq!(before, mosaic.fingerprint_sha256());
+                signatures.push(proof.payloads);
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn global_non_polygon_ownership_rejects_missing_stale_duplicate_and_cross_core_evidence() {
+        use crate::tiling::{prove_global_non_polygon_ownership, PartitionMosaic};
+        let geometries = [Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (2.0, 1.0),
+        ]))];
+        let geometry_refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 8.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0).with_buffer(0.0);
+        tiled.add_geometry(&geometries[0]);
+        let result = tiled.polygonize().unwrap();
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let (proof, _) = prove_global_non_polygon_ownership(
+            &mosaic,
+            &tiles,
+            &geometry_refs,
+            domain,
+            &options,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let extraction = crate::graph::partition_border::PartitionBorderPhysicalTableExtraction {
+            ring_payloads: vec![],
+            local_aliases: vec![],
+            non_polygon_payloads: proof
+                .payloads
+                .iter()
+                .map(|owned| owned.payload.clone())
+                .collect(),
+        };
+        assert!(proof.covers(&extraction, &mosaic, &policy).unwrap());
+        let mut missing_payload = extraction.clone();
+        missing_payload.non_polygon_payloads.clear();
+        assert!(!proof.covers(&missing_payload, &mosaic, &policy).unwrap());
+        for mutation in 0..10 {
+            let mut changed = mosaic.clone();
+            let owner = changed.partitions.get_mut(&0).unwrap();
+            match mutation {
+                0 => {
+                    changed.partitions.remove(&3);
+                }
+                1 => owner.non_polygon.dangles.clear(),
+                2 => owner
+                    .non_polygon
+                    .dangles
+                    .push(owner.non_polygon.dangles[0].clone()),
+                3 => owner.local_noded_segments.clear(),
+                4 => owner.local_noded_segments[0].source_line_ids.push(999),
+                5 => owner.selected_source_segments.clear(),
+                6 => owner.topology.options = serde_json::json!({}),
+                7 => owner.non_polygon.cut_edges = std::mem::take(&mut owner.non_polygon.dangles),
+                8 => {
+                    let payload = owner.non_polygon.dangles[0].clone();
+                    changed
+                        .partitions
+                        .get_mut(&1)
+                        .unwrap()
+                        .non_polygon
+                        .dangles
+                        .push(payload);
+                }
+                _ => owner.non_polygon.dangles[0][0][2] = f64::NAN.to_bits(),
+            }
+            let before = changed.fingerprint_sha256();
+            assert!(
+                prove_global_non_polygon_ownership(
+                    &changed,
+                    &tiles,
+                    &geometry_refs,
+                    domain,
+                    &options,
+                    &policy
+                )
+                .unwrap()
+                .is_none(),
+                "mutation {mutation}"
+            );
+            assert!(!proof.covers(&extraction, &changed, &policy).unwrap());
+            assert_eq!(changed.fingerprint_sha256(), before);
+        }
+        let other = [Geometry::LineString(LineString::from(vec![
+            (1.0, 2.0),
+            (2.0, 2.0),
+        ]))];
+        assert!(prove_global_non_polygon_ownership(
+            &mosaic,
+            &tiles,
+            &[(&other[0], None)],
+            domain,
+            &options,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        let cross_core = Geometry::LineString(LineString::from(vec![(3.0, 1.0), (5.0, 1.0)]));
+        let mut crossing = TiledPolygonizer::new(domain, 4.0)
+            .with_buffer(0.0)
+            .with_untiled_equivalence_check();
+        crossing.add_geometry(&cross_core);
+        let traced = crossing
+            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+            .unwrap();
+        let event = &traced
+            .trace
+            .events
+            .iter()
+            .find(|event| event.kind == "partition_border_global_non_polygon_ownership")
+            .unwrap()
+            .payload;
+        assert_eq!(event["proven"], false);
+        assert!(event["proof"].is_null());
+        assert!(traced.result.stitched_output.is_none());
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                prove_global_non_polygon_ownership(
+                    &mosaic,
+                    &tiles,
+                    &geometry_refs,
+                    domain,
+                    &options,
+                    &limited
+                ),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                prove_global_non_polygon_ownership(
+                    &mosaic,
+                    &tiles,
+                    &geometry_refs,
+                    domain,
+                    &options,
+                    &cancelled
+                ),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn global_non_polygon_ownership_keeps_invalid_ring_multiplicity_without_bypassing_duplicate_gates(
+    ) {
+        use crate::tiling::{prove_global_non_polygon_ownership, PartitionMosaic};
+        let mut geometry = Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (3.0, 3.0),
+            (1.0, 3.0),
+            (3.0, 1.0),
+            (1.0, 1.0),
+        ]));
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 4.0 });
+        let options = PolygonizerOptions::default();
+        let policy = ExecutionPolicy::default();
+        let mut signatures = Vec::new();
+        for reverse in [false, true] {
+            if reverse {
+                if let Geometry::LineString(line) = &mut geometry {
+                    line.0.reverse();
+                }
+            }
+            let mut tiled = TiledPolygonizer::new(domain, 4.0)
+                .with_options(options.clone())
+                .with_untiled_equivalence_check();
+            tiled.add_geometry(&geometry);
+            let traced = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let report = &traced.result.stitching_report;
+            assert_eq!(
+                report.partition_border_global_non_polygon_extraction_invalid_ring_count,
+                2
+            );
+            assert_eq!(
+                report.partition_border_global_non_polygon_extraction_duplicate_payload_count,
+                1
+            );
+            assert!(!report.partition_border_global_non_polygon_extraction_ready);
+            assert!(traced.result.stitched_output.is_none());
+            let mut mosaic = PartitionMosaic::default();
+            for snapshot in traced.result.partition_snapshots {
+                mosaic.replace_partition(snapshot, &policy).unwrap();
+            }
+            let (proof, reference) = prove_global_non_polygon_ownership(
+                &mosaic,
+                &[domain],
+                &[(&geometry, None)],
+                domain,
+                &options,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(reference.invalid_rings.len(), 2);
+            assert_eq!(proof.payloads.len(), 1);
+            let payload = &proof.payloads[0];
+            assert_eq!(payload.payload.kind, crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing);
+            assert_eq!(payload.global_payload_count, 2);
+            assert_eq!(payload.local_payload_indices, vec![0, 1]);
+            assert_eq!(payload.edges.len(), 4);
+            assert_eq!(payload.payload.partition_id, 0);
+            let event = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_non_polygon_ownership")
+                .unwrap()
+                .payload;
+            assert_eq!(event["proven"], true);
+            assert_eq!(event["proof"], serde_json::to_value(&proof).unwrap());
+            let conformance = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                .unwrap()
+                .payload;
+            assert_eq!(conformance["candidate_built"], false);
+            assert_eq!(conformance["equivalence_checked"], false);
+            assert_eq!(conformance["output_selectable"], false);
+            for missing in [true, false] {
+                let mut changed = mosaic.clone();
+                let rings = &mut changed
+                    .partitions
+                    .get_mut(&0)
+                    .unwrap()
+                    .non_polygon
+                    .invalid_rings;
+                if missing {
+                    rings.pop();
+                } else {
+                    rings.push(rings[0].clone());
+                }
+                assert!(prove_global_non_polygon_ownership(
+                    &changed,
+                    &[domain],
+                    &[(&geometry, None)],
+                    domain,
+                    &options,
+                    &policy
+                )
+                .unwrap()
+                .is_none());
+            }
+            signatures.push(proof.payloads);
+        }
+        assert_eq!(signatures[0], signatures[1]);
+    }
+
+    #[test]
     fn source_segment_sink_retains_chain_and_endpoint_identity() {
         let geometry = Geometry::MultiLineString(MultiLineString(vec![
             LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }]),
@@ -547,7 +1061,12 @@ mod tests {
             ]),
         ]));
         let geometries = vec![(&geometry, None)];
-        let sink = crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+        let sink = crate::tiling::partition_source_segment_sink(
+            &geometries,
+            &[0],
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
 
         assert_eq!(sink.segments.len(), 3);
         assert_eq!(sink.segments[0].geometry_index, 0);
@@ -629,8 +1148,12 @@ mod tests {
             .iter()
             .map(|geometry| (geometry, geometry.bounding_rect()))
             .collect::<Vec<_>>();
-        let source_segments =
-            crate::tiling::partition_source_segment_sink(&geometries, &[0, 1]).unwrap();
+        let source_segments = crate::tiling::partition_source_segment_sink(
+            &geometries,
+            &[0, 1],
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
         let tiled = TiledPolygonizer::new(bbox, 10.0).with_buffer(1.0);
         let tiles = tiled.generate_tiles().unwrap();
         let (sinks, work) = tiled
@@ -666,8 +1189,12 @@ mod tests {
             Coord { x: 10.5, y: 2.0 },
         ]));
         let geometries = vec![(&geometry, geometry.bounding_rect())];
-        let source_segments =
-            crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+        let source_segments = crate::tiling::partition_source_segment_sink(
+            &geometries,
+            &[0],
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
         let tiles = TiledPolygonizer::new(bbox, 10.0)
             .with_buffer(1.0)
             .generate_tiles()
@@ -708,8 +1235,12 @@ mod tests {
             Coord { x: 300.0, y: 300.0 },
         ]));
         let large_geometries = vec![(&large_geometry, large_geometry.bounding_rect())];
-        let large_source_segments =
-            crate::tiling::partition_source_segment_sink(&large_geometries, &[0]).unwrap();
+        let large_source_segments = crate::tiling::partition_source_segment_sink(
+            &large_geometries,
+            &[0],
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
         let large_tiled = TiledPolygonizer::new(large_bbox, 10.0).with_buffer(1.0);
         let large_tiles = large_tiled.generate_tiles().unwrap();
         let token = CancellationToken::new();
@@ -816,7 +1347,12 @@ mod tests {
             LineString::new(vec![Coord { x: 2.0, y: 0.0 }, Coord { x: 2.0, y: 1.0 }]),
         ]));
         let geometries = vec![(&geometry, geometry.bounding_rect())];
-        let sink = crate::tiling::partition_source_segment_sink(&geometries, &[0]).unwrap();
+        let sink = crate::tiling::partition_source_segment_sink(
+            &geometries,
+            &[0],
+            &ExecutionPolicy::default(),
+        )
+        .unwrap();
         let (lines, source_line_strings) = sink.polygonizer_input();
         let mut polygonizer = Polygonizer::new();
         polygonizer.add_source_segments(lines, source_line_strings);

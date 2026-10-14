@@ -437,15 +437,21 @@ remain blocked. Private physical-table extraction retains canonical simple ring
 XYZ, ordered representative IDs, complete source sets, every owned local alias,
 and the complete retained dangle/cut/invalid-ring payload ledger. Stale tables,
 ambiguous or missing payload evidence, self-touching polygon face cycles, and nested/containment
-cases remain blocked. These payloads require global non-polygon ownership,
-shell/hole assembly where needed, and same-options equivalence before promotion.
+cases remain blocked. Global non-polygon ownership proofs bind the complete
+original-input source and noded-edge inventories to every current snapshot,
+global classification, one whole-payload half-open core owner, and every local
+edge alias. Equal invalid-ring records retain their exact global multiplicity
+and local record indices; ownership proof does not bypass the existing
+duplicate-payload extraction gate. The whole-core checker declines cross-core payloads, incompatible noding,
+missing inventories, extra copies, and conflicting owners.
+Shell/hole assembly where needed and the remaining promotion gates still apply.
 The local output adapter preserves selected XYZ and ordered representative IDs,
 applies the current provenance/profile and face-area options, and compares every
 output family against untiled output from the same call and options. Comparison
 canonicalizes coordinates and IDs together and rejects missing or mismatched
-IDs. Private conformance evidence is traced separately from selectable output;
-even a zero-mismatch candidate does not prove global non-polygon ownership or
-complete the promotion gates.
+IDs. The private adapter requires a complete ownership proof bound to the current
+snapshot and payload ledger. Ownership and conformance evidence are traced
+separately from selectable output; they do not complete the promotion gates.
 
 - [x] Model canonical physical slots with one or more local directed-edge
   aliases.
@@ -463,6 +469,9 @@ complete the promotion gates.
 - [x] Adapt supported simple-ring payloads privately and check same-call,
   same-options output conformance, including representative IDs and every
   non-polygon family (private draft work).
+- [x] Prove global dangle/cut/invalid-ring ownership for complete whole-core
+  payloads, retaining all edge aliases and exact invalid-ring multiplicity
+  without bypassing ambiguity or duplicate-payload gates (private draft work).
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.
