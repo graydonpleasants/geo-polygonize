@@ -1849,6 +1849,60 @@ struct PartitionCrossCoreNonPolygonAssembly {
     whole_core_payloads: Vec<PartitionOwnedNonPolygonPayload>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(tag = "scope", content = "evidence", rename_all = "snake_case")]
+enum PartitionNonPolygonConsumedProof<'a> {
+    WholeCore(&'a PartitionOwnedNonPolygonPayload),
+    CrossCore(&'a PartitionCrossCoreNonPolygonPayload),
+}
+
+impl<'a> PartitionNonPolygonConsumedProof<'a> {
+    fn payload(
+        self,
+    ) -> (
+        PartitionBorderGlobalNonPolygonPayloadKind,
+        &'a [[u64; 3]],
+        usize,
+    ) {
+        match self {
+            Self::WholeCore(owned) => (
+                owned.payload.kind,
+                &owned.payload.coordinate_bits,
+                owned.global_payload_count,
+            ),
+            Self::CrossCore(crossed) => (
+                crossed.kind,
+                &crossed.coordinate_bits,
+                crossed.global_payload_count,
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct PartitionNonPolygonConsumedPayload<'a> {
+    kind: PartitionBorderGlobalNonPolygonPayloadKind,
+    coordinate_bits: &'a [[u64; 3]],
+    global_payload_count: usize,
+    local_payload_aliases: &'a [[usize; 2]],
+    proof: PartitionNonPolygonConsumedProof<'a>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct PartitionGlobalNonPolygonOutput {
+    dangles: Vec<Vec<Coord3D>>,
+    cut_edges: Vec<Vec<Coord3D>>,
+    invalid_rings: Vec<Vec<Coord3D>>,
+}
+
+#[derive(Debug, Serialize)]
+struct PartitionGlobalNonPolygonConsumer<'a> {
+    input_fingerprint_sha256: &'a str,
+    snapshot_fingerprints: &'a [(usize, String)],
+    payloads: Vec<PartitionNonPolygonConsumedPayload<'a>>,
+    output: PartitionGlobalNonPolygonOutput,
+}
+
 fn replay_non_polygon_boundary_segments(
     segments: &[PartitionNodedSegment],
     boundaries: &[(usize, Rect<f64>)],
@@ -2338,6 +2392,161 @@ fn assemble_cross_core_non_polygon(
         snapshot_fingerprints: evidence.snapshot_fingerprints.clone(),
         payloads,
         whole_core_payloads,
+    }))
+}
+
+/// Private family materialization retains the raw ledger and never selects output.
+fn consume_global_non_polygon<'a>(
+    evidence: &'a PreparedNonPolygonEvidence,
+    ownership: Option<&'a PartitionNonPolygonOwnershipProof>,
+    assembly: Option<&'a PartitionCrossCoreNonPolygonAssembly>,
+    mosaic: &PartitionMosaic,
+    tiles: &[Rect<f64>],
+    domain: Rect<f64>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionGlobalNonPolygonConsumer<'a>>> {
+    let stage = "global_non_polygon_consumer";
+    execution_policy.check_cancelled(stage)?;
+    if mosaic.partitions.len() != tiles.len() || evidence.snapshot_fingerprints.len() != tiles.len()
+    {
+        return Ok(None);
+    }
+    let coordinate =
+        |point: Coord<f64>| crate::fingerprint::coordinate_fingerprint(Coord3D::from(point));
+    let domain_min = coordinate(domain.min())?;
+    let domain_max = coordinate(domain.max())?;
+    for (index, (partition, fingerprint)) in evidence.snapshot_fingerprints.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let (Some(snapshot), Some(tile)) =
+            (mosaic.partitions.get(partition), tiles.get(*partition))
+        else {
+            return Ok(None);
+        };
+        if snapshot.fingerprint_sha256() != *fingerprint
+            || snapshot.tile_min != coordinate(tile.min())?
+            || snapshot.tile_max != coordinate(tile.max())?
+            || snapshot.ownership_domain_min != domain_min
+            || snapshot.ownership_domain_max != domain_max
+        {
+            return Ok(None);
+        }
+    }
+    let mut owner_work = 0usize;
+    for (index, (_, bits)) in evidence.global_payloads.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        owner_work = bits
+            .len()
+            .checked_mul(tiles.len())
+            .and_then(|count| owner_work.checked_add(count))
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "global non-polygon consumer work count overflow".to_string(),
+            })?;
+    }
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, owner_work)?;
+    // Replay shared validators instead of trusting mutable proof fields or duplicating them.
+    let mut proofs = match (ownership, assembly) {
+        (Some(proof), None) => {
+            if prove_whole_non_polygon_ownership(evidence, tiles, domain, execution_policy)?
+                .as_ref()
+                != Some(proof)
+            {
+                return Ok(None);
+            }
+            proof
+                .payloads
+                .iter()
+                .map(PartitionNonPolygonConsumedProof::WholeCore)
+                .collect::<Vec<_>>()
+        }
+        (None, Some(proof)) => {
+            if assemble_cross_core_non_polygon(evidence, mosaic, tiles, domain, execution_policy)?
+                .as_ref()
+                != Some(proof)
+            {
+                return Ok(None);
+            }
+            proof
+                .whole_core_payloads
+                .iter()
+                .map(PartitionNonPolygonConsumedProof::WholeCore)
+                .chain(
+                    proof
+                        .payloads
+                        .iter()
+                        .map(PartitionNonPolygonConsumedProof::CrossCore),
+                )
+                .collect()
+        }
+        _ => return Ok(None),
+    };
+    execution_policy.check_uncancellable_sort(stage, proofs.len())?;
+    proofs.sort_unstable_by_key(|proof| proof.payload());
+    if proofs.len() != evidence.global_payloads.len() {
+        return Ok(None);
+    }
+    let mut output = PartitionGlobalNonPolygonOutput::default();
+    let mut payloads = Vec::with_capacity(proofs.len());
+    let mut coordinates = 0usize;
+    let mut work_items = 0usize;
+    for (proof, (key, &expected_count)) in proofs.into_iter().zip(&evidence.global_payloads) {
+        execution_policy.check_cancelled_every(stage, work_items)?;
+        let (kind, bits, count) = proof.payload();
+        let Some(aliases) = evidence.local_payloads.get(key) else {
+            return Ok(None);
+        };
+        if kind != key.0 || bits != key.1 || count != expected_count {
+            return Ok(None);
+        }
+        let family = match kind {
+            PartitionBorderGlobalNonPolygonPayloadKind::Dangle => &mut output.dangles,
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => &mut output.cut_edges,
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => &mut output.invalid_rings,
+        };
+        coordinates = bits
+            .len()
+            .checked_mul(count)
+            .and_then(|length| coordinates.checked_add(length))
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "global non-polygon coordinate count overflow".to_string(),
+            })?;
+        execution_policy.check(
+            "output_coordinates",
+            execution_policy.max_output_coordinates,
+            coordinates,
+        )?;
+        for _ in 0..count {
+            let mut decoded = Vec::with_capacity(bits.len());
+            for &point in bits {
+                execution_policy.check_cancelled_every(stage, work_items)?;
+                work_items += 1;
+                decoded.push(coord3d_from_bits(point));
+            }
+            family.push(decoded);
+        }
+        payloads.push(PartitionNonPolygonConsumedPayload {
+            kind,
+            coordinate_bits: bits,
+            global_payload_count: count,
+            local_payload_aliases: aliases,
+            proof,
+        });
+    }
+    if non_polygon_output_mismatch_count(
+        &output.dangles,
+        &output.cut_edges,
+        &output.invalid_rings,
+        &evidence.reference,
+        execution_policy,
+    )? != 0
+    {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionGlobalNonPolygonConsumer {
+        input_fingerprint_sha256: &evidence.input_fingerprint_sha256,
+        snapshot_fingerprints: &evidence.snapshot_fingerprints,
+        payloads,
+        output,
     }))
 }
 
@@ -2853,6 +3062,42 @@ fn compare_stitched_output_with_untiled(
     compare_stitched_output_with_reference(stitched_output, &untiled, execution_policy)
 }
 
+fn non_polygon_output_mismatch_count(
+    dangles: &[Vec<Coord3D>],
+    cut_edges: &[Vec<Coord3D>],
+    invalid_rings: &[Vec<Coord3D>],
+    untiled: &PolygonizerResult,
+    execution_policy: &ExecutionPolicy,
+) -> Result<usize> {
+    let mut mismatches = 0;
+    for (candidate, reference, closed, stage) in [
+        (
+            dangles,
+            untiled.dangles.as_slice(),
+            false,
+            "tiled_untiled_equivalence_dangles",
+        ),
+        (
+            cut_edges,
+            untiled.cut_edges.as_slice(),
+            false,
+            "tiled_untiled_equivalence_cut_edges",
+        ),
+        (
+            invalid_rings,
+            untiled.invalid_rings.as_slice(),
+            true,
+            "tiled_untiled_equivalence_invalid_rings",
+        ),
+    ] {
+        mismatches += usize::from(
+            canonical_line_output_keys(candidate, closed, execution_policy, stage)?
+                != canonical_line_output_keys(reference, closed, execution_policy, stage)?,
+        );
+    }
+    Ok(mismatches)
+}
+
 fn compare_stitched_output_with_reference(
     stitched_output: &TiledStitchedOutput,
     untiled: &PolygonizerResult,
@@ -2863,43 +3108,14 @@ fn compare_stitched_output_with_reference(
         canonical_polygon_output_keys(&stitched_output.polygons, execution_policy)?;
     let polygon_mismatch = candidate_keys.is_none()
         || candidate_keys != canonical_polygon_output_keys(&untiled.polygons, execution_policy)?;
-    let dangle_mismatch = canonical_line_output_keys(
+    let non_polygon_mismatch = non_polygon_output_mismatch_count(
         &stitched_output.dangles,
-        false,
-        execution_policy,
-        "tiled_untiled_equivalence_dangles",
-    )? != canonical_line_output_keys(
-        &untiled.dangles,
-        false,
-        execution_policy,
-        "tiled_untiled_equivalence_dangles",
-    )?;
-    let cut_edge_mismatch = canonical_line_output_keys(
         &stitched_output.cut_edges,
-        false,
-        execution_policy,
-        "tiled_untiled_equivalence_cut_edges",
-    )? != canonical_line_output_keys(
-        &untiled.cut_edges,
-        false,
-        execution_policy,
-        "tiled_untiled_equivalence_cut_edges",
-    )?;
-    let invalid_ring_mismatch = canonical_line_output_keys(
         &stitched_output.invalid_rings,
-        true,
+        untiled,
         execution_policy,
-        "tiled_untiled_equivalence_invalid_rings",
-    )? != canonical_line_output_keys(
-        &untiled.invalid_rings,
-        true,
-        execution_policy,
-        "tiled_untiled_equivalence_invalid_rings",
     )?;
-    let mismatch_count = usize::from(polygon_mismatch)
-        .saturating_add(usize::from(dangle_mismatch))
-        .saturating_add(usize::from(cut_edge_mismatch))
-        .saturating_add(usize::from(invalid_ring_mismatch));
+    let mismatch_count = usize::from(polygon_mismatch).saturating_add(non_polygon_mismatch);
     Ok(TiledUntiledEquivalenceStats {
         checked: true,
         ready: mismatch_count == 0,
@@ -7064,6 +7280,21 @@ impl<'a> TiledPolygonizer<'a> {
         } else {
             None
         };
+        let non_polygon_consumer = non_polygon_evidence
+            .as_ref()
+            .map(|evidence| {
+                consume_global_non_polygon(
+                    evidence,
+                    non_polygon_ownership.as_ref(),
+                    cross_core_non_polygon.as_ref(),
+                    &partition_mosaic,
+                    &tile_layout,
+                    self.bbox,
+                    &self.execution_policy,
+                )
+            })
+            .transpose()?
+            .flatten();
         let arrangement_output_candidate = match (&arrangement_extraction, &non_polygon_ownership) {
             (Some(extraction), Some(proof))
                 if proof.covers(extraction, &partition_mosaic, &self.execution_policy)? =>
@@ -7127,6 +7358,16 @@ impl<'a> TiledPolygonizer<'a> {
                 serde_json::json!({
                     "constructed": cross_core_non_polygon.is_some(),
                     "assembly": cross_core_non_polygon,
+                    "output_selectable": false,
+                }),
+            );
+            trace.record(
+                TraceStageV1::Graph,
+                "partition_border_global_non_polygon_consumer",
+                serde_json::json!({
+                    "constructed": non_polygon_consumer.is_some(),
+                    "consumer": non_polygon_consumer,
+                    "non_polygon_equivalence_ready": non_polygon_consumer.is_some(),
                     "output_selectable": false,
                 }),
             );
