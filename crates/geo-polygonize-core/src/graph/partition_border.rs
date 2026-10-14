@@ -1053,7 +1053,8 @@ pub(crate) struct PartitionBorderGlobalFaceRingExtractionPayloadStats {
 }
 
 /// A tile-local non-polygon output retained as private detached evidence.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum PartitionBorderGlobalNonPolygonPayloadKind {
     Dangle,
     CutEdge,
@@ -1061,7 +1062,7 @@ pub(crate) enum PartitionBorderGlobalNonPolygonPayloadKind {
 }
 
 /// Raw XYZ bits for one private dangle, cut edge, or invalid ring.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub(crate) struct PartitionBorderGlobalNonPolygonExtractionPayload {
     pub(crate) partition_id: usize,
     pub(crate) kind: PartitionBorderGlobalNonPolygonPayloadKind,

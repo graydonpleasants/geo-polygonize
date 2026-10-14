@@ -1,10 +1,11 @@
 use crate::diagnostics::ExecutionWorkTracker;
 use crate::fingerprint::{canonical_ring_with_ids, CoordinateFingerprintV1};
 use crate::graph::partition_border::{
-    PartitionBorderAdjacency, PartitionBorderEdgeKey, PartitionBorderGraph,
-    PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph, PartitionBorderNodeKey,
-    PartitionBorderObservationId, PartitionBorderPhysicalTableExtraction, PartitionBorderSide,
-    PartitionLocalGraphState,
+    PartitionBorderAdjacency, PartitionBorderEdgeKey,
+    PartitionBorderGlobalNonPolygonExtractionPayload, PartitionBorderGlobalNonPolygonPayloadKind,
+    PartitionBorderGraph, PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph,
+    PartitionBorderNodeKey, PartitionBorderObservationId, PartitionBorderPhysicalTableExtraction,
+    PartitionBorderSide, PartitionLocalGraphState,
 };
 use crate::index::{IndexedEnvelope, RStarBackend};
 use crate::noding::hot_pixel::HotPixelNoder;
@@ -117,10 +118,17 @@ impl PartitionSourceSegmentSink {
         });
     }
 
-    fn snapshot_segments(&self) -> Result<Vec<PartitionSourceSegmentV1>> {
+    fn snapshot_segments(
+        &self,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<Vec<PartitionSourceSegmentV1>> {
+        let stage = "partition_source_fingerprints";
+        execution_policy.check_uncancellable_sort(stage, self.segments.len())?;
         self.segments
             .iter()
-            .map(|segment| {
+            .enumerate()
+            .map(|(index, segment)| {
+                execution_policy.check_cancelled_every(stage, index)?;
                 let source = segment.source;
                 if source.segment_index >= source.chain_segment_count {
                     return Err(PolygonizeError::InternalInvariantViolation {
@@ -228,12 +236,94 @@ pub(crate) struct PartitionNodedSegmentV1 {
     pub(crate) representative_line_id: Option<u32>,
 }
 
+// Source extraction allocates whole geometry buffers; bound them before that work.
+fn preflight_partition_source_segments(
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    selected_input_geometry_indices: &[usize],
+    execution_policy: &ExecutionPolicy,
+) -> Result<()> {
+    let stage = "partition_source_preflight";
+    let mut segment_count = 0usize;
+    let mut work_items = 0usize;
+    let mut geometry_work_items = 0usize;
+    let mut count_line = |line: &LineString<f64>| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work_items)?;
+        work_items += 1;
+        execution_policy.check_uncancellable_sort(stage, work_items)?;
+        segment_count = segment_count
+            .checked_add(line.0.len().saturating_sub(1))
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "partition source segment count overflow".to_string(),
+            })?;
+        execution_policy.check_uncancellable_sort(stage, segment_count)
+    };
+    for &geometry_index in selected_input_geometry_indices {
+        let geometry = geometries
+            .get(geometry_index)
+            .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+                reason: "partition snapshot source geometry index is missing".to_string(),
+            })?
+            .0;
+        let mut stack = smallvec::SmallVec::<[&Geometry<f64>; 16]>::new();
+        stack.push(geometry);
+        while let Some(current) = stack.pop() {
+            execution_policy.check_cancelled_every(stage, geometry_work_items)?;
+            geometry_work_items += 1;
+            execution_policy.check_uncancellable_sort(stage, geometry_work_items)?;
+            match current {
+                Geometry::LineString(line) => count_line(line)?,
+                Geometry::MultiLineString(lines) => {
+                    for line in &lines.0 {
+                        count_line(line)?;
+                    }
+                }
+                Geometry::Polygon(polygon) => {
+                    count_line(polygon.exterior())?;
+                    for line in polygon.interiors() {
+                        count_line(line)?;
+                    }
+                }
+                Geometry::MultiPolygon(polygons) => {
+                    for polygon in &polygons.0 {
+                        count_line(polygon.exterior())?;
+                        for line in polygon.interiors() {
+                            count_line(line)?;
+                        }
+                    }
+                }
+                Geometry::GeometryCollection(collection) => {
+                    let pending = stack.len().checked_add(collection.0.len()).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "partition source geometry count overflow".to_string(),
+                        }
+                    })?;
+                    execution_policy.check_uncancellable_sort(stage, pending)?;
+                    stack.extend(collection.0.iter().rev());
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 fn partition_source_segment_sink(
     geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
     selected_input_geometry_indices: &[usize],
+    execution_policy: &ExecutionPolicy,
 ) -> Result<PartitionSourceSegmentSink> {
+    let stage = "partition_source_segments";
+    execution_policy.check_cancelled(stage)?;
+    if execution_policy.has_cancellation() {
+        preflight_partition_source_segments(
+            geometries,
+            selected_input_geometry_indices,
+            execution_policy,
+        )?;
+    }
     let mut sink = PartitionSourceSegmentSink::default();
     for &geometry_index in selected_input_geometry_indices {
+        execution_policy.check_cancelled(stage)?;
         let geometry = geometries
             .get(geometry_index)
             .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
@@ -243,6 +333,7 @@ fn partition_source_segment_sink(
         let (source_segments, source_chains) =
             crate::polygonizer::extract_geometry_segments_with_source(geometry);
         for (segment_index, segment) in source_segments.into_iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, sink.segments.len())?;
             let source =
                 source_segment_identity(&source_chains, segment_index).ok_or_else(|| {
                     PolygonizeError::InternalInvariantViolation {
@@ -258,8 +349,14 @@ fn partition_source_segment_sink(
 fn partition_source_segments(
     geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
     selected_input_geometry_indices: &[usize],
+    execution_policy: &ExecutionPolicy,
 ) -> Result<Vec<PartitionSourceSegmentV1>> {
-    partition_source_segment_sink(geometries, selected_input_geometry_indices)?.snapshot_segments()
+    partition_source_segment_sink(
+        geometries,
+        selected_input_geometry_indices,
+        execution_policy,
+    )?
+    .snapshot_segments(execution_policy)
 }
 
 fn partition_noded_segments(
@@ -1685,6 +1782,337 @@ impl PartitionMosaic {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionNonPolygonOwnershipEdge {
+    segment: PartitionNodedSegmentV1,
+    // Every contributing partition/local-noded-segment index is retained.
+    local_segment_aliases: Vec<[usize; 2]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionOwnedNonPolygonPayload {
+    payload: PartitionBorderGlobalNonPolygonExtractionPayload,
+    // Opposite invalid-ring records remain distinct at the extraction gate.
+    global_payload_count: usize,
+    local_payload_indices: Vec<usize>,
+    edges: Vec<PartitionNonPolygonOwnershipEdge>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct PartitionNonPolygonOwnershipProof {
+    input_fingerprint_sha256: String,
+    snapshot_fingerprints: Vec<(usize, String)>,
+    source_segment_count: usize,
+    noded_segment_count: usize,
+    payloads: Vec<PartitionOwnedNonPolygonPayload>,
+}
+
+impl PartitionNonPolygonOwnershipProof {
+    fn covers(
+        &self,
+        extraction: &PartitionBorderPhysicalTableExtraction,
+        mosaic: &PartitionMosaic,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<bool> {
+        if mosaic.partitions.len() != self.snapshot_fingerprints.len() {
+            return Ok(false);
+        }
+        for (index, (partition_id, fingerprint)) in self.snapshot_fingerprints.iter().enumerate() {
+            execution_policy
+                .check_cancelled_every("global_non_polygon_ownership_binding", index)?;
+            if mosaic
+                .partitions
+                .get(partition_id)
+                .is_none_or(|snapshot| snapshot.fingerprint_sha256() != *fingerprint)
+            {
+                return Ok(false);
+            }
+        }
+        let matches = self
+            .payloads
+            .iter()
+            .flat_map(|owned| std::iter::repeat_n(&owned.payload, owned.global_payload_count))
+            .eq(extraction.non_polygon_payloads.iter());
+        execution_policy.check_cancelled("global_non_polygon_ownership_binding")?;
+        Ok(matches)
+    }
+}
+
+/// Binds the complete local ledger to original-input noding/classification and
+/// one whole-payload owner; successful output equivalence alone is insufficient.
+fn prove_global_non_polygon_ownership(
+    mosaic: &PartitionMosaic,
+    tiles: &[Rect<f64>],
+    geometries: &[(&Geometry<f64>, Option<Rect<f64>>)],
+    domain: Rect<f64>,
+    options: &PolygonizerOptions,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<(PartitionNonPolygonOwnershipProof, PolygonizerResult)>> {
+    let stage = "global_non_polygon_ownership";
+    execution_policy.check_cancelled(stage)?;
+    if mosaic.partitions.len() != tiles.len()
+        || PartitionMosaic::validate_snapshot_context(&mosaic.partitions).is_err()
+    {
+        return Ok(None);
+    }
+    let options_key = serde_json::to_value(options).expect("validated options serialize");
+    let coordinate =
+        |point: Coord<f64>| crate::fingerprint::coordinate_fingerprint(Coord3D::from(point));
+    let expected_domain = (coordinate(domain.min())?, coordinate(domain.max())?);
+    let all_indices = (0..geometries.len()).collect::<Vec<_>>();
+    let source_segments = partition_source_segments(geometries, &all_indices, execution_policy)?;
+    execution_policy.check_uncancellable_sort(stage, source_segments.len())?;
+    let mut observed_sources = BTreeSet::new();
+    let mut aliases = BTreeMap::<PartitionNodedSegmentV1, Vec<[usize; 2]>>::new();
+    let mut payloads = BTreeMap::<
+        (PartitionBorderGlobalNonPolygonPayloadKind, Vec<[u64; 3]>),
+        (usize, Vec<usize>),
+    >::new();
+    let mut snapshot_fingerprints = Vec::with_capacity(tiles.len());
+    let mut work_items = 0;
+    let mut alias_count = 0;
+    let mut payload_coordinates = 0usize;
+    for (partition_id, tile) in tiles.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, partition_id)?;
+        let Some(snapshot) = mosaic.partitions.get(&partition_id) else {
+            return Ok(None);
+        };
+        if snapshot.validate_for_mosaic().is_err()
+            || snapshot.partition_id != partition_id
+            || snapshot.tile_min != coordinate(tile.min())?
+            || snapshot.tile_max != coordinate(tile.max())?
+            || snapshot.ownership_domain_min != expected_domain.0
+            || snapshot.ownership_domain_max != expected_domain.1
+            || snapshot.topology.options != options_key
+            || snapshot
+                .selected_input_geometry_indices
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || snapshot
+                .selected_input_geometry_indices
+                .iter()
+                .any(|&index| index >= geometries.len())
+        {
+            return Ok(None);
+        }
+        if snapshot.selected_source_segments
+            != partition_source_segments(
+                geometries,
+                &snapshot.selected_input_geometry_indices,
+                execution_policy,
+            )?
+        {
+            return Ok(None);
+        }
+        execution_policy
+            .check_uncancellable_sort(stage, snapshot.selected_source_segments.len())?;
+        observed_sources.extend(snapshot.selected_source_segments.iter().cloned());
+        if snapshot
+            .local_noded_segments
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+        {
+            return Ok(None);
+        }
+        for (local_id, segment) in snapshot.local_noded_segments.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work_items)?;
+            work_items += 1;
+            alias_count += 1;
+            execution_policy.check(stage, execution_policy.max_graph_edges, alias_count)?;
+            execution_policy.check_uncancellable_sort(stage, segment.source_line_ids.len())?;
+            aliases
+                .entry(segment.clone())
+                .or_default()
+                .push([partition_id, local_id]);
+        }
+        for (kind, family) in [
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+                &snapshot.non_polygon.dangles,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+                &snapshot.non_polygon.cut_edges,
+            ),
+            (
+                PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+                &snapshot.non_polygon.invalid_rings,
+            ),
+        ] {
+            for (payload_index, bits) in family.iter().enumerate() {
+                execution_policy.check_cancelled_every(stage, work_items)?;
+                work_items += 1;
+                payload_coordinates =
+                    payload_coordinates.checked_add(bits.len()).ok_or_else(|| {
+                        PolygonizeError::InternalInvariantViolation {
+                            reason: "non-polygon ownership coordinate count overflow".to_string(),
+                        }
+                    })?;
+                execution_policy.check(
+                    stage,
+                    execution_policy.max_output_coordinates,
+                    payload_coordinates,
+                )?;
+                execution_policy.check_uncancellable_sort(stage, bits.len())?;
+                if bits.len() < 2
+                    || bits
+                        .iter()
+                        .flatten()
+                        .any(|&bits| !f64::from_bits(bits).is_finite())
+                    || (kind == PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing
+                        && (bits.len() < 4 || bits.first() != bits.last()))
+                {
+                    return Ok(None);
+                }
+                let (recorded_partition, indices) = payloads
+                    .entry((kind, bits.clone()))
+                    .or_insert((partition_id, Vec::new()));
+                if *recorded_partition != partition_id {
+                    return Ok(None);
+                }
+                indices.push(payload_index);
+            }
+        }
+        execution_policy.check_uncancellable_sort(stage, snapshot.local_noded_segments.len())?;
+        snapshot_fingerprints.push((partition_id, snapshot.fingerprint_sha256()));
+    }
+    if observed_sources != source_segments.iter().cloned().collect() {
+        return Ok(None);
+    }
+    let owner_work = payload_coordinates
+        .checked_mul(tiles.len())
+        .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
+            reason: "non-polygon ownership candidate count overflow".to_string(),
+        })?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, owner_work)?;
+
+    let mut reference =
+        Polygonizer::with_options(options.clone()).with_execution_policy(execution_policy.clone());
+    for (geometry, _) in geometries {
+        reference.add_borrowed_geometry(geometry);
+    }
+    let (global, _, _, _, noded, _) =
+        reference.polygonize_with_partition_border_export_and_stats(usize::MAX, domain)?;
+    let noded = partition_noded_segments(&noded)?;
+    if !aliases.keys().eq(noded.iter()) {
+        return Ok(None);
+    }
+    let mut physical_segments = BTreeMap::new();
+    for (index, segment) in noded.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if physical_segments
+            .insert((segment.start.clone(), segment.end.clone()), segment)
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let expected = partition_non_polygon_evidence(&global);
+    let mut expected_payloads = BTreeMap::<_, usize>::new();
+    for (kind, family) in [
+        (
+            PartitionBorderGlobalNonPolygonPayloadKind::Dangle,
+            expected.dangles,
+        ),
+        (
+            PartitionBorderGlobalNonPolygonPayloadKind::CutEdge,
+            expected.cut_edges,
+        ),
+        (
+            PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+            expected.invalid_rings,
+        ),
+    ] {
+        for bits in family {
+            *expected_payloads.entry((kind, bits)).or_default() += 1;
+        }
+    }
+    if !payloads.keys().eq(expected_payloads.keys())
+        || payloads
+            .iter()
+            .any(|(key, (_, indices))| indices.len() != expected_payloads[key])
+    {
+        return Ok(None);
+    }
+    let mut owned = Vec::with_capacity(payloads.len());
+    for ((kind, bits), (recorded_partition, local_payload_indices)) in payloads {
+        let mut owners = Vec::new();
+        for (partition_id, tile) in tiles.iter().enumerate() {
+            let mut contained = true;
+            for point in &bits {
+                execution_policy.check_cancelled_every(stage, work_items)?;
+                work_items += 1;
+                for (axis, value) in point[..2].iter().enumerate() {
+                    let value = f64::from_bits(*value);
+                    let (min, max, domain_max) = if axis == 0 {
+                        (tile.min().x, tile.max().x, domain.max().x)
+                    } else {
+                        (tile.min().y, tile.max().y, domain.max().y)
+                    };
+                    contained &=
+                        value >= min && (value < max || (max == domain_max && value <= max));
+                }
+            }
+            if contained {
+                owners.push(partition_id);
+            }
+        }
+        // shortcut: one complete core owner, upgrade with atomic cross-core payload assembly.
+        if owners.as_slice() != [recorded_partition] {
+            return Ok(None);
+        }
+        let mut edges = Vec::with_capacity(bits.len() - 1);
+        for pair in bits.windows(2) {
+            execution_policy.check_cancelled_every(stage, work_items)?;
+            work_items += 1;
+            let a = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[0]))?;
+            let b = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits(pair[1]))?;
+            let key = if a <= b { (a, b) } else { (b, a) };
+            let Some(&segment) = physical_segments.get(&key) else {
+                return Ok(None);
+            };
+            if !aliases[segment]
+                .iter()
+                .any(|alias| alias[0] == recorded_partition)
+            {
+                return Ok(None);
+            }
+            edges.push(PartitionNonPolygonOwnershipEdge {
+                segment: segment.clone(),
+                local_segment_aliases: aliases[segment].clone(),
+            });
+        }
+        owned.push(PartitionOwnedNonPolygonPayload {
+            payload: PartitionBorderGlobalNonPolygonExtractionPayload {
+                partition_id: recorded_partition,
+                kind,
+                coordinate_bits: bits,
+            },
+            global_payload_count: local_payload_indices.len(),
+            local_payload_indices,
+            edges,
+        });
+    }
+    let input_fingerprint_sha256 = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&(&source_segments, &options_key))
+                .expect("ownership inputs serialize")
+        )
+    );
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some((
+        PartitionNonPolygonOwnershipProof {
+            input_fingerprint_sha256,
+            snapshot_fingerprints,
+            source_segment_count: source_segments.len(),
+            noded_segment_count: noded.len(),
+            payloads: owned,
+        },
+        global,
+    )))
+}
+
 fn canonical_polygon_output_key(poly: &Polygon3D) -> Option<CanonicalPolygonOutputKey> {
     if poly.interiors.len() != poly.interiors_ids.len()
         || std::iter::once(&poly.exterior)
@@ -1806,6 +2234,15 @@ fn compare_stitched_output_with_untiled(
         polygonizer.add_borrowed_geometry(geometry);
     }
     let untiled = polygonizer.polygonize()?;
+    compare_stitched_output_with_reference(stitched_output, &untiled, execution_policy)
+}
+
+fn compare_stitched_output_with_reference(
+    stitched_output: &TiledStitchedOutput,
+    untiled: &PolygonizerResult,
+    execution_policy: &ExecutionPolicy,
+) -> Result<TiledUntiledEquivalenceStats> {
+    execution_policy.check_cancelled("tiled_untiled_equivalence")?;
     let candidate_keys =
         canonical_polygon_output_keys(&stitched_output.polygons, execution_policy)?;
     let polygon_mismatch = candidate_keys.is_none()
@@ -3744,8 +4181,11 @@ impl<'a> TiledPolygonizer<'a> {
                 selected_input_geometry_indices.push(input_geometry_index);
             }
         }
-        let selected_source_segments =
-            partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
+        let selected_source_segments = partition_source_segments(
+            &self.geometries,
+            &selected_input_geometry_indices,
+            &self.execution_policy,
+        )?;
         let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox, tiles)?;
         if selected_input_geometry_indices.is_empty() {
             return PartitionSnapshotV1::from_result(
@@ -3847,8 +4287,11 @@ impl<'a> TiledPolygonizer<'a> {
                 }
             }
         }
-        let selected_source_segments =
-            partition_source_segments(&self.geometries, &selected_input_geometry_indices)?;
+        let selected_source_segments = partition_source_segments(
+            &self.geometries,
+            &selected_input_geometry_indices,
+            &self.execution_policy,
+        )?;
         let declared_adjacencies = self.declared_adjacencies_for(partition_id, tile_bbox, tiles)?;
         let input_boundary_geometry_indices = input_boundary_issues
             .iter()
@@ -5136,8 +5579,11 @@ impl<'a> TiledPolygonizer<'a> {
             .map(|report| report.tile_bbox)
             .collect::<Vec<_>>();
         let all_geometry_indices = (0..self.geometries.len()).collect::<Vec<_>>();
-        let source_segments =
-            partition_source_segment_sink(&self.geometries, &all_geometry_indices)?;
+        let source_segments = partition_source_segment_sink(
+            &self.geometries,
+            &all_geometry_indices,
+            &self.execution_policy,
+        )?;
         let (routed_sinks, router_work) =
             self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
         let mut assignments = Vec::with_capacity(tiles.len());
@@ -5153,11 +5599,12 @@ impl<'a> TiledPolygonizer<'a> {
                 .ok_or_else(|| PolygonizeError::InternalInvariantViolation {
                     reason: format!("partition {partition_id} has no captured snapshot"),
                 })?;
-            let mut routed_segments = sink.snapshot_segments()?;
+            let mut routed_segments = sink.snapshot_segments(&self.execution_policy)?;
             routed_segments.sort_unstable();
             let independent_sink =
                 self.partition_source_segment_oracle(tiles[partition_id], &source_segments)?;
-            let mut independent_segments = independent_sink.snapshot_segments()?;
+            let mut independent_segments =
+                independent_sink.snapshot_segments(&self.execution_policy)?;
             independent_segments.sort_unstable();
             if routed_assignment_oracle_difference.is_none()
                 && routed_segments != independent_segments
@@ -5227,8 +5674,11 @@ impl<'a> TiledPolygonizer<'a> {
     pub fn benchmark_partition_router(&self) -> Result<PartitionRouterWorkV1> {
         let tiles = self.generate_tiles()?;
         let all_geometry_indices = (0..self.geometries.len()).collect::<Vec<_>>();
-        let source_segments =
-            partition_source_segment_sink(&self.geometries, &all_geometry_indices)?;
+        let source_segments = partition_source_segment_sink(
+            &self.geometries,
+            &all_geometry_indices,
+            &self.execution_policy,
+        )?;
         let (_, work) = self.stream_source_segments_to_partition_sinks(&tiles, &source_segments)?;
         Ok(work)
     }
@@ -5253,7 +5703,7 @@ impl<'a> TiledPolygonizer<'a> {
             .collect::<Vec<_>>();
         selected_input_geometry_indices.sort_unstable();
         selected_input_geometry_indices.dedup();
-        let selected_source_segments = source_segments.snapshot_segments()?;
+        let selected_source_segments = source_segments.snapshot_segments(&self.execution_policy)?;
         let (
             result,
             border_observations,
@@ -5957,18 +6407,37 @@ impl<'a> TiledPolygonizer<'a> {
                 )?,
             _ => None,
         };
-        let arrangement_output_candidate = arrangement_extraction
-            .as_ref()
-            .map(|extraction| {
-                physical_table_output_candidate(extraction, &self.options, &self.execution_policy)
-            })
-            .transpose()?;
-        let arrangement_equivalence = compare_stitched_output_with_untiled(
-            arrangement_output_candidate.as_ref(),
-            &self.geometries,
-            &self.options,
-            &self.execution_policy,
-        )?;
+        let non_polygon_ownership = if self.untiled_equivalence_check {
+            prove_global_non_polygon_ownership(
+                &partition_mosaic,
+                &tile_layout,
+                &self.geometries,
+                self.bbox,
+                &self.options,
+                &self.execution_policy,
+            )?
+        } else {
+            None
+        };
+        let arrangement_output_candidate = match (&arrangement_extraction, &non_polygon_ownership) {
+            (Some(extraction), Some((proof, _)))
+                if proof.covers(extraction, &partition_mosaic, &self.execution_policy)? =>
+            {
+                Some(physical_table_output_candidate(
+                    extraction,
+                    &self.options,
+                    &self.execution_policy,
+                )?)
+            }
+            _ => None,
+        };
+        let arrangement_equivalence = match (&arrangement_output_candidate, &non_polygon_ownership)
+        {
+            (Some(output), Some((_, reference))) => {
+                compare_stitched_output_with_reference(output, reference, &self.execution_policy)?
+            }
+            _ => TiledUntiledEquivalenceStats::default(),
+        };
         let stitched_output = if partition_border_global_private_extraction.extraction_ready {
             promote_global_private_extraction(
                 &partition_border_graph,
@@ -5997,6 +6466,15 @@ impl<'a> TiledPolygonizer<'a> {
             stitched_output
         };
         if let Some(trace) = trace.as_deref_mut() {
+            trace.record(
+                TraceStageV1::Graph,
+                "partition_border_global_non_polygon_ownership",
+                serde_json::json!({
+                    "proven": non_polygon_ownership.is_some(),
+                    "proof": non_polygon_ownership.as_ref().map(|(proof, _)| proof),
+                    "output_selectable": false,
+                }),
+            );
             trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_conformance", serde_json::json!({
                 "candidate_built": arrangement_output_candidate.is_some(),
                 "polygon_count": arrangement_output_candidate.as_ref().map(|output| output.polygons.len()),
@@ -6006,7 +6484,7 @@ impl<'a> TiledPolygonizer<'a> {
                 "equivalence_checked": arrangement_equivalence.checked,
                 "equivalence_ready": arrangement_equivalence.ready,
                 "equivalence_mismatch_count": arrangement_equivalence.mismatch_count,
-                "non_polygon_ownership_proven": false,
+                "non_polygon_ownership_proven": non_polygon_ownership.is_some(),
                 "output_selectable": false,
             }));
             let (
