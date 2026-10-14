@@ -5603,6 +5603,9 @@ impl<'a> TiledPolygonizer<'a> {
         let arrangement_candidate = arrangement_construction
             .as_ref()
             .and_then(|construction| construction.candidate.as_ref());
+        let arrangement_faces = arrangement_construction
+            .as_ref()
+            .and_then(|construction| construction.faces.as_ref());
         let mut arrangement_adopted = false;
         if let Some(witness) = &global_arrangement_witness {
             if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(
@@ -5856,6 +5859,20 @@ impl<'a> TiledPolygonizer<'a> {
                         "blocked_span_count": arrangement_blocked_span_count,
                     }),
                 );
+                trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_faces", serde_json::json!({
+                    "reconciled": arrangement_faces.is_some(),
+                    "components": arrangement_faces.map(|faces| &faces.components),
+                    "faces": arrangement_faces.map(|reconciliation| reconciliation.faces.iter().enumerate().map(|(face_id, face)| serde_json::json!({
+                        "face_id": face_id,
+                        "cycle_start_physical_dir_edge_id": face.cycle_start_physical_dir_edge_id,
+                        "physical_dir_edge_ids": face.physical_dir_edge_ids,
+                        "local_face_refs": face.local_face_refs.iter().map(|face_ref| [face_ref.partition_id, face_ref.component_id, face_ref.face_id]).collect::<Vec<_>>(),
+                        "unbounded": face.unbounded,
+                    })).collect::<Vec<_>>()),
+                    "face_id_by_physical_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_physical_dir_edge),
+                    "face_id_by_local_dir_edge": arrangement_faces.map(|faces| &faces.face_id_by_local_dir_edge),
+                    "unbounded_face_id": arrangement_faces.map(|faces| faces.unbounded_face_id),
+                }));
                 trace.record(TraceStageV1::Graph, "partition_border_global_arrangement_adoption", serde_json::json!({
                     "adopted": arrangement_adopted,
                     "local_edges_by_physical_edge": arrangement_aliases,
