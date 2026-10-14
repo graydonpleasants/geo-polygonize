@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.1.0...geo-polygonize-v1.2.0) (2026-10-14)
+
+### Supported changes and package repairs
+
+- **Wasm packed results:** add managed packed geometry with synchronous borrowed
+  views, independent snapshots, GeoJSON conversion, and explicit, idempotent
+  disposal. Borrowed views stay within a synchronous callback; use snapshots
+  across async/worker boundaries. Geometry-only results omit report, provenance,
+  and non-polygon sidecars; existing full-result APIs remain available. Input
+  still copies through wasm-bindgen, and
+  representative IDs are not complete source provenance. See [#1511](https://github.com/graydonpleasants/geo-polygonize/pull/1511).
+- **GeoParquet correctness:** preserve one topology domain across storage batches,
+  write valid empty polygon files, and retain an existing destination when a
+  replacement fails. Inputs must contain only XY planar line geometry; additional
+  attribute and bbox-covering columns are rejected with
+  `UnsupportedOptionCombination`. Project the geometry column and handle
+  attribution separately. The complete topology domain must fit in memory. See
+  [#1526](https://github.com/graydonpleasants/geo-polygonize/pull/1526).
+- **Threaded package repair:** include the threaded Wasm binary and worker snippets
+  in the npm tarball, with explicit worker module resolution. The experimental
+  threads entrypoint requires cross-origin isolation and explicit thread-pool
+  initialization; this packaging fix does not change its support status. See
+  [#1535](https://github.com/graydonpleasants/geo-polygonize/pull/1535).
+
+- **CommonJS repair:** use real `.cjs` entrypoints and initialize the packaged Wasm
+  binary from Node independently of the consumer working directory. Standard and
+  slim APIs retain packed-result lifecycle guarantees ([#1538](https://github.com/graydonpleasants/geo-polygonize/pull/1538)).
+- **Private benchmark gating:** omit router benchmark exports from default Wasm
+  packages; research builds opt in through `router-benchmarks` and
+  `WASM_ROUTER_BENCHMARKS=1` ([#1539](https://github.com/graydonpleasants/geo-polygonize/pull/1539)).
+
+### Release validation and delivery
+
+- Preserve generated ts-rs binding whitespace and fail CI if tests leave bindings
+  dirty ([#1525](https://github.com/graydonpleasants/geo-polygonize/pull/1525),
+  [#1522](https://github.com/graydonpleasants/geo-polygonize/pull/1522)).
+- Compare the supported Rust facade against 1.1.0, run required release regressions,
+  and pin the threaded publisher to the toolchain validated by CI
+  ([#1531](https://github.com/graydonpleasants/geo-polygonize/pull/1531)).
+- Verify publisher evidence for the exact release tag and commit, wait before
+  checking registry availability, and require complete version/smoke evidence
+  ([#1532](https://github.com/graydonpleasants/geo-polygonize/pull/1532)).
+- Exercise installed standard/slim packed-result lifecycles for releases from 1.2
+  onward while retaining historical 1.0/1.1 verification
+  ([#1533](https://github.com/graydonpleasants/geo-polygonize/pull/1533)).
+
+### Private research and experimental work
+
+Partition routing, transactional mosaics, physical-arrangement witnesses,
+readiness diagnostics, provenance checks, and benchmark/fuzz evidence advance
+private topology research. CSR adjacency and MCIndex paths remain experiments.
+Single-component scratch-bypass measurements remain retained research: the
+recorded peak-memory promotion budget was not met. These changes do not select
+a new production backend or establish a general performance improvement.
+
+Graph-stitched output, production streamed routing, incremental topology, and
+out-of-core polygonization remain gated. Replicate-and-own tiling is distinct
+from graph stitching. The supported 1.x facade retains its existing contract;
+private research milestones are not new supported APIs.
+
 ## [1.1.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.0.0...geo-polygonize-v1.1.0) (2026-08-20)
 
 
