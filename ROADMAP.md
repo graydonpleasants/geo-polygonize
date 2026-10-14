@@ -519,6 +519,10 @@ core owners, retained halo copies and every output family; nesting, contact,
 boundary ambiguity and invalid-ring interactions remain rejected under the same
 coordinate changes. This coverage does not enable another input class or output
 selection.
+On identity coordinates, the rejection matrix also checks all three touch
+policies with and without a filter that removes every polygon. These output
+options cannot admit an ambiguous physical proof or private candidate; ordinary
+and traced calls still have no stitched output.
 The complete family mixture also conforms across provenance/ID settings, both
 tiled dedup policies, polygonal mode, the exact face-area threshold and its next
 representable value, and conflict-rejecting Z policy on zero-Z inputs. These
