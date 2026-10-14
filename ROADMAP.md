@@ -513,6 +513,12 @@ Each observation must lie along its claimed finite core side, and each pair
 must have reciprocal declarations between actually adjacent cores. Export and
 proof validation share the same side-membership predicate, so source-correct
 halo aliases cannot invent a border relationship.
+The family conformance matrix covers vertical layouts, negative coordinates,
+reflection, a `(1e6, -1e6)` translation and fragmented input linework. It checks
+core owners, retained halo copies and every output family; nesting, contact,
+boundary ambiguity and invalid-ring interactions remain rejected under the same
+coordinate changes. This coverage does not enable another input class or output
+selection.
 Border-touching polygon components, branched rings and containment-dependent
 classes remain blocked. The bridge does not enable output selection or certify
 broader input classes.
