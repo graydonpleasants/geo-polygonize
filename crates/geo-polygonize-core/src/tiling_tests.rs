@@ -1096,49 +1096,83 @@ mod tests {
                     .map(|geometry| geometry.map_coords(project))
                     .collect::<Vec<_>>();
                 let domain = Rect::new(project(domain.min()), project(domain.max()));
-                let mut tiled = TiledPolygonizer::new(domain, tile_size)
-                    .with_buffer(12.0)
-                    .with_options(PolygonizerOptions {
-                        node_input: false,
-                        ..Default::default()
-                    })
-                    .with_untiled_equivalence_check();
-                for geometry in &geometries {
-                    tiled.add_geometry(geometry);
+                for (touch_name, touch_policy) in [
+                    (
+                        "point",
+                        crate::TouchPolicy::AllowPointTouchDisallowEdgeShare,
+                    ),
+                    ("disjoint", crate::TouchPolicy::TreatAnyTouchAsDisjoint),
+                    ("edge", crate::TouchPolicy::AllowEdgeShare),
+                ] {
+                    for minimum_face_area in [None, Some(100.0)] {
+                        // The identity isolates output options; retain the original coordinate matrix.
+                        if representation != "identity"
+                            && (touch_name != "point" || minimum_face_area.is_some())
+                        {
+                            continue;
+                        }
+                        let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                            .with_buffer(12.0)
+                            .with_options(PolygonizerOptions {
+                                node_input: false,
+                                containment: crate::ContainmentOptions {
+                                    touch_policy: touch_policy.clone(),
+                                },
+                                output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                        for geometry in &geometries {
+                            tiled.add_geometry(geometry);
+                        }
+                        let dangle =
+                            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]))
+                                .map_coords(project);
+                        tiled.add_geometry(&dangle);
+                        let ordinary = tiled.polygonize().unwrap();
+                        let traced = tiled
+                            .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                            .unwrap();
+                        let proof = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind == "partition_border_cross_core_physical_proof"
+                            })
+                            .unwrap()
+                            .payload;
+                        assert_eq!(
+                            proof["proven"], false,
+                            "representation={representation} touch={touch_name} minimum={minimum_face_area:?} geometries={geometries:?} proof={proof}"
+                        );
+                        let conformance = &traced
+                            .trace
+                            .events
+                            .iter()
+                            .find(|event| {
+                                event.kind == "partition_border_global_arrangement_conformance"
+                            })
+                            .unwrap()
+                            .payload;
+                        assert_eq!(
+                            conformance["candidate_built"], false,
+                            "representation={representation} touch={touch_name} minimum={minimum_face_area:?} geometries={geometries:?} conformance={conformance}"
+                        );
+                        assert_eq!(conformance["candidate_materialized"], false);
+                        assert_eq!(conformance["output_selectable"], false);
+                        for result in [&ordinary, &traced.result] {
+                            if minimum_face_area.is_some() {
+                                assert!(result.polygons.is_empty());
+                            }
+                            assert!(result.stitched_output.is_none());
+                        }
+                        checked += 1;
+                    }
                 }
-                let dangle = Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]))
-                    .map_coords(project);
-                tiled.add_geometry(&dangle);
-                let traced = tiled
-                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
-                    .unwrap();
-                let proof = &traced
-                    .trace
-                    .events
-                    .iter()
-                    .find(|event| event.kind == "partition_border_cross_core_physical_proof")
-                    .unwrap()
-                    .payload;
-                assert_eq!(
-                    proof["proven"], false,
-                    "representation={representation} geometries={geometries:?} proof={proof}"
-                );
-                let conformance = &traced
-                    .trace
-                    .events
-                    .iter()
-                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
-                    .unwrap()
-                    .payload;
-                assert_eq!(
-                conformance["candidate_built"], false,
-                "representation={representation} geometries={geometries:?} conformance={conformance}"
-            );
-                assert!(traced.result.stitched_output.is_none());
-                checked += 1;
             }
         }
-        assert_eq!(checked, 30);
+        assert_eq!(checked, 60);
     }
 
     #[test]
