@@ -529,6 +529,10 @@ representable value, and conflict-rejecting Z policy on zero-Z inputs. These
 checks preserve invalid-ring multiplicity and raw-duplicate rejection. Proofs
 from a different options context remain rejected even when observable output
 is identical.
+Exact `0.125`-grid cut fixtures also conform privately with validated floating
+noding, fixed Grid/GeosCompat noding and certified Grid noding under input
+reversal and two core sizes. Precision changes still reject stale proofs when
+their observable output would be identical.
 Border-touching polygon components, branched rings and containment-dependent
 classes remain blocked. The bridge does not enable output selection or certify
 broader input classes.
