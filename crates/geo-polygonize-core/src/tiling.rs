@@ -5570,10 +5570,21 @@ impl<'a> TiledPolygonizer<'a> {
         let arrangement_aliases = global_arrangement_witness
             .as_ref()
             .map(|witness| {
-                partition_border_graph.global_arrangement_aliases(witness, &self.execution_policy)
+                partition_border_graph.global_arrangement_slots(witness, &self.execution_policy)
             })
             .transpose()?
-            .flatten();
+            .flatten()
+            .map(|slots| {
+                slots
+                    .into_iter()
+                    .map(|slot| {
+                        slot.local_aliases
+                            .into_iter()
+                            .map(|edge| edge.global_dir_edge_id)
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            });
         let mut arrangement_adopted = false;
         if let Some(witness) = &global_arrangement_witness {
             if let Some(candidate) = partition_border_graph.adopt_global_arrangement_candidate(

@@ -133,9 +133,11 @@ respect the dependencies above.
 
 The partition work is inspired in part by
 [`nyurik/map-tile-toolkit`](https://github.com/nyurik/map-tile-toolkit). It is
-not a runtime dependency, and its polyline edge-set guarantees are not a
-substitute for global arrangement, containment, provenance, representative-ID,
-Z, diagnostics, and untiled-equivalence proof.
+not a runtime dependency. Its `Mosaic` reconstructs polylines and its
+[`PolygonMosaic`](https://github.com/nyurik/map-tile-toolkit/blob/main/src/mosaic.rs)
+reconstructs rings after dropping synthetic clip corners. Those guarantees
+are not a substitute for global arrangement, containment, provenance,
+representative-ID, Z, diagnostics, and untiled-equivalence proof.
 
 # P0 — Stable release integrity and 1.x governance
 
@@ -416,13 +418,14 @@ tracked by
 Tracked by
 [#1391](https://github.com/graydonpleasants/geo-polygonize/issues/1391).
 
-The current blocker is representational, not another readiness heuristic:
-several local directed edges can map to one canonical physical directed slot
-while retaining distinct local face-qualified claims.
+Canonical physical directed slots now borrow every contributing local edge,
+retaining distinct face-qualified claims without copying source or Z payloads.
+The remaining blocker is resolving those claims and consuming the slots in
+detached topology; physical agreement alone does not make claims ready.
 
-- [ ] Model canonical physical slots with one or more local directed-edge
+- [x] Model canonical physical slots with one or more local directed-edge
   aliases.
-- [ ] Retain complete local twin, successor, face, component, source,
+- [x] Retain complete local twin, successor, face, component, source,
   representative-ID, and raw/selected Z lineage per alias.
 - [ ] Resolve complementary face-qualified claims independently from physical
   edge deduplication.
