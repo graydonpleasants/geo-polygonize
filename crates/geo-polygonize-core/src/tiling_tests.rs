@@ -1051,6 +1051,1275 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_non_polygon_assembly_retains_all_copies_and_unique_atomic_owners() {
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 4.0 });
+        let cases = [
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (3.0, 1.0),
+                    (5.0, 1.0),
+                ]))],
+                "dangle",
+                2.0,
+                domain,
+            ),
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![
+                        (1.0, 1.0),
+                        (2.0, 1.0),
+                        (2.0, 1.5),
+                        (2.0, 2.0),
+                        (1.0, 2.0),
+                        (1.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![
+                        (6.0, 1.0),
+                        (7.0, 1.0),
+                        (7.0, 2.0),
+                        (6.0, 2.0),
+                        (6.0, 1.5),
+                        (6.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![(2.0, 1.5), (6.0, 1.5)])),
+                ],
+                "cut_edge",
+                4.0,
+                domain,
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (1.0, 3.0),
+                    (1.0, 5.0),
+                ]))],
+                "dangle",
+                2.0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 8.0 }),
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (3.0, 1.0),
+                    (5.0, 1.0),
+                ]))],
+                "dangle",
+                0.0,
+                domain,
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (3.0, 1.0),
+                    (9.0, 1.0),
+                ]))],
+                "dangle",
+                8.0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (1.0, 1.0),
+                    (15.0, 1.0),
+                ]))],
+                "dangle",
+                0.0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 16.0, y: 4.0 }),
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (1.0, 1.0),
+                    (1.0, 15.0),
+                ]))],
+                "dangle",
+                0.0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 16.0 }),
+            ),
+            (
+                vec![Geometry::LineString(LineString::from(vec![
+                    (-11.0, -3.0),
+                    (-1.0, -3.0),
+                ]))],
+                "dangle",
+                8.0,
+                Rect::new(Coord { x: -12.0, y: -4.0 }, Coord { x: 0.0, y: 0.0 }),
+            ),
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![
+                        (1.0, 1.0),
+                        (2.0, 1.0),
+                        (2.0, 1.5),
+                        (2.0, 2.0),
+                        (1.0, 2.0),
+                        (1.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![
+                        (10.0, 1.0),
+                        (11.0, 1.0),
+                        (11.0, 2.0),
+                        (10.0, 2.0),
+                        (10.0, 1.5),
+                        (10.0, 1.0),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![(2.0, 1.5), (10.0, 1.5)])),
+                ],
+                "cut_edge",
+                12.0,
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
+            ),
+        ];
+        for (mut geometries, kind, buffer, domain) in cases {
+            let mut signatures = Vec::new();
+            for reverse in [false, true] {
+                if reverse {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        if let Geometry::LineString(line) = geometry {
+                            line.0.reverse();
+                        }
+                    }
+                }
+                let mut tiled = TiledPolygonizer::new(domain, 4.0)
+                    .with_buffer(buffer)
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let core_count = tiled.generate_tiles().unwrap().len();
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                for result in [&ordinary, &traced.result] {
+                    assert_eq!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count,
+                        core_count - 1
+                    );
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert!(result.stitched_output.is_none());
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_untiled_equivalence_ready
+                    );
+                }
+                let event = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_non_polygon_assembly")
+                    .unwrap()
+                    .payload;
+                assert_eq!(event["constructed"], true, "kind={kind} event={event}");
+                assert_eq!(event["output_selectable"], false);
+                let payloads = event["assembly"]["payloads"].as_array().unwrap();
+                assert_eq!(payloads.len(), 1);
+                let payload = &payloads[0];
+                assert_eq!(payload["kind"], kind);
+                assert_eq!(payload["global_payload_count"], 1);
+                assert_eq!(
+                    payload["local_payload_aliases"],
+                    serde_json::json!((0..core_count).map(|part| [part, 0]).collect::<Vec<_>>())
+                );
+                let spans = payload["spans"].as_array().unwrap();
+                assert_eq!(spans.len(), core_count);
+                assert_eq!(
+                    spans
+                        .iter()
+                        .map(|span| span["owner_partition_id"].as_u64().unwrap())
+                        .collect::<BTreeSet<_>>(),
+                    (0..core_count as u64).collect::<BTreeSet<_>>()
+                );
+                let coordinate = |bits: &serde_json::Value| {
+                    serde_json::to_value(
+                        crate::fingerprint::coordinate_fingerprint(Coord3D::new(
+                            f64::from_bits(bits[0].as_u64().unwrap()),
+                            f64::from_bits(bits[1].as_u64().unwrap()),
+                            f64::from_bits(bits[2].as_u64().unwrap()),
+                        ))
+                        .unwrap(),
+                    )
+                    .unwrap()
+                };
+                let mut node = coordinate(&payload["coordinate_bits"][0]);
+                let mut retained_boundary_aliases = BTreeSet::new();
+                for span in spans {
+                    let owner = span["owner_partition_id"].as_u64().unwrap();
+                    assert!(span["boundary_segment_aliases"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|alias| alias[0].as_u64() == Some(owner)));
+                    assert_eq!(span["segment"]["source_line_ids"], serde_json::json!([0]));
+                    assert_eq!(span["segment"]["representative_line_id"], 0);
+                    let mut alias_partitions = BTreeSet::new();
+                    for alias in span["boundary_segment_aliases"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .chain(span["coarse_boundary_segment_aliases"].as_array().unwrap())
+                    {
+                        alias_partitions.insert(alias[0].as_u64().unwrap());
+                        retained_boundary_aliases
+                            .insert((alias[0].as_u64().unwrap(), alias[1].as_u64().unwrap()));
+                    }
+                    assert_eq!(
+                        alias_partitions,
+                        (0..core_count as u64).collect::<BTreeSet<_>>()
+                    );
+                    node = if span["segment"]["start"] == node {
+                        span["segment"]["end"].clone()
+                    } else {
+                        assert_eq!(span["segment"]["end"], node);
+                        span["segment"]["start"].clone()
+                    };
+                }
+                assert_eq!(node, coordinate(&payload["coordinate_bits"][1]));
+                if kind == "dangle" {
+                    let all_rows = traced
+                        .result
+                        .partition_snapshots
+                        .iter()
+                        .flat_map(|snapshot| {
+                            (0..snapshot.boundary_noded_segments.len())
+                                .map(|local| (snapshot.partition_id as u64, local as u64))
+                        })
+                        .collect::<BTreeSet<_>>();
+                    assert_eq!(retained_boundary_aliases, all_rows);
+                }
+                if core_count > 2 {
+                    assert!(spans
+                        .iter()
+                        .any(|span| !span["coarse_boundary_segment_aliases"]
+                            .as_array()
+                            .unwrap()
+                            .is_empty()));
+                }
+                let conformance = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                    .unwrap()
+                    .payload;
+                assert_eq!(conformance["candidate_built"], false);
+                assert_eq!(conformance["equivalence_checked"], false);
+                signatures.push(payload.clone());
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn cross_core_non_polygon_assembly_rejects_missing_stale_and_conflicting_span_evidence() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, prepare_non_polygon_evidence, PartitionMosaic,
+        };
+        let geometry = Geometry::LineString(LineString::from(vec![(3.0, 1.0), (5.0, 1.0)]));
+        let geometries = [(&geometry, None)];
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0).with_buffer(2.0);
+        tiled.add_geometry(&geometry);
+        let result = tiled.polygonize().unwrap();
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots.iter().rev() {
+            mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+        }
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &geometries, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let expected = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let before = mosaic.fingerprint_sha256();
+        for mutation in 0..7 {
+            let mut changed = mosaic.clone();
+            let snapshot = changed.partitions.get_mut(&0).unwrap();
+            match mutation {
+                0 => {
+                    snapshot.boundary_noded_segments.pop();
+                }
+                1 => snapshot.boundary_noded_segments[0]
+                    .source_line_ids
+                    .push(999),
+                2 => snapshot
+                    .boundary_noded_segments
+                    .push(snapshot.boundary_noded_segments[0].clone()),
+                3 => snapshot.boundary_noded_segments[0].representative_line_id = None,
+                4 => {
+                    for snapshot in changed.partitions.values_mut() {
+                        snapshot.declared_adjacencies.clear();
+                    }
+                }
+                5 => {
+                    for snapshot in changed.partitions.values_mut() {
+                        for adjacency in &mut snapshot.declared_adjacencies {
+                            adjacency.coordinate_bits = 4.5f64.to_bits();
+                        }
+                    }
+                }
+                _ => {
+                    let snapshot = changed.partitions.get_mut(&1).unwrap();
+                    snapshot.local_noded_segments.clear();
+                    snapshot.boundary_noded_segments.clear();
+                }
+            }
+            assert!(
+                assemble_cross_core_non_polygon(&evidence, &changed, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none()
+            );
+            let Some(prepared) = prepare_non_polygon_evidence(
+                &changed,
+                &tiles,
+                &geometries,
+                domain,
+                &options,
+                &policy,
+            )
+            .unwrap() else {
+                continue;
+            };
+            assert!(
+                assemble_cross_core_non_polygon(&prepared, &changed, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none(),
+                "mutation {mutation}"
+            );
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_graph_nodes: Some(2),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_edges: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(before, mosaic.fingerprint_sha256());
+        assert_eq!(
+            expected,
+            assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn multi_boundary_non_polygon_assembly_rejects_one_bad_member_as_a_whole() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, prepare_non_polygon_evidence, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![(1.0, 1.0), (15.0, 1.0)])),
+            Geometry::LineString(LineString::from(vec![(1.0, 2.0), (2.0, 2.0)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 16.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let result = tiled.polygonize().unwrap();
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots.iter().rev() {
+            mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+        }
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let expected = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(expected.payloads.len(), 1);
+        assert_eq!(expected.payloads[0].spans.len(), 4);
+        assert_eq!(expected.whole_core_payloads.len(), 1);
+        let coarse = expected.payloads[0]
+            .spans
+            .iter()
+            .flat_map(|span| &span.coarse_boundary_segment_aliases)
+            .find(|alias| alias[0] == 0)
+            .copied()
+            .unwrap();
+        let before = mosaic.fingerprint_sha256();
+        for mutation in 0..10 {
+            let mut changed = mosaic.clone();
+            match mutation {
+                0 => changed
+                    .partitions
+                    .get_mut(&1)
+                    .unwrap()
+                    .boundary_noded_segments
+                    .clear(),
+                1 => {
+                    changed
+                        .partitions
+                        .get_mut(&coarse[0])
+                        .unwrap()
+                        .boundary_noded_segments[coarse[1]]
+                        .representative_line_id = None
+                }
+                2 => changed
+                    .partitions
+                    .get_mut(&coarse[0])
+                    .unwrap()
+                    .boundary_noded_segments[coarse[1]]
+                    .source_line_ids
+                    .push(999),
+                3 => {
+                    changed
+                        .partitions
+                        .get_mut(&coarse[0])
+                        .unwrap()
+                        .boundary_noded_segments[coarse[1]]
+                        .start
+                        .z = "0x3ff0000000000000".to_string()
+                }
+                4 => {
+                    for (a, b) in [(1, 2), (2, 1)] {
+                        changed
+                            .partitions
+                            .get_mut(&a)
+                            .unwrap()
+                            .declared_adjacencies
+                            .retain(|adjacency| adjacency.neighbor_partition_id != b);
+                    }
+                }
+                5 => {
+                    for (a, b) in [(1, 2), (2, 1)] {
+                        for adjacency in
+                            &mut changed.partitions.get_mut(&a).unwrap().declared_adjacencies
+                        {
+                            if adjacency.neighbor_partition_id == b {
+                                adjacency.coordinate_bits = 8.5f64.to_bits();
+                            }
+                        }
+                    }
+                }
+                6 => changed
+                    .partitions
+                    .get_mut(&1)
+                    .unwrap()
+                    .non_polygon
+                    .dangles
+                    .clear(),
+                7 => {
+                    let snapshot = changed.partitions.get_mut(&2).unwrap();
+                    snapshot
+                        .non_polygon
+                        .dangles
+                        .push(snapshot.non_polygon.dangles[0].clone());
+                }
+                8 => {
+                    let snapshot = changed.partitions.get_mut(&3).unwrap();
+                    let payload = snapshot.non_polygon.dangles.pop().unwrap();
+                    snapshot.non_polygon.cut_edges.push(payload);
+                }
+                _ => {
+                    let snapshot = changed.partitions.get_mut(&0).unwrap();
+                    snapshot
+                        .non_polygon
+                        .dangles
+                        .retain(|bits| bits[0][1] != 2.0f64.to_bits());
+                }
+            }
+            assert!(
+                assemble_cross_core_non_polygon(&evidence, &changed, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none(),
+                "stale mutation {mutation}"
+            );
+            if let Some(refreshed) =
+                prepare_non_polygon_evidence(&changed, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+            {
+                assert!(
+                    assemble_cross_core_non_polygon(&refreshed, &changed, &tiles, domain, &policy)
+                        .unwrap()
+                        .is_none(),
+                    "current mutation {mutation}"
+                );
+            }
+        }
+        let limited = ExecutionPolicy {
+            max_candidate_pairs: Some(67),
+            ..Default::default()
+        };
+        assert!(matches!(
+            assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &limited),
+            Err(PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        for cancel_at in [0, 1, 3] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(before, mosaic.fingerprint_sha256());
+        assert_eq!(
+            expected,
+            assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn cross_core_ring_assembly_retains_closed_lineage_and_all_record_multiplicity() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, prepare_non_polygon_evidence, PartitionMosaic,
+        };
+        let cases = [
+            (
+                vec![(1.0, 1.0), (5.0, 3.0), (5.0, 1.0), (1.0, 3.0), (1.0, 1.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 4.0 }),
+                false,
+            ),
+            (
+                vec![(2.0, 1.0), (10.0, 3.0), (10.0, 1.0), (2.0, 3.0), (2.0, 1.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
+                false,
+            ),
+            (
+                vec![(1.0, 2.0), (3.0, 10.0), (1.0, 10.0), (3.0, 2.0), (1.0, 2.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 12.0 }),
+                false,
+            ),
+            (
+                vec![
+                    (-10.0, -3.0),
+                    (-2.0, -1.0),
+                    (-2.0, -3.0),
+                    (-10.0, -1.0),
+                    (-10.0, -3.0),
+                ],
+                Rect::new(Coord { x: -12.0, y: -4.0 }, Coord { x: 0.0, y: 0.0 }),
+                false,
+            ),
+            (
+                vec![(0.5, 4.0), (1.5, 6.0), (1.0, 2.0), (2.5, 2.0), (0.5, 4.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 4.0, y: 8.0 }),
+                true,
+            ),
+        ];
+        let options = PolygonizerOptions {
+            node_input: false,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        for (coords, domain, closing_transition) in cases {
+            let mut geometry = Geometry::LineString(LineString::from(coords));
+            let mut signatures = Vec::new();
+            for reverse in [false, true] {
+                if reverse {
+                    if let Geometry::LineString(line) = &mut geometry {
+                        line.0.reverse();
+                    }
+                }
+                let mut tiled = TiledPolygonizer::new(domain, 4.0)
+                    .with_options(options.clone())
+                    .with_untiled_equivalence_check();
+                tiled.add_geometry(&geometry);
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let tiles = tiled.generate_tiles().unwrap();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in traced.result.partition_snapshots.iter().rev() {
+                    mosaic.replace_partition(snapshot.clone(), &policy).unwrap();
+                }
+                let evidence = prepare_non_polygon_evidence(
+                    &mosaic,
+                    &tiles,
+                    &[(&geometry, None)],
+                    domain,
+                    &options,
+                    &policy,
+                )
+                .unwrap()
+                .unwrap();
+                let assembly =
+                    assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                        .unwrap()
+                        .unwrap_or_else(|| {
+                            panic!("incomplete ring witness: domain={domain:?}, reverse={reverse}")
+                        });
+                assert_eq!(assembly.payloads.len(), 1);
+                assert!(assembly.whole_core_payloads.is_empty());
+                let payload = &assembly.payloads[0];
+                assert_eq!(payload.kind, crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing);
+                assert_eq!(payload.global_payload_count, 2);
+                assert_eq!(
+                    payload.local_payload_aliases,
+                    (0..tiles.len())
+                        .flat_map(|part| [[part, 0], [part, 1]])
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    payload.coordinate_bits.first(),
+                    payload.coordinate_bits.last()
+                );
+                assert!(payload.spans.len() > payload.coordinate_bits.len() - 1);
+                let coordinate = |bits: [u64; 3]| {
+                    crate::fingerprint::coordinate_fingerprint(Coord3D::new(
+                        f64::from_bits(bits[0]),
+                        f64::from_bits(bits[1]),
+                        f64::from_bits(bits[2]),
+                    ))
+                    .unwrap()
+                };
+                let mut visited = 0;
+                let mut retained_aliases = BTreeSet::new();
+                let mut owners = BTreeSet::new();
+                for (edge_index, pair) in payload.coordinate_bits.windows(2).enumerate() {
+                    let mut node = coordinate(pair[0]);
+                    let edge_spans = payload
+                        .spans
+                        .iter()
+                        .filter(|span| span.payload_edge_index == edge_index)
+                        .collect::<Vec<_>>();
+                    assert!(!edge_spans.is_empty());
+                    for span in edge_spans {
+                        assert_eq!(payload.spans[visited], *span);
+                        visited += 1;
+                        node = if span.segment.start == node {
+                            span.segment.end.clone()
+                        } else {
+                            assert_eq!(span.segment.end, node);
+                            span.segment.start.clone()
+                        };
+                        assert_eq!(span.segment.source_line_ids, vec![0]);
+                        assert_eq!(span.segment.representative_line_id, Some(0));
+                        owners.insert(span.owner_partition_id);
+                        assert!(span
+                            .boundary_segment_aliases
+                            .iter()
+                            .any(|alias| alias[0] == span.owner_partition_id));
+                        for &alias in &span.boundary_segment_aliases {
+                            assert_eq!(
+                                mosaic.partitions[&alias[0]].boundary_noded_segments[alias[1]],
+                                span.segment
+                            );
+                            retained_aliases.insert(alias);
+                        }
+                        for &alias in &span.coarse_boundary_segment_aliases {
+                            let parent =
+                                &mosaic.partitions[&alias[0]].boundary_noded_segments[alias[1]];
+                            assert_ne!(*parent, span.segment);
+                            assert_eq!(parent.source_line_ids, span.segment.source_line_ids);
+                            assert_eq!(
+                                parent.representative_line_id,
+                                span.segment.representative_line_id
+                            );
+                            retained_aliases.insert(alias);
+                        }
+                    }
+                    assert_eq!(node, coordinate(pair[1]));
+                }
+                assert_eq!(visited, payload.spans.len());
+                assert_eq!(owners, (0..tiles.len()).collect::<BTreeSet<_>>());
+                assert_eq!(
+                    retained_aliases,
+                    mosaic
+                        .partitions
+                        .values()
+                        .flat_map(|snapshot| (0..snapshot.boundary_noded_segments.len())
+                            .map(|local| [snapshot.partition_id, local]))
+                        .collect::<BTreeSet<_>>()
+                );
+                if closing_transition {
+                    assert_ne!(
+                        payload.spans.first().unwrap().owner_partition_id,
+                        payload.spans.last().unwrap().owner_partition_id
+                    );
+                }
+                for result in [&ordinary, &traced.result] {
+                    assert_eq!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_invalid_ring_count,
+                        2 * tiles.len()
+                    );
+                    assert_eq!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count,
+                        2 * tiles.len() - 1
+                    );
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_untiled_equivalence_ready
+                    );
+                    assert!(result.stitched_output.is_none());
+                }
+                let event = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_non_polygon_assembly")
+                    .unwrap()
+                    .payload;
+                assert_eq!(event["constructed"], true);
+                assert_eq!(event["output_selectable"], false);
+                assert_eq!(event["assembly"], serde_json::to_value(&assembly).unwrap());
+                let conformance = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                    .unwrap()
+                    .payload;
+                assert_eq!(conformance["candidate_built"], false);
+                assert_eq!(conformance["equivalence_checked"], false);
+                signatures.push(payload.clone());
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn cross_core_ring_assembly_rejects_bad_ring_or_companion_evidence_as_a_whole() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, prepare_non_polygon_evidence, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (2.0, 1.0),
+                (10.0, 3.0),
+                (10.0, 1.0),
+                (2.0, 3.0),
+                (2.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.5), (1.0, 0.5)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: false,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0).with_options(options.clone());
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in tiled.polygonize().unwrap().partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let expected = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(expected.payloads.len(), 1);
+        assert_eq!(expected.payloads[0].global_payload_count, 2);
+        assert_eq!(expected.whole_core_payloads.len(), 1);
+        let coarse = expected.payloads[0]
+            .spans
+            .iter()
+            .flat_map(|span| &span.coarse_boundary_segment_aliases)
+            .next()
+            .copied()
+            .unwrap();
+        let before = mosaic.fingerprint_sha256();
+        for mutation in 0..9 {
+            let mut changed = mosaic.clone();
+            match mutation {
+                0 => {
+                    changed
+                        .partitions
+                        .get_mut(&1)
+                        .unwrap()
+                        .non_polygon
+                        .invalid_rings
+                        .pop();
+                }
+                1 => {
+                    let snapshot = changed.partitions.get_mut(&2).unwrap();
+                    snapshot
+                        .non_polygon
+                        .invalid_rings
+                        .push(snapshot.non_polygon.invalid_rings[0].clone());
+                }
+                2 => {
+                    for snapshot in changed.partitions.values_mut() {
+                        for ring in &mut snapshot.non_polygon.invalid_rings {
+                            ring.swap(1, 2);
+                        }
+                    }
+                }
+                3 => {
+                    changed
+                        .partitions
+                        .get_mut(&1)
+                        .unwrap()
+                        .boundary_noded_segments
+                        .pop();
+                }
+                4 => {
+                    changed
+                        .partitions
+                        .get_mut(&coarse[0])
+                        .unwrap()
+                        .boundary_noded_segments[coarse[1]]
+                        .start
+                        .z = "0x3ff0000000000000".to_string()
+                }
+                5 => changed
+                    .partitions
+                    .get_mut(&coarse[0])
+                    .unwrap()
+                    .boundary_noded_segments[coarse[1]]
+                    .source_line_ids
+                    .push(999),
+                6 => {
+                    changed
+                        .partitions
+                        .get_mut(&coarse[0])
+                        .unwrap()
+                        .boundary_noded_segments[coarse[1]]
+                        .representative_line_id = None
+                }
+                7 => {
+                    for (a, b) in [(1, 2), (2, 1)] {
+                        changed
+                            .partitions
+                            .get_mut(&a)
+                            .unwrap()
+                            .declared_adjacencies
+                            .retain(|adjacency| adjacency.neighbor_partition_id != b);
+                    }
+                }
+                _ => changed
+                    .partitions
+                    .get_mut(&0)
+                    .unwrap()
+                    .non_polygon
+                    .dangles
+                    .clear(),
+            }
+            assert!(
+                assemble_cross_core_non_polygon(&evidence, &changed, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none(),
+                "stale mutation {mutation}"
+            );
+            if let Some(refreshed) =
+                prepare_non_polygon_evidence(&changed, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+            {
+                assert!(
+                    assemble_cross_core_non_polygon(&refreshed, &changed, &tiles, domain, &policy)
+                        .unwrap()
+                        .is_none(),
+                    "current mutation {mutation}"
+                );
+            }
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_candidate_pairs: Some(100),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(2),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_edges: Some(1),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1, 4] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        assert_eq!(before, mosaic.fingerprint_sha256());
+        assert_eq!(
+            expected,
+            assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn cross_core_non_polygon_assembly_declines_corners_halo_only_claimants_and_branched_rings() {
+        for (coords, domain, buffer, node_input) in [
+            (
+                vec![(3.0, 3.0), (5.0, 5.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 8.0 }),
+                2.0,
+                true,
+            ),
+            (
+                vec![(3.0, 1.0), (5.0, 1.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
+                8.0,
+                true,
+            ),
+            (
+                vec![(3.0, 1.0), (5.0, 3.0), (5.0, 1.0), (3.0, 3.0), (3.0, 1.0)],
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 4.0 }),
+                0.0,
+                false,
+            ),
+        ] {
+            let geometry = Geometry::LineString(LineString::from(coords));
+            let mut tiled = TiledPolygonizer::new(domain, 4.0)
+                .with_buffer(buffer)
+                .with_options(PolygonizerOptions {
+                    node_input,
+                    ..Default::default()
+                })
+                .with_untiled_equivalence_check();
+            tiled.add_geometry(&geometry);
+            let traced = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let event = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_cross_core_non_polygon_assembly")
+                .unwrap()
+                .payload;
+            assert_eq!(
+                event["constructed"], false,
+                "domain={domain:?} buffer={buffer} event={event}"
+            );
+            assert!(event["assembly"].is_null());
+            assert_eq!(event["output_selectable"], false);
+            assert!(traced.result.stitched_output.is_none());
+        }
+    }
+
+    #[test]
+    fn mixed_non_polygon_assembly_keeps_whole_core_lineage_and_cross_core_copies() {
+        let cross = Geometry::LineString(LineString::from(vec![(3.0, 2.0), (9.0, 2.0)]));
+        let cases = [
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![(1.0, 1.0), (2.0, 1.0)])),
+                    cross.clone(),
+                ],
+                "dangle",
+                true,
+                1,
+            ),
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![
+                        (0.5, 0.5),
+                        (1.0, 0.5),
+                        (1.0, 0.75),
+                        (1.0, 1.0),
+                        (0.5, 1.0),
+                        (0.5, 0.5),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![
+                        (2.0, 0.5),
+                        (2.5, 0.5),
+                        (2.5, 1.0),
+                        (2.0, 1.0),
+                        (2.0, 0.75),
+                        (2.0, 0.5),
+                    ])),
+                    Geometry::LineString(LineString::from(vec![(1.0, 0.75), (2.0, 0.75)])),
+                    cross.clone(),
+                ],
+                "cut_edge",
+                true,
+                1,
+            ),
+            (
+                vec![
+                    Geometry::LineString(LineString::from(vec![
+                        (0.5, 0.5),
+                        (1.5, 1.5),
+                        (0.5, 1.5),
+                        (1.5, 0.5),
+                        (0.5, 0.5),
+                    ])),
+                    cross,
+                ],
+                "invalid_ring",
+                false,
+                2,
+            ),
+        ];
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        for (mut geometries, whole_kind, node_input, multiplicity) in cases {
+            let mut signatures = Vec::new();
+            for reverse in [false, true] {
+                if reverse {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        if let Geometry::LineString(line) = geometry {
+                            line.0.reverse();
+                        }
+                    }
+                }
+                let mut tiled = TiledPolygonizer::new(domain, 4.0)
+                    .with_options(PolygonizerOptions {
+                        node_input,
+                        ..Default::default()
+                    })
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                for result in [&ordinary, &traced.result] {
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert_eq!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count,
+                        multiplicity + 1
+                    );
+                    assert!(result.stitched_output.is_none());
+                }
+                let event = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_non_polygon_assembly")
+                    .unwrap()
+                    .payload;
+                assert_eq!(
+                    event["constructed"], true,
+                    "kind={whole_kind} event={event}"
+                );
+                assert_eq!(event["output_selectable"], false);
+                let assembly = &event["assembly"];
+                assert_eq!(assembly["payloads"].as_array().unwrap().len(), 1);
+                assert_eq!(assembly["whole_core_payloads"].as_array().unwrap().len(), 1);
+                let whole = &assembly["whole_core_payloads"][0];
+                assert_eq!(whole["payload"]["kind"], whole_kind);
+                assert_eq!(whole["payload"]["partition_id"], 0);
+                assert_eq!(whole["global_payload_count"], multiplicity);
+                assert_eq!(
+                    whole["local_payload_indices"].as_array().unwrap().len(),
+                    multiplicity
+                );
+                for edge in whole["edges"].as_array().unwrap() {
+                    assert_eq!(edge["segment"]["source_line_ids"], serde_json::json!([0]));
+                    assert!(edge["local_segment_aliases"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|alias| alias[0] == 0));
+                }
+                let crossed = &assembly["payloads"][0];
+                assert_eq!(crossed["global_payload_count"], 1);
+                assert_eq!(
+                    crossed["local_payload_aliases"],
+                    serde_json::json!([[0, usize::from(whole_kind == "dangle")], [1, 0], [2, 0]]),
+                    "kind={whole_kind}"
+                );
+                assert_eq!(crossed["spans"].as_array().unwrap().len(), 3);
+                let retained_count = whole["local_payload_indices"].as_array().unwrap().len()
+                    + crossed["local_payload_aliases"].as_array().unwrap().len();
+                let raw_count = traced
+                    .result
+                    .partition_snapshots
+                    .iter()
+                    .map(|snapshot| {
+                        snapshot.non_polygon.dangles.len()
+                            + snapshot.non_polygon.cut_edges.len()
+                            + snapshot.non_polygon.invalid_rings.len()
+                    })
+                    .sum::<usize>();
+                assert_eq!(retained_count, raw_count);
+                signatures.push((
+                    assembly["payloads"].clone(),
+                    assembly["whole_core_payloads"].clone(),
+                ));
+            }
+            assert_eq!(signatures[0], signatures[1]);
+        }
+    }
+
+    #[test]
+    fn mixed_non_polygon_assembly_declines_one_bad_whole_core_member_without_partial_output() {
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, prepare_non_polygon_evidence, PartitionMosaic,
+        };
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![(1.0, 1.0), (2.0, 1.0)])),
+            Geometry::LineString(LineString::from(vec![(3.0, 2.0), (5.0, 2.0)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 8.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0);
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let result = tiled.polygonize().unwrap();
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let expected = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(expected.whole_core_payloads.len(), 1);
+        for mutation in 0..4 {
+            let mut changed = mosaic.clone();
+            let owner = changed.partitions.get_mut(&0).unwrap();
+            match mutation {
+                0 => {
+                    owner.non_polygon.dangles.remove(0);
+                }
+                1 => owner
+                    .non_polygon
+                    .dangles
+                    .push(owner.non_polygon.dangles[0].clone()),
+                2 => {
+                    let payload = owner.non_polygon.dangles.remove(0);
+                    owner.non_polygon.cut_edges.push(payload);
+                }
+                _ => owner.local_noded_segments[0].representative_line_id = Some(999),
+            }
+            let before = changed.fingerprint_sha256();
+            assert!(
+                assemble_cross_core_non_polygon(&evidence, &changed, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none()
+            );
+            if let Some(prepared) =
+                prepare_non_polygon_evidence(&changed, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+            {
+                assert!(assemble_cross_core_non_polygon(
+                    &prepared, &changed, &tiles, domain, &policy
+                )
+                .unwrap()
+                .is_none());
+            }
+            assert_eq!(changed.fingerprint_sha256(), before);
+        }
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            assemble_cross_core_non_polygon(
+                &evidence,
+                &mosaic,
+                &tiles,
+                domain,
+                &ExecutionPolicy {
+                    cancellation_token: Some(token),
+                    ..Default::default()
+                }
+            ),
+            Err(PolygonizeError::Cancelled { .. })
+        ));
+        assert_eq!(
+            expected,
+            assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn source_segment_sink_retains_chain_and_endpoint_identity() {
         let geometry = Geometry::MultiLineString(MultiLineString(vec![
             LineString::new(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 1.0, y: 0.0 }]),

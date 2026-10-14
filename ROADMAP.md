@@ -444,6 +444,24 @@ edge alias. Equal invalid-ring records retain their exact global multiplicity
 and local record indices; ownership proof does not bypass the existing
 duplicate-payload extraction gate. The whole-core checker declines cross-core payloads, incompatible noding,
 missing inventories, extra copies, and conflicting owners.
+Private assembly witnesses now cover open dangle/cut edges and unambiguous
+closed invalid-ring chains crossing shared boundaries between adjacent cores.
+The complete input/classification pass is shared with whole-core ownership;
+replayed boundary tables retain every raw payload copy and assign each atomic
+span one owner backed by its exact local
+aliases. Coarser local rows must replay into the same atomic spans, retaining
+their aliases on every descendant. An exact endpoint chain visits all spans;
+each owner transition requires reciprocal shared-side declarations. Stale or
+missing tables, halo-only claimants, corner-only transitions, and branched ring
+chains remain blocked. Ring spans retain their original payload-edge positions;
+the ordered chain must close through every span and validate its final owner
+transition. Opposite invalid-ring copies retain their global multiplicity and
+every local record index. The raw duplicate gate is unchanged and these witnesses
+do not select or normalize non-polygon output.
+The witness also retains accompanying whole-core dangle/cut/invalid-ring
+payloads through the same owner checker used by the whole-core proof, including
+their complete source/edge aliases, local record indices and global multiplicity.
+One invalid member rejects the entire mixed witness; no subset is emitted.
 Shell/hole assembly where needed and the remaining promotion gates still apply.
 The local output adapter preserves selected XYZ and ordered representative IDs,
 applies the current provenance/profile and face-area options, and compares every
@@ -472,6 +490,19 @@ separately from selectable output; they do not complete the promotion gates.
 - [x] Prove global dangle/cut/invalid-ring ownership for complete whole-core
   payloads, retaining all edge aliases and exact invalid-ring multiplicity
   without bypassing ambiguity or duplicate-payload gates (private draft work).
+- [x] Construct private two-core dangle/cut assembly witnesses with complete
+  raw-copy retention, boundary-table replay and exact atomic span owners
+  (private draft work).
+- [x] Retain validated whole-core companion families in mixed assembly
+  witnesses, rejecting incomplete, stale, ambiguous or incompatible members
+  without partial output (private draft work).
+- [x] Extend open-edge witnesses across multiple shared boundaries with exact
+  endpoint chains, unique owners and complete atomic/coarse alias retention;
+  reject any invalid member as a whole (private draft work).
+- [x] Construct private cross-core invalid-ring witnesses with exact closed
+  payload-edge chains, complete aliases and record multiplicity, including the
+  closing owner transition; reject branched or incomplete witnesses as a whole
+  (private draft work).
 - [ ] Extract polygons, holes, dangles, cuts, and invalid rings with complete
   provenance, representative IDs, and Z.
 - [ ] Pass the 2×2 workload under input/tile permutation and reversal.
