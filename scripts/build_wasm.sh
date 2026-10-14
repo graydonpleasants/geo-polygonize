@@ -10,6 +10,10 @@ THREADS_TOOLCHAIN="${THREADS_TOOLCHAIN:-nightly}"
 VARIANT=""
 NO_BUNDLE=0
 BUNDLE_ONLY=0
+WASM_FEATURES="console_error_panic_hook"
+if [ "${WASM_ROUTER_BENCHMARKS:-0}" = "1" ]; then
+    WASM_FEATURES="$WASM_FEATURES router-benchmarks"
+fi
 
 wasm_opt_works() {
     command -v wasm-opt &> /dev/null && wasm-opt --version &> /dev/null
@@ -68,7 +72,7 @@ build_variant() {
     local flags=$2
 
     echo "Building $variant version..."
-    RUSTFLAGS="$flags" cargo build --locked -p geo-polygonize-wasm --target $TARGET --release --features console_error_panic_hook --lib
+    RUSTFLAGS="$flags" cargo build --locked -p geo-polygonize-wasm --target $TARGET --release --features "$WASM_FEATURES" --lib
 
     echo "Running wasm-bindgen for $variant..."
     local wasm_path="target/$TARGET/release/geo_polygonize_wasm.wasm"
@@ -109,7 +113,7 @@ build_variant_threads() {
         --locked \
         --target $TARGET \
         --release \
-        --features "console_error_panic_hook threads" \
+        --features "$WASM_FEATURES threads" \
         --lib \
         -Z build-std=std,panic_abort
 

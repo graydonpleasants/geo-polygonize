@@ -5,6 +5,7 @@ use arrow::compute::concat;
 use arrow_ipc::reader::StreamReader;
 pub use buffer::parse_buffer_lines;
 use geo_polygonize_arrow::{polygonize_arrow, PolygonizerOptions};
+#[cfg(feature = "router-benchmarks")]
 use geo_polygonize_core::tiling::TiledPolygonizer;
 use geo_polygonize_core::trace::TraceLevelV1;
 use geo_polygonize_core::{
@@ -21,6 +22,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::error::{from_polygonizer_error, to_js_error};
 
+#[cfg(feature = "router-benchmarks")]
 type RouterInput = (Vec<geo::Geometry<f64>>, geo::Rect<f64>);
 
 #[cfg(feature = "threads")]
@@ -220,6 +222,7 @@ fn geometries_from_geojson(geojson_str: &str) -> Result<Vec<geo::Geometry<f64>>,
     }
 }
 
+#[cfg(feature = "router-benchmarks")]
 fn partition_router_input(geojson_str: &str) -> Result<RouterInput, JsValue> {
     use geo::BoundingRect;
 
@@ -248,6 +251,7 @@ fn partition_router_input(geojson_str: &str) -> Result<RouterInput, JsValue> {
     Ok((geometries, bbox))
 }
 
+#[cfg(feature = "router-benchmarks")]
 fn with_partition_router<T>(
     geojson_str: &str,
     tile_size: f64,
@@ -271,6 +275,7 @@ fn with_partition_router<T>(
     run(&tiled).map_err(from_polygonizer_error)
 }
 
+#[cfg(feature = "router-benchmarks")]
 #[wasm_bindgen(js_name = __partitionRouterComparison)]
 #[doc(hidden)]
 pub fn partition_router_comparison_js(
@@ -285,6 +290,7 @@ pub fn partition_router_comparison_js(
     serde_json::to_string(&comparison).map_err(|e| to_js_error("InternalInvariantViolation", e))
 }
 
+#[cfg(feature = "router-benchmarks")]
 #[wasm_bindgen(js_name = __benchmarkPartitionRouter)]
 #[doc(hidden)]
 pub fn benchmark_partition_router_js(
