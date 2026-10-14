@@ -1050,6 +1050,134 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_cut_proofs_conform_under_fixed_and_certified_noding() {
+        let square = |left, right| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ]))
+        };
+        let originals = vec![
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (10.0, 0.375)])),
+        ];
+        let fixed = PrecisionModel::FixedGrid { grid_size: 0.125 };
+        let mut checked = 0;
+        for (name, precision_model, snap_strategy, guarantee) in [
+            (
+                "floating_validated",
+                PrecisionModel::Floating,
+                crate::SnapStrategy::Grid,
+                NodingGuarantee::Validate,
+            ),
+            (
+                "fixed_unchecked",
+                fixed,
+                crate::SnapStrategy::Grid,
+                NodingGuarantee::Unchecked,
+            ),
+            (
+                "fixed_validated",
+                fixed,
+                crate::SnapStrategy::Grid,
+                NodingGuarantee::Validate,
+            ),
+            (
+                "fixed_certified",
+                fixed,
+                crate::SnapStrategy::Grid,
+                NodingGuarantee::CertifiedFixedPrecision,
+            ),
+            (
+                "fixed_geos_compat",
+                fixed,
+                crate::SnapStrategy::GeosCompat,
+                NodingGuarantee::Validate,
+            ),
+        ] {
+            for tile_size in [4.0, 6.0] {
+                for reverse in [false, true] {
+                    let mut geometries = originals.clone();
+                    if reverse {
+                        geometries.reverse();
+                        for geometry in &mut geometries {
+                            let Geometry::LineString(line) = geometry else {
+                                unreachable!()
+                            };
+                            line.0.reverse();
+                        }
+                    }
+                    let mut tiled =
+                        TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), tile_size)
+                            .with_buffer(12.0)
+                            .with_options(PolygonizerOptions {
+                                node_input: true,
+                                precision_model,
+                                snap_strategy: snap_strategy.clone(),
+                                noding: NodingOptions {
+                                    guarantee,
+                                    ..Default::default()
+                                },
+                                provenance: ProvenanceOptions {
+                                    enabled: true,
+                                    include_boundary_line_ids: true,
+                                },
+                                input_profile_id: Some("fixed-grid-cut".to_string()),
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let ordinary = tiled.polygonize().unwrap();
+                    let traced = tiled
+                        .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                        .unwrap();
+                    let conformance = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| {
+                            event.kind == "partition_border_global_arrangement_conformance"
+                        })
+                        .unwrap()
+                        .payload;
+                    assert_eq!(
+                        conformance["candidate_built"], true,
+                        "case={name} tile={tile_size} reverse={reverse} event={conformance}"
+                    );
+                    assert_eq!(conformance["candidate_materialized"], true);
+                    assert_eq!(conformance["equivalence_ready"], true);
+                    assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                    assert_eq!(conformance["polygon_count"], 2);
+                    assert_eq!(conformance["cut_edge_count"], 1);
+                    assert_eq!(conformance["dangle_count"], 0);
+                    assert_eq!(conformance["invalid_ring_count"], 0);
+                    assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                    assert_eq!(conformance["output_selectable"], false);
+                    for result in [&ordinary, &traced.result] {
+                        assert!(
+                            !result
+                                .stitching_report
+                                .partition_border_global_non_polygon_extraction_ready
+                        );
+                        assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                        assert!(result.stitched_output.is_none());
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 20);
+    }
+
+    #[test]
     fn cross_core_physical_proofs_reject_nesting_contact_and_boundary_ambiguity() {
         let square = |left, bottom, right, top| {
             Geometry::LineString(LineString::from(vec![
@@ -1805,6 +1933,10 @@ mod tests {
             ..options.clone()
         };
         for equivalent_options in [
+            PolygonizerOptions {
+                precision_model: PrecisionModel::FixedGrid { grid_size: 0.125 },
+                ..options.clone()
+            },
             PolygonizerOptions {
                 extract_only_polygonal: true,
                 ..options.clone()
