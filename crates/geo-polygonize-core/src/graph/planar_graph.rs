@@ -3471,42 +3471,22 @@ impl ComponentScratch {
 
     fn border_side(&self, dir_edge_id: DirEdgeId, bbox: Rect<f64>) -> Option<PartitionBorderSide> {
         let directed = self.graph.directed_edges.get(dir_edge_id)?;
-        let start = Coord {
-            x: *self.graph.nodes_x.get(directed.src)?,
-            y: *self.graph.nodes_y.get(directed.src)?,
+        let key = |node| {
+            Some(PartitionBorderNodeKey::from_coord(Coord3D::new(
+                *self.graph.nodes_x.get(node)?,
+                *self.graph.nodes_y.get(node)?,
+                0.0,
+            )))
         };
-        let end = Coord {
-            x: *self.graph.nodes_x.get(directed.dst)?,
-            y: *self.graph.nodes_y.get(directed.dst)?,
-        };
-        let on_axis = |start: f64, end: f64, value: f64| {
-            canonical_coordinate_bits(start) == canonical_coordinate_bits(value)
-                && canonical_coordinate_bits(end) == canonical_coordinate_bits(value)
-        };
-        let within = |value: f64, min: f64, max: f64| value >= min && value <= max;
-        if on_axis(start.x, end.x, bbox.min().x)
-            && within(start.y, bbox.min().y, bbox.max().y)
-            && within(end.y, bbox.min().y, bbox.max().y)
-        {
-            Some(PartitionBorderSide::MinX)
-        } else if on_axis(start.x, end.x, bbox.max().x)
-            && within(start.y, bbox.min().y, bbox.max().y)
-            && within(end.y, bbox.min().y, bbox.max().y)
-        {
-            Some(PartitionBorderSide::MaxX)
-        } else if on_axis(start.y, end.y, bbox.min().y)
-            && within(start.x, bbox.min().x, bbox.max().x)
-            && within(end.x, bbox.min().x, bbox.max().x)
-        {
-            Some(PartitionBorderSide::MinY)
-        } else if on_axis(start.y, end.y, bbox.max().y)
-            && within(start.x, bbox.min().x, bbox.max().x)
-            && within(end.x, bbox.min().x, bbox.max().x)
-        {
-            Some(PartitionBorderSide::MaxY)
-        } else {
-            None
-        }
+        let (from, to) = (key(directed.src)?, key(directed.dst)?);
+        [
+            PartitionBorderSide::MinX,
+            PartitionBorderSide::MaxX,
+            PartitionBorderSide::MinY,
+            PartitionBorderSide::MaxY,
+        ]
+        .into_iter()
+        .find(|side| side.contains_edge(from, to, bbox))
     }
 
     fn remap_rings(

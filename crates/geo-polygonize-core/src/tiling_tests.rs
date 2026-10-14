@@ -637,6 +637,975 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_cut_and_invalid_ring_candidates_require_complete_physical_proofs() {
+        let square = |left: f64, right: f64| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ]))
+        };
+        let cut = vec![
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (10.0, 0.375)])),
+        ];
+        let invalid = Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (9.0, 3.0),
+            (9.0, 1.0),
+            (1.0, 3.0),
+            (1.0, 1.0),
+        ]));
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        for (originals, buffer, node_inputs, polygons, cuts, invalids) in [
+            (cut.clone(), 12.0, vec![false, true], 2, 1, 0),
+            (
+                vec![square(0.25, 0.5), invalid.clone()],
+                0.0,
+                vec![false],
+                1,
+                0,
+                2,
+            ),
+            (
+                [
+                    cut,
+                    vec![
+                        invalid,
+                        Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+                    ],
+                ]
+                .concat(),
+                12.0,
+                vec![false],
+                2,
+                1,
+                2,
+            ),
+        ] {
+            for tile_size in [4.0, 6.0] {
+                for reverse in [false, true] {
+                    for &node_input in &node_inputs {
+                        for minimum_face_area in [None, Some(1.0)] {
+                            let mut geometries = originals.clone();
+                            if reverse {
+                                geometries.reverse();
+                                for geometry in &mut geometries {
+                                    if let Geometry::LineString(line) = geometry {
+                                        line.0.reverse();
+                                    }
+                                }
+                            }
+                            let options = PolygonizerOptions {
+                                node_input,
+                                input_profile_id: Some("physical-components".to_string()),
+                                provenance: ProvenanceOptions {
+                                    enabled: true,
+                                    include_boundary_line_ids: true,
+                                },
+                                output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                ..Default::default()
+                            };
+                            let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                                .with_buffer(buffer)
+                                .with_options(options)
+                                .with_untiled_equivalence_check();
+                            for geometry in &geometries {
+                                tiled.add_geometry(geometry);
+                            }
+                            let ordinary = tiled.polygonize().unwrap();
+                            let traced = tiled
+                                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                                .unwrap();
+                            let conformance = &traced
+                                .trace
+                                .events
+                                .iter()
+                                .find(|event| {
+                                    event.kind == "partition_border_global_arrangement_conformance"
+                                })
+                                .unwrap()
+                                .payload;
+                            assert_eq!(conformance["candidate_built"], true, "cuts={cuts} invalids={invalids} tiles={tile_size} node={node_input} event={conformance} proofs={:?}", traced.trace.events.iter().filter(|event| event.kind == "partition_border_cross_core_non_polygon_assembly" || event.kind == "partition_border_global_non_polygon_consumer" || event.kind == "partition_border_cross_core_physical_proof").map(|event| (&event.kind, &event.payload["constructed"], &event.payload["proven"])).collect::<Vec<_>>());
+                            assert_eq!(conformance["equivalence_ready"], true);
+                            assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                            assert_eq!(
+                                conformance["polygon_count"],
+                                if minimum_face_area.is_some() {
+                                    0
+                                } else {
+                                    polygons
+                                }
+                            );
+                            assert_eq!(conformance["cut_edge_count"], cuts);
+                            assert_eq!(conformance["invalid_ring_count"], invalids);
+                            assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                            assert_eq!(conformance["output_selectable"], false);
+                            let proof = &traced
+                                .trace
+                                .events
+                                .iter()
+                                .find(|event| {
+                                    event.kind == "partition_border_cross_core_physical_proof"
+                                })
+                                .unwrap()
+                                .payload;
+                            assert_eq!(proof["proven"], true);
+                            assert_eq!(
+                                proof["proof"]["components"].as_array().unwrap().len(),
+                                polygons as usize
+                            );
+                            assert_eq!(proof["output_selectable"], false);
+                            for result in [&ordinary, &traced.result] {
+                                assert!(
+                                    !result
+                                        .stitching_report
+                                        .partition_border_global_non_polygon_extraction_ready
+                                );
+                                assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                                assert!(result.stitched_output.is_none());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cross_core_physical_proofs_reject_nesting_contact_and_boundary_ambiguity() {
+        let square = |left, bottom, right, top| {
+            Geometry::LineString(LineString::from(vec![
+                (left, bottom),
+                (right, bottom),
+                (right, top),
+                (left, top),
+                (left, bottom),
+            ]))
+        };
+        let invalid = Geometry::LineString(LineString::from(vec![
+            (1.0, 1.0),
+            (9.0, 3.0),
+            (9.0, 1.0),
+            (1.0, 3.0),
+            (1.0, 1.0),
+        ]));
+        let boundary_crossing = Geometry::LineString(LineString::from(vec![
+            (2.0, 1.0),
+            (10.0, 3.0),
+            (10.0, 1.0),
+            (2.0, 3.0),
+            (2.0, 1.0),
+        ]));
+        for (geometries, tile_size) in [
+            (
+                vec![square(0.25, 0.25, 1.5, 1.5), square(0.5, 0.5, 1.0, 1.0)],
+                4.0,
+            ),
+            (
+                vec![square(0.25, 0.25, 0.5, 0.5), square(0.5, 0.5, 0.75, 0.75)],
+                4.0,
+            ),
+            (vec![square(3.0, 0.25, 5.0, 0.5)], 4.0),
+            (vec![square(4.0, 0.25, 4.5, 0.5)], 4.0),
+            (vec![square(0.25, 0.25, 0.5, 0.5), boundary_crossing], 6.0),
+            (vec![square(1.5, 1.75, 1.75, 2.0), invalid], 4.0),
+        ] {
+            let mut tiled = TiledPolygonizer::new(
+                Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 }),
+                tile_size,
+            )
+            .with_buffer(12.0)
+            .with_options(PolygonizerOptions {
+                node_input: false,
+                ..Default::default()
+            })
+            .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let dangle = Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]));
+            tiled.add_geometry(&dangle);
+            let traced = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let proof = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                .unwrap()
+                .payload;
+            assert_eq!(
+                proof["proven"], false,
+                "geometries={geometries:?} proof={proof}"
+            );
+            let conformance = &traced
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                .unwrap()
+                .payload;
+            assert_eq!(
+                conformance["candidate_built"], false,
+                "geometries={geometries:?} conformance={conformance}"
+            );
+            assert!(traced.result.stitched_output.is_none());
+        }
+    }
+
+    #[test]
+    fn cross_core_physical_proofs_bind_every_copy_and_decline_changed_evidence_atomically() {
+        use crate::graph::partition_border::{
+            PartitionBorderGlobalNonPolygonExtractionPayload, PartitionBorderGraph,
+            PartitionBorderHalfEdge, PartitionBorderLocalFaceGraph,
+        };
+        use crate::tiling::{
+            assemble_cross_core_non_polygon, compare_stitched_output_with_reference,
+            consume_global_non_polygon, integrate_cross_core_component_candidate,
+            prepare_non_polygon_evidence, prove_cross_core_physical_polygons,
+            PartitionCrossCorePhysicalInputs, PartitionMosaic,
+        };
+        let square = |left, right| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ]))
+        };
+        let geometries = [
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (10.0, 0.375)])),
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 1.0),
+                (9.0, 3.0),
+                (9.0, 1.0),
+                (1.0, 3.0),
+                (1.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+        ];
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new(Coord { x: 0.0, y: 0.0 }, Coord { x: 12.0, y: 4.0 });
+        let options = PolygonizerOptions {
+            node_input: false,
+            input_profile_id: Some("physical-proof".to_string()),
+            provenance: ProvenanceOptions {
+                enabled: true,
+                include_boundary_line_ids: true,
+            },
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 4.0)
+            .with_buffer(12.0)
+            .with_options(options.clone());
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let mut graph = PartitionBorderGraph::default();
+        let mut mosaic = PartitionMosaic::default();
+        for (partition, &tile) in tiles.iter().enumerate() {
+            let (_, _, _, observations, locals, _, _, _, _, _, _, _, snapshot) = tiled
+                .process_tile(partition, tile, &tiles, &[], 12.0, 0, None)
+                .unwrap();
+            for observation in observations {
+                graph.insert(observation).unwrap();
+            }
+            for local in locals {
+                graph.insert_local_face_graph(local).unwrap();
+            }
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let decode = |family: &[Vec<[u64; 3]>]| {
+            family
+                .iter()
+                .map(|bits| {
+                    bits.iter()
+                        .copied()
+                        .map(crate::tiling::coord3d_from_bits)
+                        .collect()
+                })
+                .collect()
+        };
+        for snapshot in mosaic.partitions.values() {
+            graph
+                .retain_global_non_polygon_extraction_payloads(
+                    &policy,
+                    snapshot.partition_id,
+                    decode(&snapshot.non_polygon.dangles),
+                    decode(&snapshot.non_polygon.cut_edges),
+                    decode(&snapshot.non_polygon.invalid_rings),
+                )
+                .unwrap();
+        }
+        let stats = graph
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        assert!(!stats.payload_ready);
+        let evidence =
+            prepare_non_polygon_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let assembly = assemble_cross_core_non_polygon(&evidence, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let consumer = consume_global_non_polygon(
+            &evidence,
+            None,
+            Some(&assembly),
+            &mosaic,
+            &tiles,
+            domain,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let inputs = PartitionCrossCorePhysicalInputs {
+            graph: &graph,
+            non_polygon_stats: stats,
+            evidence: &evidence,
+            assembly: &assembly,
+            mosaic: &mosaic,
+            tiles: &tiles,
+            domain,
+            options: &options,
+        };
+        let before = graph.clone();
+        let before_mosaic = mosaic.fingerprint_sha256();
+        let proof = prove_cross_core_physical_polygons(&inputs, &consumer, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(proof.components.len(), 2);
+        assert!(!proof.non_polygon_component_aliases.is_empty());
+        let retained_polygon_aliases = proof
+            .components
+            .iter()
+            .map(|component| {
+                assert_eq!(component.copies.len(), 3);
+                assert_eq!(component.local_component_aliases.len(), 3);
+                assert_eq!(
+                    component.local_component_aliases[component.owner_copy_index][0],
+                    component.owner_partition_id
+                );
+                component
+                    .copies
+                    .iter()
+                    .map(|copy| copy.local_aliases.len())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+        assert_eq!(
+            retained_polygon_aliases
+                + proof
+                    .non_polygon_component_aliases
+                    .iter()
+                    .map(|(_, ids)| ids.len())
+                    .sum::<usize>(),
+            graph
+                .local_face_graphs()
+                .iter()
+                .map(|local| local.directed_edges.len())
+                .sum::<usize>()
+        );
+        let output = integrate_cross_core_component_candidate(&inputs, &proof, &consumer, &policy)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                output.polygons.len(),
+                output.dangles.len(),
+                output.cut_edges.len(),
+                output.invalid_rings.len()
+            ),
+            (2, 1, 1, 2)
+        );
+        assert!(
+            compare_stitched_output_with_reference(&output, &evidence.reference, &policy)
+                .unwrap()
+                .ready
+        );
+        for mutation in 0..14 {
+            let mut changed = proof.clone();
+            match mutation {
+                0 => changed.input_fingerprint_sha256.clear(),
+                1 => changed.snapshot_fingerprints[0].1.clear(),
+                2 => {
+                    changed.components.pop();
+                }
+                3 => changed.components[0].owner_partition_id = usize::MAX,
+                4 => changed.components[0].owner_copy_index = usize::MAX,
+                5 => {
+                    changed.components[0].local_component_aliases.pop();
+                }
+                6 => {
+                    changed.components[0].copies.pop();
+                }
+                7 => {
+                    changed.components[0].copies[0].ring_payloads[0].coordinate_bits[0][2] =
+                        1.0f64.to_bits()
+                }
+                8 => changed.components[0].copies[0].ring_payloads[0]
+                    .source_line_ids
+                    .push(99),
+                9 => {
+                    changed.components[0].copies[0].ring_payloads[0].representative_line_ids[0] = 99
+                }
+                10 => {
+                    changed.components[0].copies[0].local_aliases[0].from_z_bits = 1.0f64.to_bits()
+                }
+                11 => {
+                    changed.components[0].copies[0].local_aliases[0]
+                        .face_ref
+                        .as_mut()
+                        .unwrap()
+                        .component_id += 1
+                }
+                12 => {
+                    changed.non_polygon_component_aliases.pop();
+                }
+                _ => changed.non_polygon_component_aliases[0].1.clear(),
+            }
+            assert!(
+                integrate_cross_core_component_candidate(&inputs, &changed, &consumer, &policy)
+                    .unwrap()
+                    .is_none(),
+                "proof mutation {mutation}"
+            );
+        }
+        let rebuild =
+            |locals: Vec<PartitionBorderLocalFaceGraph>,
+             observations: Vec<PartitionBorderHalfEdge>,
+             rows: Vec<PartitionBorderGlobalNonPolygonExtractionPayload>| {
+                let mut changed = PartitionBorderGraph::default();
+                for observation in observations {
+                    changed.insert(observation).unwrap();
+                }
+                for local in locals {
+                    changed.insert_local_face_graph(local).unwrap();
+                }
+                for row in rows {
+                    let coords = row
+                        .coordinate_bits
+                        .into_iter()
+                        .map(crate::tiling::coord3d_from_bits)
+                        .collect();
+                    let (mut dangles, mut cuts, mut invalids) =
+                        (Vec::new(), Vec::new(), Vec::new());
+                    match row.kind { crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::Dangle => dangles.push(coords), crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::CutEdge => cuts.push(coords), crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing => invalids.push(coords) }
+                    changed
+                        .retain_global_non_polygon_extraction_payloads(
+                            &policy,
+                            row.partition_id,
+                            dangles,
+                            cuts,
+                            invalids,
+                        )
+                        .unwrap();
+                }
+                changed
+            };
+        // A complete proof must retain halo copies named by the prepared source inventory.
+        // Remove only one polygon cycle: two cycles share the original component ID.
+        let polygon = &proof.components[0];
+        let removed_copy_index = polygon
+            .local_component_aliases
+            .iter()
+            .position(|alias| alias[0] != polygon.owner_partition_id)
+            .unwrap();
+        let removed_alias = polygon.local_component_aliases[removed_copy_index];
+        let removed_edge_ids = polygon.copies[removed_copy_index]
+            .local_aliases
+            .iter()
+            .map(|alias| alias.local_dir_edge_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut missing_locals = graph.local_face_graphs().to_vec();
+        let local = missing_locals
+            .iter_mut()
+            .find(|local| [local.partition_id, local.component_id] == removed_alias)
+            .unwrap();
+        let original_edge_count = local.directed_edges.len();
+        local
+            .directed_edges
+            .retain(|edge| !removed_edge_ids.contains(&edge.local_dir_edge_id));
+        assert_eq!(
+            original_edge_count - local.directed_edges.len(),
+            removed_edge_ids.len()
+        );
+        assert!(!local.directed_edges.is_empty());
+        let mut missing_mosaic = mosaic.clone();
+        missing_mosaic
+            .partitions
+            .get_mut(&removed_alias[0])
+            .unwrap()
+            .local_face_graphs = crate::tiling::partition_local_face_graphs(&missing_locals)
+            .into_iter()
+            .filter(|local| local.partition_id == removed_alias[0])
+            .collect();
+        let original_snapshot = &mosaic.partitions[&removed_alias[0]];
+        let missing_snapshot = &missing_mosaic.partitions[&removed_alias[0]];
+        assert_eq!(
+            missing_snapshot.selected_source_segments,
+            original_snapshot.selected_source_segments
+        );
+        assert_eq!(
+            missing_snapshot.local_noded_segments,
+            original_snapshot.local_noded_segments
+        );
+        assert_eq!(
+            missing_snapshot.boundary_noded_segments,
+            original_snapshot.boundary_noded_segments
+        );
+        missing_mosaic.physical_spans =
+            PartitionMosaic::physical_spans(&missing_mosaic.partitions, &policy).unwrap();
+        let missing_graph = rebuild(
+            missing_locals,
+            graph.border_observations().cloned().collect(),
+            graph
+                .global_non_polygon_extraction_payload_candidates()
+                .to_vec(),
+        );
+        let missing_evidence =
+            prepare_non_polygon_evidence(&missing_mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        assert_eq!(missing_evidence.aliases, evidence.aliases);
+        let missing_assembly = assemble_cross_core_non_polygon(
+            &missing_evidence,
+            &missing_mosaic,
+            &tiles,
+            domain,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let missing_consumer = consume_global_non_polygon(
+            &missing_evidence,
+            None,
+            Some(&missing_assembly),
+            &missing_mosaic,
+            &tiles,
+            domain,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let missing_inputs = PartitionCrossCorePhysicalInputs {
+            graph: &missing_graph,
+            mosaic: &missing_mosaic,
+            evidence: &missing_evidence,
+            assembly: &missing_assembly,
+            ..inputs
+        };
+        let missing_proof =
+            prove_cross_core_physical_polygons(&missing_inputs, &missing_consumer, &policy)
+                .unwrap();
+        assert!(
+            missing_proof.is_none(),
+            "missing non-owner polygon halo copy must reject complete physical proof"
+        );
+        for claim_count in [2, 4] {
+            let mut forged = mosaic.clone();
+            let mut observations = graph.border_observations().cloned().collect::<Vec<_>>();
+            for partition in [0, 1] {
+                for reverse in [false, true] {
+                    if claim_count == 2 && reverse != (partition == 1) {
+                        continue;
+                    }
+                    let (from, to) = (Coord3D::new(4.0, 1.0, 0.0), Coord3D::new(4.0, 2.0, 0.0));
+                    observations.push(
+                        PartitionBorderHalfEdge::new(
+                            partition,
+                            10_000 + usize::from(reverse),
+                            None,
+                            if partition == 0 {
+                                crate::graph::partition_border::PartitionBorderSide::MaxX
+                            } else {
+                                crate::graph::partition_border::PartitionBorderSide::MinX
+                            },
+                            if reverse { to } else { from },
+                            if reverse { from } else { to },
+                            [99],
+                        )
+                        .unwrap(),
+                    );
+                }
+                forged
+                    .partitions
+                    .get_mut(&partition)
+                    .unwrap()
+                    .atomic_observations = crate::tiling::partition_atomic_observations(
+                    observations
+                        .iter()
+                        .filter(|observation| observation.partition_id == partition),
+                );
+            }
+            let forged_graph = rebuild(
+                graph.local_face_graphs().to_vec(),
+                observations,
+                graph
+                    .global_non_polygon_extraction_payload_candidates()
+                    .to_vec(),
+            );
+            let forged_evidence =
+                prepare_non_polygon_evidence(&forged, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+                    .unwrap();
+            let forged_assembly =
+                assemble_cross_core_non_polygon(&forged_evidence, &forged, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+            let forged_consumer = consume_global_non_polygon(
+                &forged_evidence,
+                None,
+                Some(&forged_assembly),
+                &forged,
+                &tiles,
+                domain,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            for refresh_cache in [false, true] {
+                if refresh_cache {
+                    forged.physical_spans =
+                        PartitionMosaic::physical_spans(&forged.partitions, &policy).unwrap();
+                }
+                assert!(
+                    prove_cross_core_physical_polygons(
+                        &PartitionCrossCorePhysicalInputs {
+                            graph: &forged_graph,
+                            mosaic: &forged,
+                            evidence: &forged_evidence,
+                            assembly: &forged_assembly,
+                            ..inputs
+                        },
+                        &forged_consumer,
+                        &policy
+                    )
+                    .unwrap()
+                    .is_none(),
+                    "claims={claim_count} refreshed_cache={refresh_cache}"
+                );
+            }
+        }
+        for (first_partition, second_partition, first_side, second_side) in [
+            (
+                0,
+                1,
+                crate::graph::partition_border::PartitionBorderSide::MaxX,
+                crate::graph::partition_border::PartitionBorderSide::MinX,
+            ),
+            (
+                0,
+                1,
+                crate::graph::partition_border::PartitionBorderSide::MaxY,
+                crate::graph::partition_border::PartitionBorderSide::MinY,
+            ),
+            (
+                0,
+                2,
+                crate::graph::partition_border::PartitionBorderSide::MaxX,
+                crate::graph::partition_border::PartitionBorderSide::MinX,
+            ),
+        ] {
+            let mut forged = mosaic.clone();
+            let mut observations = graph.border_observations().cloned().collect::<Vec<_>>();
+            for (partition, side, reverse) in [
+                (first_partition, first_side, false),
+                (second_partition, second_side, true),
+            ] {
+                let (local, edge) = graph
+                    .local_face_graphs()
+                    .iter()
+                    .filter(|local| local.partition_id == partition)
+                    .flat_map(|local| local.directed_edges.iter().map(move |edge| (local, edge)))
+                    .find(|(_, edge)| {
+                        let from = edge.from.xy_bits().map(f64::from_bits);
+                        let to = edge.to.xy_bits().map(f64::from_bits);
+                        from[0] == 9.0 && to[0] == 9.0 && ((from[1] < to[1]) != reverse)
+                    })
+                    .unwrap();
+                let xyz = |key: crate::graph::partition_border::PartitionBorderNodeKey, z| {
+                    let [x, y] = key.xy_bits().map(f64::from_bits);
+                    Coord3D::new(x, y, f64::from_bits(z))
+                };
+                let mut observation = PartitionBorderHalfEdge::new_with_face_ref(
+                    partition,
+                    edge.local_dir_edge_id,
+                    edge.face_ref,
+                    side,
+                    xyz(edge.from, edge.from_z_bits),
+                    xyz(edge.to, edge.to_z_bits),
+                    edge.source_line_ids.iter().copied(),
+                )
+                .unwrap();
+                observation.component_id = local.component_id;
+                observation.local_face_successor = edge.local_face_successor;
+                observation.local_face_is_unbounded = edge.local_face_is_unbounded;
+                observations.push(observation);
+                forged
+                    .partitions
+                    .get_mut(&partition)
+                    .unwrap()
+                    .atomic_observations = crate::tiling::partition_atomic_observations(
+                    observations
+                        .iter()
+                        .filter(|observation| observation.partition_id == partition),
+                );
+            }
+            forged.physical_spans =
+                PartitionMosaic::physical_spans(&forged.partitions, &policy).unwrap();
+            assert!(forged
+                .physical_span_evidence()
+                .iter()
+                .all(|span| span.status == crate::tiling::PartitionPhysicalSpanStatusV1::Valid));
+            let forged_graph = rebuild(
+                graph.local_face_graphs().to_vec(),
+                observations,
+                graph
+                    .global_non_polygon_extraction_payload_candidates()
+                    .to_vec(),
+            );
+            let forged_evidence =
+                prepare_non_polygon_evidence(&forged, &tiles, &refs, domain, &options, &policy)
+                    .unwrap()
+                    .unwrap();
+            let forged_assembly =
+                assemble_cross_core_non_polygon(&forged_evidence, &forged, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+            let forged_consumer = consume_global_non_polygon(
+                &forged_evidence,
+                None,
+                Some(&forged_assembly),
+                &forged,
+                &tiles,
+                domain,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            let forged_inputs = PartitionCrossCorePhysicalInputs {
+                graph: &forged_graph,
+                mosaic: &forged,
+                evidence: &forged_evidence,
+                assembly: &forged_assembly,
+                ..inputs
+            };
+            assert!(prove_cross_core_physical_polygons(&forged_inputs, &forged_consumer, &policy).unwrap().is_none(), "native/source-correct false side {first_partition}:{first_side:?} {second_partition}:{second_side:?}");
+        }
+        for mutation in 0..9 {
+            let mut locals = graph.local_face_graphs().to_vec();
+            let mut observations = graph.border_observations().cloned().collect::<Vec<_>>();
+            let mut rows = graph
+                .global_non_polygon_extraction_payload_candidates()
+                .to_vec();
+            match mutation {
+                0 => {
+                    locals.pop();
+                }
+                1 => locals[0].directed_edges[0].source_line_ids.push(99),
+                2 => locals[0].directed_edges[0].from_z_bits = 1.0f64.to_bits(),
+                3 => locals[0].directed_edges[0].symmetric_local_dir_edge_id = usize::MAX,
+                4 => locals[0].directed_edges[0].local_face_successor = Some(usize::MAX),
+                5 => observations.push(
+                    PartitionBorderHalfEdge::new(
+                        0,
+                        usize::MAX,
+                        None,
+                        crate::graph::partition_border::PartitionBorderSide::MaxX,
+                        Coord3D::new(4.0, 1.0, 0.0),
+                        Coord3D::new(4.0, 2.0, 0.0),
+                        [99],
+                    )
+                    .unwrap(),
+                ),
+                6 => {
+                    rows.pop();
+                }
+                7 => rows[0].coordinate_bits[0][2] = 1.0f64.to_bits(),
+                _ => {
+                    rows.swap(0, 1);
+                }
+            }
+            let changed = rebuild(locals, observations, rows);
+            assert!(
+                prove_cross_core_physical_polygons(
+                    &PartitionCrossCorePhysicalInputs {
+                        graph: &changed,
+                        ..inputs
+                    },
+                    &consumer,
+                    &policy
+                )
+                .unwrap()
+                .is_none(),
+                "native mutation {mutation}"
+            );
+        }
+        let mut changed_consumer = consumer.clone();
+        changed_consumer.output.invalid_rings.pop();
+        assert!(
+            prove_cross_core_physical_polygons(&inputs, &changed_consumer, &policy)
+                .unwrap()
+                .is_none()
+        );
+        let mut changed_assembly = assembly.clone();
+        changed_assembly.payloads[0].spans.pop();
+        assert!(prove_cross_core_physical_polygons(
+            &PartitionCrossCorePhysicalInputs {
+                assembly: &changed_assembly,
+                ..inputs
+            },
+            &consumer,
+            &policy
+        )
+        .unwrap()
+        .is_none());
+        let mut stale = mosaic.clone();
+        stale
+            .partitions
+            .get_mut(&0)
+            .unwrap()
+            .generation
+            .retry_attempt += 1;
+        let changed_options = PolygonizerOptions {
+            input_profile_id: Some("other".to_string()),
+            ..options.clone()
+        };
+        let mut changed_stats = stats;
+        changed_stats.coordinate_count += 1;
+        for changed in [
+            PartitionCrossCorePhysicalInputs {
+                mosaic: &stale,
+                ..inputs
+            },
+            PartitionCrossCorePhysicalInputs {
+                options: &changed_options,
+                ..inputs
+            },
+            PartitionCrossCorePhysicalInputs {
+                non_polygon_stats: changed_stats,
+                ..inputs
+            },
+        ] {
+            assert!(
+                prove_cross_core_physical_polygons(&changed, &consumer, &policy)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_rings: Some(2),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_polygons: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(1),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                prove_cross_core_physical_polygons(&inputs, &consumer, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for cancel_at in [0, 1, 24] {
+            let token = CancellationToken::new();
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: Some((token, cancel_at)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                prove_cross_core_physical_polygons(&inputs, &consumer, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        let mut aggregate = graph.clone();
+        aggregate
+            .retain_global_non_polygon_extraction_payloads(
+                &policy,
+                0,
+                vec![vec![Coord3D::new(1.0, 1.0, 0.0); 1_000]; 1_001],
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+        let cancellable = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            prove_cross_core_physical_polygons(
+                &PartitionCrossCorePhysicalInputs {
+                    graph: &aggregate,
+                    ..inputs
+                },
+                &consumer,
+                &cancellable
+            ),
+            Err(PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        assert_eq!(graph, before);
+        assert_eq!(mosaic.fingerprint_sha256(), before_mosaic);
+        assert_eq!(
+            prove_cross_core_physical_polygons(&inputs, &consumer, &policy)
+                .unwrap()
+                .as_ref(),
+            Some(&proof)
+        );
+        let repeated =
+            integrate_cross_core_component_candidate(&inputs, &proof, &consumer, &policy)
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value((
+                &repeated.polygons,
+                &repeated.dangles,
+                &repeated.cut_edges,
+                &repeated.invalid_rings
+            ))
+            .unwrap(),
+            serde_json::to_value((
+                &output.polygons,
+                &output.dangles,
+                &output.cut_edges,
+                &output.invalid_rings
+            ))
+            .unwrap(),
+        );
+    }
+
+    #[test]
     fn cross_core_complete_private_candidate_rejects_any_changed_component_atomically() {
         use crate::graph::partition_border::PartitionBorderGraph;
         use crate::tiling::{
@@ -2249,8 +3218,15 @@ mod tests {
                     .find(|event| event.kind == "partition_border_global_arrangement_conformance")
                     .unwrap()
                     .payload;
-                assert_eq!(conformance["candidate_built"], false);
-                assert_eq!(conformance["equivalence_checked"], false);
+                assert_eq!(
+                    conformance["candidate_built"], true,
+                    "conformance={conformance}"
+                );
+                assert_eq!(conformance["equivalence_checked"], true);
+                assert_eq!(conformance["equivalence_ready"], true);
+                assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                assert_eq!(conformance["component_physical_proof_bound"], true);
+                assert_eq!(conformance["output_selectable"], false);
                 signatures.push(payload.clone());
             }
             assert_eq!(signatures[0], signatures[1]);
@@ -2768,8 +3744,15 @@ mod tests {
                     .find(|event| event.kind == "partition_border_global_arrangement_conformance")
                     .unwrap()
                     .payload;
-                assert_eq!(conformance["candidate_built"], false);
-                assert_eq!(conformance["equivalence_checked"], false);
+                assert_eq!(
+                    conformance["candidate_built"], true,
+                    "conformance={conformance}"
+                );
+                assert_eq!(conformance["equivalence_checked"], true);
+                assert_eq!(conformance["equivalence_ready"], true);
+                assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                assert_eq!(conformance["component_physical_proof_bound"], true);
+                assert_eq!(conformance["output_selectable"], false);
                 signatures.push(payload.clone());
             }
             assert_eq!(signatures[0], signatures[1]);
