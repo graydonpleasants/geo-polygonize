@@ -867,6 +867,189 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_family_options_preserve_multiplicity_and_exact_area_boundaries() {
+        let square = |left, right| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ]))
+        };
+        let geometries = [
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (10.0, 0.375)])),
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 1.0),
+                (9.0, 3.0),
+                (9.0, 1.0),
+                (1.0, 3.0),
+                (1.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+        ];
+        let area = 0.0625f64;
+        let above_area = f64::from_bits(area.to_bits() + 1);
+        let mut checked = 0;
+        for (name, enabled, include_ids, profile, minimum_face_area, polygonal, z, polygons) in [
+            (
+                "disabled",
+                false,
+                false,
+                None,
+                None,
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "disabled_requested_ids",
+                false,
+                true,
+                Some("ignored-profile"),
+                None,
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "enabled_without_ids",
+                true,
+                false,
+                None,
+                None,
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "enabled_with_ids",
+                true,
+                true,
+                Some("family-options"),
+                None,
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "exact_area",
+                true,
+                true,
+                Some("family-options"),
+                Some(area),
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "above_area",
+                true,
+                true,
+                Some("family-options"),
+                Some(above_area),
+                false,
+                crate::ZPolicy::InterpolateAlongEdge,
+                0,
+            ),
+            (
+                "polygonal",
+                true,
+                true,
+                Some("family-options"),
+                None,
+                true,
+                crate::ZPolicy::InterpolateAlongEdge,
+                2,
+            ),
+            (
+                "zero_z_conflict_policy",
+                true,
+                true,
+                Some("family-options"),
+                None,
+                false,
+                crate::ZPolicy::ErrorOnConflict,
+                2,
+            ),
+        ] {
+            for tile_size in [4.0, 6.0] {
+                for dedup in [DedupPolicy::KeepAll, DedupPolicy::CanonicalRingHash] {
+                    let mut tiled =
+                        TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), tile_size)
+                            .with_buffer(12.0)
+                            .with_dedup_policy(dedup)
+                            .with_options(PolygonizerOptions {
+                                node_input: false,
+                                extract_only_polygonal: polygonal,
+                                provenance: ProvenanceOptions {
+                                    enabled,
+                                    include_boundary_line_ids: include_ids,
+                                },
+                                input_profile_id: profile.map(str::to_owned),
+                                output_filter: crate::OutputFilterOptions { minimum_face_area },
+                                z: ZOptions {
+                                    policy: z,
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let ordinary = tiled.polygonize().unwrap();
+                    let traced = tiled
+                        .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                        .unwrap();
+                    let conformance = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| {
+                            event.kind == "partition_border_global_arrangement_conformance"
+                        })
+                        .unwrap()
+                        .payload;
+                    assert_eq!(
+                        conformance["candidate_built"], true,
+                        "case={name} tile={tile_size} event={conformance}"
+                    );
+                    assert_eq!(conformance["equivalence_ready"], true);
+                    assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                    assert_eq!(conformance["polygon_count"], polygons);
+                    assert_eq!(conformance["dangle_count"], 1);
+                    assert_eq!(conformance["cut_edge_count"], 1);
+                    assert_eq!(conformance["invalid_ring_count"], 2);
+                    assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                    assert_eq!(conformance["output_selectable"], false);
+                    for result in [&ordinary, &traced.result] {
+                        assert!(
+                            !result
+                                .stitching_report
+                                .partition_border_global_non_polygon_extraction_ready
+                        );
+                        assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                        assert!(result.stitched_output.is_none());
+                        for polygon in &result.polygons {
+                            assert_eq!(polygon.provenance.is_some(), enabled);
+                            if let Some(provenance) = &polygon.provenance {
+                                assert_eq!(provenance.input_profile_id.as_deref(), profile);
+                            }
+                        }
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 32);
+    }
+
+    #[test]
     fn cross_core_physical_proofs_reject_nesting_contact_and_boundary_ambiguity() {
         let square = |left, bottom, right, top| {
             Geometry::LineString(LineString::from(vec![
@@ -1587,6 +1770,39 @@ mod tests {
             input_profile_id: Some("other".to_string()),
             ..options.clone()
         };
+        for equivalent_options in [
+            PolygonizerOptions {
+                extract_only_polygonal: true,
+                ..options.clone()
+            },
+            PolygonizerOptions {
+                output_filter: crate::OutputFilterOptions {
+                    minimum_face_area: Some(0.0625),
+                },
+                ..options.clone()
+            },
+        ] {
+            let mut reference = Polygonizer::with_options(equivalent_options.clone());
+            for geometry in &geometries {
+                reference.add_borrowed_geometry(geometry);
+            }
+            let equivalent_output = reference.polygonize().unwrap();
+            assert!(
+                compare_stitched_output_with_reference(&output, &equivalent_output, &policy)
+                    .unwrap()
+                    .ready
+            );
+            assert!(prove_cross_core_physical_polygons(
+                &PartitionCrossCorePhysicalInputs {
+                    options: &equivalent_options,
+                    ..inputs
+                },
+                &consumer,
+                &policy
+            )
+            .unwrap()
+            .is_none());
+        }
         let mut changed_stats = stats;
         changed_stats.coordinate_count += 1;
         for changed in [
