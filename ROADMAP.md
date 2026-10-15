@@ -628,6 +628,13 @@ separately from selectable output; they do not complete the promotion gates.
   faces. Reference-family contents supply no incidence authority. An original
   raw-only span fails this cover even with an empty reference family; raw
   classification and claim-consumption gates remain closed.
+- [x] Complement active incidence with private authority for isolated original
+  dangles: both endpoints have degree one in the complete original noded graph,
+  one strict core owns the span, and one exact two-point raw record retains its
+  original source row and ordered walk. Mixed active/raw-only coverage keeps
+  every raw record without reference-family authority. Chains, ambiguous
+  ownership, cuts and invalid rings remain unsupported by this certificate;
+  existing family, claim, acceptance and output gates remain unchanged.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
