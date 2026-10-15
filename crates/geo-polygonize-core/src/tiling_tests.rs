@@ -1178,6 +1178,403 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_nested_containers_retain_exact_input_and_halo_inventories() {
+        let square = |left, right| {
+            LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ])
+        };
+        let originals = vec![
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            LineString::from(vec![(0.5, 0.375), (10.0, 0.375)]),
+            LineString::from(vec![
+                (1.0, 1.0),
+                (9.0, 3.0),
+                (9.0, 1.0),
+                (1.0, 3.0),
+                (1.0, 1.0),
+            ]),
+            LineString::from(vec![(3.0, 3.5), (9.0, 3.5)]),
+        ];
+        let empty = || Geometry::GeometryCollection(geo::GeometryCollection(Vec::new()));
+        let mut checked = 0;
+        for reverse in [false, true] {
+            let mut lines = originals.clone();
+            if reverse {
+                lines.reverse();
+                for line in &mut lines {
+                    line.0.reverse();
+                }
+            }
+            let counts = lines
+                .iter()
+                .map(|line| line.0.len() - 1)
+                .collect::<Vec<_>>();
+            let total = counts.iter().sum::<usize>();
+            let first_group = counts[..3].iter().sum::<usize>();
+            for (name, geometries, selected, source_counts) in [
+                (
+                    "separate",
+                    lines.iter().cloned().map(Geometry::LineString).collect(),
+                    (0..lines.len()).collect::<Vec<_>>(),
+                    counts.iter().copied().enumerate().collect::<Vec<_>>(),
+                ),
+                (
+                    "multiline",
+                    vec![Geometry::MultiLineString(MultiLineString(lines.clone()))],
+                    vec![0],
+                    vec![(0, total)],
+                ),
+                (
+                    "nested",
+                    vec![
+                        empty(),
+                        Geometry::GeometryCollection(geo::GeometryCollection(vec![
+                            Geometry::MultiLineString(MultiLineString(lines[..3].to_vec())),
+                            Geometry::GeometryCollection(geo::GeometryCollection(vec![
+                                empty(),
+                                Geometry::MultiLineString(MultiLineString(lines[3..].to_vec())),
+                            ])),
+                        ])),
+                        empty(),
+                    ],
+                    vec![1],
+                    vec![(1, total)],
+                ),
+                (
+                    "split_with_empty_and_point",
+                    vec![
+                        empty(),
+                        Geometry::MultiLineString(MultiLineString(lines[..3].to_vec())),
+                        Geometry::LineString(LineString(Vec::new())),
+                        Geometry::GeometryCollection(geo::GeometryCollection(vec![
+                            empty(),
+                            Geometry::MultiLineString(MultiLineString(lines[3..].to_vec())),
+                        ])),
+                        Geometry::MultiLineString(MultiLineString(Vec::new())),
+                        Geometry::Point(geo::Point::new(0.75, 3.75)),
+                    ],
+                    vec![1, 3, 5],
+                    vec![(1, first_group), (3, total - first_group)],
+                ),
+            ] {
+                let expected_sources = source_counts
+                    .iter()
+                    .flat_map(|&(geometry, count)| {
+                        (0..count).map(move |segment| (geometry, segment))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(expected_sources.len(), 18);
+                for tile_size in [4.0, 6.0] {
+                    let mut tiled =
+                        TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), tile_size)
+                            .with_buffer(12.0)
+                            .with_options(PolygonizerOptions {
+                                provenance: ProvenanceOptions {
+                                    enabled: true,
+                                    include_boundary_line_ids: true,
+                                },
+                                input_profile_id: Some("container-inventory".to_string()),
+                                ..Default::default()
+                            })
+                            .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let ordinary = tiled.polygonize().unwrap();
+                    let traced = tiled
+                        .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                        .unwrap();
+                    let conformance = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| {
+                            event.kind == "partition_border_global_arrangement_conformance"
+                        })
+                        .unwrap()
+                        .payload;
+                    assert_eq!(
+                        conformance["candidate_built"], true,
+                        "case={name} reverse={reverse} tile={tile_size} event={conformance}"
+                    );
+                    assert_eq!(conformance["equivalence_ready"], true);
+                    assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                    assert_eq!(conformance["polygon_count"], 2);
+                    assert_eq!(conformance["cut_edge_count"], 1);
+                    assert_eq!(conformance["dangle_count"], 1);
+                    assert_eq!(conformance["invalid_ring_count"], 2);
+                    assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                    assert_eq!(conformance["output_selectable"], false);
+                    let proof = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                        .unwrap()
+                        .payload;
+                    assert_eq!(proof["proven"], true);
+                    let components = proof["proof"]["components"].as_array().unwrap();
+                    assert_eq!(components.len(), 2);
+                    let partitions = (0..traced.result.partition_snapshots.len() as u64)
+                        .collect::<BTreeSet<_>>();
+                    for component in components {
+                        assert_eq!(
+                            component["copies"].as_array().unwrap().len(),
+                            partitions.len()
+                        );
+                        assert_eq!(
+                            component["local_component_aliases"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|alias| alias[0].as_u64().unwrap())
+                                .collect::<BTreeSet<_>>(),
+                            partitions
+                        );
+                    }
+                    for result in [&ordinary, &traced.result] {
+                        for snapshot in &result.partition_snapshots {
+                            assert_eq!(snapshot.selected_input_geometry_indices, selected);
+                            assert_eq!(
+                                snapshot
+                                    .selected_source_segments
+                                    .iter()
+                                    .map(|segment| (segment.geometry_index, segment.segment_index))
+                                    .collect::<Vec<_>>(),
+                                expected_sources
+                            );
+                            assert!(snapshot.local_noded_segments.iter().all(|segment| {
+                                segment.source_line_ids == [0]
+                                    && segment.representative_line_id == Some(0)
+                            }));
+                        }
+                        assert!(
+                            !result
+                                .stitching_report
+                                .partition_border_global_non_polygon_extraction_ready
+                        );
+                        assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                        assert!(result.stitched_output.is_none());
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 16);
+    }
+
+    #[test]
+    fn cross_core_polygon_containers_preserve_rings_and_decline_hole_assembly() {
+        let mut checked = 0;
+        for reverse in [false, true] {
+            let ring = |left, bottom, right, top| {
+                let mut line = LineString::from(vec![
+                    (left, bottom),
+                    (right, bottom),
+                    (right, top),
+                    (left, top),
+                    (left, bottom),
+                ]);
+                if reverse {
+                    line.0.reverse();
+                }
+                line
+            };
+            let mut shells = vec![
+                geo::Polygon::new(ring(0.25, 0.25, 0.5, 0.5), Vec::new()),
+                geo::Polygon::new(ring(10.0, 0.25, 10.25, 0.5), Vec::new()),
+            ];
+            if reverse {
+                shells.reverse();
+            }
+            let holed =
+                geo::Polygon::new(ring(0.25, 0.25, 1.75, 1.75), vec![ring(0.5, 0.5, 1.5, 1.5)]);
+            let dangle = Geometry::LineString(LineString::from(if reverse {
+                vec![(9.0, 3.5), (3.0, 3.5)]
+            } else {
+                vec![(3.0, 3.5), (9.0, 3.5)]
+            }));
+            for (name, mut geometries, mut source_counts, ready) in [
+                (
+                    "polygons",
+                    vec![
+                        Geometry::Polygon(shells[0].clone()),
+                        Geometry::Polygon(shells[1].clone()),
+                        dangle.clone(),
+                    ],
+                    vec![4, 4, 1],
+                    true,
+                ),
+                (
+                    "multipolygon",
+                    vec![
+                        Geometry::MultiPolygon(geo::MultiPolygon(shells.clone())),
+                        dangle.clone(),
+                    ],
+                    vec![8, 1],
+                    true,
+                ),
+                (
+                    "nested_multipolygon",
+                    vec![
+                        Geometry::GeometryCollection(geo::GeometryCollection(vec![
+                            Geometry::MultiPolygon(geo::MultiPolygon(shells.clone())),
+                        ])),
+                        dangle.clone(),
+                    ],
+                    vec![8, 1],
+                    true,
+                ),
+                (
+                    "polygon_with_hole",
+                    vec![Geometry::Polygon(holed.clone()), dangle.clone()],
+                    vec![8, 1],
+                    false,
+                ),
+                (
+                    "multipolygon_with_hole",
+                    vec![
+                        Geometry::MultiPolygon(geo::MultiPolygon(vec![holed.clone()])),
+                        dangle.clone(),
+                    ],
+                    vec![8, 1],
+                    false,
+                ),
+                (
+                    "nested_multipolygon_with_hole",
+                    vec![
+                        Geometry::GeometryCollection(geo::GeometryCollection(vec![
+                            Geometry::MultiPolygon(geo::MultiPolygon(vec![holed.clone()])),
+                        ])),
+                        dangle.clone(),
+                    ],
+                    vec![8, 1],
+                    false,
+                ),
+            ] {
+                if reverse {
+                    geometries.reverse();
+                    source_counts.reverse();
+                }
+                let expected_sources = source_counts
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(geometry, &count)| {
+                        (0..count).map(move |segment| (geometry, segment))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(expected_sources.len(), 9);
+                let options = PolygonizerOptions {
+                    provenance: ProvenanceOptions {
+                        enabled: true,
+                        include_boundary_line_ids: true,
+                    },
+                    input_profile_id: Some("polygon-containers".to_string()),
+                    ..Default::default()
+                };
+                let mut reference = Polygonizer::with_options(options.clone());
+                let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), 4.0)
+                    .with_buffer(12.0)
+                    .with_options(options)
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    reference.add_borrowed_geometry(geometry);
+                    tiled.add_geometry(geometry);
+                }
+                let reference = reference.polygonize().unwrap();
+                // Polygon inputs contribute linework; default extraction retains both bounded faces.
+                assert_eq!(reference.polygons.len(), 2);
+                assert_eq!(
+                    reference
+                        .polygons
+                        .iter()
+                        .map(|polygon| polygon.interiors.len())
+                        .sum::<usize>(),
+                    usize::from(!ready)
+                );
+                assert_eq!(reference.dangles.len(), 1);
+                assert!(reference.cut_edges.is_empty());
+                assert!(reference.invalid_rings.is_empty());
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let conformance = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                    .unwrap()
+                    .payload;
+                assert_eq!(
+                    conformance["candidate_built"], ready,
+                    "case={name} reverse={reverse} event={conformance}"
+                );
+                assert_eq!(conformance["candidate_materialized"], ready);
+                assert_eq!(conformance["equivalence_checked"], ready);
+                assert_eq!(conformance["equivalence_ready"], ready);
+                assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                assert_eq!(conformance["output_selectable"], false);
+                let consumer = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_non_polygon_consumer")
+                    .unwrap()
+                    .payload;
+                assert_eq!(consumer["constructed"], true);
+                let proof = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                    .unwrap()
+                    .payload;
+                assert_eq!(proof["proven"], ready);
+                for result in [&ordinary, &traced.result] {
+                    assert_eq!(result.partition_snapshots.len(), 3);
+                    for snapshot in &result.partition_snapshots {
+                        assert_eq!(
+                            snapshot.selected_input_geometry_indices,
+                            (0..geometries.len()).collect::<Vec<_>>()
+                        );
+                        assert_eq!(
+                            snapshot
+                                .selected_source_segments
+                                .iter()
+                                .map(|segment| (segment.geometry_index, segment.segment_index))
+                                .collect::<Vec<_>>(),
+                            expected_sources
+                        );
+                    }
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count
+                            > 0
+                    );
+                    assert!(result.stitched_output.is_none());
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 12);
+    }
+
+    #[test]
     fn cross_core_physical_proofs_reject_nesting_contact_and_boundary_ambiguity() {
         let square = |left, bottom, right, top| {
             Geometry::LineString(LineString::from(vec![
