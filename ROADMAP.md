@@ -533,6 +533,14 @@ Exact `0.125`-grid cut fixtures also conform privately with validated floating
 noding, fixed Grid/GeosCompat noding and certified Grid noding under input
 reversal and two core sizes. Precision changes still reject stale proofs when
 their observable output would be identical.
+Grouped and nested linework containers preserve exact selected top-level input
+indices and per-input source segment ordinals, including empty members and a
+selected point that adds no linework. The complete family fixture retains every
+halo polygon copy under input reversal and two core sizes.
+Polygon and MultiPolygon containers, including nested collections, retain all
+source rings. Simple disjoint shells conform privately; fixtures with holes
+retain the reference's hole and inner face while private containment assembly
+remains blocked.
 Border-touching polygon components, branched rings and containment-dependent
 classes remain blocked. The bridge does not enable output selection or certify
 broader input classes.
