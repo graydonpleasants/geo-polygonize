@@ -537,6 +537,14 @@ Grouped and nested linework containers preserve exact selected top-level input
 indices and per-input source segment ordinals, including empty members and a
 selected point that adds no linework. The complete family fixture retains every
 halo polygon copy under input reversal and two core sizes.
+Partial-halo fixtures preserve exact alias partition sets and owner-copy
+indices where halo bounds first touch an input envelope, from singleton owners
+to asymmetric and full copy sets. Each snapshot retains its exact selected
+input and source inventory; every prepared copy remains bound.
+In the cut fixture, partial endpoint visibility preserves local dangles and
+rejects the private consumer and candidate. Fast and noded paths conform only
+after all three copies observe both endpoint polygons; raw duplicates still
+block public selection.
 Polygon and MultiPolygon containers, including nested collections, retain all
 source rings. Simple disjoint shells conform privately; fixtures with holes
 retain the reference's hole and inner face while private containment assembly
