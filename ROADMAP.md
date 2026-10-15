@@ -647,6 +647,12 @@ separately from selectable output; they do not complete the promotion gates.
   observation, original native link/source/Z and raw record. Revalidate the
   borrowed inventories and projection; legacy claims, family classification,
   acceptance and output consumers remain unchanged.
+- [x] Prove complete original-source coverage for detached non-branching leaf
+  paths strictly inside one core, including the two-edge frame-chain case.
+  Check the full original planar inventory, every degree-one removal and exact
+  source/ownership/Z/ordered raw-record incidence without reference-family
+  authority. Keep all active/raw records; branches, attachments, cross-core or
+  halo copies and multi-edge/cut/invalid raw records remain unsupported here.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
