@@ -185,6 +185,40 @@ mod tests {
             ] {
                 assert_eq!(roles["authority"][field], count, "{field}");
             }
+            let leaf = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_original_leaf_path_pruning")
+                .unwrap()
+                .payload;
+            assert_eq!(leaf["proven"], true);
+            assert_eq!(leaf["proof_class"], "strict_core_detached_paths");
+            for flag in [
+                "raw_families_classified",
+                "claim_consumption_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(leaf[flag], false);
+            }
+            for (field, count) in [
+                ("original_prepared_span_count", 12),
+                ("active_span_count", 12),
+                ("path_count", 0),
+                ("pruned_span_count", 0),
+                ("covered_span_count", 12),
+                ("degree_one_removal_count", 0),
+                ("ordered_path_step_count", 0),
+                ("verified_path_owner_count", 0),
+                ("retained_native_alias_count", 32),
+                ("retained_raw_record_count", 16),
+                ("retained_raw_coordinate_count", 32),
+                ("retained_raw_segment_count", 16),
+                ("active_raw_record_count", 16),
+                ("pruned_raw_record_count", 0),
+            ] {
+                assert_eq!(leaf["cover"][field], count, "{field}");
+            }
             let exterior = &result
                 .trace
                 .events
@@ -2846,6 +2880,701 @@ mod tests {
                     [0.75f64.to_bits(), 0.25f64.to_bits(), 0.0f64.to_bits()]
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn original_leaf_paths_cover_every_source_and_ordered_raw_record_without_reference_families() {
+        use crate::tiling::{
+            input_bound_physical_alias_view, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_native_twin_seam_cover,
+            prove_original_isolated_dangle_complement, prove_original_leaf_path_pruning,
+            PartitionInputBoundRawPayload, PartitionInputBoundSegment, PartitionMosaic,
+            PartitionOriginalLeafRecordEvidence,
+        };
+        for grid in [false, true] {
+            for reversed in [false, true] {
+                for length in 1..=3 {
+                    let mut lines = Vec::new();
+                    if grid {
+                        for axis in 0..=2 {
+                            for segment in 0..2 {
+                                let (a, b) = (axis as f64, segment as f64);
+                                lines.extend([
+                                    vec![(a, b), (a, b + 1.0)],
+                                    vec![(b, a), (b + 1.0, a)],
+                                ]);
+                            }
+                        }
+                    } else {
+                        lines.extend([
+                            vec![(0.0, 0.0), (2.0, 0.0)],
+                            vec![(2.0, 0.0), (2.0, 2.0)],
+                            vec![(2.0, 2.0), (0.0, 2.0)],
+                            vec![(0.0, 2.0), (0.0, 0.0)],
+                        ]);
+                    }
+                    for step in 0..length {
+                        let a = 0.25 + 0.5 * step as f64 / length as f64;
+                        let b = 0.25 + 0.5 * (step + 1) as f64 / length as f64;
+                        lines.push(vec![(a, 0.25), (b, 0.25)]);
+                    }
+                    if reversed {
+                        lines.reverse();
+                        for line in &mut lines {
+                            line.reverse();
+                        }
+                    }
+                    let geometries = lines
+                        .into_iter()
+                        .map(|line| Geometry::LineString(LineString::from(line)))
+                        .collect::<Vec<_>>();
+                    let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+                    let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+                    let options = PolygonizerOptions {
+                        node_input: true,
+                        ..Default::default()
+                    };
+                    let policy = ExecutionPolicy::default();
+                    let mut tiled = TiledPolygonizer::new(domain, if grid { 1.0 } else { 2.0 })
+                        .with_buffer(0.0)
+                        .with_options(options.clone())
+                        .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let tiles = tiled.generate_tiles().unwrap();
+                    let result = tiled.polygonize().unwrap();
+                    assert!(result.stitched_output.is_none());
+                    let graph = result.partition_border_graph;
+                    let graph_before = graph.clone();
+                    let mut mosaic = PartitionMosaic::default();
+                    for snapshot in result.partition_snapshots {
+                        mosaic.replace_partition(snapshot, &policy).unwrap();
+                    }
+                    let fingerprint = mosaic.fingerprint_sha256();
+                    let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                    let stats = graph
+                        .clone()
+                        .materialize_global_non_polygon_extraction_payloads(&policy)
+                        .unwrap();
+                    let mut prepared = prepare_partition_input_evidence(
+                        &mosaic, &tiles, &refs, domain, &options, &policy,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    assert_eq!(prepared.reference.dangles.len(), length);
+                    prepared.reference.dangles.clear();
+                    let view = input_bound_physical_alias_view(
+                        &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    let cover =
+                        prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                            .unwrap()
+                            .unwrap();
+                    let exterior = prove_domain_exterior_authority(&cover, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let projection = prove_alias_global_face_projection(&exterior, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let component =
+                        prove_component_euler_containment_authority(&projection, &policy)
+                            .unwrap()
+                            .unwrap();
+                    assert_eq!(
+                        prove_original_isolated_dangle_complement(&component, &mosaic, &policy)
+                            .unwrap()
+                            .is_some(),
+                        length == 1
+                    );
+                    let proof =
+                        prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                    assert!(std::ptr::eq(proof.authority, &component));
+                    assert!(std::ptr::eq(proof.binding.graph, &graph));
+                    assert!(std::ptr::eq(proof.binding.mosaic, &mosaic));
+                    let active = if grid { 12 } else { 4 };
+                    let active_raw = if grid { 16 } else { 0 };
+                    assert_eq!(proof.active_segments.len(), active);
+                    assert_eq!(
+                        proof.active_segments.len() + proof.steps.len(),
+                        prepared.aliases.len()
+                    );
+                    assert_eq!(proof.steps.len(), length);
+                    assert_eq!(proof.paths.len(), 1);
+                    assert_eq!(proof.paths[0].step_ids.len(), length);
+                    assert!(std::ptr::eq(
+                        proof.paths[0].owner_core,
+                        mosaic.partitions.get(&0).unwrap()
+                    ));
+                    for (index, &id) in proof.paths[0].step_ids.iter().enumerate() {
+                        let step = &proof.steps[id];
+                        assert_eq!(step.live_degrees[0], 1);
+                        assert_eq!(
+                            step.live_degrees[1],
+                            if index + 1 == length { 1 } else { 2 }
+                        );
+                        assert_eq!(step.initial_degrees[0], if index == 0 { 1 } else { 2 });
+                        assert!(prepared
+                            .aliases
+                            .keys()
+                            .any(|row| std::ptr::eq(row, step.segment)));
+                        assert!(prepared
+                            .noded_segments
+                            .iter()
+                            .any(|row| std::ptr::eq(row, step.original)));
+                        assert_eq!(step.local_segment_alias[0], 0);
+                        if index > 0 {
+                            let previous = &proof.steps[proof.paths[0].step_ids[index - 1]];
+                            assert_eq!(previous.to, step.from);
+                            assert_eq!(previous.to_z_bits, step.from_z_bits);
+                        }
+                    }
+                    let mut identities = BTreeSet::new();
+                    let mut pruned = BTreeSet::new();
+                    let mut raw_active = 0;
+                    assert_eq!(proof.raw_records.len(), active_raw + length);
+                    for record in &proof.raw_records {
+                        let raw = record.raw;
+                        assert!(view.raw_payloads.iter().any(|row| std::ptr::eq(row, raw)));
+                        assert!(identities.insert((
+                            raw.payload.partition_id,
+                            raw.payload.kind,
+                            raw.family_local_record_index
+                        )));
+                        assert_eq!(raw.segments.len(), 1);
+                        assert_eq!(raw.payload.coordinate_bits.len(), 2);
+                        match record.evidence {
+                            PartitionOriginalLeafRecordEvidence::Active { physical_slot_id } => {
+                                raw_active += 1;
+                                assert!(physical_slot_id < view.slots.len());
+                            }
+                            PartitionOriginalLeafRecordEvidence::Pruned { step_id, reversed } => {
+                                assert!(pruned.insert(step_id));
+                                let step = &proof.steps[step_id];
+                                assert!(std::ptr::eq(step.segment, raw.segments[0].segment));
+                                assert_eq!(
+                                    step.local_segment_alias,
+                                    raw.segments[0].local_segment_alias
+                                );
+                                let pair = &raw.payload.coordinate_bits;
+                                let (from, to, fz, tz) = if reversed {
+                                    (step.to, step.from, step.to_z_bits, step.from_z_bits)
+                                } else {
+                                    (step.from, step.to, step.from_z_bits, step.to_z_bits)
+                                };
+                                assert_eq!(from.xy_bits(), [pair[0][0], pair[0][1]]);
+                                assert_eq!(to.xy_bits(), [pair[1][0], pair[1][1]]);
+                                assert_eq!((fz, tz), (pair[0][2], pair[1][2]));
+                            }
+                        }
+                    }
+                    assert_eq!(raw_active, active_raw);
+                    assert_eq!(pruned.len(), length);
+                    if grid && length == 2 {
+                        let raw_index = view
+                            .raw_payloads
+                            .iter()
+                            .position(|raw| {
+                                std::ptr::eq(raw.segments[0].segment, proof.steps[0].segment)
+                            })
+                            .unwrap();
+                        let mut variant = proof.steps[0].segment.clone();
+                        variant.source_line_ids.push(999);
+                        for change in 0..13 {
+                            let mut changed = input_bound_physical_alias_view(
+                                &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let mut payload = view.raw_payloads[raw_index].payload.clone();
+                            match change {
+                                0 => {
+                                    changed.raw_payloads.remove(raw_index);
+                                }
+                                1 => {
+                                    let r = &view.raw_payloads[raw_index];
+                                    changed.raw_payloads.push(PartitionInputBoundRawPayload {
+                                        payload: r.payload,
+                                        family_local_record_index: r.family_local_record_index,
+                                        segments: r
+                                            .segments
+                                            .iter()
+                                            .map(|s| PartitionInputBoundSegment {
+                                                segment: s.segment,
+                                                local_segment_alias: s.local_segment_alias,
+                                            })
+                                            .collect(),
+                                    });
+                                }
+                                2 => {
+                                    payload.kind=crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::CutEdge;
+                                    changed.raw_payloads[raw_index].payload = &payload;
+                                }
+                                3 => {
+                                    changed.raw_payloads[raw_index].family_local_record_index += 99;
+                                }
+                                4 => {
+                                    changed.raw_payloads[raw_index].segments[0]
+                                        .local_segment_alias[1] += 999;
+                                }
+                                5 => {
+                                    payload.coordinate_bits[0][2] = 9.0f64.to_bits();
+                                    changed.raw_payloads[raw_index].payload = &payload;
+                                }
+                                6 => {
+                                    payload.partition_id += 99;
+                                    changed.raw_payloads[raw_index].payload = &payload;
+                                }
+                                7 => {
+                                    payload.coordinate_bits.push(payload.coordinate_bits[1]);
+                                    changed.raw_payloads[raw_index].payload = &payload;
+                                }
+                                8 => {
+                                    changed.raw_payloads[raw_index].segments.clear();
+                                }
+                                9 => {
+                                    changed.raw_payloads[raw_index].segments[0].segment = &variant;
+                                }
+                                10 => {
+                                    changed.raw_payloads.reverse();
+                                }
+                                12 => {
+                                    payload.kind=crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing;
+                                    changed.raw_payloads[raw_index].payload = &payload;
+                                }
+                                _ => {
+                                    changed.raw_payloads[raw_index].segments[0]
+                                        .local_segment_alias[0] += 99;
+                                }
+                            }
+                            let changed_cover = prove_native_twin_seam_cover(
+                                &changed, &mosaic, &tiles, domain, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let changed_exterior =
+                                prove_domain_exterior_authority(&changed_cover, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let changed_projection =
+                                prove_alias_global_face_projection(&changed_exterior, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let changed_component = prove_component_euler_containment_authority(
+                                &changed_projection,
+                                &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            assert_eq!(
+                                prove_original_leaf_path_pruning(
+                                    &changed_component,
+                                    &graph,
+                                    &mosaic,
+                                    &policy
+                                )
+                                .unwrap()
+                                .is_some(),
+                                change == 10,
+                                "raw {change}"
+                            );
+                        }
+                        for change in 0..7 {
+                            let mut altered = prepare_partition_input_evidence(
+                                &mosaic, &tiles, &refs, domain, &options, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let original_index = altered
+                                .noded_segments
+                                .iter()
+                                .position(|row| row.line == proof.steps[0].original.line)
+                                .unwrap();
+                            match change {
+                                0 => {
+                                    altered.noded_segments[original_index]
+                                        .source_line_ids
+                                        .push(999);
+                                }
+                                1 => {
+                                    altered.noded_segments[original_index].line.start.z = 9.0;
+                                }
+                                2 => {
+                                    altered.noded_segments[original_index].representative_line_id =
+                                        999;
+                                }
+                                3 => {
+                                    altered.noded_segments.remove(original_index);
+                                }
+                                4 => {
+                                    altered
+                                        .noded_segments
+                                        .push(altered.noded_segments[original_index].clone());
+                                }
+                                6 => {
+                                    let id =
+                                        altered.noded_segments[original_index].source_line_ids[0];
+                                    altered.noded_segments[original_index]
+                                        .source_line_ids
+                                        .push(id);
+                                }
+                                _ => {
+                                    altered.noded_segments[original_index].line.end.x += 0.01;
+                                }
+                            }
+                            let altered_view = input_bound_physical_alias_view(
+                                &altered, &graph, &witness, &mosaic, &options, stats, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let altered_cover = prove_native_twin_seam_cover(
+                                &altered_view,
+                                &mosaic,
+                                &tiles,
+                                domain,
+                                &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let altered_exterior =
+                                prove_domain_exterior_authority(&altered_cover, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let altered_projection =
+                                prove_alias_global_face_projection(&altered_exterior, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let altered_component = prove_component_euler_containment_authority(
+                                &altered_projection,
+                                &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            assert!(
+                                prove_original_leaf_path_pruning(
+                                    &altered_component,
+                                    &graph,
+                                    &mosaic,
+                                    &policy
+                                )
+                                .unwrap()
+                                .is_none(),
+                                "original {change}"
+                            );
+                        }
+                        let mut stale = mosaic.clone();
+                        stale
+                            .partitions
+                            .get_mut(&0)
+                            .unwrap()
+                            .generation
+                            .retry_attempt += 1;
+                        assert!(prove_original_leaf_path_pruning(
+                            &component, &graph, &stale, &policy
+                        )
+                        .unwrap()
+                        .is_none());
+                        for limited in [
+                            ExecutionPolicy {
+                                max_candidate_pairs: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_edges: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_nodes: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_output_coordinates: Some(0),
+                                ..Default::default()
+                            },
+                        ] {
+                            assert!(matches!(
+                                prove_original_leaf_path_pruning(
+                                    &component, &graph, &mosaic, &limited
+                                ),
+                                Err(PolygonizeError::ResourceLimitExceeded { .. })
+                            ));
+                        }
+                        assert!(
+                            matches!(prove_original_leaf_path_pruning(&component,&graph,&mosaic,&ExecutionPolicy{max_candidate_pairs:Some(1000),..Default::default()}),Err(PolygonizeError::ResourceLimitExceeded{stage,..}) if stage=="partition_original_leaf_path_pruning")
+                        );
+                        assert!(prove_original_leaf_path_pruning(
+                            &component,
+                            &graph,
+                            &mosaic,
+                            &ExecutionPolicy {
+                                max_candidate_pairs: Some(10000),
+                                ..Default::default()
+                            }
+                        )
+                        .unwrap()
+                        .is_some());
+                        let token = CancellationToken::new();
+                        token.cancel();
+                        assert!(matches!(
+                            prove_original_leaf_path_pruning(
+                                &component,
+                                &graph,
+                                &mosaic,
+                                &ExecutionPolicy {
+                                    cancellation_token: Some(token),
+                                    ..Default::default()
+                                }
+                            ),
+                            Err(PolygonizeError::Cancelled { .. })
+                        ));
+                        let mut oversized = prepare_partition_input_evidence(
+                            &mosaic, &tiles, &refs, domain, &options, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        oversized.noded_segments[0].source_line_ids = vec![0; 20000];
+                        let oversized_view = input_bound_physical_alias_view(
+                            &oversized, &graph, &witness, &mosaic, &options, stats, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let oversized_cover = prove_native_twin_seam_cover(
+                            &oversized_view,
+                            &mosaic,
+                            &tiles,
+                            domain,
+                            &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let oversized_exterior =
+                            prove_domain_exterior_authority(&oversized_cover, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let oversized_projection =
+                            prove_alias_global_face_projection(&oversized_exterior, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let oversized_component = prove_component_euler_containment_authority(
+                            &oversized_projection,
+                            &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        assert!(
+                            matches!(prove_original_leaf_path_pruning(&oversized_component,&graph,&mosaic,&ExecutionPolicy{max_candidate_pairs:Some(10000),..Default::default()}),Err(PolygonizeError::ResourceLimitExceeded{stage,..}) if stage=="partition_original_leaf_path_pruning")
+                        );
+                        let mut expanded = prepare_partition_input_evidence(
+                            &mosaic, &tiles, &refs, domain, &options, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let template = expanded.noded_segments[0].clone();
+                        expanded.noded_segments.extend(vec![template; 2048]);
+                        let expanded_view = input_bound_physical_alias_view(
+                            &expanded, &graph, &witness, &mosaic, &options, stats, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let expanded_cover = prove_native_twin_seam_cover(
+                            &expanded_view,
+                            &mosaic,
+                            &tiles,
+                            domain,
+                            &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let expanded_exterior =
+                            prove_domain_exterior_authority(&expanded_cover, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let expanded_projection =
+                            prove_alias_global_face_projection(&expanded_exterior, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let expanded_component = prove_component_euler_containment_authority(
+                            &expanded_projection,
+                            &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let token = CancellationToken::new();
+                        let cancelled = ExecutionPolicy {
+                            cancellation_token: Some(token.clone()),
+                            cancel_at_work_item: Some((token, 1024)),
+                            ..Default::default()
+                        };
+                        assert!(
+                            matches!(prove_original_leaf_path_pruning(&expanded_component,&graph,&mosaic,&cancelled),Err(PolygonizeError::Cancelled{stage}) if stage=="partition_original_leaf_path_pruning")
+                        );
+                    }
+                    assert_eq!(graph, graph_before);
+                    assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn original_leaf_paths_reject_branch_attachment_unnoded_crossing_and_foreign_classes() {
+        use crate::tiling::{
+            input_bound_physical_alias_view, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_native_twin_seam_cover,
+            prove_original_leaf_path_pruning, PartitionMosaic,
+        };
+        for shape in [
+            "branch",
+            "attached",
+            "unnoded_crossing",
+            "cross_core",
+            "halo",
+            "cut",
+            "invalid_ring",
+        ] {
+            let mut lines = vec![
+                vec![(0.0, 0.0), (2.0, 0.0)],
+                vec![(2.0, 0.0), (2.0, 2.0)],
+                vec![(2.0, 2.0), (0.0, 2.0)],
+                vec![(0.0, 2.0), (0.0, 0.0)],
+            ];
+            match shape {
+                "branch" => {
+                    lines.extend([
+                        vec![(0.25, 0.25), (0.5, 0.5)],
+                        vec![(0.5, 0.5), (0.75, 0.25)],
+                        vec![(0.5, 0.5), (0.5, 0.75)],
+                    ]);
+                }
+                "attached" => {
+                    lines.extend([
+                        vec![(0.25, 0.25), (0.5, 0.25)],
+                        vec![(0.5, 0.25), (0.5, 0.0)],
+                    ]);
+                }
+                "unnoded_crossing" => {
+                    lines.extend([
+                        vec![(0.25, 0.25), (0.75, 0.75)],
+                        vec![(0.25, 0.75), (0.75, 0.25)],
+                    ]);
+                }
+                "cross_core" => {
+                    lines.extend([
+                        vec![(0.25, 0.25), (1.0, 0.25)],
+                        vec![(1.0, 0.25), (1.75, 0.25)],
+                    ]);
+                }
+                "halo" => {
+                    lines.push(vec![(0.8, 0.25), (0.9, 0.25)]);
+                }
+                "cut" => {
+                    lines.extend([
+                        vec![(0.5, 0.5), (1.0, 0.5), (1.0, 1.0), (0.5, 1.0), (0.5, 0.5)],
+                        vec![(0.5, 0.0), (0.5, 0.5)],
+                    ]);
+                }
+                _ => {
+                    lines.push(vec![
+                        (0.25, 0.25),
+                        (0.75, 0.75),
+                        (0.25, 0.75),
+                        (0.75, 0.25),
+                        (0.25, 0.25),
+                    ]);
+                }
+            }
+            let geometries = lines
+                .into_iter()
+                .map(|line| Geometry::LineString(LineString::from(line)))
+                .collect::<Vec<_>>();
+            let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+            let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+            let policy = ExecutionPolicy::default();
+            let options = PolygonizerOptions {
+                node_input: !matches!(shape, "unnoded_crossing" | "invalid_ring"),
+                ..Default::default()
+            };
+            let mut tiled = TiledPolygonizer::new(
+                domain,
+                if matches!(shape, "cross_core" | "halo") {
+                    1.0
+                } else {
+                    2.0
+                },
+            )
+            .with_buffer(if shape == "halo" { 0.25 } else { 0.0 })
+            .with_options(options.clone())
+            .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let tiles = tiled.generate_tiles().unwrap();
+            let result = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let event = &result
+                .trace
+                .events
+                .iter()
+                .find(|e| e.kind == "partition_border_original_leaf_path_pruning")
+                .unwrap()
+                .payload;
+            assert_eq!(event["proven"], false, "{shape}");
+            assert_eq!(event["output_selectable"], false);
+            if matches!(shape, "branch" | "attached" | "unnoded_crossing") {
+                let graph = result.result.partition_border_graph;
+                let before = graph.clone();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in result.result.partition_snapshots {
+                    mosaic.replace_partition(snapshot, &policy).unwrap();
+                }
+                let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                let stats = graph
+                    .clone()
+                    .materialize_global_non_polygon_extraction_payloads(&policy)
+                    .unwrap();
+                let mut prepared = prepare_partition_input_evidence(
+                    &mosaic, &tiles, &refs, domain, &options, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    prepared.reference.dangles.len(),
+                    if shape == "branch" { 3 } else { 2 }
+                );
+                prepared.reference.dangles.clear();
+                let view = input_bound_physical_alias_view(
+                    &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+                let exterior = prove_domain_exterior_authority(&cover, &policy)
+                    .unwrap()
+                    .unwrap();
+                let projection = prove_alias_global_face_projection(&exterior, &policy)
+                    .unwrap()
+                    .unwrap();
+                let component = prove_component_euler_containment_authority(&projection, &policy)
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                        .unwrap()
+                        .is_none(),
+                    "{shape}"
+                );
+                assert_eq!(graph, before);
+            }
         }
     }
 

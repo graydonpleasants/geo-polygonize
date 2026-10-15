@@ -2032,6 +2032,44 @@ struct PartitionOriginalIsolatedDangleComplement<'a> {
     raw_records: Vec<PartitionRawRecordComplement<'a>>,
 }
 
+#[allow(dead_code)] // Retain the full original source/ownership/XYZ pruning witness.
+struct PartitionOriginalLeafStep<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    original: &'a PartitionNodedSegment,
+    local_segment_alias: [usize; 2],
+    from: PartitionBorderNodeKey,
+    to: PartitionBorderNodeKey,
+    from_z_bits: u64,
+    to_z_bits: u64,
+    initial_degrees: [usize; 2],
+    live_degrees: [usize; 2],
+}
+
+struct PartitionOriginalLeafPath<'a> {
+    owner_core: &'a PartitionSnapshotV1,
+    step_ids: Vec<usize>,
+}
+
+#[allow(dead_code)] // Original record direction is separate from the chosen pruning order.
+enum PartitionOriginalLeafRecordEvidence {
+    Active { physical_slot_id: usize },
+    Pruned { step_id: usize, reversed: bool },
+}
+
+struct PartitionOriginalLeafRecord<'a> {
+    raw: &'a PartitionInputBoundRawPayload<'a>,
+    evidence: PartitionOriginalLeafRecordEvidence,
+}
+
+struct PartitionOriginalLeafPathCover<'a> {
+    authority: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    binding: PartitionOriginalObservationBinding<'a>,
+    active_segments: Vec<&'a PartitionNodedSegmentV1>,
+    paths: Vec<PartitionOriginalLeafPath<'a>>,
+    steps: Vec<PartitionOriginalLeafStep<'a>>,
+    raw_records: Vec<PartitionOriginalLeafRecord<'a>>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -7240,6 +7278,479 @@ fn prove_original_isolated_dangle_complement<'a>(
     }))
 }
 
+/// Prove only detached strict-core paths, keeping every original row and raw record.
+fn prove_original_leaf_path_pruning<'a>(
+    authority: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    graph: &'a PartitionBorderGraph,
+    mosaic: &'a PartitionMosaic,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionOriginalLeafPathCover<'a>>> {
+    let stage = "partition_original_leaf_path_pruning";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let projection = authority.projection;
+    let cover = projection.authority.cover;
+    let view = cover.view;
+    let prepared = view.prepared;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "original leaf path work count overflow".to_string(),
+    };
+    let mut retained = prepared.source_segments.len();
+    let mut coordinates = prepared.aliases.len().checked_mul(2).ok_or_else(overflow)?;
+    let mut work = 0usize;
+    let mut add = |count: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        retained = retained.checked_add(count).ok_or_else(overflow)?;
+        Ok(())
+    };
+    for (row, locals) in &prepared.aliases {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+        add(locals.len())?;
+    }
+    for row in &prepared.noded_segments {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+    }
+    for alias in &projection.aliases {
+        add(1)?;
+        add(alias.bound.alias.source_line_ids.len())?;
+        add(alias.bound.native_edge.source_line_ids.len())?;
+        add(alias.bound.input.segment.source_line_ids.len())?;
+    }
+    for ((_, bits), locals) in &prepared.local_payloads {
+        add(bits.len())?;
+        add(locals.len())?;
+    }
+    for raw in &view.raw_payloads {
+        add(1)?;
+        add(raw.payload.coordinate_bits.len())?;
+        add(raw.segments.len())?;
+        coordinates = coordinates
+            .checked_add(raw.payload.coordinate_bits.len())
+            .ok_or_else(overflow)?;
+        for input in &raw.segments {
+            add(input.segment.source_line_ids.len())?;
+        }
+    }
+    for raw in graph.global_non_polygon_extraction_payload_candidates() {
+        add(1)?;
+        add(raw.coordinate_bits.len())?;
+    }
+    let pair_work = prepared
+        .aliases
+        .len()
+        .checked_mul(prepared.aliases.len().saturating_sub(1))
+        .ok_or_else(overflow)?
+        / 2;
+    let owner_work = prepared
+        .aliases
+        .len()
+        .checked_mul(2)
+        .and_then(|n| n.checked_mul(mosaic.partitions.len()))
+        .ok_or_else(overflow)?;
+    let bound = retained
+        .checked_mul(8)
+        .and_then(|n| n.checked_add(pair_work))
+        .and_then(|n| n.checked_add(owner_work))
+        .ok_or_else(overflow)?;
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, bound)?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, retained)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, retained)?;
+    execution_policy.check(stage, execution_policy.max_output_coordinates, coordinates)?;
+    let Some(binding) = bind_original_graph_observations(cover, graph, mosaic, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    let key = |row: &PartitionNodedSegmentV1| -> Result<Option<PartitionBorderEdgeKey>> {
+        Ok(PartitionBorderEdgeKey::new(
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&row.start)?),
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&row.end)?),
+        ))
+    };
+    let mut source = BTreeMap::new();
+    let mut locals = BTreeMap::new();
+    let mut incident = BTreeMap::<_, BTreeSet<_>>::new();
+    for (row, aliases) in &prepared.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(span) = key(row)? else {
+            return Ok(None);
+        };
+        if source.insert(span, row).is_some() {
+            return Ok(None);
+        }
+        let (a, b) = span.endpoints();
+        for node in [a, b] {
+            incident.entry(node).or_default().insert(span);
+        }
+        for &local in aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if locals.insert(local, row).is_some() {
+                return Ok(None);
+            }
+        }
+    }
+    if source.is_empty() {
+        return Ok(None);
+    }
+    let mut originals = BTreeMap::new();
+    for original in &prepared.noded_segments {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let metadata = partition_noded_segments(std::slice::from_ref(original))?;
+        let Some(row) = metadata.first() else {
+            return Ok(None);
+        };
+        let Some(span) = key(row)? else {
+            return Ok(None);
+        };
+        if original.source_line_ids != row.source_line_ids
+            || source.get(&span) != Some(&row)
+            || originals.insert(span, original).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if originals.len() != source.len() {
+        return Ok(None);
+    }
+    // Degree authority needs a complete planar original inventory, including raw-only rows.
+    let spans = source.keys().copied().collect::<Vec<_>>();
+    let xy = |node: PartitionBorderNodeKey| {
+        let [x, y] = node.xy_bits().map(f64::from_bits);
+        Coord { x, y }
+    };
+    for (index, &first) in spans.iter().enumerate() {
+        let (a, b) = first.endpoints();
+        for &second in spans.iter().skip(index + 1) {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let (c, d) = second.endpoints();
+            match line_intersection(Line::new(xy(a), xy(b)), Line::new(xy(c), xy(d))) {
+                Some(geo::algorithm::line_intersection::LineIntersection::SinglePoint {
+                    intersection,
+                    ..
+                }) => {
+                    let node = PartitionBorderNodeKey::from_coord(Coord3D::from(intersection));
+                    if ![a, b].contains(&node) || ![c, d].contains(&node) {
+                        return Ok(None);
+                    }
+                }
+                Some(geo::algorithm::line_intersection::LineIntersection::Collinear { .. }) => {
+                    return Ok(None)
+                }
+                None => {}
+            }
+        }
+    }
+    let mut active = BTreeMap::<_, Vec<_>>::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let span = alias.bound.native_edge.edge_key;
+        if source
+            .get(&span)
+            .is_none_or(|row| !std::ptr::eq(*row, alias.bound.input.segment))
+        {
+            return Ok(None);
+        }
+        active.entry(span).or_default().push(alias);
+    }
+    for aliases in active.values() {
+        if !matches!(aliases.len(), 2 | 4) {
+            return Ok(None);
+        }
+        let mut sides = BTreeMap::new();
+        for alias in aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if sides
+                .insert(alias.physical_slot_id, alias.global_face_id)
+                .is_some_and(|old| old != alias.global_face_id)
+            {
+                return Ok(None);
+            }
+        }
+        let pair = sides.into_iter().collect::<Vec<_>>();
+        if pair.len() != 2
+            || pair[0].1 == pair[1].1
+            || projection.physical_twins.get(pair[0].0) != Some(&pair[1].0)
+            || projection.physical_twins.get(pair[1].0) != Some(&pair[0].0)
+        {
+            return Ok(None);
+        }
+    }
+    let active_segments = source
+        .iter()
+        .filter_map(|(span, row)| active.contains_key(span).then_some(*row))
+        .collect::<Vec<_>>();
+    let mut cores = Vec::new();
+    for (&partition, snapshot) in &mosaic.partitions {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let min = prepared_non_polygon_coordinate(&snapshot.tile_min)?;
+        let max = prepared_non_polygon_coordinate(&snapshot.tile_max)?;
+        if partition != snapshot.partition_id
+            || ![min.x, min.y, max.x, max.y].iter().all(|v| v.is_finite())
+            || min.x >= max.x
+            || min.y >= max.y
+        {
+            return Ok(None);
+        }
+        cores.push((snapshot, min, max));
+    }
+    let mut live = incident
+        .iter()
+        .map(|(&node, edges)| (node, edges.len()))
+        .collect::<BTreeMap<_, _>>();
+    let mut removed = BTreeMap::new();
+    let mut steps = Vec::new();
+    let mut paths = Vec::new();
+    for (&start, edges) in &incident {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if edges.len() != 1 {
+            continue;
+        }
+        let first = *edges.first().expect("one original incident edge");
+        if active.contains_key(&first) || removed.contains_key(&first) {
+            continue;
+        }
+        let mut current = start;
+        let mut path_steps = Vec::new();
+        let mut path_nodes = vec![start];
+        let mut last_z = None;
+        loop {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if live[&current] != 1 {
+                return Ok(None);
+            }
+            let mut remaining = incident[&current]
+                .iter()
+                .filter(|span| !removed.contains_key(*span));
+            let Some(&span) = remaining.next() else {
+                return Ok(None);
+            };
+            if remaining.next().is_some() || active.contains_key(&span) {
+                return Ok(None);
+            }
+            let (a, b) = span.endpoints();
+            let next = if current == a { b } else { a };
+            // shortcut: detached non-branching paths, upgrade with full forest/attachment pruning authority.
+            if !matches!(incident[&next].len(), 1 | 2) || !matches!(live[&next], 1 | 2) {
+                return Ok(None);
+            }
+            let segment = source[&span];
+            let original = originals[&span];
+            let line = original.line;
+            let from_line = PartitionBorderNodeKey::from_coord(line.start) == current;
+            let (from_z_bits, to_z_bits) = if from_line {
+                (line.start.z.to_bits(), line.end.z.to_bits())
+            } else {
+                (line.end.z.to_bits(), line.start.z.to_bits())
+            };
+            if last_z.is_some_and(|z| z != from_z_bits) {
+                return Ok(None);
+            }
+            last_z = Some(to_z_bits);
+            let [local_segment_alias] = prepared.aliases[segment].as_slice() else {
+                return Ok(None);
+            };
+            let step_id = steps.len();
+            steps.push(PartitionOriginalLeafStep {
+                segment,
+                original,
+                local_segment_alias: *local_segment_alias,
+                from: current,
+                to: next,
+                from_z_bits,
+                to_z_bits,
+                initial_degrees: [incident[&current].len(), incident[&next].len()],
+                live_degrees: [live[&current], live[&next]],
+            });
+            if removed.insert(span, step_id).is_some() {
+                return Ok(None);
+            }
+            path_steps.push(step_id);
+            path_nodes.push(next);
+            live.insert(current, 0);
+            *live.get_mut(&next).expect("original endpoint") -= 1;
+            if live[&next] == 0 {
+                break;
+            }
+            current = next;
+        }
+        let mut owners = Vec::new();
+        for &(core, min, max) in &cores {
+            let mut inside = true;
+            for &node in &path_nodes {
+                execution_policy.check_cancelled_every(stage, work)?;
+                work += 1;
+                let point = xy(node);
+                inside &= point.x > min.x && point.x < max.x && point.y > min.y && point.y < max.y;
+            }
+            if inside {
+                owners.push(core);
+            }
+        }
+        let [owner_core] = owners.as_slice() else {
+            return Ok(None);
+        };
+        if path_steps
+            .iter()
+            .any(|&id| steps[id].local_segment_alias[0] != owner_core.partition_id)
+        {
+            return Ok(None);
+        }
+        paths.push(PartitionOriginalLeafPath {
+            owner_core,
+            step_ids: path_steps,
+        });
+    }
+    if active
+        .len()
+        .checked_add(removed.len())
+        .ok_or_else(overflow)?
+        != source.len()
+    {
+        return Ok(None);
+    }
+    for (&node, edges) in &incident {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if live[&node]
+            != edges
+                .iter()
+                .filter(|span| active.contains_key(span))
+                .count()
+        {
+            return Ok(None);
+        }
+    }
+    let mut expected = BTreeMap::new();
+    for ((kind, bits), aliases) in &prepared.local_payloads {
+        for &[partition, index] in aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if expected
+                .insert((partition, *kind, index), bits.as_slice())
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut graph_records = BTreeMap::new();
+    let mut family_indices = BTreeMap::<_, usize>::new();
+    for payload in graph.global_non_polygon_extraction_payload_candidates() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let ordinal = family_indices
+            .entry((payload.partition_id, payload.kind))
+            .or_default();
+        let identity = (payload.partition_id, payload.kind, *ordinal);
+        *ordinal += 1;
+        if expected.get(&identity) != Some(&payload.coordinate_bits.as_slice())
+            || graph_records.insert(identity, payload).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if expected.len() != view.raw_payloads.len() || graph_records.len() != expected.len() {
+        return Ok(None);
+    }
+    let mut raw_records = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut pruned_records = vec![0usize; steps.len()];
+    for raw in &view.raw_payloads {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let identity = (
+            raw.payload.partition_id,
+            raw.payload.kind,
+            raw.family_local_record_index,
+        );
+        // The actual dangle emitter emits one two-point record per removed edge.
+        if raw.payload.kind != PartitionBorderGlobalNonPolygonPayloadKind::Dangle
+            || raw.payload.coordinate_bits.len() != 2
+            || raw.segments.len() != 1
+            || !seen.insert(identity)
+            || graph_records
+                .get(&identity)
+                .is_none_or(|payload| !std::ptr::eq(*payload, raw.payload))
+        {
+            return Ok(None);
+        }
+        let input = &raw.segments[0];
+        if input.local_segment_alias[0] != raw.payload.partition_id
+            || locals
+                .get(&input.local_segment_alias)
+                .is_none_or(|row| !std::ptr::eq(*row, input.segment))
+        {
+            return Ok(None);
+        }
+        let Some(span) = key(input.segment)? else {
+            return Ok(None);
+        };
+        let pair = &raw.payload.coordinate_bits;
+        let from = PartitionBorderNodeKey::from_coord(coord3d_from_bits(pair[0]));
+        let to = PartitionBorderNodeKey::from_coord(coord3d_from_bits(pair[1]));
+        let evidence = if let Some(aliases) = active.get(&span) {
+            let Some(alias) = aliases.iter().find(|alias| {
+                let edge = alias.bound.native_edge;
+                edge.from == from
+                    && edge.to == to
+                    && edge.from_z_bits == pair[0][2]
+                    && edge.to_z_bits == pair[1][2]
+            }) else {
+                return Ok(None);
+            };
+            PartitionOriginalLeafRecordEvidence::Active {
+                physical_slot_id: alias.physical_slot_id,
+            }
+        } else {
+            let Some(&step_id) = removed.get(&span) else {
+                return Ok(None);
+            };
+            let step = &steps[step_id];
+            let forward = step.from == from
+                && step.to == to
+                && step.from_z_bits == pair[0][2]
+                && step.to_z_bits == pair[1][2];
+            let reversed = step.to == from
+                && step.from == to
+                && step.to_z_bits == pair[0][2]
+                && step.from_z_bits == pair[1][2];
+            if (!forward && !reversed)
+                || !std::ptr::eq(step.segment, input.segment)
+                || step.local_segment_alias != input.local_segment_alias
+            {
+                return Ok(None);
+            }
+            pruned_records[step_id] += 1;
+            PartitionOriginalLeafRecordEvidence::Pruned { step_id, reversed }
+        };
+        raw_records.push(PartitionOriginalLeafRecord { raw, evidence });
+    }
+    if pruned_records.iter().any(|&count| count != 1) {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionOriginalLeafPathCover {
+        authority,
+        binding,
+        active_segments,
+        paths,
+        steps,
+        raw_records,
+    }))
+}
+
 /// Joins current polygon evidence with a complete, revalidated global consumer.
 fn integrate_private_global_candidate(
     inputs: &PartitionGlobalCandidateInputs<'_>,
@@ -11990,6 +12501,18 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let original_leaf_paths = component_authority
+                .as_ref()
+                .map(|authority| {
+                    prove_original_leaf_path_pruning(
+                        authority,
+                        &partition_border_graph,
+                        &partition_mosaic,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -12190,6 +12713,24 @@ impl<'a> TiledPolygonizer<'a> {
                         "output_selectable": false,
                     }),
                 );
+                trace.record(TraceStageV1::Graph,"partition_border_original_leaf_path_pruning",serde_json::json!({
+                    "proven":original_leaf_paths.is_some(),
+                    "cover":original_leaf_paths.as_ref().map(|proof|serde_json::json!({
+                        "original_prepared_span_count":proof.authority.projection.authority.cover.view.prepared.aliases.len(),
+                        "active_span_count":proof.active_segments.len(),
+                        "path_count":proof.paths.len(),"pruned_span_count":proof.steps.len(),
+                        "covered_span_count":proof.active_segments.len()+proof.steps.len(),
+                        "degree_one_removal_count":proof.steps.iter().filter(|step|step.live_degrees[0]==1).count(),
+                        "ordered_path_step_count":proof.paths.iter().map(|path|path.step_ids.len()).sum::<usize>(),
+                        "verified_path_owner_count":proof.paths.iter().filter(|path|proof.binding.mosaic.partitions.contains_key(&path.owner_core.partition_id)).count(),
+                        "retained_native_alias_count":proof.binding.cover.view.active_aliases.len(),
+                        "retained_raw_record_count":proof.raw_records.len(),
+                        "retained_raw_coordinate_count":proof.raw_records.iter().map(|record|record.raw.payload.coordinate_bits.len()).sum::<usize>(),
+                        "retained_raw_segment_count":proof.raw_records.iter().map(|record|record.raw.segments.len()).sum::<usize>(),
+                        "active_raw_record_count":proof.raw_records.iter().filter(|record|matches!(record.evidence,PartitionOriginalLeafRecordEvidence::Active{..})).count(),
+                        "pruned_raw_record_count":proof.raw_records.iter().filter(|record|matches!(record.evidence,PartitionOriginalLeafRecordEvidence::Pruned{..})).count(),
+                    })),"proof_class":"strict_core_detached_paths","raw_families_classified":false,"claim_consumption_ready":false,"output_selectable":false
+                }));
             }
         }
         let non_polygon_evidence = input_evidence
