@@ -107,6 +107,24 @@ mod tests {
             assert_eq!(binding["view"]["raw_record_count"], 16);
             assert_eq!(binding["view"]["raw_coordinate_count"], 32);
             assert_eq!(binding["view"]["raw_segment_alias_count"], 16);
+            let seams = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_native_twin_seam_cover")
+                .unwrap()
+                .payload;
+            assert_eq!(seams["proven"], true);
+            assert_eq!(seams["output_selectable"], false);
+            assert_eq!(seams["cover"]["native_cycle_count"], 8);
+            assert_eq!(seams["cover"]["bounded_cycle_count"], 4);
+            assert_eq!(seams["cover"]["unbounded_cycle_count"], 4);
+            assert_eq!(seams["cover"]["native_alias_count"], 32);
+            assert_eq!(seams["cover"]["observation_count"], 32);
+            assert_eq!(seams["cover"]["interior_seam_count"], 4);
+            assert_eq!(seams["cover"]["interior_seam_alias_count"], 16);
+            assert_eq!(seams["cover"]["pending_domain_segment_count"], 8);
+            assert_eq!(seams["cover"]["retained_raw_record_count"], 16);
             let claims = &result
                 .trace
                 .events
@@ -812,6 +830,705 @@ mod tests {
         }
         assert_eq!(mosaic.fingerprint_sha256(), before);
         assert_eq!(format!("{graph:?}"), graph_before);
+    }
+
+    #[test]
+    fn native_twin_seam_cover_rejects_split_connected_components() {
+        use crate::graph::partition_border::{PartitionBorderGraph, PartitionBorderNodeKey};
+        use crate::tiling::{
+            input_bound_physical_alias_view, partition_atomic_observations,
+            partition_local_face_graphs, prepare_partition_input_evidence,
+            prove_native_twin_seam_cover, PartitionMosaic,
+        };
+        use crate::types::PartitionFaceRef;
+        use std::collections::BTreeMap;
+        let geometries = [
+            Geometry::LineString(LineString::from(vec![
+                (0., 0.),
+                (1., 0.),
+                (1., 1.),
+                (0., 1.),
+                (0., 0.),
+            ])),
+            Geometry::LineString(LineString::from(vec![
+                (1., 1.),
+                (2., 1.),
+                (2., 2.),
+                (1., 2.),
+                (1., 1.),
+            ])),
+        ];
+        let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+        let domain = Rect::new((0., 0.), (2., 2.));
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let mut tiled = TiledPolygonizer::new(domain, 2.)
+            .with_buffer(0.)
+            .with_untiled_equivalence_check();
+        for g in &geometries {
+            tiled.add_geometry(g);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let result = tiled.polygonize().unwrap();
+        let graph = result.partition_border_graph;
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let mut locals = graph.local_face_graphs().to_vec();
+        assert_eq!(locals.len(), 1, "expected connected component: {locals:?}");
+        let mut observations = graph.border_observations().cloned().collect::<Vec<_>>();
+        let original = locals.remove(0);
+        let xy = |key: PartitionBorderNodeKey| {
+            let [x, y] = key.xy_bits();
+            Coord {
+                x: f64::from_bits(x),
+                y: f64::from_bits(y),
+            }
+        };
+        for component in 0..2 {
+            let mut local = original.clone();
+            local.component_id = component;
+            local.directed_edges.retain(|edge| {
+                let (a, b) = (xy(edge.from), xy(edge.to));
+                (a.x <= 1. && a.y <= 1. && b.x <= 1. && b.y <= 1.) == (component == 0)
+            });
+            let mut stars = BTreeMap::<_, Vec<_>>::new();
+            for edge in &local.directed_edges {
+                stars.entry(edge.from).or_default().push((
+                    edge.local_dir_edge_id,
+                    edge.to,
+                    edge.symmetric_local_dir_edge_id,
+                ));
+            }
+            let mut successors = BTreeMap::new();
+            for (center, star) in &mut stars {
+                star.sort_by(|a, b| crate::utils::compare_angular(xy(*center), xy(a.1), xy(b.1)));
+                for (index, edge) in star.iter().enumerate() {
+                    successors.insert(edge.2, star[(index + star.len() - 1) % star.len()].0);
+                }
+            }
+            for edge in &mut local.directed_edges {
+                edge.local_face_successor = Some(successors[&edge.local_dir_edge_id]);
+            }
+            let by_id = local
+                .directed_edges
+                .iter()
+                .map(|e| (e.local_dir_edge_id, e))
+                .collect::<BTreeMap<_, _>>();
+            let mut seen = BTreeSet::new();
+            let mut roles = BTreeMap::new();
+            let mut face_id = 0;
+            for &start in by_id.keys() {
+                if seen.contains(&start) {
+                    continue;
+                }
+                let mut cycle = Vec::new();
+                let mut current = start;
+                while seen.insert(current) {
+                    cycle.push(current);
+                    current = by_id[&current].local_face_successor.unwrap();
+                }
+                assert_eq!(current, start);
+                let coords = cycle
+                    .iter()
+                    .map(|id| {
+                        let p = xy(by_id[id].from);
+                        Coord3D::new(p.x, p.y, 0.)
+                    })
+                    .collect::<Vec<_>>();
+                let unbounded = Polygon3D::ring_signed_area_2d(&coords) < 0.;
+                for id in cycle {
+                    roles.insert(id, (face_id, unbounded));
+                }
+                face_id += 1;
+            }
+            for edge in &mut local.directed_edges {
+                let (face_id, unbounded) = roles[&edge.local_dir_edge_id];
+                edge.face_ref = Some(PartitionFaceRef {
+                    partition_id: 0,
+                    component_id: component,
+                    face_id,
+                });
+                edge.local_face_is_unbounded = unbounded;
+            }
+            local.graph_state.node_count = stars.len();
+            local.graph_state.edge_count = local.directed_edges.len() / 2;
+            local.graph_state.active_edge_count = local.directed_edges.len() / 2;
+            local.graph_state.directed_edge_count = local.directed_edges.len();
+            local.graph_state.active_directed_edge_count = local.directed_edges.len();
+            local.graph_state.faced_directed_edge_count = local.directed_edges.len();
+            local.graph_state.face_successor_count = local.directed_edges.len();
+            local.graph_state.face_count = 2;
+            local.graph_state.unbounded_face_count = 1;
+            locals.push(local);
+        }
+        let mut forged = PartitionBorderGraph::default();
+        let obs_ids = observations
+            .iter()
+            .map(|o| o.local_dir_edge_id)
+            .collect::<BTreeSet<_>>();
+        for obs in &mut observations {
+            let local = locals
+                .iter()
+                .find(|l| {
+                    l.directed_edges
+                        .iter()
+                        .any(|e| e.local_dir_edge_id == obs.local_dir_edge_id)
+                })
+                .unwrap();
+            let edge = local
+                .directed_edges
+                .iter()
+                .find(|e| e.local_dir_edge_id == obs.local_dir_edge_id)
+                .unwrap();
+            obs.component_id = local.component_id;
+            obs.face_ref = edge.face_ref;
+            obs.face_id = edge.face_ref.map(|f| f.face_id);
+            obs.local_face_is_unbounded = edge.local_face_is_unbounded;
+            obs.local_face_successor = edge.local_face_successor;
+            let mut next = edge.local_face_successor.unwrap();
+            while !obs_ids.contains(&next) {
+                next = local
+                    .directed_edges
+                    .iter()
+                    .find(|e| e.local_dir_edge_id == next)
+                    .unwrap()
+                    .local_face_successor
+                    .unwrap();
+            }
+            let next_obs = graph
+                .border_observations()
+                .find(|o| o.local_dir_edge_id == next)
+                .unwrap();
+            obs.local_face_boundary_successor = Some(next_obs.observation_id());
+            forged.insert(obs.clone()).unwrap();
+        }
+        for local in &locals {
+            forged.insert_local_face_graph(local.clone()).unwrap();
+        }
+        forged.reconcile_global_face_edge_map(&policy).unwrap();
+        forged
+            .reconcile_global_face_nodes(options.z, &policy)
+            .unwrap();
+        let snapshot = mosaic.partitions.get_mut(&0).unwrap();
+        snapshot.local_face_graphs = partition_local_face_graphs(&locals);
+        snapshot.atomic_observations = partition_atomic_observations(forged.border_observations());
+        let decode = |family: &[Vec<[u64; 3]>]| {
+            family
+                .iter()
+                .map(|c| {
+                    c.iter()
+                        .copied()
+                        .map(crate::tiling::coord3d_from_bits)
+                        .collect()
+                })
+                .collect()
+        };
+        forged
+            .retain_global_non_polygon_extraction_payloads(
+                &policy,
+                0,
+                decode(&snapshot.non_polygon.dangles),
+                decode(&snapshot.non_polygon.cut_edges),
+                decode(&snapshot.non_polygon.invalid_rings),
+            )
+            .unwrap();
+        let stats = forged
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let witness = forged.global_arrangement_witness(&policy).unwrap().unwrap();
+        let prepared =
+            prepare_partition_input_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let view = input_bound_physical_alias_view(
+            &prepared, &forged, &witness, &mosaic, &options, stats, &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy).unwrap();
+        assert!(
+            cover.is_none(),
+            "seam cover accepted a split connected native component"
+        );
+    }
+
+    #[test]
+    fn native_twin_seam_cover_retains_complete_obligations_and_rejects_forgery() {
+        use crate::graph::partition_border::{PartitionBorderGraph, PartitionBorderSide};
+        use crate::tiling::{
+            coord3d_from_bits, input_bound_physical_alias_view, partition_atomic_observations,
+            partition_local_face_graphs, prepare_partition_input_evidence,
+            prove_native_twin_seam_cover, PartitionMosaic,
+        };
+        let mut geometries = Vec::new();
+        for axis in 0..=2 {
+            for segment in 0..2 {
+                let (a, b) = (axis as f64, segment as f64);
+                for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                    geometries.push(Geometry::LineString(LineString::from(coords)));
+                }
+            }
+        }
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let policy = ExecutionPolicy::default();
+        let (tiles, result) = {
+            let mut tiled = TiledPolygonizer::new(domain, 1.0)
+                .with_buffer(0.0)
+                .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            (tiled.generate_tiles().unwrap(), tiled.polygonize().unwrap())
+        };
+        assert!(result.stitched_output.is_none());
+        let graph = result.partition_border_graph;
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let stats = graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let prepared =
+            prepare_partition_input_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let view = input_bound_physical_alias_view(
+            &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let before = mosaic.fingerprint_sha256();
+        let graph_before = graph.clone();
+        for _ in 0..2 {
+            let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap();
+            assert!(std::ptr::eq(cover.view, &view));
+            assert_eq!(cover.seams.len(), 4);
+            assert_eq!(cover.cycles.len(), 8);
+            assert_eq!(cover.observations.len(), 32);
+            assert_eq!(cover.pending_domain_segments.len(), 8);
+            assert_eq!(cover.view.raw_payloads.len(), 16);
+            let mut retained = BTreeSet::new();
+            for cycle in &cover.cycles {
+                assert_eq!(cycle.aliases.len(), 4);
+                assert_eq!(cycle.signed_area, if cycle.unbounded { -1.0 } else { 1.0 });
+                for bound in &cycle.aliases {
+                    assert!(retained.insert(bound.alias.global_dir_edge_id));
+                    assert_eq!(cycle.face_ref[0], bound.alias.partition_id);
+                }
+            }
+            assert_eq!(retained, (0..32).collect());
+            let mut seam_members = BTreeSet::new();
+            for seam in &cover.seams {
+                assert_eq!(
+                    seam.bounded_aliases[0].native_edge.from,
+                    seam.bounded_aliases[1].native_edge.to
+                );
+                for index in 0..2 {
+                    let inside = seam.bounded_aliases[index];
+                    let outside = seam.exterior_twins[index];
+                    assert_eq!(inside.input.segment, seam.segment);
+                    assert_eq!(inside.alias.partition_id, seam.partition_ids[index]);
+                    assert_eq!(
+                        inside.native_edge.symmetric_local_dir_edge_id,
+                        outside.native_edge.local_dir_edge_id
+                    );
+                    assert!(!inside.native_edge.local_face_is_unbounded);
+                    assert!(outside.native_edge.local_face_is_unbounded);
+                }
+                for observation in seam.observations {
+                    assert!(seam_members.insert((
+                        observation.observation_id.partition_id,
+                        observation.component_id,
+                        observation.observation_id.local_dir_edge_id
+                    )));
+                }
+            }
+            assert_eq!(seam_members.len(), 16);
+        }
+        // No old receipt can be reused after context, source, XYZ or record changes.
+        for change in 0..7 {
+            let mut stale = mosaic.clone();
+            let snapshot = stale.partitions.get_mut(&0).unwrap();
+            match change {
+                0 => snapshot.generation.retry_attempt += 1,
+                1 => snapshot.atomic_observations[0].source_line_ids = vec![99],
+                2 => snapshot.atomic_observations[0].from_z_bits = 7.0f64.to_bits(),
+                3 => snapshot.atomic_observations[0].representative_line_id = Some(99),
+                4 => snapshot.non_polygon.dangles.reverse(),
+                5 => snapshot.declared_adjacencies.clear(),
+                _ => snapshot.topology.options["node_input"] = serde_json::json!(false),
+            }
+            assert!(
+                prove_native_twin_seam_cover(&view, &stale, &tiles, domain, &policy)
+                    .unwrap()
+                    .is_none(),
+                "stale {change}"
+            );
+        }
+        let mut bad_tiles = tiles.clone();
+        bad_tiles[0] = domain;
+        assert!(
+            prove_native_twin_seam_cover(&view, &mosaic, &bad_tiles, domain, &policy)
+                .unwrap()
+                .is_none()
+        );
+        assert!(prove_native_twin_seam_cover(
+            &view,
+            &mosaic,
+            &tiles,
+            Rect::new((0.0, 0.0), (3.0, 2.0)),
+            &policy
+        )
+        .unwrap()
+        .is_none());
+
+        // These coherent native/observation mutations still bind as data, but cannot prove seams.
+        for change in 0..12 {
+            let mut changed = mosaic.clone();
+            let mut locals = graph.local_face_graphs().to_vec();
+            let mut observations = graph.border_observations().cloned().collect::<Vec<_>>();
+            match change {
+                0 => {
+                    observations.pop();
+                }
+                1 => {
+                    let mut extra = observations[0].clone();
+                    extra.local_dir_edge_id = 10_000;
+                    observations.push(extra);
+                }
+                2 => {
+                    observations[0].side = if observations[0].side == PartitionBorderSide::MinX {
+                        PartitionBorderSide::MaxX
+                    } else {
+                        PartitionBorderSide::MinX
+                    }
+                }
+                3 => observations[0].local_face_boundary_successor = None,
+                4 => {
+                    for edge in locals
+                        .iter_mut()
+                        .flat_map(|local| &mut local.directed_edges)
+                    {
+                        edge.local_face_is_unbounded = !edge.local_face_is_unbounded;
+                    }
+                }
+                5 => {
+                    for edge in locals
+                        .iter_mut()
+                        .flat_map(|local| &mut local.directed_edges)
+                    {
+                        edge.local_face_successor = Some(edge.symmetric_local_dir_edge_id);
+                        edge.face_ref.as_mut().unwrap().face_id =
+                            edge.local_dir_edge_id.min(edge.symmetric_local_dir_edge_id) + 10;
+                        edge.local_face_is_unbounded = false;
+                    }
+                }
+                6 => observations[0].representative_line_id = Some(99),
+                7 => {
+                    changed.partitions.remove(&3);
+                    locals.retain(|local| local.partition_id != 3);
+                    observations.retain(|observation| observation.partition_id != 3);
+                }
+                8 => {
+                    for (partition, neighbor, side, opposite) in [(0, 3, 0, 1), (3, 0, 1, 0)] {
+                        let declared = &mut changed
+                            .partitions
+                            .get_mut(&partition)
+                            .unwrap()
+                            .declared_adjacencies;
+                        declared.push(crate::tiling::PartitionDeclaredAdjacencyV1 {
+                            neighbor_partition_id: neighbor,
+                            side,
+                            neighbor_side: opposite,
+                            coordinate_bits: 0,
+                        });
+                        declared.sort_unstable();
+                    }
+                }
+                9 => {
+                    for (partition, neighbor) in [(0, 1), (1, 0)] {
+                        changed
+                            .partitions
+                            .get_mut(&partition)
+                            .unwrap()
+                            .declared_adjacencies
+                            .retain(|adjacency| adjacency.neighbor_partition_id != neighbor);
+                    }
+                }
+                10 => {
+                    locals.retain(|local| local.partition_id != 0);
+                    observations.retain(|observation| observation.partition_id != 0);
+                    let snapshot = changed.partitions.get_mut(&0).unwrap();
+                    let bits = |point: &crate::fingerprint::CoordinateFingerprintV1| {
+                        [&point.x, &point.y, &point.z]
+                            .map(|value| u64::from_str_radix(&value[2..], 16).unwrap())
+                    };
+                    snapshot.non_polygon.dangles = snapshot
+                        .local_noded_segments
+                        .iter()
+                        .map(|segment| vec![bits(&segment.start), bits(&segment.end)])
+                        .collect();
+                }
+                _ => {
+                    let mut extra = locals
+                        .iter()
+                        .find(|local| local.partition_id == 0)
+                        .unwrap()
+                        .clone();
+                    extra.component_id += 10;
+                    for edge in &mut extra.directed_edges {
+                        edge.local_dir_edge_id += 10_000;
+                        edge.symmetric_local_dir_edge_id += 10_000;
+                        edge.local_face_successor = edge.local_face_successor.map(|id| id + 10_000);
+                        edge.face_ref.as_mut().unwrap().component_id = extra.component_id;
+                    }
+                    let added = observations
+                        .iter()
+                        .filter(|observation| observation.partition_id == 0)
+                        .cloned()
+                        .map(|mut observation| {
+                            observation.component_id = extra.component_id;
+                            observation.local_dir_edge_id += 10_000;
+                            observation.face_ref.as_mut().unwrap().component_id =
+                                extra.component_id;
+                            observation.local_face_successor =
+                                observation.local_face_successor.map(|id| id + 10_000);
+                            if let Some(next) = &mut observation.local_face_boundary_successor {
+                                next.local_dir_edge_id += 10_000;
+                            }
+                            observation
+                        })
+                        .collect::<Vec<_>>();
+                    observations.extend(added);
+                    locals.push(extra);
+                }
+            }
+            let mut changed_graph = PartitionBorderGraph::default();
+            for mut observation in observations {
+                if change == 4 || change == 5 {
+                    let edge = locals
+                        .iter()
+                        .find(|local| {
+                            (local.partition_id, local.component_id)
+                                == (observation.partition_id, observation.component_id)
+                        })
+                        .unwrap()
+                        .directed_edges
+                        .iter()
+                        .find(|edge| edge.local_dir_edge_id == observation.local_dir_edge_id)
+                        .unwrap();
+                    observation.face_ref = edge.face_ref;
+                    observation.face_id = edge.face_ref.map(|face| face.face_id);
+                    observation.local_face_is_unbounded = edge.local_face_is_unbounded;
+                    observation.local_face_successor = edge.local_face_successor;
+                }
+                changed_graph.insert(observation).unwrap();
+            }
+            for local in &locals {
+                changed_graph
+                    .insert_local_face_graph(local.clone())
+                    .unwrap();
+            }
+            changed_graph
+                .reconcile_global_face_edge_map(&policy)
+                .unwrap();
+            changed_graph
+                .reconcile_global_face_nodes(options.z, &policy)
+                .unwrap();
+            let decode = |family: &[Vec<[u64; 3]>]| {
+                family
+                    .iter()
+                    .map(|coords| coords.iter().copied().map(coord3d_from_bits).collect())
+                    .collect()
+            };
+            for snapshot in changed.partitions.values_mut() {
+                snapshot.local_face_graphs = partition_local_face_graphs(
+                    &locals
+                        .iter()
+                        .filter(|local| local.partition_id == snapshot.partition_id)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                );
+                snapshot.atomic_observations = partition_atomic_observations(
+                    changed_graph
+                        .border_observations()
+                        .filter(|observation| observation.partition_id == snapshot.partition_id),
+                );
+                changed_graph
+                    .retain_global_non_polygon_extraction_payloads(
+                        &policy,
+                        snapshot.partition_id,
+                        decode(&snapshot.non_polygon.dangles),
+                        decode(&snapshot.non_polygon.cut_edges),
+                        decode(&snapshot.non_polygon.invalid_rings),
+                    )
+                    .unwrap();
+            }
+            let changed_tiles = if change == 7 {
+                tiles[..3].to_vec()
+            } else {
+                tiles.clone()
+            };
+            let changed_stats = changed_graph
+                .materialize_global_non_polygon_extraction_payloads(&policy)
+                .unwrap();
+            let changed_witness = changed_graph
+                .global_arrangement_witness(&policy)
+                .unwrap()
+                .unwrap();
+            let changed_prepared = prepare_partition_input_evidence(
+                &changed,
+                &changed_tiles,
+                &refs,
+                domain,
+                &options,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            let changed_view = input_bound_physical_alias_view(
+                &changed_prepared,
+                &changed_graph,
+                &changed_witness,
+                &changed,
+                &options,
+                changed_stats,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            assert!(
+                prove_native_twin_seam_cover(
+                    &changed_view,
+                    &changed,
+                    &changed_tiles,
+                    domain,
+                    &policy
+                )
+                .unwrap()
+                .is_none(),
+                "coherent forgery {change}"
+            );
+        }
+        // A complete alias view does not prove roles for native cycles extending beyond a core.
+        let halo_result = {
+            let mut tiled = TiledPolygonizer::new(domain, 1.0)
+                .with_buffer(2.0)
+                .with_untiled_equivalence_check();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            tiled.polygonize().unwrap()
+        };
+        let halo_graph = halo_result.partition_border_graph;
+        let mut halo_mosaic = PartitionMosaic::default();
+        for snapshot in halo_result.partition_snapshots {
+            halo_mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let halo_witness = halo_graph
+            .global_arrangement_witness(&policy)
+            .unwrap()
+            .unwrap();
+        let halo_stats = halo_graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let halo_prepared = prepare_partition_input_evidence(
+            &halo_mosaic,
+            &tiles,
+            &refs,
+            domain,
+            &options,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let halo_view = input_bound_physical_alias_view(
+            &halo_prepared,
+            &halo_graph,
+            &halo_witness,
+            &halo_mosaic,
+            &options,
+            halo_stats,
+            &policy,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(halo_view.active_aliases.len(), 96);
+        assert!(
+            prove_native_twin_seam_cover(&halo_view, &halo_mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .is_none()
+        );
+
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(0),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(
+                prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { .. })
+            ));
+        }
+        for midflight in [false, true] {
+            let token = CancellationToken::new();
+            if !midflight {
+                token.cancel();
+            }
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: midflight.then_some((token, 256)),
+                ..Default::default()
+            };
+            assert!(matches!(
+                prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &cancelled),
+                Err(PolygonizeError::Cancelled { .. })
+            ));
+        }
+        let mut oversized = mosaic.clone();
+        oversized.partitions.get_mut(&0).unwrap().boundary_nodes[0].source_line_ids =
+            vec![0; crate::options::MAX_UNCANCELLABLE_SORT_ITEMS + 1];
+        let bounded = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(
+            matches!(prove_native_twin_seam_cover(&view,&oversized,&tiles,domain,&bounded),Err(PolygonizeError::ResourceLimitExceeded {stage,..}) if stage=="partition_input_binding_preflight")
+        );
+        assert_eq!(mosaic.fingerprint_sha256(), before);
+        assert_eq!(graph, graph_before);
     }
 
     #[test]
