@@ -125,6 +125,28 @@ mod tests {
             assert_eq!(seams["cover"]["interior_seam_alias_count"], 16);
             assert_eq!(seams["cover"]["pending_domain_segment_count"], 8);
             assert_eq!(seams["cover"]["retained_raw_record_count"], 16);
+            let exterior = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_domain_exterior_authority")
+                .unwrap()
+                .payload;
+            assert_eq!(exterior["proven"], true);
+            assert_eq!(exterior["output_selectable"], false);
+            for (field, count) in [
+                ("domain_segment_count", 8),
+                ("domain_alias_count", 16),
+                ("exterior_cycle_count", 1),
+                ("exterior_cycle_edge_count", 8),
+                ("seam_handoff_count", 4),
+                ("qualified_exterior_marker_count", 4),
+                ("retained_native_alias_count", 32),
+                ("retained_observation_count", 32),
+                ("retained_raw_record_count", 16),
+            ] {
+                assert_eq!(exterior["authority"][field], count, "{field}");
+            }
             let claims = &result
                 .trace
                 .events
@@ -1063,7 +1085,7 @@ mod tests {
         use crate::tiling::{
             coord3d_from_bits, input_bound_physical_alias_view, partition_atomic_observations,
             partition_local_face_graphs, prepare_partition_input_evidence,
-            prove_native_twin_seam_cover, PartitionMosaic,
+            prove_domain_exterior_authority, prove_native_twin_seam_cover, PartitionMosaic,
         };
         let mut geometries = Vec::new();
         for axis in 0..=2 {
@@ -1162,6 +1184,145 @@ mod tests {
                 }
             }
             assert_eq!(seam_members.len(), 16);
+            let authority = prove_domain_exterior_authority(&cover, &policy)
+                .unwrap()
+                .unwrap();
+            assert!(std::ptr::eq(authority.cover, &cover));
+            assert_eq!(authority.boundary_segments.len(), 8);
+            assert_eq!(authority.exterior_cycle.len(), 8);
+            assert_eq!(authority.seam_handoffs.len(), 4);
+            assert_eq!(authority.exterior_markers.len(), 4);
+            let mut domain_members = BTreeSet::new();
+            for boundary in &authority.boundary_segments {
+                assert!(cover.pending_domain_segments.contains(&boundary.segment));
+                for (bound, observation) in [boundary.bounded_alias, boundary.exterior_twin]
+                    .into_iter()
+                    .zip(boundary.observations)
+                {
+                    assert_eq!(bound.input.segment, boundary.segment);
+                    assert_eq!(
+                        bound.native_edge.local_dir_edge_id,
+                        observation.observation_id.local_dir_edge_id
+                    );
+                    assert!(domain_members.insert(bound.alias.global_dir_edge_id));
+                }
+            }
+            assert_eq!(domain_members.len(), 16);
+            assert!(domain_members.is_disjoint(
+                &cover
+                    .seams
+                    .iter()
+                    .flat_map(|seam| seam.bounded_aliases.into_iter().chain(seam.exterior_twins))
+                    .map(|bound| bound.alias.global_dir_edge_id)
+                    .collect()
+            ));
+            for (index, bound) in authority.exterior_cycle.iter().enumerate() {
+                let next = authority.exterior_cycle[(index + 1) % authority.exterior_cycle.len()];
+                assert!(bound.native_edge.local_face_is_unbounded);
+                assert_eq!(bound.native_edge.to, next.native_edge.from);
+                let slot = view
+                    .slots
+                    .iter()
+                    .find(|slot| {
+                        slot.local_aliases
+                            .iter()
+                            .any(|alias| alias.global_dir_edge_id == bound.alias.global_dir_edge_id)
+                    })
+                    .unwrap();
+                // Separate corroboration only: the builder never reads witness successors/faces.
+                let next_slot = view
+                    .slots
+                    .iter()
+                    .position(|slot| {
+                        slot.local_aliases
+                            .iter()
+                            .any(|alias| alias.global_dir_edge_id == next.alias.global_dir_edge_id)
+                    })
+                    .unwrap();
+                assert_eq!(slot.physical_edge.next, next_slot);
+            }
+        }
+        // Omitted domain rows, raw-only native coverage, missing receipts and false contexts
+        // must not turn an incomplete cover into exterior authority.
+        for change in 0..10 {
+            let mut cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap();
+            match change {
+                0 => {
+                    cover.pending_domain_segments.pop();
+                }
+                1 => cover
+                    .pending_domain_segments
+                    .push(cover.pending_domain_segments[0]),
+                2 => {
+                    cover.seams.pop();
+                }
+                3 => {
+                    cover.seams[0].exterior_twins.swap(0, 1);
+                    cover.seams[0].exterior_twins[1] = cover.seams[0].exterior_twins[0];
+                }
+                4 => cover.observations.clear(),
+                5 => cover.observations.push(cover.observations[0]),
+                6 => cover.domain = Rect::new((0.0, 0.0), (3.0, 2.0)),
+                7 => cover.pending_domain_segments.push(cover.seams[0].segment),
+                8 => {
+                    cover
+                        .cycles
+                        .iter_mut()
+                        .find(|cycle| cycle.unbounded)
+                        .unwrap()
+                        .face_ref[2] += 100
+                }
+                _ => {
+                    cover.pending_domain_segments.clear();
+                }
+            }
+            assert!(
+                prove_domain_exterior_authority(&cover, &policy)
+                    .unwrap()
+                    .is_none(),
+                "domain forgery {change}"
+            );
+        }
+        let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(255),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(15),
+                ..Default::default()
+            },
+        ] {
+            assert!(matches!(prove_domain_exterior_authority(&cover, &limited),
+                Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_domain_exterior_authority"));
+        }
+        for midflight in [false, true] {
+            let token = CancellationToken::new();
+            if !midflight {
+                token.cancel();
+            }
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: midflight.then_some((token, 4)),
+                ..Default::default()
+            };
+            assert!(
+                matches!(prove_domain_exterior_authority(&cover, &cancelled),
+                Err(PolygonizeError::Cancelled { stage }) if stage == "partition_domain_exterior_authority")
+            );
         }
         // No old receipt can be reused after context, source, XYZ or record changes.
         for change in 0..7 {
@@ -1529,6 +1690,82 @@ mod tests {
         );
         assert_eq!(mosaic.fingerprint_sha256(), before);
         assert_eq!(graph, graph_before);
+    }
+
+    #[test]
+    fn domain_exterior_authority_requires_complete_native_perimeter() {
+        for case in 0..3 {
+            let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (2.0, 2.0)), 2.0)
+                .with_buffer(0.0)
+                .with_untiled_equivalence_check();
+            let mut lines = if case == 0 {
+                // Four prepared domain obligations exist only as raw dangles.
+                vec![
+                    vec![(0.0, 0.5), (0.0, 0.75)],
+                    vec![(2.0, 0.5), (2.0, 0.75)],
+                    vec![(0.5, 0.0), (0.75, 0.0)],
+                    vec![(0.5, 2.0), (0.75, 2.0)],
+                ]
+            } else {
+                vec![
+                    vec![(0.0, 0.0), (2.0, 0.0)],
+                    vec![(2.0, 0.0), (2.0, 2.0)],
+                    vec![(2.0, 2.0), (0.0, 2.0)],
+                    vec![(0.0, 2.0), (0.0, 0.0)],
+                ]
+            };
+            if case != 2 {
+                // A separate component's local exterior cannot silently lose its marker.
+                lines.extend([
+                    vec![(0.5, 0.5), (1.5, 0.5)],
+                    vec![(1.5, 0.5), (1.5, 1.5)],
+                    vec![(1.5, 1.5), (0.5, 1.5)],
+                    vec![(0.5, 1.5), (0.5, 0.5)],
+                ]);
+            }
+            let geometries = lines
+                .into_iter()
+                .map(|line| Geometry::LineString(LineString::from(line)))
+                .collect::<Vec<_>>();
+            for geometry in &geometries {
+                tiled.add_geometry(geometry);
+            }
+            let result = tiled
+                .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                .unwrap();
+            let event = |kind: &str| {
+                &result
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == kind)
+                    .unwrap()
+                    .payload
+            };
+            assert_eq!(
+                event("partition_border_input_bound_alias_view")["bound"],
+                true,
+                "case {case}"
+            );
+            let cover = event("partition_border_native_twin_seam_cover");
+            assert_eq!(cover["proven"], case != 0, "case {case}");
+            if case != 0 {
+                assert_eq!(cover["cover"]["pending_domain_segment_count"], 4);
+            }
+            let authority = event("partition_border_domain_exterior_authority");
+            assert_eq!(authority["proven"], case == 2, "case {case}");
+            assert_eq!(authority["output_selectable"], false);
+            if case == 0 {
+                assert_eq!(
+                    event("partition_border_input_bound_alias_view")["view"]["raw_record_count"],
+                    4
+                );
+            } else if case == 2 {
+                assert_eq!(authority["authority"]["exterior_cycle_edge_count"], 4);
+                assert_eq!(authority["authority"]["seam_handoff_count"], 0);
+                assert_eq!(authority["authority"]["qualified_exterior_marker_count"], 1);
+            }
+        }
     }
 
     #[test]

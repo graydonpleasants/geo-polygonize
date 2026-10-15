@@ -1868,12 +1868,29 @@ struct PartitionNativeTwinSeam<'a> {
 }
 
 struct PartitionNativeTwinSeamCover<'a> {
+    domain: Rect<f64>,
     view: &'a PartitionInputBoundPhysicalAliasView<'a>,
     cycles: Vec<PartitionNativeCycleRole<'a>>,
     seams: Vec<PartitionNativeTwinSeam<'a>>,
     observations: Vec<&'a PartitionAtomicObservationV1>,
     // These obligations remain unresolved, including any raw-only domain segment.
     pending_domain_segments: Vec<&'a PartitionNodedSegmentV1>,
+}
+
+#[allow(dead_code)] // Both native roles and their original observations remain borrowed.
+struct PartitionDomainBoundarySegment<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    bounded_alias: &'a PartitionInputBoundActiveAlias<'a>,
+    exterior_twin: &'a PartitionInputBoundActiveAlias<'a>,
+    observations: [&'a PartitionAtomicObservationV1; 2],
+}
+
+struct PartitionDomainExteriorAuthority<'a> {
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    boundary_segments: Vec<PartitionDomainBoundarySegment<'a>>,
+    exterior_cycle: Vec<&'a PartitionInputBoundActiveAlias<'a>>,
+    seam_handoffs: Vec<[&'a PartitionInputBoundActiveAlias<'a>; 2]>,
+    exterior_markers: BTreeSet<[usize; 3]>,
 }
 
 struct PreparedNonPolygonEvidence {
@@ -4500,11 +4517,313 @@ fn prove_native_twin_seam_cover<'a>(
     }
     execution_policy.check_cancelled(stage)?;
     Ok(Some(PartitionNativeTwinSeamCover {
+        domain,
         view,
         cycles,
         seams,
         observations,
         pending_domain_segments,
+    }))
+}
+
+/// Domain authority from complete native receipts; no legacy claim or face is promoted.
+fn prove_domain_exterior_authority<'a>(
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionDomainExteriorAuthority<'a>>> {
+    let stage = "partition_domain_exterior_authority";
+    execution_policy.check_cancelled(stage)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "domain exterior proof work count overflow".to_string(),
+    };
+    // The cover borrows immutable, context-bound receipts; it cannot outlive their snapshots.
+    let view = cover.view;
+    let mut retained = view.active_aliases.len();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            bound.alias.source_line_ids.len(),
+            bound.native_edge.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for (index, segment) in view.prepared.aliases.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(segment.source_line_ids.len())
+            .ok_or_else(overflow)?;
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        view.active_aliases.len(),
+    )?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_nodes,
+        view.active_aliases.len(),
+    )?;
+    let work_bound = cover
+        .pending_domain_segments
+        .len()
+        .checked_mul(view.active_aliases.len())
+        .ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, work_bound)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        cover
+            .pending_domain_segments
+            .len()
+            .checked_mul(2)
+            .ok_or_else(overflow)?,
+    )?;
+    let key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.alias.local_dir_edge_id,
+        )
+    };
+    let mut native = BTreeMap::new();
+    let mut physical = BTreeMap::<_, Vec<_>>::new();
+    let mut observations = BTreeMap::new();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if native.insert(key(bound), bound).is_some() {
+            return Ok(None);
+        }
+        physical
+            .entry(bound.native_edge.edge_key)
+            .or_default()
+            .push(bound);
+    }
+    for (index, &observation) in cover.observations.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if observations
+            .insert(
+                (
+                    observation.observation_id.partition_id,
+                    observation.component_id,
+                    observation.observation_id.local_dir_edge_id,
+                ),
+                observation,
+            )
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let sides = [
+        PartitionBorderSide::MinX,
+        PartitionBorderSide::MaxX,
+        PartitionBorderSide::MinY,
+        PartitionBorderSide::MaxY,
+    ];
+    let pending = cover
+        .pending_domain_segments
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if pending.len() != cover.pending_domain_segments.len() {
+        return Ok(None);
+    }
+    let mut boundary_segments = Vec::new();
+    let mut domain_exterior = BTreeMap::new();
+    for (index, segment) in view.prepared.aliases.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let from =
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.start)?);
+        let to = PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.end)?);
+        let Some(side) = sides
+            .iter()
+            .find(|side| side.contains_edge(from, to, cover.domain))
+        else {
+            if pending.contains(segment) {
+                return Ok(None);
+            }
+            continue;
+        };
+        if !pending.contains(segment) {
+            return Ok(None);
+        }
+        let Some(span) = PartitionBorderEdgeKey::new(from, to) else {
+            return Ok(None);
+        };
+        let Some(pair) = physical.get(&span) else {
+            return Ok(None);
+        };
+        // Count the whole physical span before inspecting lineage or selecting native roles.
+        if pair.len() != 2 || pair.iter().any(|bound| bound.input.segment != segment) {
+            return Ok(None);
+        }
+        let Some(inside) = pair
+            .iter()
+            .copied()
+            .find(|bound| !bound.native_edge.local_face_is_unbounded)
+        else {
+            return Ok(None);
+        };
+        let Some(outside) = pair
+            .iter()
+            .copied()
+            .find(|bound| bound.native_edge.local_face_is_unbounded)
+        else {
+            return Ok(None);
+        };
+        let edge = inside.native_edge;
+        let xy = |node: PartitionBorderNodeKey| node.xy_bits().map(f64::from_bits);
+        let (a, b) = (xy(edge.from), xy(edge.to));
+        let inward = match side {
+            PartitionBorderSide::MinX => b[1] < a[1],
+            PartitionBorderSide::MaxX => b[1] > a[1],
+            PartitionBorderSide::MinY => b[0] > a[0],
+            PartitionBorderSide::MaxY => b[0] < a[0],
+        };
+        if !inward
+            || key(inside).0 != key(outside).0
+            || key(inside).1 != key(outside).1
+            || edge.symmetric_local_dir_edge_id != outside.native_edge.local_dir_edge_id
+            || outside.native_edge.symmetric_local_dir_edge_id != edge.local_dir_edge_id
+            || edge.from != outside.native_edge.to
+            || edge.to != outside.native_edge.from
+            || edge.from_z_bits != outside.native_edge.to_z_bits
+            || edge.to_z_bits != outside.native_edge.from_z_bits
+        {
+            return Ok(None);
+        }
+        let (Some(&inside_observation), Some(&outside_observation)) = (
+            observations.get(&key(inside)),
+            observations.get(&key(outside)),
+        ) else {
+            return Ok(None);
+        };
+        domain_exterior.insert(key(outside), outside);
+        boundary_segments.push(PartitionDomainBoundarySegment {
+            segment,
+            bounded_alias: inside,
+            exterior_twin: outside,
+            observations: [inside_observation, outside_observation],
+        });
+    }
+    if boundary_segments.len() != pending.len() || pending.len() < 4 {
+        return Ok(None);
+    }
+    let mut handoffs = BTreeMap::new();
+    for (index, seam) in cover.seams.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let [a, b] = seam.exterior_twins;
+        if a.native_edge.from != b.native_edge.to
+            || a.native_edge.to != b.native_edge.from
+            || handoffs.insert(key(a), b).is_some()
+            || handoffs.insert(key(b), a).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut next_domain = BTreeMap::new();
+    let mut seam_handoffs = Vec::new();
+    let mut used_handoffs = BTreeSet::new();
+    let mut exterior_markers = BTreeSet::new();
+    let mut work = 0;
+    for (&start, &bound) in &domain_exterior {
+        let mut current = bound;
+        loop {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let Some(face) = current.native_edge.face_ref else {
+                return Ok(None);
+            };
+            if !current.native_edge.local_face_is_unbounded {
+                return Ok(None);
+            }
+            exterior_markers.insert([face.partition_id, face.component_id, face.face_id]);
+            let Some(next) = current.native_edge.local_face_successor else {
+                return Ok(None);
+            };
+            let Some(&following) = native.get(&(key(current).0, key(current).1, next)) else {
+                return Ok(None);
+            };
+            if domain_exterior.contains_key(&key(following)) {
+                if bound.native_edge.to != following.native_edge.from {
+                    return Ok(None);
+                }
+                next_domain.insert(start, key(following));
+                break;
+            }
+            // shortcut: exterior transitions cross only proved seams, upgrade for halo/descendant roles.
+            let Some(&opposite) = handoffs.get(&key(following)) else {
+                return Ok(None);
+            };
+            if !used_handoffs.insert(key(following))
+                || seam_handoffs.len() >= view.active_aliases.len()
+            {
+                return Ok(None);
+            }
+            seam_handoffs.push([following, opposite]);
+            current = opposite;
+        }
+    }
+    let expected_markers = cover
+        .cycles
+        .iter()
+        .filter(|cycle| cycle.unbounded)
+        .map(|cycle| cycle.face_ref)
+        .collect::<BTreeSet<_>>();
+    if exterior_markers != expected_markers {
+        return Ok(None);
+    }
+    let start = *domain_exterior
+        .first_key_value()
+        .expect("nonempty domain boundary")
+        .0;
+    let mut current = start;
+    let mut visited = BTreeSet::new();
+    let mut vertices = BTreeSet::new();
+    let mut exterior_cycle = Vec::new();
+    while visited.insert(current) {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(&bound) = domain_exterior.get(&current) else {
+            return Ok(None);
+        };
+        if !vertices.insert(bound.native_edge.from) {
+            return Ok(None);
+        }
+        exterior_cycle.push(bound);
+        let Some(&next) = next_domain.get(&current) else {
+            return Ok(None);
+        };
+        current = next;
+    }
+    if current != start || visited.len() != domain_exterior.len() {
+        return Ok(None);
+    }
+    for point in [
+        cover.domain.min(),
+        cover.domain.max(),
+        Coord {
+            x: cover.domain.min().x,
+            y: cover.domain.max().y,
+        },
+        Coord {
+            x: cover.domain.max().x,
+            y: cover.domain.min().y,
+        },
+    ] {
+        if !vertices.contains(&PartitionBorderNodeKey::from_coord(Coord3D::from(point))) {
+            return Ok(None);
+        }
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionDomainExteriorAuthority {
+        cover,
+        boundary_segments,
+        exterior_cycle,
+        seam_handoffs,
+        exterior_markers,
     }))
 }
 
@@ -9203,6 +9522,11 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let domain_authority = native_seam_cover
+                .as_ref()
+                .map(|cover| prove_domain_exterior_authority(cover, &self.execution_policy))
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -9243,6 +9567,25 @@ impl<'a> TiledPolygonizer<'a> {
                             "interior_seam_alias_count": cover.seams.iter().map(|seam| seam.observations.len()).sum::<usize>(),
                             "pending_domain_segment_count": cover.pending_domain_segments.len(),
                             "retained_raw_record_count": cover.view.raw_payloads.len(),
+                        })),
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_domain_exterior_authority",
+                    serde_json::json!({
+                        "proven": domain_authority.is_some(),
+                        "authority": domain_authority.as_ref().map(|authority| serde_json::json!({
+                            "domain_segment_count": authority.boundary_segments.len(),
+                            "domain_alias_count": authority.boundary_segments.len() * 2,
+                            "exterior_cycle_count": 1,
+                            "exterior_cycle_edge_count": authority.exterior_cycle.len(),
+                            "seam_handoff_count": authority.seam_handoffs.len(),
+                            "qualified_exterior_marker_count": authority.exterior_markers.len(),
+                            "retained_native_alias_count": authority.cover.view.active_aliases.len(),
+                            "retained_observation_count": authority.cover.observations.len(),
+                            "retained_raw_record_count": authority.cover.view.raw_payloads.len(),
                         })),
                         "output_selectable": false,
                     }),

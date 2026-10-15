@@ -604,7 +604,13 @@ separately from selectable output; they do not complete the promotion gates.
   simple native cycles on conforming rectangular cores. Replay native rotation,
   cycle orientation, finite actual neighbors and complete native/observation
   membership. The 2×2 evidence retains four seams and all 32 observations while
-  eight domain segments and all existing promotion gates remain unresolved.
+  eight domain segments remain explicit obligations for the next authority gate.
+- [x] Prove private domain/exterior authority for those eight segments from
+  complete native twin pairs and observations. Native successors plus four
+  checked seam handoffs form one complete domain-perimeter exterior cycle,
+  covering all four qualified exterior markers without consulting witness face
+  IDs or successors. Every alias/raw record remains retained; global face
+  projection, claim readiness, family classification and selection stay closed.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
