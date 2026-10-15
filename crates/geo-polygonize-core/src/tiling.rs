@@ -1893,6 +1893,27 @@ struct PartitionDomainExteriorAuthority<'a> {
     exterior_markers: BTreeSet<[usize; 3]>,
 }
 
+struct PartitionProjectedAlias<'a> {
+    bound: &'a PartitionInputBoundActiveAlias<'a>,
+    #[allow(dead_code)] // Retain the canonical slot separately from original native links.
+    physical_slot_id: usize,
+    global_face_id: usize,
+}
+
+struct PartitionProjectedGlobalFace {
+    physical_slots: Vec<usize>,
+    bounded_face_ref: Option<[usize; 3]>,
+}
+
+/// Derived face IDs are private cycle identities, independent of witness face labels.
+struct PartitionAliasGlobalFaceProjection<'a> {
+    authority: &'a PartitionDomainExteriorAuthority<'a>,
+    physical_next: Vec<usize>,
+    physical_twins: Vec<usize>,
+    faces: Vec<PartitionProjectedGlobalFace>,
+    aliases: Vec<PartitionProjectedAlias<'a>>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -4824,6 +4845,361 @@ fn prove_domain_exterior_authority<'a>(
         exterior_cycle,
         seam_handoffs,
         exterior_markers,
+    }))
+}
+
+/// Projects every alias, including native exterior aliases that bound a neighboring core.
+fn prove_alias_global_face_projection<'a>(
+    authority: &'a PartitionDomainExteriorAuthority<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionAliasGlobalFaceProjection<'a>>> {
+    let stage = "partition_alias_global_face_projection";
+    execution_policy.check_cancelled(stage)?;
+    let cover = authority.cover;
+    let view = cover.view;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "alias face projection work count overflow".to_string(),
+    };
+    let mut retained = view.active_aliases.len();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            bound.alias.source_line_ids.len(),
+            bound.native_edge.source_line_ids.len(),
+            bound.input.segment.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for (index, slot) in view.slots.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            1,
+            slot.local_aliases.len(),
+            slot.physical_edge.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for count in [
+        authority.exterior_cycle.len(),
+        cover.seams.len().checked_mul(4).ok_or_else(overflow)?,
+    ] {
+        retained = retained.checked_add(count).ok_or_else(overflow)?;
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        view.active_aliases.len(),
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, view.slots.len())?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        view.slots.len(),
+    )?;
+    if view.active_aliases.is_empty() || view.slots.is_empty() || authority.exterior_cycle.len() < 4
+    {
+        return Ok(None);
+    }
+    let key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.alias.local_dir_edge_id,
+        )
+    };
+    let face_ref = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        bound
+            .native_edge
+            .face_ref
+            .map(|face| [face.partition_id, face.component_id, face.face_id])
+    };
+    let mut native = BTreeMap::new();
+    let mut global_ids = BTreeSet::new();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if native.insert(key(bound), bound).is_some()
+            || !global_ids.insert(bound.alias.global_dir_edge_id)
+        {
+            return Ok(None);
+        }
+    }
+    let mut slot_by_native = BTreeMap::new();
+    let mut members = Vec::new();
+    let mut directions = BTreeSet::new();
+    let mut work = 0;
+    for (physical, slot) in view.slots.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let mut bound_members = Vec::new();
+        if slot.local_aliases.is_empty()
+            || !directions.insert((slot.physical_edge.from, slot.physical_edge.to))
+        {
+            return Ok(None);
+        }
+        for alias in &slot.local_aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let id = (
+                alias.partition_id,
+                alias.component_id,
+                alias.local_dir_edge_id,
+            );
+            let Some(&bound) = native.get(&id) else {
+                return Ok(None);
+            };
+            if !std::ptr::eq(bound.alias, *alias)
+                || bound.native_edge.from.xy_bits() != slot.physical_edge.from
+                || bound.native_edge.to.xy_bits() != slot.physical_edge.to
+                || slot_by_native.insert(id, physical).is_some()
+            {
+                return Ok(None);
+            }
+            bound_members.push(bound);
+        }
+        members.push(bound_members);
+    }
+    if slot_by_native.len() != native.len() {
+        return Ok(None);
+    }
+    let mut seam_support = BTreeMap::new();
+    for seam in &cover.seams {
+        for index in 0..2 {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let exterior = seam.exterior_twins[index];
+            let bounded = seam.bounded_aliases[1 - index];
+            let (Some(&outer_slot), Some(&inner_slot)) = (
+                slot_by_native.get(&key(exterior)),
+                slot_by_native.get(&key(bounded)),
+            ) else {
+                return Ok(None);
+            };
+            if outer_slot != inner_slot
+                || members[outer_slot].len() != 2
+                || !exterior.native_edge.local_face_is_unbounded
+                || bounded.native_edge.local_face_is_unbounded
+                || exterior.alias.partition_id == bounded.alias.partition_id
+                || exterior.input.segment != seam.segment
+                || bounded.input.segment != seam.segment
+                || !std::ptr::eq(native[&key(exterior)], exterior)
+                || !std::ptr::eq(native[&key(bounded)], bounded)
+                || seam_support.insert(key(exterior), key(bounded)).is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut domain_next = BTreeMap::new();
+    for (index, &bound) in authority.exterior_cycle.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let next = authority.exterior_cycle[(index + 1) % authority.exterior_cycle.len()];
+        let (Some(&physical), Some(&following)) = (
+            slot_by_native.get(&key(bound)),
+            slot_by_native.get(&key(next)),
+        ) else {
+            return Ok(None);
+        };
+        if !bound.native_edge.local_face_is_unbounded
+            || !std::ptr::eq(native[&key(bound)], bound)
+            || domain_next.insert(physical, following).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut physical_next = Vec::new();
+    let mut physical_twins = Vec::new();
+    let mut bounded_owners = Vec::new();
+    for (physical, aliases) in members.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let mut bounded = aliases
+            .iter()
+            .copied()
+            .filter(|bound| !bound.native_edge.local_face_is_unbounded);
+        let owner = bounded.next();
+        if bounded.next().is_some() {
+            return Ok(None);
+        }
+        let next = if let Some(owner) = owner {
+            // shortcut: one native bounded owner per direction, upgrade with halo face authority.
+            if aliases.len() > 2 || domain_next.contains_key(&physical) {
+                return Ok(None);
+            }
+            for outside in aliases
+                .iter()
+                .copied()
+                .filter(|bound| bound.native_edge.local_face_is_unbounded)
+            {
+                if seam_support.get(&key(outside)) != Some(&key(owner)) {
+                    return Ok(None);
+                }
+            }
+            let Some(next) = owner.native_edge.local_face_successor else {
+                return Ok(None);
+            };
+            let Some(&following) = slot_by_native.get(&(key(owner).0, key(owner).1, next)) else {
+                return Ok(None);
+            };
+            following
+        } else {
+            if aliases.len() != 1 {
+                return Ok(None);
+            }
+            let Some(&following) = domain_next.get(&physical) else {
+                return Ok(None);
+            };
+            following
+        };
+        let mut twin = None;
+        for bound in aliases {
+            let Some(&opposite) = slot_by_native.get(&(
+                key(bound).0,
+                key(bound).1,
+                bound.native_edge.symmetric_local_dir_edge_id,
+            )) else {
+                return Ok(None);
+            };
+            if twin.replace(opposite).is_some_and(|old| old != opposite) {
+                return Ok(None);
+            }
+        }
+        physical_next.push(next);
+        physical_twins.push(twin.expect("nonempty checked slot"));
+        bounded_owners.push(owner);
+    }
+    let mut predecessors = vec![0usize; members.len()];
+    for (physical, slot) in view.slots.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let twin = physical_twins[physical];
+        let next = physical_next[physical];
+        let edge = slot.physical_edge;
+        let opposite = view.slots[twin].physical_edge;
+        let following = view.slots[next].physical_edge;
+        if twin == physical || physical_twins[twin] != physical
+            || edge.from != opposite.to || edge.to != opposite.from
+            || edge.to != following.from || edge.to_z_bits != following.from_z_bits
+            // Witness links corroborate the native-derived permutation; they never supply it.
+            || edge.symmetric != twin || edge.next != next
+        {
+            return Ok(None);
+        }
+        predecessors[next] += 1;
+    }
+    if predecessors.iter().any(|&count| count != 1) {
+        return Ok(None);
+    }
+    let mut face_by_physical = vec![None; members.len()];
+    let mut faces = Vec::new();
+    let mut witness_labels = BTreeSet::new();
+    let mut exterior_count = 0;
+    for start in 0..members.len() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if face_by_physical[start].is_some() {
+            continue;
+        }
+        let unbounded = domain_next.contains_key(&start);
+        let owner_face = bounded_owners[start].and_then(face_ref);
+        // shortcut: whole native bounded cycles, upgrade with cross-core face/containment authority.
+        if unbounded != owner_face.is_none() {
+            return Ok(None);
+        }
+        let witness_label = view.slots[start].physical_edge.face_id;
+        if !witness_labels.insert(witness_label) {
+            return Ok(None);
+        }
+        let mut cycle = Vec::new();
+        let mut vertices = BTreeSet::new();
+        let mut current = start;
+        while face_by_physical[current].is_none() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let edge = view.slots[current].physical_edge;
+            if domain_next.contains_key(&current) != unbounded
+                || bounded_owners[current].and_then(face_ref) != owner_face
+                || edge.face_id != witness_label
+                || !vertices.insert(edge.from)
+            {
+                return Ok(None);
+            }
+            face_by_physical[current] = Some(faces.len());
+            cycle.push(current);
+            current = physical_next[current];
+        }
+        if current != start || cycle.len() < 3 {
+            return Ok(None);
+        }
+        let coords = cycle
+            .iter()
+            .map(|&id| {
+                let [x, y] = view.slots[id].physical_edge.from.map(f64::from_bits);
+                Coord3D::new(x, y, 0.0)
+            })
+            .collect::<Vec<_>>();
+        let area = Polygon3D::ring_signed_area_2d(&coords);
+        if !area.is_finite() || area == 0.0 || (area < 0.0) != unbounded {
+            return Ok(None);
+        }
+        if unbounded {
+            exterior_count += 1;
+            if cycle.len() != domain_next.len() {
+                return Ok(None);
+            }
+        }
+        faces.push(PartitionProjectedGlobalFace {
+            physical_slots: cycle,
+            bounded_face_ref: owner_face,
+        });
+    }
+    if exterior_count != 1 {
+        return Ok(None);
+    }
+    let mut aliases = Vec::new();
+    let mut exterior_markers = BTreeSet::new();
+    let mut bounded_faces = BTreeMap::new();
+    for bound in &view.active_aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let physical_slot_id = slot_by_native[&key(bound)];
+        let global_face_id =
+            face_by_physical[physical_slot_id].expect("complete cycle permutation");
+        let Some(native_face) = face_ref(bound) else {
+            return Ok(None);
+        };
+        let face = &faces[global_face_id];
+        if !bound.native_edge.local_face_is_unbounded {
+            if face.bounded_face_ref != Some(native_face)
+                || bounded_faces
+                    .insert(native_face, global_face_id)
+                    .is_some_and(|old| old != global_face_id)
+            {
+                return Ok(None);
+            }
+        } else if face.bounded_face_ref.is_none() {
+            exterior_markers.insert(native_face);
+        }
+        aliases.push(PartitionProjectedAlias {
+            bound,
+            physical_slot_id,
+            global_face_id,
+        });
+    }
+    if exterior_markers != authority.exterior_markers {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionAliasGlobalFaceProjection {
+        authority,
+        physical_next,
+        physical_twins,
+        faces,
+        aliases,
     }))
 }
 
@@ -9527,6 +9903,13 @@ impl<'a> TiledPolygonizer<'a> {
                 .map(|cover| prove_domain_exterior_authority(cover, &self.execution_policy))
                 .transpose()?
                 .flatten();
+            let alias_face_projection = domain_authority
+                .as_ref()
+                .map(|authority| {
+                    prove_alias_global_face_projection(authority, &self.execution_policy)
+                })
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -9586,6 +9969,29 @@ impl<'a> TiledPolygonizer<'a> {
                             "retained_native_alias_count": authority.cover.view.active_aliases.len(),
                             "retained_observation_count": authority.cover.observations.len(),
                             "retained_raw_record_count": authority.cover.view.raw_payloads.len(),
+                        })),
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_alias_global_face_projection",
+                    serde_json::json!({
+                        "proven": alias_face_projection.is_some(),
+                        "projection": alias_face_projection.as_ref().map(|projection| serde_json::json!({
+                            "global_face_count": projection.faces.len(),
+                            "bounded_face_count": projection.faces.iter().filter(|face| face.bounded_face_ref.is_some()).count(),
+                            "exterior_face_count": projection.faces.iter().filter(|face| face.bounded_face_ref.is_none()).count(),
+                            "physical_slot_count": projection.physical_next.len(),
+                            "physical_span_count": projection.physical_twins.len() / 2,
+                            "cycle_edge_count": projection.faces.iter().map(|face| face.physical_slots.len()).sum::<usize>(),
+                            "projected_alias_count": projection.aliases.len(),
+                            "native_exterior_to_bounded_alias_count": projection.aliases.iter().filter(|alias|
+                                alias.bound.native_edge.local_face_is_unbounded && projection.faces[alias.global_face_id].bounded_face_ref.is_some()).count(),
+                            "global_exterior_alias_count": projection.aliases.iter().filter(|alias|
+                                projection.faces[alias.global_face_id].bounded_face_ref.is_none()).count(),
+                            "retained_observation_count": projection.authority.cover.observations.len(),
+                            "retained_raw_record_count": projection.authority.cover.view.raw_payloads.len(),
                         })),
                         "output_selectable": false,
                     }),
