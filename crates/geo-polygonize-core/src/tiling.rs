@@ -1914,6 +1914,18 @@ struct PartitionAliasGlobalFaceProjection<'a> {
     aliases: Vec<PartitionProjectedAlias<'a>>,
 }
 
+struct PartitionComponentEulerContainmentAuthority<'a> {
+    projection: &'a PartitionAliasGlobalFaceProjection<'a>,
+    local_components: Vec<[usize; 2]>,
+    physical_components: Vec<Vec<usize>>,
+    vertex_count: usize,
+    edge_count: usize,
+    euler_characteristic: usize,
+    exterior_face_id: usize,
+    // Parents enclose cycle envelopes, not the open region of the unbounded face.
+    parent_cycle_by_face: Vec<Option<usize>>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -5200,6 +5212,516 @@ fn prove_alias_global_face_projection<'a>(
         physical_twins,
         faces,
         aliases,
+    }))
+}
+
+/// Geometry scratch only: prove a flat hierarchy without applying output touch/filter policy.
+fn prove_flat_face_containment(
+    rings: &[geo::Polygon<f64>],
+    exterior: usize,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<Vec<Option<usize>>>> {
+    use geo::{coordinate_position::CoordPos, dimensions::Dimensions, Relate, Validation};
+    let stage = "partition_component_euler_containment";
+    execution_policy.check_cancelled(stage)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "face containment work count overflow".to_string(),
+    };
+    let mut coordinates = 0usize;
+    let mut ring_items = 0usize;
+    for (index, polygon) in rings.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for ring in std::iter::once(polygon.exterior()).chain(polygon.interiors()) {
+            execution_policy.check_cancelled_every(stage, ring_items)?;
+            ring_items = ring_items.checked_add(1).ok_or_else(overflow)?;
+            coordinates = coordinates.checked_add(ring.0.len()).ok_or_else(overflow)?;
+        }
+    }
+    let work_bound = coordinates
+        .checked_mul(coordinates)
+        .and_then(|count| count.checked_add(ring_items))
+        .ok_or_else(overflow)?;
+    // Relate/Validation cannot poll; cap their complete pair work before entering either.
+    execution_policy.check_uncancellable_sort(stage, work_bound)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, work_bound)?;
+    execution_policy.check(stage, execution_policy.max_output_coordinates, coordinates)?;
+    if rings.len() < 2 || exterior >= rings.len() {
+        return Ok(None);
+    }
+    for polygon in rings {
+        execution_policy.check_cancelled(stage)?;
+        if !polygon.interiors().is_empty()
+            || polygon.exterior().0.len() < 4
+            || polygon
+                .exterior()
+                .0
+                .iter()
+                .any(|point| !point.x.is_finite() || !point.y.is_finite())
+            || !polygon.is_valid()
+        {
+            return Ok(None);
+        }
+        execution_policy.check_cancelled(stage)?;
+    }
+    let mut parents = vec![Some(exterior); rings.len()];
+    parents[exterior] = None;
+    for (a, polygon) in rings.iter().enumerate() {
+        if a == exterior {
+            continue;
+        }
+        execution_policy.check_cancelled(stage)?;
+        if !rings[exterior].relate(polygon).is_contains() {
+            return Ok(None);
+        }
+        execution_policy.check_cancelled(stage)?;
+        for (b, other) in rings.iter().enumerate().skip(a + 1) {
+            if b == exterior {
+                continue;
+            }
+            execution_policy.check_cancelled(stage)?;
+            // shortcut: flat cells only, upgrade with nested/hole cycle authority.
+            if polygon
+                .relate(other)
+                .get(CoordPos::Inside, CoordPos::Inside)
+                != Dimensions::Empty
+            {
+                return Ok(None);
+            }
+            execution_policy.check_cancelled(stage)?;
+        }
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(parents))
+}
+
+/// A partition-local XY node belongs to one native connected component.
+fn partition_component_nodes_consistent(
+    aliases: &[PartitionInputBoundActiveAlias<'_>],
+    execution_policy: &ExecutionPolicy,
+) -> Result<bool> {
+    let stage = "partition_component_euler_containment";
+    execution_policy.check_cancelled(stage)?;
+    let items = aliases.len().checked_mul(2).ok_or_else(|| {
+        PolygonizeError::InternalInvariantViolation {
+            reason: "component node binding work count overflow".to_string(),
+        }
+    })?;
+    execution_policy.check_uncancellable_sort(stage, items)?;
+    let mut owners = BTreeMap::new();
+    for (index, bound) in aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for node in [bound.native_edge.from, bound.native_edge.to] {
+            if owners
+                .insert((bound.alias.partition_id, node), bound.alias.component_id)
+                .is_some_and(|old| old != bound.alias.component_id)
+            {
+                return Ok(false);
+            }
+        }
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(true)
+}
+
+/// Proves the complete active cell complex; raw-family and claim gates remain separate.
+fn prove_component_euler_containment_authority<'a>(
+    projection: &'a PartitionAliasGlobalFaceProjection<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionComponentEulerContainmentAuthority<'a>>> {
+    let stage = "partition_component_euler_containment";
+    execution_policy.check_cancelled(stage)?;
+    let view = projection.authority.cover.view;
+    let count = view.slots.len();
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "component authority work count overflow".to_string(),
+    };
+    let mut retained = count
+        .checked_add(
+            view.active_aliases
+                .len()
+                .checked_mul(2)
+                .ok_or_else(overflow)?,
+        )
+        .ok_or_else(overflow)?;
+    let mut scratch_coordinates = 0usize;
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for amount in [
+            1,
+            bound.alias.source_line_ids.len(),
+            bound.native_edge.source_line_ids.len(),
+            bound.input.segment.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(amount).ok_or_else(overflow)?;
+        }
+    }
+    for (index, face) in projection.faces.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(face.physical_slots.len())
+            .ok_or_else(overflow)?;
+        scratch_coordinates = scratch_coordinates
+            .checked_add(face.physical_slots.len())
+            .and_then(|count| count.checked_add(1))
+            .ok_or_else(overflow)?;
+    }
+    for (index, slot) in view.slots.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(slot.local_aliases.len())
+            .and_then(|items| items.checked_add(slot.physical_edge.source_line_ids.len()))
+            .ok_or_else(overflow)?;
+    }
+    for amount in [
+        projection.aliases.len(),
+        projection.physical_next.len(),
+        projection.physical_twins.len(),
+        projection
+            .authority
+            .cover
+            .seams
+            .len()
+            .checked_mul(4)
+            .ok_or_else(overflow)?,
+    ] {
+        retained = retained.checked_add(amount).ok_or_else(overflow)?;
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    let containment_work = scratch_coordinates
+        .checked_mul(scratch_coordinates)
+        .and_then(|count| count.checked_add(projection.faces.len()))
+        .ok_or_else(overflow)?;
+    execution_policy.check_uncancellable_sort(stage, containment_work)?;
+    let combined_work = retained
+        .checked_add(containment_work)
+        .ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, combined_work)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        view.active_aliases.len(),
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, count)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        scratch_coordinates,
+    )?;
+    if count == 0
+        || projection.faces.is_empty()
+        || projection.physical_next.len() != count
+        || projection.physical_twins.len() != count
+        || projection.aliases.len() != view.active_aliases.len()
+    {
+        return Ok(None);
+    }
+    if !partition_component_nodes_consistent(&view.active_aliases, execution_policy)? {
+        return Ok(None);
+    }
+    let key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.alias.local_dir_edge_id,
+        )
+    };
+    let mut native = BTreeMap::new();
+    let mut component_members = BTreeMap::<_, Vec<_>>::new();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if native.insert(key(bound), bound).is_some() {
+            return Ok(None);
+        }
+        component_members
+            .entry([key(bound).0, key(bound).1])
+            .or_default()
+            .push(key(bound));
+    }
+    let mut projected = BTreeMap::new();
+    let mut global_ids = BTreeSet::new();
+    let mut work = 0;
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let bound = alias.bound;
+        let Some(&original) = native.get(&key(bound)) else {
+            return Ok(None);
+        };
+        let Some(slot) = view.slots.get(alias.physical_slot_id) else {
+            return Ok(None);
+        };
+        if !std::ptr::eq(original, bound)
+            || alias.global_face_id >= projection.faces.len()
+            || slot.physical_edge.from != bound.native_edge.from.xy_bits()
+            || slot.physical_edge.to != bound.native_edge.to.xy_bits()
+            || !global_ids.insert(bound.alias.global_dir_edge_id)
+            || projected.insert(key(bound), alias).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if native.is_empty() || projected.len() != native.len() {
+        return Ok(None);
+    }
+    let mut local_seen = BTreeSet::new();
+    let mut all_markers = BTreeSet::new();
+    let mut component_neighbors = BTreeMap::<_, BTreeSet<_>>::new();
+    for (&component, members) in &component_members {
+        let before = local_seen.len();
+        let mut pending = vec![members[0]];
+        let mut markers = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if !local_seen.insert(id) {
+                continue;
+            }
+            let Some(bound) = native.get(&id) else {
+                return Ok(None);
+            };
+            if [id.0, id.1] != component {
+                return Ok(None);
+            }
+            let Some(face) = bound.native_edge.face_ref else {
+                return Ok(None);
+            };
+            if bound.native_edge.local_face_is_unbounded {
+                markers.insert([face.partition_id, face.component_id, face.face_id]);
+            }
+            let Some(next) = bound.native_edge.local_face_successor else {
+                return Ok(None);
+            };
+            pending.extend([
+                (id.0, id.1, next),
+                (id.0, id.1, bound.native_edge.symmetric_local_dir_edge_id),
+            ]);
+        }
+        if local_seen.len() - before != members.len() || markers.len() != 1 {
+            return Ok(None);
+        }
+        all_markers.extend(markers);
+        component_neighbors.insert(component, BTreeSet::new());
+    }
+    for seam in &projection.authority.cover.seams {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        for bound in seam.bounded_aliases.into_iter().chain(seam.exterior_twins) {
+            if projected
+                .get(&key(bound))
+                .is_none_or(|alias| !std::ptr::eq(alias.bound, bound))
+            {
+                return Ok(None);
+            }
+        }
+        let [a, b] = seam
+            .bounded_aliases
+            .map(|bound| [key(bound).0, key(bound).1]);
+        let Some(neighbors) = component_neighbors.get_mut(&a) else {
+            return Ok(None);
+        };
+        neighbors.insert(b);
+        let Some(neighbors) = component_neighbors.get_mut(&b) else {
+            return Ok(None);
+        };
+        neighbors.insert(a);
+    }
+    let mut reached = BTreeSet::new();
+    let mut pending = vec![
+        *component_members
+            .first_key_value()
+            .expect("nonempty native inventory")
+            .0,
+    ];
+    while let Some(component) = pending.pop() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if reached.insert(component) {
+            pending.extend(&component_neighbors[&component]);
+        }
+    }
+    if reached.len() != component_members.len() {
+        return Ok(None);
+    }
+    let mut face_by_slot = vec![None; count];
+    let mut exterior = None;
+    for (face_id, face) in projection.faces.iter().enumerate() {
+        if face.physical_slots.len() < 3 {
+            return Ok(None);
+        }
+        if face.bounded_face_ref.is_none() && exterior.replace(face_id).is_some() {
+            return Ok(None);
+        }
+        for (index, &slot) in face.physical_slots.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if slot >= count
+                || face_by_slot[slot].replace(face_id).is_some()
+                || projection.physical_next[slot]
+                    != face.physical_slots[(index + 1) % face.physical_slots.len()]
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let Some(exterior_face_id) = exterior else {
+        return Ok(None);
+    };
+    if face_by_slot.iter().any(Option::is_none) {
+        return Ok(None);
+    }
+    let mut exterior_markers = BTreeSet::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if face_by_slot[alias.physical_slot_id] != Some(alias.global_face_id) {
+            return Ok(None);
+        }
+        let Some(face) = alias.bound.native_edge.face_ref else {
+            return Ok(None);
+        };
+        let qualified = [face.partition_id, face.component_id, face.face_id];
+        if !alias.bound.native_edge.local_face_is_unbounded {
+            if projection.faces[alias.global_face_id].bounded_face_ref != Some(qualified) {
+                return Ok(None);
+            }
+        } else if alias.global_face_id == exterior_face_id {
+            exterior_markers.insert(qualified);
+        }
+    }
+    if exterior_markers != all_markers || exterior_markers != projection.authority.exterior_markers
+    {
+        return Ok(None);
+    }
+    let domain_slots = projection
+        .authority
+        .exterior_cycle
+        .iter()
+        .map(|bound| {
+            projected
+                .get(&key(bound))
+                .map(|alias| alias.physical_slot_id)
+        })
+        .collect::<Option<BTreeSet<_>>>();
+    if domain_slots
+        != Some(
+            projection.faces[exterior_face_id]
+                .physical_slots
+                .iter()
+                .copied()
+                .collect(),
+        )
+    {
+        return Ok(None);
+    }
+    let mut stars = BTreeMap::<_, Vec<_>>::new();
+    let mut edges = BTreeSet::new();
+    for (slot, record) in view.slots.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let twin = projection.physical_twins[slot];
+        let next = projection.physical_next[slot];
+        if twin >= count || twin == slot || next >= count || projection.physical_twins[twin] != slot
+        {
+            return Ok(None);
+        }
+        let edge = record.physical_edge;
+        let opposite = view.slots[twin].physical_edge;
+        if edge.from != opposite.to
+            || edge.to != opposite.from
+            || edge.to != view.slots[next].physical_edge.from
+        {
+            return Ok(None);
+        }
+        edges.insert([slot.min(twin), slot.max(twin)]);
+        stars.entry(edge.from).or_default().push(slot);
+    }
+    let xy = |bits: [u64; 2]| Coord {
+        x: f64::from_bits(bits[0]),
+        y: f64::from_bits(bits[1]),
+    };
+    for (&node, outgoing) in &mut stars {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        outgoing.sort_by(|&a, &b| {
+            crate::utils::compare_angular(
+                xy(node),
+                xy(view.slots[a].physical_edge.to),
+                xy(view.slots[b].physical_edge.to),
+            )
+        });
+        for (index, &slot) in outgoing.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if projection.physical_next[projection.physical_twins[slot]]
+                != outgoing[(index + outgoing.len() - 1) % outgoing.len()]
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut physical_seen = vec![false; count];
+    let mut physical_components = Vec::new();
+    for start in 0..count {
+        if physical_seen[start] {
+            continue;
+        }
+        let mut members = Vec::new();
+        let mut pending = vec![start];
+        while let Some(slot) = pending.pop() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if std::mem::replace(&mut physical_seen[slot], true) {
+                continue;
+            }
+            members.push(slot);
+            pending.extend([
+                projection.physical_next[slot],
+                projection.physical_twins[slot],
+            ]);
+        }
+        physical_components.push(members);
+    }
+    // shortcut: one connected flat arrangement, upgrade with containment-aware disconnected faces.
+    if physical_components.len() != 1 {
+        return Ok(None);
+    }
+    let vertex_count = stars.len();
+    let edge_count = edges.len();
+    let euler_characteristic = vertex_count
+        .checked_add(projection.faces.len())
+        .ok_or_else(overflow)?
+        .checked_sub(edge_count);
+    if euler_characteristic != Some(2) {
+        return Ok(None);
+    }
+    let mut rings = Vec::new();
+    for face in &projection.faces {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let mut points = Vec::new();
+        for &slot in &face.physical_slots {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            points.push(xy(view.slots[slot].physical_edge.from));
+        }
+        points.push(points[0]);
+        rings.push(geo::Polygon::new(LineString::new(points), vec![]));
+    }
+    let Some(parent_cycle_by_face) =
+        prove_flat_face_containment(&rings, exterior_face_id, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionComponentEulerContainmentAuthority {
+        projection,
+        local_components: reached.into_iter().collect(),
+        physical_components,
+        vertex_count,
+        edge_count,
+        euler_characteristic: 2,
+        exterior_face_id,
+        parent_cycle_by_face,
     }))
 }
 
@@ -9910,6 +10432,13 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let component_authority = alias_face_projection
+                .as_ref()
+                .map(|projection| {
+                    prove_component_euler_containment_authority(projection, &self.execution_policy)
+                })
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -9992,6 +10521,30 @@ impl<'a> TiledPolygonizer<'a> {
                                 projection.faces[alias.global_face_id].bounded_face_ref.is_none()).count(),
                             "retained_observation_count": projection.authority.cover.observations.len(),
                             "retained_raw_record_count": projection.authority.cover.view.raw_payloads.len(),
+                        })),
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_component_euler_containment_authority",
+                    serde_json::json!({
+                        "proven": component_authority.is_some(),
+                        "authority": component_authority.as_ref().map(|authority| serde_json::json!({
+                            "qualified_local_component_count": authority.local_components.len(),
+                            "physical_component_count": authority.physical_components.len(),
+                            "component_physical_slot_count": authority.physical_components.iter().map(Vec::len).sum::<usize>(),
+                            "vertex_count": authority.vertex_count,
+                            "edge_count": authority.edge_count,
+                            "face_count": authority.projection.faces.len(),
+                            "euler_lhs": authority.euler_characteristic,
+                            "euler_rhs": 1 + authority.physical_components.len(),
+                            "exterior_face_id": authority.exterior_face_id,
+                            "containment_root_cycle_count": authority.parent_cycle_by_face.iter().filter(|parent| parent.is_none()).count(),
+                            "bounded_cell_count": authority.parent_cycle_by_face.iter().filter(|parent| parent.is_some()).count(),
+                            "retained_alias_count": authority.projection.aliases.len(),
+                            "retained_observation_count": authority.projection.authority.cover.observations.len(),
+                            "retained_raw_record_count": authority.projection.authority.cover.view.raw_payloads.len(),
                         })),
                         "output_selectable": false,
                     }),
