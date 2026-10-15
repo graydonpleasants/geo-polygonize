@@ -1933,6 +1933,45 @@ struct PartitionAliasGlobalFaceProjection<'a> {
     aliases: Vec<PartitionProjectedAlias<'a>>,
 }
 
+#[allow(dead_code)] // Exact side/alias IDs remain borrowed for a future checked consumer.
+struct PartitionWholeObservationSide<'a> {
+    physical_slot_id: usize,
+    global_face_id: usize,
+    aliases: Vec<&'a PartitionProjectedAlias<'a>>,
+}
+
+#[allow(dead_code)] // Retain complete native and actual-core ownership receipts, not selected pairs.
+enum PartitionWholeObservationRole<'a> {
+    Domain {
+        boundary: &'a PartitionDomainBoundarySegment<'a>,
+        core: &'a PartitionSnapshotV1,
+        observations: [&'a PartitionBoundOriginalObservation<'a>; 2],
+    },
+    Seam {
+        seam: &'a PartitionNativeTwinSeam<'a>,
+        cores: [&'a PartitionSnapshotV1; 2],
+        sides: [PartitionBorderSide; 2],
+        observations: [&'a PartitionBoundOriginalObservation<'a>; 4],
+    },
+}
+
+#[allow(dead_code)] // Keep the entire original bucket/source row alongside its typed role.
+struct PartitionWholeObservationGroup<'a> {
+    original_bucket: (
+        &'a PartitionBorderEdgeKey,
+        &'a BTreeSet<PartitionBorderHalfEdge>,
+    ),
+    segment: &'a PartitionNodedSegmentV1,
+    role: PartitionWholeObservationRole<'a>,
+    physical_sides: [PartitionWholeObservationSide<'a>; 2],
+}
+
+struct PartitionWholeObservationRoleAuthority<'a> {
+    binding: &'a PartitionOriginalObservationBinding<'a>,
+    projection: &'a PartitionAliasGlobalFaceProjection<'a>,
+    groups: Vec<PartitionWholeObservationGroup<'a>>,
+}
+
 struct PartitionComponentEulerContainmentAuthority<'a> {
     projection: &'a PartitionAliasGlobalFaceProjection<'a>,
     local_components: Vec<[usize; 2]>,
@@ -4353,6 +4392,542 @@ fn bind_original_graph_observations<'a>(
         mosaic,
         records,
         buckets,
+    }))
+}
+
+/// Certify whole observed groups without changing legacy claim or family consumers.
+fn prove_whole_observation_roles<'a>(
+    binding: &'a PartitionOriginalObservationBinding<'a>,
+    projection: &'a PartitionAliasGlobalFaceProjection<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionWholeObservationRoleAuthority<'a>>> {
+    let stage = "partition_whole_observation_roles";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(binding.mosaic, execution_policy)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "whole observation role work count overflow".to_string(),
+    };
+    let mut retained = binding.buckets.len();
+    let mut work = 0usize;
+    let mut add = |count: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        retained = retained.checked_add(count).ok_or_else(overflow)?;
+        Ok(())
+    };
+    for record in &binding.records {
+        for count in [
+            1,
+            record.snapshot.source_line_ids.len(),
+            record.graph.source_line_ids.len(),
+            record.bucket.source_line_ids.len(),
+            record.native.native_edge.source_line_ids.len(),
+            record.native.input.segment.source_line_ids.len(),
+        ] {
+            add(count)?;
+        }
+    }
+    for (_, bucket) in &binding.buckets {
+        add(bucket.len())?;
+    }
+    for alias in &projection.aliases {
+        add(1)?;
+        add(alias.bound.input.segment.source_line_ids.len())?;
+        add(alias.bound.native_edge.source_line_ids.len())?;
+        add(alias.bound.alias.source_line_ids.len())?;
+    }
+    add(projection.authority.exterior_cycle.len())?;
+    add(projection.physical_next.len())?;
+    add(projection.physical_twins.len())?;
+    for face in &projection.faces {
+        add(1)?;
+        add(face.physical_slots.len())?;
+    }
+    for boundary in &projection.authority.boundary_segments {
+        add(1)?;
+        add(boundary.segment.source_line_ids.len())?;
+        for observation in boundary.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for seam in &projection.authority.cover.seams {
+        add(1)?;
+        add(seam.segment.source_line_ids.len())?;
+        for observation in seam.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    // Includes temporary parent revalidation receipts and all retained source memberships.
+    execution_policy.check(
+        stage,
+        execution_policy.max_candidate_pairs,
+        retained.checked_mul(8).ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, retained)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        retained.checked_mul(2).ok_or_else(overflow)?,
+    )?;
+    if !std::ptr::eq(binding.cover, projection.authority.cover) {
+        return Ok(None);
+    }
+    let Some(rebound) = bind_original_graph_observations(
+        binding.cover,
+        binding.graph,
+        binding.mosaic,
+        execution_policy,
+    )?
+    else {
+        return Ok(None);
+    };
+    let mut records = BTreeMap::new();
+    for record in &binding.records {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if records
+            .insert(record.snapshot.observation_id, record)
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if records.len() != rebound.records.len() {
+        return Ok(None);
+    }
+    for fresh in &rebound.records {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(record) = records.get(&fresh.snapshot.observation_id) else {
+            return Ok(None);
+        };
+        if !std::ptr::eq(record.snapshot, fresh.snapshot)
+            || !std::ptr::eq(record.graph, fresh.graph)
+            || !std::ptr::eq(record.bucket, fresh.bucket)
+            || !std::ptr::eq(record.native, fresh.native)
+        {
+            return Ok(None);
+        }
+    }
+    let mut buckets = BTreeMap::new();
+    for &(span, bucket) in &binding.buckets {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if buckets.insert(*span, (span, bucket)).is_some() {
+            return Ok(None);
+        }
+    }
+    if buckets.len() != rebound.buckets.len() {
+        return Ok(None);
+    }
+    for &(span, bucket) in &rebound.buckets {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if buckets.get(span).is_none_or(|(old_span, old_bucket)| {
+            !std::ptr::eq(*old_span, span) || !std::ptr::eq(*old_bucket, bucket)
+        }) {
+            return Ok(None);
+        }
+    }
+    let Some(reprojected) =
+        prove_alias_global_face_projection(projection.authority, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    if projection.physical_next != reprojected.physical_next
+        || projection.physical_twins != reprojected.physical_twins
+        || projection.faces.len() != reprojected.faces.len()
+        || projection
+            .faces
+            .iter()
+            .zip(&reprojected.faces)
+            .any(|(a, b)| {
+                a.physical_slots != b.physical_slots || a.bounded_face_ref != b.bounded_face_ref
+            })
+    {
+        return Ok(None);
+    }
+    let native_key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.native_edge.local_dir_edge_id,
+        )
+    };
+    let mut projected = BTreeMap::new();
+    let mut by_span = BTreeMap::<_, Vec<_>>::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if projected.insert(native_key(alias.bound), alias).is_some() {
+            return Ok(None);
+        }
+        by_span
+            .entry(alias.bound.native_edge.edge_key)
+            .or_default()
+            .push(alias);
+    }
+    if projected.len() != reprojected.aliases.len() {
+        return Ok(None);
+    }
+    for fresh in &reprojected.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if projected.get(&native_key(fresh.bound)).is_none_or(|alias| {
+            !std::ptr::eq(alias.bound, fresh.bound)
+                || alias.physical_slot_id != fresh.physical_slot_id
+                || alias.global_face_id != fresh.global_face_id
+        }) {
+            return Ok(None);
+        }
+    }
+    let mut cores = Vec::new();
+    for (&partition, snapshot) in &binding.mosaic.partitions {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let min = prepared_non_polygon_coordinate(&snapshot.tile_min)?;
+        let max = prepared_non_polygon_coordinate(&snapshot.tile_max)?;
+        if partition != cores.len()
+            || ![min.x, min.y, max.x, max.y].iter().all(|v| v.is_finite())
+            || min.x >= max.x
+            || min.y >= max.y
+        {
+            return Ok(None);
+        }
+        cores.push(Rect::new(min.to_coord_2d(), max.to_coord_2d()));
+    }
+    let mut domain_exterior_members = BTreeSet::new();
+    for bound in &projection.authority.exterior_cycle {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let key = native_key(bound);
+        if projected
+            .get(&key)
+            .is_none_or(|alias| !std::ptr::eq(alias.bound, *bound))
+            || !domain_exterior_members.insert(key)
+        {
+            return Ok(None);
+        }
+    }
+    let mut domain = BTreeMap::new();
+    for boundary in &projection.authority.boundary_segments {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if domain
+            .insert(boundary.bounded_alias.native_edge.edge_key, boundary)
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut seams = BTreeMap::new();
+    for seam in &binding.cover.seams {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let span = seam.bounded_aliases[0].native_edge.edge_key;
+        if domain.contains_key(&span) || seams.insert(span, seam).is_some() {
+            return Ok(None);
+        }
+    }
+    if domain.len().checked_add(seams.len()).ok_or_else(overflow)? != buckets.len() {
+        return Ok(None);
+    }
+    let twins = |inside: &PartitionInputBoundActiveAlias<'_>,
+                 outside: &PartitionInputBoundActiveAlias<'_>| {
+        let (a, b) = (inside.native_edge, outside.native_edge);
+        inside.alias.partition_id == outside.alias.partition_id
+            && inside.alias.component_id == outside.alias.component_id
+            && !a.local_face_is_unbounded
+            && b.local_face_is_unbounded
+            && a.symmetric_local_dir_edge_id == b.local_dir_edge_id
+            && b.symmetric_local_dir_edge_id == a.local_dir_edge_id
+            && a.from == b.to
+            && a.to == b.from
+            && a.from_z_bits == b.to_z_bits
+            && a.to_z_bits == b.from_z_bits
+            && a.source_line_ids == b.source_line_ids
+            && std::ptr::eq(inside.input.segment, outside.input.segment)
+    };
+    let row_for = |observation: &PartitionAtomicObservationV1| {
+        records
+            .get(&observation.observation_id)
+            .copied()
+            .filter(|record| std::ptr::eq(record.snapshot, observation))
+    };
+    let sides = [
+        PartitionBorderSide::MinX,
+        PartitionBorderSide::MaxX,
+        PartitionBorderSide::MinY,
+        PartitionBorderSide::MaxY,
+    ];
+    let mut groups = Vec::new();
+    let mut consumed = BTreeSet::new();
+    for (&span, &original_bucket) in &buckets {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(aliases) = by_span.get(&span) else {
+            return Ok(None);
+        };
+        // Count whole buckets and whole alias groups before consulting roles or lineage.
+        if aliases.len() != original_bucket.1.len() {
+            return Ok(None);
+        }
+        let mut physical = BTreeMap::<_, Vec<_>>::new();
+        for &alias in aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            physical
+                .entry(alias.physical_slot_id)
+                .or_default()
+                .push(alias);
+        }
+        let mut physical_sides = Vec::new();
+        for (slot, aliases) in physical {
+            let face = aliases[0].global_face_id;
+            if aliases.iter().any(|alias| alias.global_face_id != face) {
+                return Ok(None);
+            }
+            physical_sides.push(PartitionWholeObservationSide {
+                physical_slot_id: slot,
+                global_face_id: face,
+                aliases,
+            });
+        }
+        let Ok(physical_sides): std::result::Result<[_; 2], _> = physical_sides.try_into() else {
+            return Ok(None);
+        };
+        let [a, b] = &physical_sides;
+        if a.global_face_id == b.global_face_id
+            || projection.physical_twins.get(a.physical_slot_id) != Some(&b.physical_slot_id)
+            || projection.physical_twins.get(b.physical_slot_id) != Some(&a.physical_slot_id)
+        {
+            return Ok(None);
+        }
+        let (segment, role, expected) = if let Some(&boundary) = domain.get(&span) {
+            if aliases.len() != 2
+                || original_bucket.1.len() != 2
+                || !twins(boundary.bounded_alias, boundary.exterior_twin)
+            {
+                return Ok(None);
+            }
+            let (Some(inside), Some(outside)) = (
+                row_for(boundary.observations[0]),
+                row_for(boundary.observations[1]),
+            ) else {
+                return Ok(None);
+            };
+            if !std::ptr::eq(inside.native, boundary.bounded_alias)
+                || !std::ptr::eq(outside.native, boundary.exterior_twin)
+            {
+                return Ok(None);
+            }
+            let partition = inside.graph.partition_id;
+            let Some(core) = binding.mosaic.partitions.get(&partition) else {
+                return Ok(None);
+            };
+            let Some(side) = sides.iter().copied().find(|side| {
+                side.contains_edge(
+                    inside.native.native_edge.from,
+                    inside.native.native_edge.to,
+                    binding.cover.domain,
+                )
+            }) else {
+                return Ok(None);
+            };
+            if inside.graph.side != side
+                || outside.graph.side != side
+                || !side.contains_edge(
+                    inside.native.native_edge.from,
+                    inside.native.native_edge.to,
+                    cores[partition],
+                )
+                || !domain_exterior_members.contains(&native_key(outside.native))
+            {
+                return Ok(None);
+            }
+            let edge = inside.native.native_edge;
+            let [from, to] = [
+                edge.from.xy_bits().map(f64::from_bits),
+                edge.to.xy_bits().map(f64::from_bits),
+            ];
+            let inward = match side {
+                PartitionBorderSide::MinX => to[1] < from[1],
+                PartitionBorderSide::MaxX => to[1] > from[1],
+                PartitionBorderSide::MinY => to[0] > from[0],
+                PartitionBorderSide::MaxY => to[0] < from[0],
+            };
+            if !inward {
+                return Ok(None);
+            }
+            (
+                boundary.segment,
+                PartitionWholeObservationRole::Domain {
+                    boundary,
+                    core,
+                    observations: [inside, outside],
+                },
+                vec![inside, outside],
+            )
+        } else if let Some(&seam) = seams.get(&span) {
+            if aliases.len() != 4
+                || original_bucket.1.len() != 4
+                || !twins(seam.bounded_aliases[0], seam.exterior_twins[0])
+                || !twins(seam.bounded_aliases[1], seam.exterior_twins[1])
+            {
+                return Ok(None);
+            }
+            let [a, b] = seam.partition_ids;
+            let (Some(first), Some(second)) = (
+                binding.mosaic.partitions.get(&a),
+                binding.mosaic.partitions.get(&b),
+            ) else {
+                return Ok(None);
+            };
+            if a >= b || !non_polygon_owners_share_side(a, b, binding.mosaic, &cores) {
+                return Ok(None);
+            }
+            let Some((first_side, second_side, _)) =
+                partition_adjacency_descriptor(cores[a], cores[b])
+            else {
+                return Ok(None);
+            };
+            let expected_native = [
+                seam.bounded_aliases[0],
+                seam.exterior_twins[0],
+                seam.bounded_aliases[1],
+                seam.exterior_twins[1],
+            ];
+            let mut rows = Vec::new();
+            for (index, observation) in seam.observations.iter().enumerate() {
+                let Some(record) = row_for(observation) else {
+                    return Ok(None);
+                };
+                let (partition, side) = if index < 2 {
+                    (a, first_side)
+                } else {
+                    (b, second_side)
+                };
+                if !std::ptr::eq(record.native, expected_native[index])
+                    || record.graph.partition_id != partition
+                    || record.graph.side != side
+                    || !side.contains_edge(
+                        record.native.native_edge.from,
+                        record.native.native_edge.to,
+                        cores[partition],
+                    )
+                {
+                    return Ok(None);
+                }
+                rows.push(record);
+            }
+            let left = seam.bounded_aliases[0].native_edge;
+            let right = seam.bounded_aliases[1].native_edge;
+            if left.from != right.to
+                || left.to != right.from
+                || left.from_z_bits != right.to_z_bits
+                || left.to_z_bits != right.from_z_bits
+            {
+                return Ok(None);
+            }
+            let Ok(observations) = rows.clone().try_into() else {
+                return Ok(None);
+            };
+            (
+                seam.segment,
+                PartitionWholeObservationRole::Seam {
+                    seam,
+                    cores: [first, second],
+                    sides: [first_side, second_side],
+                    observations,
+                },
+                rows,
+            )
+        } else {
+            return Ok(None);
+        };
+        let mut expected_native = BTreeSet::new();
+        for record in expected {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if record.graph.edge_key != span
+                || !std::ptr::eq(record.native.input.segment, segment)
+                || !original_bucket
+                    .1
+                    .iter()
+                    .any(|observation| std::ptr::eq(observation, record.bucket))
+                || !expected_native.insert(native_key(record.native))
+                || !consumed.insert(record.snapshot.observation_id)
+            {
+                return Ok(None);
+            }
+        }
+        if aliases.iter().any(|alias| {
+            !expected_native.contains(&native_key(alias.bound))
+                || !std::ptr::eq(alias.bound.input.segment, segment)
+        }) {
+            return Ok(None);
+        }
+        for side in &physical_sides {
+            let face = &projection.faces[side.global_face_id];
+            let bounded = side
+                .aliases
+                .iter()
+                .filter(|alias| !alias.bound.native_edge.local_face_is_unbounded)
+                .collect::<Vec<_>>();
+            match &role {
+                PartitionWholeObservationRole::Domain { .. } => {
+                    if side.aliases.len() != 1 {
+                        return Ok(None);
+                    }
+                    let alias = side.aliases[0];
+                    if alias.bound.native_edge.local_face_is_unbounded {
+                        if face.bounded_face_ref.is_some() {
+                            return Ok(None);
+                        }
+                    } else if face.bounded_face_ref
+                        != alias
+                            .bound
+                            .native_edge
+                            .face_ref
+                            .map(|face| [face.partition_id, face.component_id, face.face_id])
+                    {
+                        return Ok(None);
+                    }
+                }
+                PartitionWholeObservationRole::Seam { .. } => {
+                    if side.aliases.len() != 2
+                        || bounded.len() != 1
+                        || side.aliases[0].bound.alias.partition_id
+                            == side.aliases[1].bound.alias.partition_id
+                        || face.bounded_face_ref
+                            != bounded[0]
+                                .bound
+                                .native_edge
+                                .face_ref
+                                .map(|face| [face.partition_id, face.component_id, face.face_id])
+                    {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        groups.push(PartitionWholeObservationGroup {
+            original_bucket,
+            segment,
+            role,
+            physical_sides,
+        });
+    }
+    if consumed.len() != records.len() {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionWholeObservationRoleAuthority {
+        binding,
+        projection,
+        groups,
     }))
 }
 
@@ -11398,6 +11973,12 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let whole_observation_roles = match (&observation_binding, &alias_face_projection) {
+                (Some(binding), Some(projection)) => {
+                    prove_whole_observation_roles(binding, projection, &self.execution_policy)?
+                }
+                _ => None,
+            };
             let isolated_dangle_complement = component_authority
                 .as_ref()
                 .map(|authority| {
@@ -11584,6 +12165,27 @@ impl<'a> TiledPolygonizer<'a> {
                             "retained_raw_record_count": binding.cover.view.raw_payloads.len(),
                         })),
                         "roles_classified": false,
+                        "claim_consumption_ready": false,
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_whole_observation_roles",
+                    serde_json::json!({
+                        "proven": whole_observation_roles.is_some(),
+                        "authority": whole_observation_roles.as_ref().map(|authority| serde_json::json!({
+                            "whole_group_count": authority.groups.len(),
+                            "domain_pair_count": authority.groups.iter().filter(|group| matches!(group.role,PartitionWholeObservationRole::Domain{..})).count(),
+                            "seam_quartet_count": authority.groups.iter().filter(|group| matches!(group.role,PartitionWholeObservationRole::Seam{..})).count(),
+                            "retained_observation_count": authority.binding.records.len(),
+                            "role_alias_count": authority.groups.iter().flat_map(|group|&group.physical_sides).map(|side|side.aliases.len()).sum::<usize>(),
+                            "physical_side_count": authority.groups.len()*2,
+                            "global_exterior_side_count": authority.groups.iter().flat_map(|group|&group.physical_sides).filter(|side|authority.projection.faces[side.global_face_id].bounded_face_ref.is_none()).count(),
+                            "retained_native_alias_count": authority.binding.cover.view.active_aliases.len(),
+                            "retained_raw_record_count": authority.binding.cover.view.raw_payloads.len(),
+                        })),
+                        "raw_families_classified": false,
                         "claim_consumption_ready": false,
                         "output_selectable": false,
                     }),
