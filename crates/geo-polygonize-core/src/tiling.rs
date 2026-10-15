@@ -1946,6 +1946,34 @@ struct PartitionOriginalInputActiveIncidenceCover<'a> {
     raw_records: Vec<PartitionRawRecordActiveIncidence<'a>>,
 }
 
+struct PartitionIsolatedOriginalDangle<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    original: &'a PartitionNodedSegment,
+    owner_partition_id: usize,
+    local_segment_alias: [usize; 2],
+    endpoint_degrees: [usize; 2],
+}
+
+#[allow(dead_code)] // Exact physical/source step IDs remain for a future checked consumer.
+enum PartitionRawRecordComplementEvidence {
+    Active { physical_slot_id: usize },
+    IsolatedDangle { dangle_index: usize },
+}
+
+struct PartitionRawRecordComplement<'a> {
+    raw: &'a PartitionInputBoundRawPayload<'a>,
+    evidence: PartitionRawRecordComplementEvidence,
+}
+
+/// Source/ownership/one-edge-walk evidence; no existing family gate consumes it.
+struct PartitionOriginalIsolatedDangleComplement<'a> {
+    authority: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    mosaic: &'a PartitionMosaic,
+    active_segments: Vec<&'a PartitionNodedSegmentV1>,
+    dangles: Vec<PartitionIsolatedOriginalDangle<'a>>,
+    raw_records: Vec<PartitionRawRecordComplement<'a>>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -6020,6 +6048,358 @@ fn prove_original_input_active_incidence<'a>(
     Ok(Some(PartitionOriginalInputActiveIncidenceCover {
         authority,
         spans,
+        raw_records,
+    }))
+}
+
+/// Prove only raw-only isolated original edges, independently of reference families.
+fn prove_original_isolated_dangle_complement<'a>(
+    authority: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    mosaic: &'a PartitionMosaic,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionOriginalIsolatedDangleComplement<'a>>> {
+    let stage = "partition_original_isolated_dangle_complement";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let projection = authority.projection;
+    let view = projection.authority.cover.view;
+    let prepared = view.prepared;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "isolated original dangle work count overflow".to_string(),
+    };
+    let mut retained = prepared.source_segments.len();
+    let mut coordinates = prepared.aliases.len().checked_mul(2).ok_or_else(overflow)?;
+    for (index, (segment, locals)) in prepared.aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [1, segment.source_line_ids.len(), locals.len()] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for (index, original) in prepared.noded_segments.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(1)
+            .and_then(|n| n.checked_add(original.source_line_ids.len()))
+            .ok_or_else(overflow)?;
+    }
+    for (index, alias) in projection.aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            1,
+            alias.bound.alias.source_line_ids.len(),
+            alias.bound.native_edge.source_line_ids.len(),
+            alias.bound.input.segment.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for (index, ((_, bits), locals)) in prepared.local_payloads.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(bits.len())
+            .and_then(|n| n.checked_add(locals.len()))
+            .ok_or_else(overflow)?;
+    }
+    for (index, raw) in view.raw_payloads.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        coordinates = coordinates
+            .checked_add(raw.payload.coordinate_bits.len())
+            .ok_or_else(overflow)?;
+        for count in [1, raw.payload.coordinate_bits.len(), raw.segments.len()] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+        for (index, input) in raw.segments.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, index)?;
+            retained = retained
+                .checked_add(input.segment.source_line_ids.len())
+                .ok_or_else(overflow)?;
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    let owner_work = prepared
+        .aliases
+        .len()
+        .checked_mul(mosaic.partitions.len())
+        .and_then(|n| n.checked_mul(2))
+        .ok_or_else(overflow)?;
+    let work_bound = view
+        .raw_payloads
+        .len()
+        .checked_mul(4)
+        .and_then(|n| n.checked_add(owner_work))
+        .and_then(|n| n.checked_add(retained))
+        .ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, work_bound)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        projection
+            .aliases
+            .len()
+            .checked_add(prepared.aliases.len())
+            .ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_nodes,
+        prepared.aliases.len().checked_mul(2).ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(stage, execution_policy.max_output_coordinates, coordinates)?;
+    if prepared.aliases.is_empty()
+        || prepared.snapshot_fingerprints.len() != mosaic.partitions.len()
+    {
+        return Ok(None);
+    }
+    let mut cores = Vec::new();
+    let mut work = 0;
+    for (partition, fingerprint) in &prepared.snapshot_fingerprints {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(snapshot) = mosaic.partitions.get(partition) else {
+            return Ok(None);
+        };
+        if snapshot.fingerprint_sha256() != *fingerprint {
+            return Ok(None);
+        }
+        let min = prepared_non_polygon_coordinate(&snapshot.tile_min)?;
+        let max = prepared_non_polygon_coordinate(&snapshot.tile_max)?;
+        if ![min.x, min.y, max.x, max.y].iter().all(|v| v.is_finite())
+            || min.x >= max.x
+            || min.y >= max.y
+        {
+            return Ok(None);
+        }
+        cores.push((*partition, min, max));
+    }
+    let key = |segment: &PartitionNodedSegmentV1| -> Result<Option<PartitionBorderEdgeKey>> {
+        Ok(PartitionBorderEdgeKey::new(
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.start)?),
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.end)?),
+        ))
+    };
+    let mut source = BTreeMap::new();
+    let mut local_rows = BTreeMap::new();
+    let mut incident = BTreeMap::<_, BTreeSet<_>>::new();
+    for (segment, locals) in &prepared.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(span) = key(segment)? else {
+            return Ok(None);
+        };
+        // One full original row per planar edge; never select one XYZ/source variant.
+        if source.insert(span, segment).is_some() {
+            return Ok(None);
+        }
+        let (from, to) = span.endpoints();
+        for node in [from, to] {
+            incident.entry(node).or_default().insert(span);
+        }
+        for &local in locals {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if local_rows.insert(local, segment).is_some() {
+                return Ok(None);
+            }
+        }
+    }
+    let mut originals = BTreeMap::new();
+    for original in &prepared.noded_segments {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let metadata = partition_noded_segments(std::slice::from_ref(original))?;
+        let Some(row) = metadata.first() else {
+            return Ok(None);
+        };
+        let Some(span) = key(row)? else {
+            return Ok(None);
+        };
+        if source.get(&span) != Some(&row) || originals.insert(span, original).is_some() {
+            return Ok(None);
+        }
+    }
+    if originals.len() != source.len() {
+        return Ok(None);
+    }
+    let mut active = BTreeMap::<_, Vec<_>>::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let span = alias.bound.native_edge.edge_key;
+        if source.get(&span) != Some(&alias.bound.input.segment) {
+            return Ok(None);
+        }
+        active.entry(span).or_default().push(alias);
+    }
+    for aliases in active.values() {
+        if !matches!(aliases.len(), 2 | 4) {
+            return Ok(None);
+        }
+        let mut sides = BTreeMap::new();
+        for alias in aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if sides
+                .insert(alias.physical_slot_id, alias.global_face_id)
+                .is_some_and(|old| old != alias.global_face_id)
+            {
+                return Ok(None);
+            }
+        }
+        let pair = sides.into_iter().collect::<Vec<_>>();
+        if pair.len() != 2
+            || pair[0].1 == pair[1].1
+            || projection.physical_twins.get(pair[0].0) != Some(&pair[1].0)
+            || projection.physical_twins.get(pair[1].0) != Some(&pair[0].0)
+        {
+            return Ok(None);
+        }
+    }
+    let mut active_segments = Vec::new();
+    let mut dangles = Vec::new();
+    let mut dangle_by_span = BTreeMap::new();
+    for (&span, &segment) in &source {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if active.contains_key(&span) {
+            active_segments.push(segment);
+            continue;
+        }
+        let (from, to) = span.endpoints();
+        let endpoint_degrees = [incident[&from].len(), incident[&to].len()];
+        // shortcut: isolated one-edge components, upgrade with complete original leaf-pruning walks.
+        if endpoint_degrees != [1, 1] {
+            return Ok(None);
+        }
+        let endpoints = [
+            prepared_non_polygon_coordinate(&segment.start)?,
+            prepared_non_polygon_coordinate(&segment.end)?,
+        ];
+        let mut owners = Vec::new();
+        for &(partition, min, max) in &cores {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if endpoints.iter().all(|point| {
+                point.x > min.x && point.x < max.x && point.y > min.y && point.y < max.y
+            }) {
+                owners.push(partition);
+            }
+        }
+        let [owner_partition_id] = owners.as_slice() else {
+            return Ok(None);
+        };
+        let [local_segment_alias] = prepared.aliases[segment].as_slice() else {
+            return Ok(None);
+        };
+        if local_segment_alias[0] != *owner_partition_id {
+            return Ok(None);
+        }
+        dangle_by_span.insert(span, dangles.len());
+        dangles.push(PartitionIsolatedOriginalDangle {
+            segment,
+            original: originals[&span],
+            owner_partition_id: *owner_partition_id,
+            local_segment_alias: *local_segment_alias,
+            endpoint_degrees,
+        });
+    }
+    let mut expected_raw = BTreeMap::new();
+    for ((kind, bits), locals) in &prepared.local_payloads {
+        for &[partition, index] in locals {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if expected_raw
+                .insert((partition, *kind, index), bits.as_slice())
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    if expected_raw.len() != view.raw_payloads.len() {
+        return Ok(None);
+    }
+    let mut seen = BTreeSet::new();
+    let mut isolated_records = vec![0usize; dangles.len()];
+    let mut raw_records = Vec::new();
+    for raw in &view.raw_payloads {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let identity = (
+            raw.payload.partition_id,
+            raw.payload.kind,
+            raw.family_local_record_index,
+        );
+        // A complete one-edge record walk only; other raw shapes/families are not filtered away.
+        if raw.payload.kind != PartitionBorderGlobalNonPolygonPayloadKind::Dangle
+            || raw.payload.coordinate_bits.len() != 2
+            || raw.segments.len() != 1
+            || !seen.insert(identity)
+            || expected_raw.get(&identity) != Some(&raw.payload.coordinate_bits.as_slice())
+        {
+            return Ok(None);
+        }
+        let input = &raw.segments[0];
+        if input.local_segment_alias[0] != raw.payload.partition_id
+            || local_rows.get(&input.local_segment_alias) != Some(&input.segment)
+        {
+            return Ok(None);
+        }
+        let Some(span) = key(input.segment)? else {
+            return Ok(None);
+        };
+        let pair = &raw.payload.coordinate_bits;
+        let from = PartitionBorderNodeKey::from_coord(coord3d_from_bits(pair[0]));
+        let to = PartitionBorderNodeKey::from_coord(coord3d_from_bits(pair[1]));
+        let evidence = if let Some(aliases) = active.get(&span) {
+            let Some(alias) = aliases.iter().find(|alias| {
+                let edge = alias.bound.native_edge;
+                edge.from == from
+                    && edge.to == to
+                    && edge.from_z_bits == pair[0][2]
+                    && edge.to_z_bits == pair[1][2]
+            }) else {
+                return Ok(None);
+            };
+            PartitionRawRecordComplementEvidence::Active {
+                physical_slot_id: alias.physical_slot_id,
+            }
+        } else {
+            let Some(&dangle_index) = dangle_by_span.get(&span) else {
+                return Ok(None);
+            };
+            let dangle = &dangles[dangle_index];
+            let line = dangle.original.line;
+            let a = PartitionBorderNodeKey::from_coord(line.start);
+            let b = PartitionBorderNodeKey::from_coord(line.end);
+            let exact = (a == from
+                && b == to
+                && line.start.z.to_bits() == pair[0][2]
+                && line.end.z.to_bits() == pair[1][2])
+                || (b == from
+                    && a == to
+                    && line.end.z.to_bits() == pair[0][2]
+                    && line.start.z.to_bits() == pair[1][2]);
+            if !exact
+                || dangle.segment != input.segment
+                || dangle.owner_partition_id != raw.payload.partition_id
+                || dangle.local_segment_alias != input.local_segment_alias
+            {
+                return Ok(None);
+            }
+            isolated_records[dangle_index] += 1;
+            PartitionRawRecordComplementEvidence::IsolatedDangle { dangle_index }
+        };
+        raw_records.push(PartitionRawRecordComplement { raw, evidence });
+    }
+    if isolated_records.iter().any(|&count| count != 1) {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionOriginalIsolatedDangleComplement {
+        authority,
+        mosaic,
+        active_segments,
+        dangles,
         raw_records,
     }))
 }
@@ -10745,6 +11125,17 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let isolated_dangle_complement = component_authority
+                .as_ref()
+                .map(|authority| {
+                    prove_original_isolated_dangle_complement(
+                        authority,
+                        &partition_mosaic,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -10871,6 +11262,28 @@ impl<'a> TiledPolygonizer<'a> {
                             "raw_dangle_count": cover.raw_records.iter().filter(|record| record.raw.payload.kind == PartitionBorderGlobalNonPolygonPayloadKind::Dangle).count(),
                             "raw_cut_edge_count": cover.raw_records.iter().filter(|record| record.raw.payload.kind == PartitionBorderGlobalNonPolygonPayloadKind::CutEdge).count(),
                             "raw_invalid_ring_count": cover.raw_records.iter().filter(|record| record.raw.payload.kind == PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing).count(),
+                        })),
+                        "raw_families_classified": false,
+                        "claim_consumption_ready": false,
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_original_isolated_dangle_complement",
+                    serde_json::json!({
+                        "proven": isolated_dangle_complement.is_some(),
+                        "proof": isolated_dangle_complement.as_ref().map(|proof| serde_json::json!({
+                            "original_prepared_span_count": proof.authority.projection.authority.cover.view.prepared.aliases.len(),
+                            "active_source_span_count": proof.active_segments.len(),
+                            "isolated_dangle_span_count": proof.dangles.len(),
+                            "covered_source_span_count": proof.active_segments.len() + proof.dangles.len(),
+                            "degree_one_endpoint_count": proof.dangles.iter().map(|dangle| dangle.endpoint_degrees.iter().filter(|&&degree| degree == 1).count()).sum::<usize>(),
+                            "verified_partition_count": proof.mosaic.partitions.len(),
+                            "retained_raw_record_count": proof.raw_records.len(),
+                            "retained_raw_coordinate_count": proof.raw_records.iter().map(|record| record.raw.payload.coordinate_bits.len()).sum::<usize>(),
+                            "active_raw_record_count": proof.raw_records.iter().filter(|record| matches!(record.evidence, PartitionRawRecordComplementEvidence::Active { .. })).count(),
+                            "isolated_dangle_raw_record_count": proof.raw_records.iter().filter(|record| matches!(record.evidence, PartitionRawRecordComplementEvidence::IsolatedDangle { .. })).count(),
                         })),
                         "raw_families_classified": false,
                         "claim_consumption_ready": false,
