@@ -1850,6 +1850,49 @@ struct PartitionInputBoundPhysicalAliasView<'a> {
     raw_payloads: Vec<PartitionInputBoundRawPayload<'a>>,
 }
 
+#[allow(dead_code)] // Borrow the complete native walk for later per-alias face projection.
+struct PartitionNativeCycleRole<'a> {
+    face_ref: [usize; 3],
+    unbounded: bool,
+    signed_area: f64,
+    aliases: Vec<&'a PartitionInputBoundActiveAlias<'a>>,
+}
+
+#[allow(dead_code)] // All four observations and native twins remain distinct evidence.
+struct PartitionNativeTwinSeam<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    partition_ids: [usize; 2],
+    bounded_aliases: [&'a PartitionInputBoundActiveAlias<'a>; 2],
+    exterior_twins: [&'a PartitionInputBoundActiveAlias<'a>; 2],
+    observations: [&'a PartitionAtomicObservationV1; 4],
+}
+
+struct PartitionNativeTwinSeamCover<'a> {
+    domain: Rect<f64>,
+    view: &'a PartitionInputBoundPhysicalAliasView<'a>,
+    cycles: Vec<PartitionNativeCycleRole<'a>>,
+    seams: Vec<PartitionNativeTwinSeam<'a>>,
+    observations: Vec<&'a PartitionAtomicObservationV1>,
+    // These obligations remain unresolved, including any raw-only domain segment.
+    pending_domain_segments: Vec<&'a PartitionNodedSegmentV1>,
+}
+
+#[allow(dead_code)] // Both native roles and their original observations remain borrowed.
+struct PartitionDomainBoundarySegment<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    bounded_alias: &'a PartitionInputBoundActiveAlias<'a>,
+    exterior_twin: &'a PartitionInputBoundActiveAlias<'a>,
+    observations: [&'a PartitionAtomicObservationV1; 2],
+}
+
+struct PartitionDomainExteriorAuthority<'a> {
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    boundary_segments: Vec<PartitionDomainBoundarySegment<'a>>,
+    exterior_cycle: Vec<&'a PartitionInputBoundActiveAlias<'a>>,
+    seam_handoffs: Vec<[&'a PartitionInputBoundActiveAlias<'a>; 2]>,
+    exterior_markers: BTreeSet<[usize; 3]>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -3968,6 +4011,819 @@ fn input_bound_physical_alias_view<'a>(
         slots,
         active_aliases,
         raw_payloads,
+    }))
+}
+
+/// Proves only native twin coverage of interior seams; no claim becomes ready.
+fn prove_native_twin_seam_cover<'a>(
+    view: &'a PartitionInputBoundPhysicalAliasView<'a>,
+    mosaic: &'a PartitionMosaic,
+    tiles: &[Rect<f64>],
+    domain: Rect<f64>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionNativeTwinSeamCover<'a>>> {
+    let stage = "partition_native_twin_seam_cover";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "native seam proof work count overflow".to_string(),
+    };
+    let mut retained = view.active_aliases.len();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            bound.alias.source_line_ids.len(),
+            bound.native_edge.source_line_ids.len(),
+            bound.input.segment.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        view.active_aliases.len(),
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, tiles.len())?;
+    let mut candidate_work = tiles.len().checked_mul(tiles.len()).ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, candidate_work)?;
+    if tiles.is_empty()
+        || view.active_aliases.is_empty()
+        || tiles.len() != mosaic.partitions.len()
+        || tiles.len() != view.prepared.snapshot_fingerprints.len()
+        || ![
+            domain.min().x,
+            domain.min().y,
+            domain.max().x,
+            domain.max().y,
+        ]
+        .iter()
+        .all(|v| v.is_finite())
+        || domain.min().x >= domain.max().x
+        || domain.min().y >= domain.max().y
+    {
+        return Ok(None);
+    }
+    let coordinate =
+        |point: Coord<f64>| crate::fingerprint::coordinate_fingerprint(Coord3D::from(point));
+    for (index, (partition, fingerprint)) in view.prepared.snapshot_fingerprints.iter().enumerate()
+    {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let (Some(snapshot), Some(tile)) =
+            (mosaic.partitions.get(partition), tiles.get(*partition))
+        else {
+            return Ok(None);
+        };
+        if snapshot.fingerprint_sha256() != *fingerprint
+            || snapshot.tile_min != coordinate(tile.min())?
+            || snapshot.tile_max != coordinate(tile.max())?
+            || snapshot.ownership_domain_min != coordinate(domain.min())?
+            || snapshot.ownership_domain_max != coordinate(domain.max())?
+            || tile.min().x < domain.min().x
+            || tile.min().y < domain.min().y
+            || tile.max().x > domain.max().x
+            || tile.max().y > domain.max().y
+            || tile.min().x >= tile.max().x
+            || tile.min().y >= tile.max().y
+        {
+            return Ok(None);
+        }
+    }
+    let sides = [
+        PartitionBorderSide::MinX,
+        PartitionBorderSide::MaxX,
+        PartitionBorderSide::MinY,
+        PartitionBorderSide::MaxY,
+    ];
+    let mut side_neighbors = vec![[0usize; 4]; tiles.len()];
+    let mut neighbors = Vec::new();
+    let mut work = 0;
+    for (a, &first) in tiles.iter().enumerate() {
+        for (b, &second) in tiles.iter().enumerate().skip(a + 1) {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if first.min().x < second.max().x
+                && second.min().x < first.max().x
+                && first.min().y < second.max().y
+                && second.min().y < first.max().y
+            {
+                return Ok(None);
+            }
+            if let Some((side, opposite, _)) = partition_adjacency_descriptor(first, second) {
+                // shortcut: conforming full sides, upgrade with nonconforming boundary lineage.
+                if !non_polygon_owners_share_side(a, b, mosaic, tiles) {
+                    return Ok(None);
+                }
+                side_neighbors[a][partition_border_side_code(side) as usize] += 1;
+                side_neighbors[b][partition_border_side_code(opposite) as usize] += 1;
+                neighbors.push((a, b, side, opposite));
+            }
+        }
+    }
+    for (partition, tile) in tiles.iter().enumerate() {
+        let on_domain = [
+            tile.min().x == domain.min().x,
+            tile.max().x == domain.max().x,
+            tile.min().y == domain.min().y,
+            tile.max().y == domain.max().y,
+        ];
+        if side_neighbors[partition]
+            .iter()
+            .zip(on_domain)
+            .any(|(&count, outer)| count != usize::from(!outer))
+            || mosaic.partitions[&partition].declared_adjacencies.len()
+                != side_neighbors[partition].iter().sum::<usize>()
+        {
+            return Ok(None);
+        }
+    }
+    candidate_work = candidate_work
+        .checked_add(
+            view.prepared
+                .aliases
+                .len()
+                .checked_mul(neighbors.len())
+                .ok_or_else(overflow)?,
+        )
+        .ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, candidate_work)?;
+
+    let native_key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.alias.local_dir_edge_id,
+        )
+    };
+    let mut native = BTreeMap::new();
+    let mut stars = BTreeMap::<_, Vec<_>>::new();
+    let mut by_physical_span = BTreeMap::<_, Vec<_>>::new();
+    for bound in &view.active_aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let key = native_key(bound);
+        let Some(tile) = tiles.get(key.0) else {
+            return Ok(None);
+        };
+        let xy = bound.native_edge.from.xy_bits();
+        // shortcut: core-contained simple native cycles, upgrade with halo face-role authority.
+        if !(f64::from_bits(xy[0]) >= tile.min().x
+            && f64::from_bits(xy[0]) <= tile.max().x
+            && f64::from_bits(xy[1]) >= tile.min().y
+            && f64::from_bits(xy[1]) <= tile.max().y)
+        {
+            return Ok(None);
+        }
+        if native.insert(key, bound).is_some() {
+            return Ok(None);
+        }
+        stars
+            .entry((key.0, bound.native_edge.from))
+            .or_default()
+            .push(bound);
+        by_physical_span
+            .entry(bound.native_edge.edge_key)
+            .or_default()
+            .push(bound);
+    }
+    let xy = |node: PartitionBorderNodeKey| {
+        let bits = node.xy_bits();
+        Coord {
+            x: f64::from_bits(bits[0]),
+            y: f64::from_bits(bits[1]),
+        }
+    };
+    // Replay the native clockwise rotation using the same angular comparator as PlanarGraph.
+    for ((partition, center), outgoing) in &mut stars {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        execution_policy.check_uncancellable_sort(stage, outgoing.len())?;
+        let component = outgoing[0].alias.component_id;
+        if outgoing
+            .iter()
+            .any(|edge| edge.alias.component_id != component)
+        {
+            return Ok(None);
+        }
+        outgoing.sort_unstable_by(|a, b| {
+            crate::utils::compare_angular(xy(*center), xy(a.native_edge.to), xy(b.native_edge.to))
+        });
+        for (index, edge) in outgoing.iter().enumerate() {
+            let Some(twin) = native.get(&(
+                *partition,
+                component,
+                edge.native_edge.symmetric_local_dir_edge_id,
+            )) else {
+                return Ok(None);
+            };
+            let previous = outgoing[(index + outgoing.len() - 1) % outgoing.len()];
+            if twin.native_edge.local_face_successor != Some(previous.native_edge.local_dir_edge_id)
+                || (outgoing.len() > 1 && previous.native_edge.to == edge.native_edge.to)
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut observation_by_native = BTreeMap::new();
+    let mut observations = Vec::new();
+    for snapshot in mosaic.partitions.values() {
+        for observation in &snapshot.atomic_observations {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let key = (
+                snapshot.partition_id,
+                observation.component_id,
+                observation.observation_id.local_dir_edge_id,
+            );
+            let Some(bound) = native.get(&key) else {
+                return Ok(None);
+            };
+            let edge = bound.native_edge;
+            let Some(side) = sides.get(observation.side as usize) else {
+                return Ok(None);
+            };
+            let (start, end) = edge.edge_key.endpoints();
+            let face = edge
+                .face_ref
+                .map(|face| [face.partition_id, face.component_id, face.face_id]);
+            if observation.observation_id.partition_id != key.0
+                || observation.observation_id.edge_start_xy_bits != start.xy_bits()
+                || observation.observation_id.edge_end_xy_bits != end.xy_bits()
+                || observation.from_xy_bits != edge.from.xy_bits()
+                || observation.to_xy_bits != edge.to.xy_bits()
+                || observation.from_z_bits != edge.from_z_bits
+                || observation.to_z_bits != edge.to_z_bits
+                || observation.source_line_ids != edge.source_line_ids
+                || observation.representative_line_id != bound.input.segment.representative_line_id
+                || observation.face_ref != face
+                || observation.local_face_is_unbounded != edge.local_face_is_unbounded
+                || observation.local_face_successor != edge.local_face_successor
+                || !side.contains_edge(edge.from, edge.to, tiles[key.0])
+                || observation_by_native.insert(key, observation).is_some()
+            {
+                return Ok(None);
+            }
+            observations.push(observation);
+        }
+    }
+    for (key, bound) in &native {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if sides.iter().any(|side| {
+            side.contains_edge(bound.native_edge.from, bound.native_edge.to, tiles[key.0])
+        }) && !observation_by_native.contains_key(key)
+        {
+            return Ok(None);
+        }
+    }
+    let mut cycles = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut faces = BTreeSet::new();
+    let mut roles_by_component = BTreeMap::<_, [usize; 2]>::new();
+    for (&start, &first) in &native {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if seen.contains(&start) {
+            continue;
+        }
+        let Some(face) = first.native_edge.face_ref else {
+            return Ok(None);
+        };
+        if !faces.insert(face) {
+            return Ok(None);
+        }
+        let mut aliases = Vec::new();
+        let mut vertices = BTreeSet::new();
+        let mut current = start;
+        while !seen.contains(&current) {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let Some(&bound) = native.get(&current) else {
+                return Ok(None);
+            };
+            let edge = bound.native_edge;
+            if edge.face_ref != Some(face)
+                || edge.local_face_is_unbounded != first.native_edge.local_face_is_unbounded
+                || !vertices.insert(edge.from)
+            {
+                return Ok(None);
+            }
+            seen.insert(current);
+            aliases.push(bound);
+            let Some(next) = edge.local_face_successor else {
+                return Ok(None);
+            };
+            current = (current.0, current.1, next);
+        }
+        if current != start || aliases.len() < 3 {
+            return Ok(None);
+        }
+        // Scalar coordinate scratch only; native/source/XYZ payloads stay borrowed.
+        execution_policy.check_uncancellable_sort(stage, aliases.len())?;
+        let coords = aliases
+            .iter()
+            .map(|bound| {
+                let point = xy(bound.native_edge.from);
+                Coord3D::new(point.x, point.y, 0.0)
+            })
+            .collect::<Vec<_>>();
+        let area = Polygon3D::ring_signed_area_2d(&coords);
+        let unbounded = first.native_edge.local_face_is_unbounded;
+        if !area.is_finite() || area == 0.0 || (area < 0.0) != unbounded {
+            return Ok(None);
+        }
+        roles_by_component.entry((start.0, start.1)).or_default()[usize::from(unbounded)] += 1;
+        let boundary = aliases
+            .iter()
+            .filter_map(|bound| {
+                observation_by_native
+                    .get(&native_key(bound))
+                    .map(|observation| (*bound, *observation))
+            })
+            .collect::<Vec<_>>();
+        for (index, (_, observation)) in boundary.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let next = boundary[(index + 1) % boundary.len()].0;
+            let (start, end) = next.native_edge.edge_key.endpoints();
+            let expected = PartitionBorderObservationIdV1 {
+                partition_id: next.alias.partition_id,
+                local_dir_edge_id: next.alias.local_dir_edge_id,
+                edge_start_xy_bits: start.xy_bits(),
+                edge_end_xy_bits: end.xy_bits(),
+            };
+            if observation.local_face_boundary_successor != Some(expected) {
+                return Ok(None);
+            }
+        }
+        execution_policy.check(stage, execution_policy.max_graph_nodes, cycles.len() + 1)?;
+        cycles.push(PartitionNativeCycleRole {
+            face_ref: [face.partition_id, face.component_id, face.face_id],
+            unbounded,
+            signed_area: area,
+            aliases,
+        });
+    }
+    if roles_by_component
+        .values()
+        .any(|roles| roles[0] == 0 || roles[1] != 1)
+    {
+        return Ok(None);
+    }
+    let mut seams = Vec::new();
+    let mut pending_domain_segments = Vec::new();
+    for segment in view.prepared.aliases.keys() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let from = prepared_non_polygon_coordinate(&segment.start)?;
+        let to = prepared_non_polygon_coordinate(&segment.end)?;
+        if [from, to].iter().any(|point| {
+            !point.x.is_finite()
+                || !point.y.is_finite()
+                || !point.z.is_finite()
+                || point.x < domain.min().x
+                || point.x > domain.max().x
+                || point.y < domain.min().y
+                || point.y > domain.max().y
+        }) {
+            return Ok(None);
+        }
+        let from_key = PartitionBorderNodeKey::from_coord(from);
+        let to_key = PartitionBorderNodeKey::from_coord(to);
+        let Some(span_key) = PartitionBorderEdgeKey::new(from_key, to_key) else {
+            return Ok(None);
+        };
+        let mut expected = None;
+        for &(a, b, side, opposite) in &neighbors {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let first = tiles[a];
+            let (p, q) = match side {
+                PartitionBorderSide::MinX => (
+                    (first.min().x, first.min().y),
+                    (first.min().x, first.max().y),
+                ),
+                PartitionBorderSide::MaxX => (
+                    (first.max().x, first.min().y),
+                    (first.max().x, first.max().y),
+                ),
+                PartitionBorderSide::MinY => (
+                    (first.min().x, first.min().y),
+                    (first.max().x, first.min().y),
+                ),
+                PartitionBorderSide::MaxY => (
+                    (first.min().x, first.max().y),
+                    (first.max().x, first.max().y),
+                ),
+            };
+            match line_intersection(
+                Line::new(from.to_coord_2d(), to.to_coord_2d()),
+                Line::new(p, q),
+            ) {
+                Some(geo::algorithm::line_intersection::LineIntersection::Collinear {
+                    intersection,
+                }) if intersection.start != intersection.end => {
+                    if expected.is_some()
+                        || !side.contains_edge(from_key, to_key, first)
+                        || !opposite.contains_edge(from_key, to_key, tiles[b])
+                    {
+                        return Ok(None);
+                    }
+                    expected = Some((a, b));
+                }
+                Some(geo::algorithm::line_intersection::LineIntersection::SinglePoint {
+                    intersection,
+                    ..
+                }) if intersection != from.to_coord_2d() && intersection != to.to_coord_2d() => {
+                    return Ok(None)
+                }
+                _ => {}
+            }
+        }
+        let Some((a, b)) = expected else {
+            if sides
+                .iter()
+                .any(|side| side.contains_edge(from_key, to_key, domain))
+            {
+                pending_domain_segments.push(segment);
+            }
+            continue;
+        };
+        let Some(members) = by_physical_span.get(&span_key) else {
+            return Ok(None);
+        };
+        if members.len() != 4 || members.iter().any(|bound| bound.input.segment != segment) {
+            return Ok(None);
+        }
+        let mut bounded = Vec::new();
+        let mut exterior = Vec::new();
+        let mut raw = Vec::new();
+        for partition in [a, b] {
+            let pair = members
+                .iter()
+                .copied()
+                .filter(|bound| bound.alias.partition_id == partition)
+                .collect::<Vec<_>>();
+            if pair.len() != 2 {
+                return Ok(None);
+            }
+            let Some(inside) = pair
+                .iter()
+                .copied()
+                .find(|bound| !bound.native_edge.local_face_is_unbounded)
+            else {
+                return Ok(None);
+            };
+            let Some(outside) = pair
+                .iter()
+                .copied()
+                .find(|bound| bound.native_edge.local_face_is_unbounded)
+            else {
+                return Ok(None);
+            };
+            if inside.alias.component_id != outside.alias.component_id
+                || inside.native_edge.symmetric_local_dir_edge_id
+                    != outside.native_edge.local_dir_edge_id
+                || outside.native_edge.symmetric_local_dir_edge_id
+                    != inside.native_edge.local_dir_edge_id
+            {
+                return Ok(None);
+            }
+            bounded.push(inside);
+            exterior.push(outside);
+            for bound in [inside, outside] {
+                let Some(&observation) = observation_by_native.get(&native_key(bound)) else {
+                    return Ok(None);
+                };
+                raw.push(observation);
+            }
+        }
+        if bounded[0].native_edge.from != bounded[1].native_edge.to
+            || bounded[0].native_edge.to != bounded[1].native_edge.from
+            || bounded[0].native_edge.from_z_bits != bounded[1].native_edge.to_z_bits
+            || bounded[0].native_edge.to_z_bits != bounded[1].native_edge.from_z_bits
+            || bounded[0].input.segment != bounded[1].input.segment
+        {
+            return Ok(None);
+        }
+        seams.push(PartitionNativeTwinSeam {
+            segment,
+            partition_ids: [a, b],
+            bounded_aliases: [bounded[0], bounded[1]],
+            exterior_twins: [exterior[0], exterior[1]],
+            observations: raw.try_into().expect("four checked native observations"),
+        });
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionNativeTwinSeamCover {
+        domain,
+        view,
+        cycles,
+        seams,
+        observations,
+        pending_domain_segments,
+    }))
+}
+
+/// Domain authority from complete native receipts; no legacy claim or face is promoted.
+fn prove_domain_exterior_authority<'a>(
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionDomainExteriorAuthority<'a>>> {
+    let stage = "partition_domain_exterior_authority";
+    execution_policy.check_cancelled(stage)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "domain exterior proof work count overflow".to_string(),
+    };
+    // The cover borrows immutable, context-bound receipts; it cannot outlive their snapshots.
+    let view = cover.view;
+    let mut retained = view.active_aliases.len();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        for count in [
+            bound.alias.source_line_ids.len(),
+            bound.native_edge.source_line_ids.len(),
+        ] {
+            retained = retained.checked_add(count).ok_or_else(overflow)?;
+        }
+    }
+    for (index, segment) in view.prepared.aliases.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        retained = retained
+            .checked_add(segment.source_line_ids.len())
+            .ok_or_else(overflow)?;
+    }
+    execution_policy.check_uncancellable_sort(stage, retained)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_edges,
+        view.active_aliases.len(),
+    )?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_graph_nodes,
+        view.active_aliases.len(),
+    )?;
+    let work_bound = cover
+        .pending_domain_segments
+        .len()
+        .checked_mul(view.active_aliases.len())
+        .ok_or_else(overflow)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, work_bound)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        cover
+            .pending_domain_segments
+            .len()
+            .checked_mul(2)
+            .ok_or_else(overflow)?,
+    )?;
+    let key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.alias.local_dir_edge_id,
+        )
+    };
+    let mut native = BTreeMap::new();
+    let mut physical = BTreeMap::<_, Vec<_>>::new();
+    let mut observations = BTreeMap::new();
+    for (index, bound) in view.active_aliases.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if native.insert(key(bound), bound).is_some() {
+            return Ok(None);
+        }
+        physical
+            .entry(bound.native_edge.edge_key)
+            .or_default()
+            .push(bound);
+    }
+    for (index, &observation) in cover.observations.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        if observations
+            .insert(
+                (
+                    observation.observation_id.partition_id,
+                    observation.component_id,
+                    observation.observation_id.local_dir_edge_id,
+                ),
+                observation,
+            )
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let sides = [
+        PartitionBorderSide::MinX,
+        PartitionBorderSide::MaxX,
+        PartitionBorderSide::MinY,
+        PartitionBorderSide::MaxY,
+    ];
+    let pending = cover
+        .pending_domain_segments
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if pending.len() != cover.pending_domain_segments.len() {
+        return Ok(None);
+    }
+    let mut boundary_segments = Vec::new();
+    let mut domain_exterior = BTreeMap::new();
+    for (index, segment) in view.prepared.aliases.keys().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let from =
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.start)?);
+        let to = PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&segment.end)?);
+        let Some(side) = sides
+            .iter()
+            .find(|side| side.contains_edge(from, to, cover.domain))
+        else {
+            if pending.contains(segment) {
+                return Ok(None);
+            }
+            continue;
+        };
+        if !pending.contains(segment) {
+            return Ok(None);
+        }
+        let Some(span) = PartitionBorderEdgeKey::new(from, to) else {
+            return Ok(None);
+        };
+        let Some(pair) = physical.get(&span) else {
+            return Ok(None);
+        };
+        // Count the whole physical span before inspecting lineage or selecting native roles.
+        if pair.len() != 2 || pair.iter().any(|bound| bound.input.segment != segment) {
+            return Ok(None);
+        }
+        let Some(inside) = pair
+            .iter()
+            .copied()
+            .find(|bound| !bound.native_edge.local_face_is_unbounded)
+        else {
+            return Ok(None);
+        };
+        let Some(outside) = pair
+            .iter()
+            .copied()
+            .find(|bound| bound.native_edge.local_face_is_unbounded)
+        else {
+            return Ok(None);
+        };
+        let edge = inside.native_edge;
+        let xy = |node: PartitionBorderNodeKey| node.xy_bits().map(f64::from_bits);
+        let (a, b) = (xy(edge.from), xy(edge.to));
+        let inward = match side {
+            PartitionBorderSide::MinX => b[1] < a[1],
+            PartitionBorderSide::MaxX => b[1] > a[1],
+            PartitionBorderSide::MinY => b[0] > a[0],
+            PartitionBorderSide::MaxY => b[0] < a[0],
+        };
+        if !inward
+            || key(inside).0 != key(outside).0
+            || key(inside).1 != key(outside).1
+            || edge.symmetric_local_dir_edge_id != outside.native_edge.local_dir_edge_id
+            || outside.native_edge.symmetric_local_dir_edge_id != edge.local_dir_edge_id
+            || edge.from != outside.native_edge.to
+            || edge.to != outside.native_edge.from
+            || edge.from_z_bits != outside.native_edge.to_z_bits
+            || edge.to_z_bits != outside.native_edge.from_z_bits
+        {
+            return Ok(None);
+        }
+        let (Some(&inside_observation), Some(&outside_observation)) = (
+            observations.get(&key(inside)),
+            observations.get(&key(outside)),
+        ) else {
+            return Ok(None);
+        };
+        domain_exterior.insert(key(outside), outside);
+        boundary_segments.push(PartitionDomainBoundarySegment {
+            segment,
+            bounded_alias: inside,
+            exterior_twin: outside,
+            observations: [inside_observation, outside_observation],
+        });
+    }
+    if boundary_segments.len() != pending.len() || pending.len() < 4 {
+        return Ok(None);
+    }
+    let mut handoffs = BTreeMap::new();
+    for (index, seam) in cover.seams.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, index)?;
+        let [a, b] = seam.exterior_twins;
+        if a.native_edge.from != b.native_edge.to
+            || a.native_edge.to != b.native_edge.from
+            || handoffs.insert(key(a), b).is_some()
+            || handoffs.insert(key(b), a).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut next_domain = BTreeMap::new();
+    let mut seam_handoffs = Vec::new();
+    let mut used_handoffs = BTreeSet::new();
+    let mut exterior_markers = BTreeSet::new();
+    let mut work = 0;
+    for (&start, &bound) in &domain_exterior {
+        let mut current = bound;
+        loop {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let Some(face) = current.native_edge.face_ref else {
+                return Ok(None);
+            };
+            if !current.native_edge.local_face_is_unbounded {
+                return Ok(None);
+            }
+            exterior_markers.insert([face.partition_id, face.component_id, face.face_id]);
+            let Some(next) = current.native_edge.local_face_successor else {
+                return Ok(None);
+            };
+            let Some(&following) = native.get(&(key(current).0, key(current).1, next)) else {
+                return Ok(None);
+            };
+            if domain_exterior.contains_key(&key(following)) {
+                if bound.native_edge.to != following.native_edge.from {
+                    return Ok(None);
+                }
+                next_domain.insert(start, key(following));
+                break;
+            }
+            // shortcut: exterior transitions cross only proved seams, upgrade for halo/descendant roles.
+            let Some(&opposite) = handoffs.get(&key(following)) else {
+                return Ok(None);
+            };
+            if !used_handoffs.insert(key(following))
+                || seam_handoffs.len() >= view.active_aliases.len()
+            {
+                return Ok(None);
+            }
+            seam_handoffs.push([following, opposite]);
+            current = opposite;
+        }
+    }
+    let expected_markers = cover
+        .cycles
+        .iter()
+        .filter(|cycle| cycle.unbounded)
+        .map(|cycle| cycle.face_ref)
+        .collect::<BTreeSet<_>>();
+    if exterior_markers != expected_markers {
+        return Ok(None);
+    }
+    let start = *domain_exterior
+        .first_key_value()
+        .expect("nonempty domain boundary")
+        .0;
+    let mut current = start;
+    let mut visited = BTreeSet::new();
+    let mut vertices = BTreeSet::new();
+    let mut exterior_cycle = Vec::new();
+    while visited.insert(current) {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(&bound) = domain_exterior.get(&current) else {
+            return Ok(None);
+        };
+        if !vertices.insert(bound.native_edge.from) {
+            return Ok(None);
+        }
+        exterior_cycle.push(bound);
+        let Some(&next) = next_domain.get(&current) else {
+            return Ok(None);
+        };
+        current = next;
+    }
+    if current != start || visited.len() != domain_exterior.len() {
+        return Ok(None);
+    }
+    for point in [
+        cover.domain.min(),
+        cover.domain.max(),
+        Coord {
+            x: cover.domain.min().x,
+            y: cover.domain.max().y,
+        },
+        Coord {
+            x: cover.domain.max().x,
+            y: cover.domain.min().y,
+        },
+    ] {
+        if !vertices.contains(&PartitionBorderNodeKey::from_coord(Coord3D::from(point))) {
+            return Ok(None);
+        }
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionDomainExteriorAuthority {
+        cover,
+        boundary_segments,
+        exterior_cycle,
+        seam_handoffs,
+        exterior_markers,
     }))
 }
 
@@ -8653,6 +9509,24 @@ impl<'a> TiledPolygonizer<'a> {
                 )?,
                 _ => None,
             };
+            let native_seam_cover = alias_view
+                .as_ref()
+                .map(|view| {
+                    prove_native_twin_seam_cover(
+                        view,
+                        &partition_mosaic,
+                        &tile_layout,
+                        self.bbox,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten();
+            let domain_authority = native_seam_cover
+                .as_ref()
+                .map(|cover| prove_domain_exterior_authority(cover, &self.execution_policy))
+                .transpose()?
+                .flatten();
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -8674,6 +9548,44 @@ impl<'a> TiledPolygonizer<'a> {
                                 .map(|raw| raw.payload.coordinate_bits.len()).sum::<usize>(),
                             "raw_segment_alias_count": view.raw_payloads.iter()
                                 .map(|raw| raw.segments.len()).sum::<usize>(),
+                        })),
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_native_twin_seam_cover",
+                    serde_json::json!({
+                        "proven": native_seam_cover.is_some(),
+                        "cover": native_seam_cover.as_ref().map(|cover| serde_json::json!({
+                            "native_cycle_count": cover.cycles.len(),
+                            "bounded_cycle_count": cover.cycles.iter().filter(|cycle| !cycle.unbounded).count(),
+                            "unbounded_cycle_count": cover.cycles.iter().filter(|cycle| cycle.unbounded).count(),
+                            "native_alias_count": cover.view.active_aliases.len(),
+                            "observation_count": cover.observations.len(),
+                            "interior_seam_count": cover.seams.len(),
+                            "interior_seam_alias_count": cover.seams.iter().map(|seam| seam.observations.len()).sum::<usize>(),
+                            "pending_domain_segment_count": cover.pending_domain_segments.len(),
+                            "retained_raw_record_count": cover.view.raw_payloads.len(),
+                        })),
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_domain_exterior_authority",
+                    serde_json::json!({
+                        "proven": domain_authority.is_some(),
+                        "authority": domain_authority.as_ref().map(|authority| serde_json::json!({
+                            "domain_segment_count": authority.boundary_segments.len(),
+                            "domain_alias_count": authority.boundary_segments.len() * 2,
+                            "exterior_cycle_count": 1,
+                            "exterior_cycle_edge_count": authority.exterior_cycle.len(),
+                            "seam_handoff_count": authority.seam_handoffs.len(),
+                            "qualified_exterior_marker_count": authority.exterior_markers.len(),
+                            "retained_native_alias_count": authority.cover.view.active_aliases.len(),
+                            "retained_observation_count": authority.cover.observations.len(),
+                            "retained_raw_record_count": authority.cover.view.raw_payloads.len(),
                         })),
                         "output_selectable": false,
                     }),

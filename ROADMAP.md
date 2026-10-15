@@ -600,6 +600,17 @@ separately from selectable output; they do not complete the promotion gates.
   retaining every active native alias and raw family/record index independently
   of global family classification. The 2×2 view retains 32 aliases, 24 slots,
   and 16 raw dangles; ambiguity, family, adoption and selection gates stay closed.
+- [x] Prove private native-twin coverage of interior seams for core-contained
+  simple native cycles on conforming rectangular cores. Replay native rotation,
+  cycle orientation, finite actual neighbors and complete native/observation
+  membership. The 2×2 evidence retains four seams and all 32 observations while
+  eight domain segments remain explicit obligations for the next authority gate.
+- [x] Prove private domain/exterior authority for those eight segments from
+  complete native twin pairs and observations. Native successors plus four
+  checked seam handoffs form one complete domain-perimeter exterior cycle,
+  covering all four qualified exterior markers without consulting witness face
+  IDs or successors. Every alias/raw record remains retained; global face
+  projection, claim readiness, family classification and selection stay closed.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
@@ -619,10 +630,13 @@ private output adapter → whole-core ownership → combined cross-core witnesse
 → proof consumer → complete private candidate with its acceptance gate.
 Native stack #1551 (#1547 → #1548 → #1549 → #1550) has also merged into main:
 family physical-component proof → coordinate/source affinity → options affinity
-→ touch/filter ambiguity rejection. Draft follow-ups cover fixed precision,
-container inventories, partial halos, and a complete input-bound physical alias
-view before family classification. Every layer remains private
-evidence with output selection disabled; the 2×2 promotion gate is incomplete.
+→ touch/filter ambiguity rejection.
+Native stack #1556 (#1552 → #1553 → #1554 → #1555) has also merged into main:
+fixed precision → container inventories → partial halos → the input-bound
+physical alias view before family classification. Private native seam evidence
+builds on that binding; domain/exterior, face-projection, component, Euler,
+containment and output-promotion gates remain independent. The 2×2 promotion
+gate is incomplete.
 These private milestones do not change the published 1.2.0 artifacts.
 
 **Promotion gate:** stitched output may become selectable only for a documented
