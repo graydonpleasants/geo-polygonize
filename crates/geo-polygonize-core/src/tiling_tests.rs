@@ -125,6 +125,38 @@ mod tests {
             assert_eq!(seams["cover"]["interior_seam_alias_count"], 16);
             assert_eq!(seams["cover"]["pending_domain_segment_count"], 8);
             assert_eq!(seams["cover"]["retained_raw_record_count"], 16);
+            let observations = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_original_observation_binding")
+                .unwrap()
+                .payload;
+            assert_eq!(observations["bound"], true);
+            for flag in [
+                "roles_classified",
+                "claim_consumption_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(observations[flag], false);
+            }
+            for (field, count) in [
+                ("snapshot_observation_count", 32),
+                ("graph_observation_count", 32),
+                ("matched_record_count", 32),
+                ("original_bucket_count", 12),
+                ("two_member_bucket_count", 8),
+                ("four_member_bucket_count", 4),
+                ("graph_source_id_count", 32),
+                ("bucket_source_id_count", 32),
+                ("native_source_id_count", 32),
+                ("original_boundary_successor_count", 32),
+                ("verified_partition_count", 4),
+                ("retained_native_alias_count", 32),
+                ("retained_raw_record_count", 16),
+            ] {
+                assert_eq!(observations["inventory"][field], count, "{field}");
+            }
             let exterior = &result
                 .trace
                 .events
@@ -2786,6 +2818,360 @@ mod tests {
                     [0.75f64.to_bits(), 0.25f64.to_bits(), 0.0f64.to_bits()]
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn original_observation_binding_retains_complete_stores_and_rejects_hidden_mismatches() {
+        use crate::tiling::{
+            bind_original_graph_observations, input_bound_physical_alias_view,
+            prepare_partition_input_evidence, private_physical_snapshots_bound,
+            prove_native_twin_seam_cover, PartitionMosaic,
+        };
+        use std::collections::BTreeMap;
+        for reversed in [false, true] {
+            for isolated in [false, true] {
+                let mut geometries = Vec::new();
+                for axis in 0..=2 {
+                    for segment in 0..2 {
+                        let (a, b) = (axis as f64, segment as f64);
+                        for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                            geometries.push(Geometry::LineString(LineString::from(coords)));
+                        }
+                    }
+                }
+                if isolated {
+                    geometries.push(Geometry::LineString(LineString::from(vec![
+                        (0.25, 0.25),
+                        (0.75, 0.25),
+                    ])));
+                }
+                if reversed {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        let Geometry::LineString(line) = geometry else {
+                            unreachable!()
+                        };
+                        line.0.reverse();
+                    }
+                }
+                let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+                let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+                let options = PolygonizerOptions {
+                    node_input: true,
+                    ..Default::default()
+                };
+                let policy = ExecutionPolicy::default();
+                let mut tiled = TiledPolygonizer::new(domain, 1.0)
+                    .with_buffer(0.0)
+                    .with_options(options.clone())
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let tiles = tiled.generate_tiles().unwrap();
+                let result = tiled.polygonize().unwrap();
+                assert!(result.stitched_output.is_none());
+                let graph = result.partition_border_graph;
+                let before = graph.clone();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in result.partition_snapshots {
+                    mosaic.replace_partition(snapshot, &policy).unwrap();
+                }
+                let fingerprint = mosaic.fingerprint_sha256();
+                let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                let stats = graph
+                    .clone()
+                    .materialize_global_non_polygon_extraction_payloads(&policy)
+                    .unwrap();
+                let mut prepared = prepare_partition_input_evidence(
+                    &mosaic, &tiles, &refs, domain, &options, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                prepared.reference.dangles.clear();
+                let view = input_bound_physical_alias_view(
+                    &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+                let binding = bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                    .unwrap()
+                    .unwrap();
+                assert!(std::ptr::eq(binding.cover, &cover));
+                assert!(std::ptr::eq(binding.graph, &graph));
+                assert!(std::ptr::eq(binding.mosaic, &mosaic));
+                assert_eq!(binding.records.len(), 32);
+                assert_eq!(binding.buckets.len(), 12);
+                assert_eq!(
+                    binding.buckets.iter().filter(|(_, b)| b.len() == 2).count(),
+                    8
+                );
+                assert_eq!(
+                    binding.buckets.iter().filter(|(_, b)| b.len() == 4).count(),
+                    4
+                );
+                assert_eq!(
+                    binding.cover.view.raw_payloads.len(),
+                    if isolated { 17 } else { 16 }
+                );
+                let mut seen = BTreeSet::new();
+                for record in &binding.records {
+                    assert!(seen.insert(record.snapshot.observation_id));
+                    assert!(mosaic
+                        .partitions
+                        .values()
+                        .flat_map(|s| &s.atomic_observations)
+                        .any(|o| std::ptr::eq(o, record.snapshot)));
+                    assert!(graph
+                        .border_observations()
+                        .any(|o| std::ptr::eq(o, record.graph)));
+                    assert!(binding
+                        .buckets
+                        .iter()
+                        .any(|(_, b)| b.iter().any(|o| std::ptr::eq(o, record.bucket))));
+                    assert!(view
+                        .active_aliases
+                        .iter()
+                        .any(|n| std::ptr::eq(n, record.native)));
+                    assert_eq!(record.bucket, record.graph);
+                    assert_eq!(
+                        record.graph.source_line_ids,
+                        record.snapshot.source_line_ids
+                    );
+                    assert_eq!(
+                        record.native.native_edge.source_line_ids,
+                        record.snapshot.source_line_ids
+                    );
+                }
+                // Mutate only original stores, keeping inherited native/physical evidence intact.
+                for change in 0..22 {
+                    let mut changed = graph.clone();
+                    let mut originals = graph
+                        .original_observation_entries()
+                        .map(|(id, o)| (*id, o.clone()))
+                        .collect::<BTreeMap<_, _>>();
+                    let mut buckets = graph
+                        .original_observation_buckets()
+                        .map(|(span, b)| (*span, b.clone()))
+                        .collect::<BTreeMap<_, _>>();
+                    let id = *originals.first_key_value().unwrap().0;
+                    let original = originals[&id].clone();
+                    let foreign_span = crate::graph::partition_border::PartitionBorderEdgeKey::new(
+                        crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+                            Coord3D::new(10.0, 10.0, 0.0),
+                        ),
+                        crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+                            Coord3D::new(11.0, 10.0, 0.0),
+                        ),
+                    )
+                    .unwrap();
+                    match change {
+                        0 => {
+                            originals.remove(&id);
+                            buckets.get_mut(&id.edge_key).unwrap().remove(&original);
+                        }
+                        1 => {
+                            originals.remove(&id);
+                        }
+                        2 => {
+                            buckets.get_mut(&id.edge_key).unwrap().remove(&original);
+                        }
+                        3 => {
+                            let mut extra = original.clone();
+                            extra.local_dir_edge_id += 1000;
+                            originals.insert(extra.observation_id(), extra);
+                        }
+                        4 => {
+                            let mut extra = original.clone();
+                            extra.edge_key = foreign_span;
+                            buckets.insert(foreign_span, BTreeSet::from([extra]));
+                        }
+                        5 => {
+                            buckets.insert(foreign_span, BTreeSet::new());
+                        }
+                        6 => {
+                            originals.remove(&id);
+                            let mut bad = id;
+                            bad.local_dir_edge_id += 1000;
+                            originals.insert(bad, original.clone());
+                        }
+                        7 => {
+                            let mut extra = original.clone();
+                            extra.from_z_bits = 8.0f64.to_bits();
+                            buckets.get_mut(&id.edge_key).unwrap().insert(extra);
+                        }
+                        8 => {
+                            let bucket = buckets.remove(&id.edge_key).unwrap();
+                            buckets.insert(foreign_span, bucket);
+                        }
+                        _ => {
+                            let o = originals.get_mut(&id).unwrap();
+                            match change {
+                                9=>o.source_line_ids.push(o.source_line_ids[0]),
+                                10=>o.side=crate::graph::partition_border::PartitionBorderSide::MaxX,
+                                11=>o.from_z_bits=9.0f64.to_bits(),
+                                12=>o.representative_line_id=Some(999),
+                                13=>o.face_ref.as_mut().unwrap().partition_id+=99,
+                                14=>o.face_id=Some(999),
+                                15=>o.component_id+=99,
+                                16=>o.local_face_successor=Some(999),
+                                17=>o.local_face_boundary_successor=None,
+                                18=>o.local_face_is_unbounded = !o.local_face_is_unbounded,
+                                19=>o.from=crate::graph::partition_border::PartitionBorderNodeKey::from_coord(Coord3D::new(0.25,0.25,0.0)),
+                                20=>o.partition_id+=99,
+                                _=>o.to_z_bits=9.0f64.to_bits(),
+                            }
+                            buckets.get_mut(&id.edge_key).unwrap().remove(&original);
+                            buckets.get_mut(&id.edge_key).unwrap().insert(o.clone());
+                        }
+                    }
+                    changed.replace_original_observation_storage_for_test(originals, buckets);
+                    if matches!(change, 9 | 14) {
+                        assert!(private_physical_snapshots_bound(
+                            &changed, &mosaic, &options, &policy
+                        )
+                        .unwrap());
+                    }
+                    let changed_before = changed.clone();
+                    assert!(
+                        bind_original_graph_observations(&cover, &changed, &mosaic, &policy)
+                            .unwrap()
+                            .is_none(),
+                        "mutation {change}"
+                    );
+                    assert_eq!(changed, changed_before);
+                }
+                for change in 0..4 {
+                    let mut stale = mosaic.clone();
+                    let snapshot = stale.partitions.get_mut(&0).unwrap();
+                    match change {
+                        0 => snapshot
+                            .atomic_observations
+                            .push(snapshot.atomic_observations[0].clone()),
+                        1 => {
+                            snapshot.atomic_observations.remove(0);
+                        }
+                        2 => snapshot.generation.retry_attempt += 1,
+                        _ => snapshot.atomic_observations[0].from_z_bits = 9.0f64.to_bits(),
+                    }
+                    assert!(
+                        bind_original_graph_observations(&cover, &graph, &stale, &policy)
+                            .unwrap()
+                            .is_none()
+                    );
+                }
+                for limited in [
+                    ExecutionPolicy {
+                        max_candidate_pairs: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_graph_edges: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_graph_nodes: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_output_coordinates: Some(0),
+                        ..Default::default()
+                    },
+                ] {
+                    assert!(matches!(
+                        bind_original_graph_observations(&cover, &graph, &mosaic, &limited),
+                        Err(PolygonizeError::ResourceLimitExceeded { .. })
+                    ));
+                }
+                let mut oversized = graph.clone();
+                let originals = graph
+                    .original_observation_entries()
+                    .map(|(id, o)| (*id, o.clone()))
+                    .collect();
+                let mut buckets = graph
+                    .original_observation_buckets()
+                    .map(|(span, b)| (*span, b.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                let mut entry = buckets.first_entry().unwrap();
+                let bucket = entry.get_mut();
+                let mut o = bucket.pop_first().unwrap();
+                o.source_line_ids = vec![0; 10000];
+                bucket.insert(o);
+                oversized.replace_original_observation_storage_for_test(originals, buckets);
+                assert!(matches!(
+                    bind_original_graph_observations(
+                        &cover,
+                        &oversized,
+                        &mosaic,
+                        &ExecutionPolicy {
+                            max_candidate_pairs: Some(1000),
+                            ..Default::default()
+                        }
+                    ),
+                    Err(PolygonizeError::ResourceLimitExceeded {
+                        stage, ..
+                    }) if stage == "partition_original_observation_binding"
+                ));
+                let token = CancellationToken::new();
+                token.cancel();
+                assert!(matches!(
+                    bind_original_graph_observations(
+                        &cover,
+                        &graph,
+                        &mosaic,
+                        &ExecutionPolicy {
+                            cancellation_token: Some(token),
+                            ..Default::default()
+                        }
+                    ),
+                    Err(PolygonizeError::Cancelled { .. })
+                ));
+                for at in [0, 4, 128] {
+                    let token = CancellationToken::new();
+                    let cancelled = ExecutionPolicy {
+                        cancellation_token: Some(token.clone()),
+                        cancel_at_work_item: Some((token, at)),
+                        ..Default::default()
+                    };
+                    assert!(matches!(
+                        bind_original_graph_observations(&cover, &graph, &mosaic, &cancelled),
+                        Err(PolygonizeError::Cancelled { .. })
+                    ));
+                }
+                // A long malformed original store must cancel during inventory traversal,
+                // before identity validation can decline it as an extra-record mismatch.
+                let mut expanded = graph.clone();
+                let mut originals = graph
+                    .original_observation_entries()
+                    .map(|(id, o)| (*id, o.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                let template = originals.first_key_value().unwrap().1.clone();
+                for extra in 0..1024 {
+                    let mut o = template.clone();
+                    o.local_dir_edge_id = 10000 + extra;
+                    originals.insert(o.observation_id(), o);
+                }
+                let buckets = graph
+                    .original_observation_buckets()
+                    .map(|(span, b)| (*span, b.clone()))
+                    .collect();
+                expanded.replace_original_observation_storage_for_test(originals, buckets);
+                let token = CancellationToken::new();
+                let cancelled = ExecutionPolicy {
+                    cancellation_token: Some(token.clone()),
+                    cancel_at_work_item: Some((token, 768)),
+                    ..Default::default()
+                };
+                assert!(
+                    matches!(bind_original_graph_observations(&cover,&expanded,&mosaic,&cancelled),Err(PolygonizeError::Cancelled{stage}) if stage == "partition_original_observation_binding")
+                );
+                assert_eq!(graph, before);
+                assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+            }
         }
     }
 

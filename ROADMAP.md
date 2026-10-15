@@ -635,6 +635,12 @@ separately from selectable output; they do not complete the promotion gates.
   every raw record without reference-family authority. Chains, ambiguous
   ownership, cuts and invalid rings remain unsupported by this certificate;
   existing family, claim, acceptance and output gates remain unchanged.
+- [x] Bind the complete original graph observation index and edge buckets to
+  every exact snapshot/native boundary observation before role selection.
+  Retain all 32 observations, full source/Z/qualified-face/successor payloads,
+  native aliases and raw records; reject orphan buckets, duplicate identities
+  and payload mismatches without normalizing them away. Typed domain/seam role
+  authority and claim consumption remain separate, closed obligations.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
@@ -663,6 +669,8 @@ fixed precision → container inventories → partial halos → the input-bound
 physical alias view before family classification. Native stack #1560
 (#1557 → #1558 → #1559) has also merged into main: complete native seam
 coverage → domain/exterior authority → per-alias global face projection.
+Native stack #1566 (#1563 → #1564 → #1565) has also merged into main:
+component authority → original active incidence → isolated dangle complements.
 Component, Euler, containment and output-promotion gates remain independent.
 The 2×2 promotion gate is incomplete.
 These private milestones do not change the published 1.2.0 artifacts.
