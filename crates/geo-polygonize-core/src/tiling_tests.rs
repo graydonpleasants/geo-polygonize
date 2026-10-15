@@ -157,6 +157,34 @@ mod tests {
             ] {
                 assert_eq!(observations["inventory"][field], count, "{field}");
             }
+            let roles = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_whole_observation_roles")
+                .unwrap()
+                .payload;
+            assert_eq!(roles["proven"], true);
+            for flag in [
+                "raw_families_classified",
+                "claim_consumption_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(roles[flag], false);
+            }
+            for (field, count) in [
+                ("whole_group_count", 12),
+                ("domain_pair_count", 8),
+                ("seam_quartet_count", 4),
+                ("retained_observation_count", 32),
+                ("role_alias_count", 32),
+                ("physical_side_count", 24),
+                ("global_exterior_side_count", 8),
+                ("retained_native_alias_count", 32),
+                ("retained_raw_record_count", 16),
+            ] {
+                assert_eq!(roles["authority"][field], count, "{field}");
+            }
             let exterior = &result
                 .trace
                 .events
@@ -2818,6 +2846,572 @@ mod tests {
                     [0.75f64.to_bits(), 0.25f64.to_bits(), 0.0f64.to_bits()]
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn whole_observation_roles_require_complete_original_groups_and_native_physical_sides() {
+        use crate::tiling::{
+            bind_original_graph_observations, input_bound_physical_alias_view,
+            prepare_partition_input_evidence, prove_alias_global_face_projection,
+            prove_domain_exterior_authority, prove_native_twin_seam_cover,
+            prove_whole_observation_roles, PartitionBoundOriginalObservation,
+            PartitionDomainBoundarySegment, PartitionMosaic, PartitionOriginalObservationBinding,
+            PartitionProjectedAlias, PartitionProjectedGlobalFace, PartitionWholeObservationRole,
+        };
+        use std::collections::BTreeMap;
+        for reversed in [false, true] {
+            for isolated in [false, true] {
+                let mut geometries = Vec::new();
+                for axis in 0..=2 {
+                    for segment in 0..2 {
+                        let (a, b) = (axis as f64, segment as f64);
+                        for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                            geometries.push(Geometry::LineString(LineString::from(coords)));
+                        }
+                    }
+                }
+                if isolated {
+                    geometries.push(Geometry::LineString(LineString::from(vec![
+                        (0.25, 0.25),
+                        (0.75, 0.25),
+                    ])));
+                }
+                if reversed {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        let Geometry::LineString(line) = geometry else {
+                            unreachable!()
+                        };
+                        line.0.reverse();
+                    }
+                }
+                let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+                let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+                let options = PolygonizerOptions {
+                    node_input: true,
+                    ..Default::default()
+                };
+                let policy = ExecutionPolicy::default();
+                let mut tiled = TiledPolygonizer::new(domain, 1.0)
+                    .with_buffer(0.0)
+                    .with_options(options.clone())
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let tiles = tiled.generate_tiles().unwrap();
+                let result = tiled.polygonize().unwrap();
+                assert!(result.stitched_output.is_none());
+                let graph = result.partition_border_graph;
+                let before = graph.clone();
+                let mut mosaic = PartitionMosaic::default();
+                for snapshot in result.partition_snapshots {
+                    mosaic.replace_partition(snapshot, &policy).unwrap();
+                }
+                let fingerprint = mosaic.fingerprint_sha256();
+                let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                let stats = graph
+                    .clone()
+                    .materialize_global_non_polygon_extraction_payloads(&policy)
+                    .unwrap();
+                let mut prepared = prepare_partition_input_evidence(
+                    &mosaic, &tiles, &refs, domain, &options, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                prepared.reference.dangles.clear();
+                let view = input_bound_physical_alias_view(
+                    &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                )
+                .unwrap()
+                .unwrap();
+                let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+                let exterior = prove_domain_exterior_authority(&cover, &policy)
+                    .unwrap()
+                    .unwrap();
+                let projection = prove_alias_global_face_projection(&exterior, &policy)
+                    .unwrap()
+                    .unwrap();
+                let binding = bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                    .unwrap()
+                    .unwrap();
+                let authority = prove_whole_observation_roles(&binding, &projection, &policy)
+                    .unwrap()
+                    .unwrap();
+                assert!(std::ptr::eq(authority.binding, &binding));
+                assert!(std::ptr::eq(authority.projection, &projection));
+                assert_eq!(authority.groups.len(), 12);
+                assert_eq!(
+                    authority.binding.cover.view.raw_payloads.len(),
+                    if isolated { 17 } else { 16 }
+                );
+                let mut observations = BTreeSet::new();
+                let mut aliases = BTreeSet::new();
+                let mut domains = 0;
+                let mut seams = 0;
+                let mut exterior_sides = 0;
+                for group in &authority.groups {
+                    assert!(binding.buckets.iter().any(|(key, b)| std::ptr::eq(
+                        *key,
+                        group.original_bucket.0
+                    ) && std::ptr::eq(
+                        *b,
+                        group.original_bucket.1
+                    )));
+                    assert!(prepared
+                        .aliases
+                        .keys()
+                        .any(|row| std::ptr::eq(row, group.segment)));
+                    let rows = match &group.role {
+                        PartitionWholeObservationRole::Domain {
+                            boundary,
+                            core,
+                            observations,
+                        } => {
+                            domains += 1;
+                            assert_eq!(observations.len(), 2);
+                            assert_eq!(core.partition_id, observations[0].graph.partition_id);
+                            assert!(std::ptr::eq(boundary.bounded_alias, observations[0].native));
+                            assert!(std::ptr::eq(boundary.exterior_twin, observations[1].native));
+                            assert!(!observations[0].graph.local_face_is_unbounded);
+                            assert!(observations[1].graph.local_face_is_unbounded);
+                            observations.as_slice()
+                        }
+                        PartitionWholeObservationRole::Seam {
+                            seam,
+                            cores,
+                            sides,
+                            observations,
+                        } => {
+                            seams += 1;
+                            assert_eq!(observations.len(), 4);
+                            assert_eq!(seam.partition_ids, cores.map(|core| core.partition_id));
+                            for (index, record) in observations.iter().enumerate() {
+                                assert_eq!(
+                                    record.graph.partition_id,
+                                    cores[index / 2].partition_id
+                                );
+                                assert_eq!(record.graph.side, sides[index / 2]);
+                                assert_eq!(record.graph.local_face_is_unbounded, index % 2 == 1);
+                            }
+                            observations.as_slice()
+                        }
+                    };
+                    for record in rows {
+                        assert!(binding.records.iter().any(|row| std::ptr::eq(row, *record)));
+                        assert!(observations.insert(record.snapshot.observation_id));
+                        assert_eq!(record.native.input.segment, group.segment);
+                        assert_eq!(
+                            record.graph.source_line_ids,
+                            record.snapshot.source_line_ids
+                        );
+                        assert_eq!(
+                            record.graph.local_face_successor,
+                            record.native.native_edge.local_face_successor
+                        );
+                    }
+                    let [a, b] = &group.physical_sides;
+                    assert_ne!(a.global_face_id, b.global_face_id);
+                    assert_eq!(
+                        projection.physical_twins[a.physical_slot_id],
+                        b.physical_slot_id
+                    );
+                    for side in &group.physical_sides {
+                        exterior_sides += usize::from(
+                            projection.faces[side.global_face_id]
+                                .bounded_face_ref
+                                .is_none(),
+                        );
+                        for alias in &side.aliases {
+                            assert!(projection.aliases.iter().any(|a| std::ptr::eq(a, *alias)));
+                            assert!(aliases.insert(alias.bound.alias.global_dir_edge_id));
+                            assert_eq!(alias.physical_slot_id, side.physical_slot_id);
+                            assert_eq!(alias.global_face_id, side.global_face_id);
+                        }
+                    }
+                }
+                assert_eq!((domains, seams, exterior_sides), (8, 4, 8));
+                assert_eq!(observations.len(), 32);
+                assert_eq!(aliases.len(), 32);
+                let mut split_exteriors = BTreeMap::<_, BTreeSet<_>>::new();
+                for alias in &projection.aliases {
+                    if alias.bound.native_edge.local_face_is_unbounded {
+                        let face = alias.bound.native_edge.face_ref.unwrap();
+                        split_exteriors
+                            .entry((face.partition_id, face.component_id, face.face_id))
+                            .or_default()
+                            .insert(alias.global_face_id);
+                    }
+                }
+                assert_eq!(split_exteriors.len(), 4);
+                assert!(split_exteriors.values().all(|faces| faces.len() == 3));
+                // Fresh original records and projected-alias order may vary; complete membership may not.
+                let mut reordered =
+                    bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                        .unwrap()
+                        .unwrap();
+                reordered.records.reverse();
+                reordered.buckets.reverse();
+                let mut reordered_projection =
+                    prove_alias_global_face_projection(&exterior, &policy)
+                        .unwrap()
+                        .unwrap();
+                reordered_projection.aliases.reverse();
+                assert!(
+                    prove_whole_observation_roles(&reordered, &reordered_projection, &policy)
+                        .unwrap()
+                        .is_some()
+                );
+                for change in 0..11 {
+                    let mut changed = prove_alias_global_face_projection(&exterior, &policy)
+                        .unwrap()
+                        .unwrap();
+                    match change {
+                        0 => {
+                            changed.aliases.pop();
+                        }
+                        1 => {
+                            let a = &changed.aliases[0];
+                            changed.aliases.push(PartitionProjectedAlias {
+                                bound: a.bound,
+                                physical_slot_id: a.physical_slot_id,
+                                global_face_id: a.global_face_id,
+                            });
+                        }
+                        2 => {
+                            changed.aliases[0].physical_slot_id =
+                                changed.physical_twins[changed.aliases[0].physical_slot_id];
+                        }
+                        3 => {
+                            changed.aliases[0].global_face_id =
+                                (changed.aliases[0].global_face_id + 1) % changed.faces.len();
+                        }
+                        4 => {
+                            changed.physical_next[0] = 0;
+                        }
+                        5 => {
+                            changed.physical_twins[0] = 0;
+                        }
+                        6 => {
+                            changed.faces[0].physical_slots.pop();
+                        }
+                        7 => {
+                            changed.faces[0].bounded_face_ref = Some([999, 999, 999]);
+                        }
+                        8 => {
+                            changed.aliases[0].bound = changed.aliases[1].bound;
+                        }
+                        9 => {
+                            changed.aliases[0].physical_slot_id = usize::MAX;
+                        }
+                        _ => {
+                            let face = &changed.faces[0];
+                            changed.faces.push(PartitionProjectedGlobalFace {
+                                physical_slots: face.physical_slots.clone(),
+                                bounded_face_ref: face.bounded_face_ref,
+                            });
+                        }
+                    }
+                    assert!(
+                        prove_whole_observation_roles(&binding, &changed, &policy)
+                            .unwrap()
+                            .is_none(),
+                        "projection {change}"
+                    );
+                }
+                // These domain-role mutations leave the native-derived projection provable.
+                let mut source_variant = prepared.aliases.first_key_value().unwrap().0.clone();
+                source_variant.source_line_ids.push(999);
+                for change in 0..7 {
+                    let mut changed = prove_domain_exterior_authority(&cover, &policy)
+                        .unwrap()
+                        .unwrap();
+                    match change {
+                        0 => {
+                            changed.boundary_segments.pop();
+                        }
+                        1 => {
+                            let b = &changed.boundary_segments[0];
+                            changed
+                                .boundary_segments
+                                .push(PartitionDomainBoundarySegment {
+                                    segment: b.segment,
+                                    bounded_alias: b.bounded_alias,
+                                    exterior_twin: b.exterior_twin,
+                                    observations: b.observations,
+                                });
+                        }
+                        2 => {
+                            changed.boundary_segments[0].observations.swap(0, 1);
+                        }
+                        3 => {
+                            changed.boundary_segments[0].bounded_alias =
+                                changed.boundary_segments[1].bounded_alias;
+                        }
+                        4 => {
+                            changed.boundary_segments[0].segment = &source_variant;
+                        }
+                        5 => {
+                            changed.boundary_segments[0].exterior_twin =
+                                changed.boundary_segments[0].bounded_alias;
+                        }
+                        _ => {
+                            changed.boundary_segments[0].observations[0] =
+                                changed.boundary_segments[1].observations[0];
+                        }
+                    }
+                    let changed_projection = prove_alias_global_face_projection(&changed, &policy)
+                        .unwrap()
+                        .unwrap();
+                    assert!(
+                        prove_whole_observation_roles(&binding, &changed_projection, &policy)
+                            .unwrap()
+                            .is_none(),
+                        "domain {change}"
+                    );
+                }
+                // Parent projection alone does not certify the seam's whole observation-role array.
+                for change in 0..3 {
+                    let mut changed =
+                        prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                            .unwrap()
+                            .unwrap();
+                    match change {
+                        0 => {
+                            changed.seams[0].observations.swap(0, 1);
+                        }
+                        1 => {
+                            changed.seams[0].partition_ids.swap(0, 1);
+                        }
+                        _ => {
+                            changed.seams[0].observations[3] = changed.seams[0].observations[0];
+                        }
+                    }
+                    let changed_exterior = prove_domain_exterior_authority(&changed, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let changed_projection =
+                        prove_alias_global_face_projection(&changed_exterior, &policy)
+                            .unwrap()
+                            .unwrap();
+                    let changed_binding =
+                        bind_original_graph_observations(&changed, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                    assert!(
+                        prove_whole_observation_roles(
+                            &changed_binding,
+                            &changed_projection,
+                            &policy
+                        )
+                        .unwrap()
+                        .is_none(),
+                        "seam {change}"
+                    );
+                }
+                for change in 0..4 {
+                    let mut stale =
+                        bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                    match change {
+                        0 => {
+                            stale.records.pop();
+                        }
+                        1 => {
+                            let r = &stale.records[0];
+                            stale.records.push(PartitionBoundOriginalObservation {
+                                snapshot: r.snapshot,
+                                graph: r.graph,
+                                bucket: r.bucket,
+                                native: r.native,
+                            });
+                        }
+                        2 => {
+                            stale.buckets.pop();
+                        }
+                        _ => {
+                            stale.buckets.push(stale.buckets[0]);
+                        }
+                    }
+                    assert!(prove_whole_observation_roles(&stale, &projection, &policy)
+                        .unwrap()
+                        .is_none());
+                }
+                // Revalidate stale original graph storage rather than trusting an old typed receipt.
+                for change in 0..6 {
+                    let mut changed = graph.clone();
+                    let mut originals = graph
+                        .original_observation_entries()
+                        .map(|(id, o)| (*id, o.clone()))
+                        .collect::<BTreeMap<_, _>>();
+                    let mut buckets = graph
+                        .original_observation_buckets()
+                        .map(|(span, b)| (*span, b.clone()))
+                        .collect::<BTreeMap<_, _>>();
+                    let id = *originals.first_key_value().unwrap().0;
+                    let old = originals[&id].clone();
+                    if change == 0 {
+                        buckets.get_mut(&id.edge_key).unwrap().remove(&old);
+                    } else {
+                        let o = originals.get_mut(&id).unwrap();
+                        match change {
+                            1 => {
+                                o.source_line_ids.push(999);
+                            }
+                            2 => {
+                                o.from_z_bits = 9.0f64.to_bits();
+                            }
+                            3 => {
+                                o.side = crate::graph::partition_border::PartitionBorderSide::MaxX;
+                            }
+                            4 => {
+                                o.local_face_successor = Some(999);
+                            }
+                            _ => {
+                                o.local_face_boundary_successor = None;
+                            }
+                        }
+                        buckets.get_mut(&id.edge_key).unwrap().remove(&old);
+                        buckets.get_mut(&id.edge_key).unwrap().insert(o.clone());
+                    }
+                    changed.replace_original_observation_storage_for_test(originals, buckets);
+                    let stale = PartitionOriginalObservationBinding {
+                        cover: &cover,
+                        graph: &changed,
+                        mosaic: &mosaic,
+                        records: binding
+                            .records
+                            .iter()
+                            .map(|r| PartitionBoundOriginalObservation {
+                                snapshot: r.snapshot,
+                                graph: r.graph,
+                                bucket: r.bucket,
+                                native: r.native,
+                            })
+                            .collect(),
+                        buckets: binding.buckets.clone(),
+                    };
+                    let changed_before = changed.clone();
+                    assert!(
+                        prove_whole_observation_roles(&stale, &projection, &policy)
+                            .unwrap()
+                            .is_none(),
+                        "graph {change}"
+                    );
+                    assert_eq!(changed, changed_before);
+                }
+                let mut stale_mosaic = mosaic.clone();
+                stale_mosaic
+                    .partitions
+                    .get_mut(&0)
+                    .unwrap()
+                    .declared_adjacencies[0]
+                    .coordinate_bits = 9.0f64.to_bits();
+                let stale = PartitionOriginalObservationBinding {
+                    cover: &cover,
+                    graph: &graph,
+                    mosaic: &stale_mosaic,
+                    records: binding
+                        .records
+                        .iter()
+                        .map(|r| PartitionBoundOriginalObservation {
+                            snapshot: r.snapshot,
+                            graph: r.graph,
+                            bucket: r.bucket,
+                            native: r.native,
+                        })
+                        .collect(),
+                    buckets: binding.buckets.clone(),
+                };
+                assert!(prove_whole_observation_roles(&stale, &projection, &policy)
+                    .unwrap()
+                    .is_none());
+                for limited in [
+                    ExecutionPolicy {
+                        max_candidate_pairs: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_graph_edges: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_graph_nodes: Some(0),
+                        ..Default::default()
+                    },
+                    ExecutionPolicy {
+                        max_output_coordinates: Some(0),
+                        ..Default::default()
+                    },
+                ] {
+                    assert!(matches!(
+                        prove_whole_observation_roles(&binding, &projection, &limited),
+                        Err(PolygonizeError::ResourceLimitExceeded { .. })
+                    ));
+                }
+                let limited = ExecutionPolicy {
+                    max_candidate_pairs: Some(10000),
+                    ..Default::default()
+                };
+                assert!(
+                    prove_whole_observation_roles(&binding, &projection, &limited)
+                        .unwrap()
+                        .is_some()
+                );
+                let mut oversized = prove_domain_exterior_authority(&cover, &policy)
+                    .unwrap()
+                    .unwrap();
+                let mut giant = oversized.boundary_segments[0].segment.clone();
+                giant.source_line_ids = vec![0; 20000];
+                oversized.boundary_segments[0].segment = &giant;
+                let oversized_projection = prove_alias_global_face_projection(&oversized, &policy)
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    matches!(prove_whole_observation_roles(&binding,&oversized_projection,&limited),Err(PolygonizeError::ResourceLimitExceeded{stage,..}) if stage=="partition_whole_observation_roles")
+                );
+                let token = CancellationToken::new();
+                token.cancel();
+                assert!(matches!(
+                    prove_whole_observation_roles(
+                        &binding,
+                        &projection,
+                        &ExecutionPolicy {
+                            cancellation_token: Some(token),
+                            ..Default::default()
+                        }
+                    ),
+                    Err(PolygonizeError::Cancelled { .. })
+                ));
+                let mut expanded =
+                    bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                        .unwrap()
+                        .unwrap();
+                let r = &binding.records[0];
+                for _ in 0..2048 {
+                    expanded.records.push(PartitionBoundOriginalObservation {
+                        snapshot: r.snapshot,
+                        graph: r.graph,
+                        bucket: r.bucket,
+                        native: r.native,
+                    });
+                }
+                let token = CancellationToken::new();
+                let cancelled = ExecutionPolicy {
+                    cancellation_token: Some(token.clone()),
+                    cancel_at_work_item: Some((token, 1024)),
+                    ..Default::default()
+                };
+                assert!(
+                    matches!(prove_whole_observation_roles(&expanded,&projection,&cancelled),Err(PolygonizeError::Cancelled{stage}) if stage=="partition_whole_observation_roles")
+                );
+                assert_eq!(graph, before);
+                assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+            }
         }
     }
 

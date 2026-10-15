@@ -639,8 +639,14 @@ separately from selectable output; they do not complete the promotion gates.
   every exact snapshot/native boundary observation before role selection.
   Retain all 32 observations, full source/Z/qualified-face/successor payloads,
   native aliases and raw records; reject orphan buckets, duplicate identities
-  and payload mismatches without normalizing them away. Typed domain/seam role
-  authority and claim consumption remain separate, closed obligations.
+  and payload mismatches without normalizing them away. Claim consumption
+  remains a separate, closed obligation.
+- [x] Prove additive typed roles for all eight whole domain pairs and four
+  whole seam quartets from exact inventory, actual core/domain ownership,
+  both native twin pairs and per-alias projected physical sides. Retain every
+  observation, original native link/source/Z and raw record. Revalidate the
+  borrowed inventories and projection; legacy claims, family classification,
+  acceptance and output consumers remain unchanged.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
