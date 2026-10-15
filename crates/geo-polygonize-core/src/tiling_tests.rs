@@ -147,6 +147,30 @@ mod tests {
             ] {
                 assert_eq!(exterior["authority"][field], count, "{field}");
             }
+            let projection = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_alias_global_face_projection")
+                .unwrap()
+                .payload;
+            assert_eq!(projection["proven"], true);
+            assert_eq!(projection["output_selectable"], false);
+            for (field, count) in [
+                ("global_face_count", 5),
+                ("bounded_face_count", 4),
+                ("exterior_face_count", 1),
+                ("physical_slot_count", 24),
+                ("physical_span_count", 12),
+                ("cycle_edge_count", 24),
+                ("projected_alias_count", 32),
+                ("native_exterior_to_bounded_alias_count", 8),
+                ("global_exterior_alias_count", 8),
+                ("retained_observation_count", 32),
+                ("retained_raw_record_count", 16),
+            ] {
+                assert_eq!(projection["projection"][field], count, "{field}");
+            }
             let claims = &result
                 .trace
                 .events
@@ -1693,6 +1717,349 @@ mod tests {
     }
 
     #[test]
+    fn alias_global_face_projection_retains_every_native_role_and_rejects_forgery() {
+        use crate::graph::partition_border::PartitionBorderPhysicalSlot;
+        use crate::tiling::{
+            input_bound_physical_alias_view, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_domain_exterior_authority,
+            prove_native_twin_seam_cover, PartitionMosaic,
+        };
+        use std::collections::BTreeMap;
+        let mut geometries = Vec::new();
+        for axis in 0..=2 {
+            for segment in 0..2 {
+                let (a, b) = (axis as f64, segment as f64);
+                for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                    geometries.push(Geometry::LineString(LineString::from(coords)));
+                }
+            }
+        }
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+        let policy = ExecutionPolicy::default();
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let mut tiled = TiledPolygonizer::new(domain, 1.0)
+            .with_buffer(0.0)
+            .with_untiled_equivalence_check();
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let result = tiled.polygonize().unwrap();
+        assert!(result.stitched_output.is_none());
+        let graph = result.partition_border_graph;
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let before = mosaic.fingerprint_sha256();
+        let graph_before = graph.clone();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let stats = graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let prepared =
+            prepare_partition_input_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let view = input_bound_physical_alias_view(
+            &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let authority = prove_domain_exterior_authority(&cover, &policy)
+            .unwrap()
+            .unwrap();
+        let projection = prove_alias_global_face_projection(&authority, &policy)
+            .unwrap()
+            .unwrap();
+        assert!(std::ptr::eq(projection.authority, &authority));
+        assert_eq!(projection.aliases.len(), 32);
+        assert_eq!(projection.faces.len(), 5);
+        assert_eq!(projection.physical_next.len(), 24);
+        assert_eq!(projection.physical_twins.len(), 24);
+        let mut lengths = projection
+            .faces
+            .iter()
+            .map(|face| (face.bounded_face_ref.is_none(), face.physical_slots.len()))
+            .collect::<Vec<_>>();
+        lengths.sort();
+        assert_eq!(
+            lengths,
+            vec![(false, 4), (false, 4), (false, 4), (false, 4), (true, 8)]
+        );
+        let by_global = projection
+            .aliases
+            .iter()
+            .map(|alias| (alias.bound.alias.global_dir_edge_id, alias))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(by_global.len(), 32);
+        let mut exterior_projections = BTreeMap::<_, BTreeMap<usize, usize>>::new();
+        let mut exterior_to_bounded = 0;
+        let mut distinct_native_next = 0;
+        for projected in &projection.aliases {
+            let bound = projected.bound;
+            let face = &projection.faces[projected.global_face_id];
+            let native_face = bound.native_edge.face_ref.unwrap();
+            let native_next = by_global
+                [&bound.alias.local_face_successor_global_dir_edge_id.unwrap()]
+                .physical_slot_id;
+            let differs = native_next != projection.physical_next[projected.physical_slot_id];
+            distinct_native_next += usize::from(differs);
+            if bound.native_edge.local_face_is_unbounded {
+                *exterior_projections
+                    .entry(native_face)
+                    .or_default()
+                    .entry(projected.global_face_id)
+                    .or_default() += 1;
+                exterior_to_bounded += usize::from(face.bounded_face_ref.is_some());
+            } else {
+                assert!(!differs);
+                assert_eq!(
+                    face.bounded_face_ref,
+                    Some([
+                        native_face.partition_id,
+                        native_face.component_id,
+                        native_face.face_id
+                    ])
+                );
+            }
+            assert!(view
+                .active_aliases
+                .iter()
+                .any(|original| std::ptr::eq(original, bound)));
+            assert!(view.slots[projected.physical_slot_id]
+                .local_aliases
+                .iter()
+                .any(|alias| std::ptr::eq(*alias, bound.alias)));
+        }
+        assert_eq!(distinct_native_next, 12);
+        assert_eq!(exterior_to_bounded, 8);
+        assert_eq!(exterior_projections.len(), 4);
+        for faces in exterior_projections.values() {
+            assert_eq!(faces.len(), 3);
+            let mut counts = faces.values().copied().collect::<Vec<_>>();
+            counts.sort();
+            assert_eq!(counts, vec![1, 1, 2]);
+        }
+        let signature = |projection: &crate::tiling::PartitionAliasGlobalFaceProjection<'_>| {
+            let mut signature = projection
+                .aliases
+                .iter()
+                .map(|alias| {
+                    (
+                        alias.bound.alias.global_dir_edge_id,
+                        alias.physical_slot_id,
+                        alias.global_face_id,
+                    )
+                })
+                .collect::<Vec<_>>();
+            signature.sort();
+            signature
+        };
+        let expected = signature(&projection);
+        // Renamed witness labels cannot supply or change derived global face identities.
+        // Even coherent data-bound twin-backtracking and merged-face witnesses must reject.
+        for change in 0..4 {
+            let mut changed_witness = witness.clone();
+            let count = witness.face_count;
+            let label = |id| if change == 1 { (id + 1) % count } else { 0 };
+            if change != 0 {
+                for edge in &mut changed_witness.physical_edges {
+                    edge.face_id = label(edge.face_id);
+                    if change == 3 {
+                        edge.next = edge.symmetric;
+                    }
+                }
+                for id in &mut changed_witness.face_ids_by_local_edge {
+                    *id = label(*id);
+                }
+                for (_, _, id) in &mut changed_witness.face_ids_by_direction {
+                    *id = label(*id);
+                }
+                for id in &mut changed_witness.unbounded_face_ids {
+                    *id = label(*id);
+                }
+                if change >= 2 {
+                    changed_witness.face_count = 1;
+                }
+            }
+            let changed_view = input_bound_physical_alias_view(
+                &prepared,
+                &graph,
+                &changed_witness,
+                &mosaic,
+                &options,
+                stats,
+                &policy,
+            )
+            .unwrap()
+            .unwrap();
+            let changed_cover =
+                prove_native_twin_seam_cover(&changed_view, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+            let changed_authority = prove_domain_exterior_authority(&changed_cover, &policy)
+                .unwrap()
+                .unwrap();
+            let changed = prove_alias_global_face_projection(&changed_authority, &policy).unwrap();
+            if change <= 1 {
+                let changed = changed.unwrap();
+                assert_eq!(signature(&changed), expected);
+                assert_eq!(changed.physical_next, projection.physical_next);
+                assert_eq!(changed.physical_twins, projection.physical_twins);
+            } else {
+                assert!(changed.is_none(), "witness forgery {change}");
+            }
+        }
+        // The immutable prerequisite proofs remain usable; slot omissions/extra rows do not.
+        for change in 0..6 {
+            let mut changed_view = input_bound_physical_alias_view(
+                &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+            )
+            .unwrap()
+            .unwrap();
+            let shared = changed_view
+                .slots
+                .iter()
+                .position(|slot| slot.local_aliases.len() == 2)
+                .unwrap();
+            match change {
+                0 => {
+                    changed_view.slots[shared].local_aliases.pop();
+                }
+                1 => {
+                    let alias = changed_view.slots[shared].local_aliases[0];
+                    changed_view.slots[shared].local_aliases.push(alias);
+                }
+                2 => changed_view.slots[0].local_aliases.clear(),
+                3 => {
+                    changed_view.slots.push(PartitionBorderPhysicalSlot {
+                        physical_edge: changed_view.slots[0].physical_edge,
+                        local_aliases: changed_view.slots[0].local_aliases.clone(),
+                    });
+                }
+                4 => {
+                    changed_view.slots.swap(0, 1);
+                }
+                _ => {
+                    changed_view.active_aliases.reverse();
+                    for slot in &mut changed_view.slots {
+                        slot.local_aliases.reverse();
+                    }
+                }
+            }
+            let changed_cover =
+                prove_native_twin_seam_cover(&changed_view, &mosaic, &tiles, domain, &policy)
+                    .unwrap()
+                    .unwrap();
+            let changed_authority = prove_domain_exterior_authority(&changed_cover, &policy)
+                .unwrap()
+                .unwrap();
+            let changed = prove_alias_global_face_projection(&changed_authority, &policy).unwrap();
+            if change == 5 {
+                assert_eq!(signature(&changed.unwrap()), expected);
+            } else {
+                assert!(changed.is_none(), "slot forgery {change}");
+            }
+        }
+        for change in 0..4 {
+            let mut changed = prove_domain_exterior_authority(&cover, &policy)
+                .unwrap()
+                .unwrap();
+            match change {
+                0 => {
+                    changed.exterior_cycle.pop();
+                }
+                1 => changed.exterior_cycle.swap(0, 1),
+                2 => changed.exterior_markers.clear(),
+                _ => changed.exterior_cycle.push(changed.exterior_cycle[0]),
+            }
+            assert!(
+                prove_alias_global_face_projection(&changed, &policy)
+                    .unwrap()
+                    .is_none(),
+                "authority forgery {change}"
+            );
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(31),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(23),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(23),
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                matches!(prove_alias_global_face_projection(&authority,&limited),
+                Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_alias_global_face_projection")
+            );
+        }
+        let mut oversized_view = input_bound_physical_alias_view(
+            &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+        )
+        .unwrap()
+        .unwrap();
+        oversized_view.slots[0].local_aliases = vec![
+            oversized_view.slots[0].local_aliases[0];
+            crate::options::MAX_UNCANCELLABLE_SORT_ITEMS
+                + 1
+        ];
+        let oversized_cover =
+            prove_native_twin_seam_cover(&oversized_view, &mosaic, &tiles, domain, &policy)
+                .unwrap()
+                .unwrap();
+        let oversized_authority = prove_domain_exterior_authority(&oversized_cover, &policy)
+            .unwrap()
+            .unwrap();
+        let bounded = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(
+            matches!(prove_alias_global_face_projection(&oversized_authority, &bounded),
+            Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_alias_global_face_projection")
+        );
+        for cancel_at in [None, Some(4), Some(128)] {
+            let token = CancellationToken::new();
+            if cancel_at.is_none() {
+                token.cancel();
+            }
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: cancel_at.map(|index| (token, index)),
+                ..Default::default()
+            };
+            assert!(
+                matches!(prove_alias_global_face_projection(&authority,&cancelled),
+                Err(PolygonizeError::Cancelled { stage }) if stage == "partition_alias_global_face_projection")
+            );
+        }
+        assert_eq!(mosaic.fingerprint_sha256(), before);
+        assert_eq!(graph, graph_before);
+    }
+
+    #[test]
     fn domain_exterior_authority_requires_complete_native_perimeter() {
         for case in 0..3 {
             let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (2.0, 2.0)), 2.0)
@@ -1755,6 +2122,9 @@ mod tests {
             let authority = event("partition_border_domain_exterior_authority");
             assert_eq!(authority["proven"], case == 2, "case {case}");
             assert_eq!(authority["output_selectable"], false);
+            let projection = event("partition_border_alias_global_face_projection");
+            assert_eq!(projection["proven"], case == 2, "case {case}");
+            assert_eq!(projection["output_selectable"], false);
             if case == 0 {
                 assert_eq!(
                     event("partition_border_input_bound_alias_view")["view"]["raw_record_count"],
@@ -1764,6 +2134,9 @@ mod tests {
                 assert_eq!(authority["authority"]["exterior_cycle_edge_count"], 4);
                 assert_eq!(authority["authority"]["seam_handoff_count"], 0);
                 assert_eq!(authority["authority"]["qualified_exterior_marker_count"], 1);
+                assert_eq!(projection["projection"]["global_face_count"], 2);
+                assert_eq!(projection["projection"]["projected_alias_count"], 8);
+                assert_eq!(projection["projection"]["global_exterior_alias_count"], 4);
             }
         }
     }

@@ -609,8 +609,14 @@ separately from selectable output; they do not complete the promotion gates.
   complete native twin pairs and observations. Native successors plus four
   checked seam handoffs form one complete domain-perimeter exterior cycle,
   covering all four qualified exterior markers without consulting witness face
-  IDs or successors. Every alias/raw record remains retained; global face
-  projection, claim readiness, family classification and selection stay closed.
+  IDs or successors. Every alias/raw record remains retained; claim readiness,
+  family classification and selection stay closed.
+- [x] Project all 32 native aliases onto five private global face cycles derived
+  from native bounded walks and domain authority, retaining original native
+  links and complete seam receipts. Eight local exterior aliases project to
+  neighboring bounded faces and eight to the global exterior; each qualified
+  local exterior face spans three global faces. Witness links/labels only
+  corroborate the projection; claims, acceptance and output gates stay closed.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
