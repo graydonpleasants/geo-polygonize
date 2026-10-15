@@ -171,6 +171,34 @@ mod tests {
             ] {
                 assert_eq!(projection["projection"][field], count, "{field}");
             }
+            let complex = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| {
+                    event.kind == "partition_border_component_euler_containment_authority"
+                })
+                .unwrap()
+                .payload;
+            assert_eq!(complex["proven"], true);
+            assert_eq!(complex["output_selectable"], false);
+            for (field, count) in [
+                ("qualified_local_component_count", 4),
+                ("physical_component_count", 1),
+                ("component_physical_slot_count", 24),
+                ("vertex_count", 9),
+                ("edge_count", 12),
+                ("face_count", 5),
+                ("euler_lhs", 2),
+                ("euler_rhs", 2),
+                ("containment_root_cycle_count", 1),
+                ("bounded_cell_count", 4),
+                ("retained_alias_count", 32),
+                ("retained_observation_count", 32),
+                ("retained_raw_record_count", 16),
+            ] {
+                assert_eq!(complex["authority"][field], count, "{field}");
+            }
             let claims = &result
                 .trace
                 .events
@@ -2060,6 +2088,341 @@ mod tests {
     }
 
     #[test]
+    fn component_euler_containment_authority_retains_complete_active_complex() {
+        use crate::tiling::{
+            input_bound_physical_alias_view, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_native_twin_seam_cover, PartitionMosaic,
+        };
+        let mut geometries = Vec::new();
+        for axis in 0..=2 {
+            for segment in 0..2 {
+                let (a, b) = (axis as f64, segment as f64);
+                for coords in [vec![(a, b), (a, b + 1.0)], vec![(b, a), (b + 1.0, a)]] {
+                    geometries.push(Geometry::LineString(LineString::from(coords)));
+                }
+            }
+        }
+        let domain = Rect::new((0.0, 0.0), (2.0, 2.0));
+        let refs = geometries
+            .iter()
+            .map(|geometry| (geometry, None))
+            .collect::<Vec<_>>();
+        let policy = ExecutionPolicy::default();
+        let options = PolygonizerOptions {
+            node_input: true,
+            ..Default::default()
+        };
+        let mut tiled = TiledPolygonizer::new(domain, 1.0)
+            .with_buffer(0.0)
+            .with_untiled_equivalence_check();
+        for geometry in &geometries {
+            tiled.add_geometry(geometry);
+        }
+        let tiles = tiled.generate_tiles().unwrap();
+        let result = tiled.polygonize().unwrap();
+        assert!(result.stitched_output.is_none());
+        let graph = result.partition_border_graph;
+        let mut mosaic = PartitionMosaic::default();
+        for snapshot in result.partition_snapshots {
+            mosaic.replace_partition(snapshot, &policy).unwrap();
+        }
+        let graph_before = graph.clone();
+        let before = mosaic.fingerprint_sha256();
+        let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+        let stats = graph
+            .clone()
+            .materialize_global_non_polygon_extraction_payloads(&policy)
+            .unwrap();
+        let prepared =
+            prepare_partition_input_evidence(&mosaic, &tiles, &refs, domain, &options, &policy)
+                .unwrap()
+                .unwrap();
+        let view = input_bound_physical_alias_view(
+            &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+        )
+        .unwrap()
+        .unwrap();
+        let cover = prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+            .unwrap()
+            .unwrap();
+        let domain_authority = prove_domain_exterior_authority(&cover, &policy)
+            .unwrap()
+            .unwrap();
+        let projection = prove_alias_global_face_projection(&domain_authority, &policy)
+            .unwrap()
+            .unwrap();
+        // Node ownership is partition-qualified, but cannot split a local connected star.
+        let mut changed_alias = view.active_aliases[0].alias.clone();
+        changed_alias.component_id += 100;
+        let mut rows = view
+            .active_aliases
+            .iter()
+            .map(|bound| crate::tiling::PartitionInputBoundActiveAlias {
+                alias: bound.alias,
+                native_edge: bound.native_edge,
+                input: crate::tiling::PartitionInputBoundSegment {
+                    local_segment_alias: bound.input.local_segment_alias,
+                    segment: bound.input.segment,
+                },
+            })
+            .collect::<Vec<_>>();
+        rows[0].alias = &changed_alias;
+        assert!(!crate::tiling::partition_component_nodes_consistent(&rows, &policy).unwrap());
+        let mut foreign_alias = changed_alias.clone();
+        foreign_alias.partition_id += 100;
+        rows[0].alias = &foreign_alias;
+        assert!(crate::tiling::partition_component_nodes_consistent(&rows, &policy).unwrap());
+        for _ in 0..2 {
+            let authority = prove_component_euler_containment_authority(&projection, &policy)
+                .unwrap()
+                .unwrap();
+            assert!(std::ptr::eq(authority.projection, &projection));
+            assert_eq!(
+                authority.local_components,
+                vec![[0, 0], [1, 0], [2, 0], [3, 0]]
+            );
+            assert_eq!(authority.physical_components.len(), 1);
+            assert_eq!(
+                authority.physical_components[0]
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>(),
+                (0..24).collect()
+            );
+            assert_eq!(
+                (
+                    authority.vertex_count,
+                    authority.edge_count,
+                    projection.faces.len()
+                ),
+                (9, 12, 5)
+            );
+            assert_eq!(authority.euler_characteristic, 2);
+            assert_eq!(authority.parent_cycle_by_face.len(), 5);
+            for (face, parent) in authority.parent_cycle_by_face.iter().enumerate() {
+                assert_eq!(
+                    *parent,
+                    if face == authority.exterior_face_id {
+                        None
+                    } else {
+                        Some(authority.exterior_face_id)
+                    }
+                );
+            }
+            assert_eq!(authority.projection.authority.cover.observations.len(), 32);
+            assert_eq!(
+                authority.projection.authority.cover.view.raw_payloads.len(),
+                16
+            );
+        }
+        for change in 0..17 {
+            let mut changed = prove_alias_global_face_projection(&domain_authority, &policy)
+                .unwrap()
+                .unwrap();
+            let bounded = changed
+                .faces
+                .iter()
+                .position(|face| face.bounded_face_ref.is_some())
+                .unwrap();
+            match change {
+                0 => {
+                    changed.aliases.pop();
+                }
+                1 => changed.aliases[0].global_face_id = usize::MAX,
+                2 => changed.aliases[0].physical_slot_id = usize::MAX,
+                3 => {
+                    changed.faces.pop();
+                }
+                4 => {
+                    let first = changed.faces[bounded].physical_slots[0];
+                    changed.faces[bounded].physical_slots.push(first);
+                }
+                5 => changed.physical_twins[0] = 0,
+                6 => changed.physical_next[0] = changed.physical_twins[0],
+                7 => changed.faces[bounded].bounded_face_ref = Some([99, 99, 99]),
+                8 => changed.faces[bounded].bounded_face_ref = None,
+                9 => {
+                    changed.physical_next.pop();
+                }
+                10 => {
+                    changed.physical_twins.pop();
+                }
+                11 => changed.aliases[1].bound = changed.aliases[0].bound,
+                12 => changed.faces[bounded].physical_slots.clear(),
+                13 => changed.faces[bounded].physical_slots.reverse(),
+                14 => changed.aliases.reverse(),
+                15 => {
+                    for face in &mut changed.faces {
+                        face.physical_slots.rotate_left(1);
+                    }
+                }
+                _ => {
+                    changed.faces.reverse();
+                    let count = changed.faces.len();
+                    for alias in &mut changed.aliases {
+                        alias.global_face_id = count - 1 - alias.global_face_id;
+                    }
+                }
+            }
+            let authority = prove_component_euler_containment_authority(&changed, &policy).unwrap();
+            assert_eq!(
+                authority.is_some(),
+                change >= 14,
+                "projection forgery/order {change}"
+            );
+        }
+        for limited in [
+            ExecutionPolicy {
+                max_graph_edges: Some(31),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_graph_nodes: Some(23),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(0),
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_candidate_pairs: Some(1000), // Topology and containment must share one aggregate budget.
+                ..Default::default()
+            },
+            ExecutionPolicy {
+                max_output_coordinates: Some(28),
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                matches!(prove_component_euler_containment_authority(&projection,&limited),
+                Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_component_euler_containment")
+            );
+        }
+        let mut oversized = prove_alias_global_face_projection(&domain_authority, &policy)
+            .unwrap()
+            .unwrap();
+        oversized.faces[0].physical_slots =
+            vec![0; crate::options::MAX_UNCANCELLABLE_SORT_ITEMS + 1];
+        let bounded = ExecutionPolicy {
+            cancellation_token: Some(CancellationToken::new()),
+            ..Default::default()
+        };
+        assert!(
+            matches!(prove_component_euler_containment_authority(&oversized,&bounded),
+            Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_component_euler_containment")
+        );
+        for cancel_at in [None, Some(4), Some(256)] {
+            let token = CancellationToken::new();
+            if cancel_at.is_none() {
+                token.cancel();
+            }
+            let cancelled = ExecutionPolicy {
+                cancellation_token: Some(token.clone()),
+                cancel_at_work_item: cancel_at.map(|index| (token, index)),
+                ..Default::default()
+            };
+            assert!(
+                matches!(prove_component_euler_containment_authority(&projection,&cancelled),
+                Err(PolygonizeError::Cancelled { stage }) if stage == "partition_component_euler_containment")
+            );
+        }
+        assert_eq!(graph, graph_before);
+        assert_eq!(mosaic.fingerprint_sha256(), before);
+    }
+
+    #[test]
+    fn flat_face_containment_rejects_nested_overlapping_and_invalid_regions() {
+        use crate::tiling::prove_flat_face_containment;
+        let rectangle = |x0, y0, x1, y1| {
+            geo::Polygon::new(
+                LineString::from(vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]),
+                vec![],
+            )
+        };
+        let policy = ExecutionPolicy::default();
+        let root = rectangle(0.0, 0.0, 2.0, 2.0);
+        let valid = vec![
+            root.clone(),
+            rectangle(0.0, 0.0, 1.0, 1.0),
+            rectangle(1.0, 0.0, 2.0, 1.0),
+            rectangle(0.0, 1.0, 1.0, 2.0),
+            rectangle(1.0, 1.0, 2.0, 2.0),
+        ];
+        assert_eq!(
+            prove_flat_face_containment(&valid, 0, &policy).unwrap(),
+            Some(vec![None, Some(0), Some(0), Some(0), Some(0)])
+        );
+        // Identical cycle envelopes are valid for a single cell and its exterior walk.
+        assert_eq!(
+            prove_flat_face_containment(&[root.clone(), root.clone()], 0, &policy).unwrap(),
+            Some(vec![None, Some(0)])
+        );
+        for change in 0..8 {
+            let mut changed = valid.clone();
+            match change {
+                0 => changed[2] = rectangle(0.5, 0.5, 1.5, 1.5),
+                1 => changed[2] = rectangle(0.2, 0.2, 0.8, 0.8),
+                2 => changed[2] = rectangle(2.0, 0.0, 3.0, 1.0),
+                3 => changed[2] = changed[1].clone(),
+                4 => {
+                    changed[2] = geo::Polygon::new(
+                        changed[2].exterior().clone(),
+                        vec![rectangle(1.2, 0.2, 1.8, 0.8).exterior().clone()],
+                    )
+                }
+                5 => {
+                    changed[2] = geo::Polygon::new(
+                        LineString::from(vec![
+                            (1.0, 0.0),
+                            (2.0, 1.0),
+                            (2.0, 0.0),
+                            (1.0, 1.0),
+                            (1.0, 0.0),
+                        ]),
+                        vec![],
+                    )
+                }
+                6 => changed[2] = geo::Polygon::new(LineString::new(vec![]), vec![]),
+                _ => changed[2] = rectangle(f64::NAN, 0.0, 2.0, 1.0),
+            }
+            assert!(
+                prove_flat_face_containment(&changed, 0, &policy)
+                    .unwrap()
+                    .is_none(),
+                "geometry forgery {change}"
+            );
+        }
+        assert!(prove_flat_face_containment(&valid, usize::MAX, &policy)
+            .unwrap()
+            .is_none());
+        assert!(prove_flat_face_containment(&valid, 1, &policy)
+            .unwrap()
+            .is_none());
+        assert!(prove_flat_face_containment(&[], 0, &policy)
+            .unwrap()
+            .is_none());
+        let limited = ExecutionPolicy {
+            max_candidate_pairs: Some(0),
+            ..Default::default()
+        };
+        assert!(matches!(
+            prove_flat_face_containment(&valid, 0, &limited),
+            Err(PolygonizeError::ResourceLimitExceeded { .. })
+        ));
+        let token = CancellationToken::new();
+        token.cancel();
+        let cancelled = ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        };
+        assert!(matches!(
+            prove_flat_face_containment(&valid, 0, &cancelled),
+            Err(PolygonizeError::Cancelled { .. })
+        ));
+    }
+
+    #[test]
     fn domain_exterior_authority_requires_complete_native_perimeter() {
         for case in 0..3 {
             let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (2.0, 2.0)), 2.0)
@@ -2125,6 +2488,9 @@ mod tests {
             let projection = event("partition_border_alias_global_face_projection");
             assert_eq!(projection["proven"], case == 2, "case {case}");
             assert_eq!(projection["output_selectable"], false);
+            let complex = event("partition_border_component_euler_containment_authority");
+            assert_eq!(complex["proven"], case == 2, "case {case}");
+            assert_eq!(complex["output_selectable"], false);
             if case == 0 {
                 assert_eq!(
                     event("partition_border_input_bound_alias_view")["view"]["raw_record_count"],
@@ -2137,6 +2503,20 @@ mod tests {
                 assert_eq!(projection["projection"]["global_face_count"], 2);
                 assert_eq!(projection["projection"]["projected_alias_count"], 8);
                 assert_eq!(projection["projection"]["global_exterior_alias_count"], 4);
+                for (field, count) in [
+                    ("qualified_local_component_count", 1),
+                    ("physical_component_count", 1),
+                    ("component_physical_slot_count", 8),
+                    ("vertex_count", 4),
+                    ("edge_count", 4),
+                    ("face_count", 2),
+                    ("euler_lhs", 2),
+                    ("euler_rhs", 2),
+                    ("containment_root_cycle_count", 1),
+                    ("bounded_cell_count", 1),
+                ] {
+                    assert_eq!(complex["authority"][field], count, "{field}");
+                }
             }
         }
     }

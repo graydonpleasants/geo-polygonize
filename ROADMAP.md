@@ -617,6 +617,12 @@ separately from selectable output; they do not complete the promotion gates.
   neighboring bounded faces and eight to the global exterior; each qualified
   local exterior face spans three global faces. Witness links/labels only
   corroborate the projection; claims, acceptance and output gates stay closed.
+- [x] Prove complete active component coverage, global angular rotation and
+  planar Euler authority for the connected flat cell arrangement: four local
+  components, one physical component, 9 vertices, 12 edges and 5 faces. Validate
+  the four disjoint bounded cell interiors within the exterior cycle envelope;
+  nested, holed and disconnected classes remain unsupported. Claim, raw-family,
+  acceptance and public-selection gates remain unchanged.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
@@ -639,10 +645,11 @@ family physical-component proof → coordinate/source affinity → options affin
 → touch/filter ambiguity rejection.
 Native stack #1556 (#1552 → #1553 → #1554 → #1555) has also merged into main:
 fixed precision → container inventories → partial halos → the input-bound
-physical alias view before family classification. Private native seam evidence
-builds on that binding; domain/exterior, face-projection, component, Euler,
-containment and output-promotion gates remain independent. The 2×2 promotion
-gate is incomplete.
+physical alias view before family classification. Native stack #1560
+(#1557 → #1558 → #1559) has also merged into main: complete native seam
+coverage → domain/exterior authority → per-alias global face projection.
+Component, Euler, containment and output-promotion gates remain independent.
+The 2×2 promotion gate is incomplete.
 These private milestones do not change the published 1.2.0 artifacts.
 
 **Promotion gate:** stitched output may become selectable only for a documented
