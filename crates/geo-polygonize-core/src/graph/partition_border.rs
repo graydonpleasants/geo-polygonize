@@ -2070,6 +2070,28 @@ impl PartitionBorderGraph {
         self.observations.values()
     }
 
+    pub(crate) fn original_observation_entries(
+        &self,
+    ) -> impl Iterator<Item = (&PartitionBorderObservationId, &PartitionBorderHalfEdge)> {
+        self.observations.iter()
+    }
+
+    pub(crate) fn original_observation_buckets(
+        &self,
+    ) -> impl Iterator<Item = (&PartitionBorderEdgeKey, &BTreeSet<PartitionBorderHalfEdge>)> {
+        self.edges.iter()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_original_observation_storage_for_test(
+        &mut self,
+        observations: BTreeMap<PartitionBorderObservationId, PartitionBorderHalfEdge>,
+        edges: BTreeMap<PartitionBorderEdgeKey, BTreeSet<PartitionBorderHalfEdge>>,
+    ) {
+        self.observations = observations;
+        self.edges = edges;
+    }
+
     pub fn declare_adjacency(&mut self, adjacency: PartitionBorderAdjacency) {
         self.adjacencies.insert(adjacency);
         self.global_face_edge_map.clear();

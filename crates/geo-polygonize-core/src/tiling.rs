@@ -1877,6 +1877,25 @@ struct PartitionNativeTwinSeamCover<'a> {
     pending_domain_segments: Vec<&'a PartitionNodedSegmentV1>,
 }
 
+struct PartitionBoundOriginalObservation<'a> {
+    snapshot: &'a PartitionAtomicObservationV1,
+    graph: &'a PartitionBorderHalfEdge,
+    bucket: &'a PartitionBorderHalfEdge,
+    native: &'a PartitionInputBoundActiveAlias<'a>,
+}
+
+/// Exact inventory binding only; no domain/seam role or claim becomes ready.
+struct PartitionOriginalObservationBinding<'a> {
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    graph: &'a PartitionBorderGraph,
+    mosaic: &'a PartitionMosaic,
+    records: Vec<PartitionBoundOriginalObservation<'a>>,
+    buckets: Vec<(
+        &'a PartitionBorderEdgeKey,
+        &'a BTreeSet<PartitionBorderHalfEdge>,
+    )>,
+}
+
 #[allow(dead_code)] // Both native roles and their original observations remain borrowed.
 struct PartitionDomainBoundarySegment<'a> {
     segment: &'a PartitionNodedSegmentV1,
@@ -4092,6 +4111,248 @@ fn input_bound_physical_alias_view<'a>(
         slots,
         active_aliases,
         raw_payloads,
+    }))
+}
+
+/// Bind complete original observation stores before any role or eligibility selection.
+fn bind_original_graph_observations<'a>(
+    cover: &'a PartitionNativeTwinSeamCover<'a>,
+    graph: &'a PartitionBorderGraph,
+    mosaic: &'a PartitionMosaic,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionOriginalObservationBinding<'a>>> {
+    let stage = "partition_original_observation_binding";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "original observation inventory count overflow".to_string(),
+    };
+    let mut items = mosaic.partitions.len();
+    let mut rows = 0usize;
+    let mut work = 0usize;
+    // Count every original store, including orphan buckets, before allocation/hash/sort.
+    let mut add = |sources: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        rows = rows.checked_add(1).ok_or_else(overflow)?;
+        items = items
+            .checked_add(2)
+            .and_then(|n| n.checked_add(sources))
+            .ok_or_else(overflow)?;
+        Ok(())
+    };
+    for (_, observation) in graph.original_observation_entries() {
+        add(observation.source_line_ids.len())?;
+    }
+    for (_, bucket) in graph.original_observation_buckets() {
+        add(0)?;
+        for observation in bucket {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for observation in &cover.observations {
+        add(observation.source_line_ids.len())?;
+    }
+    for native in &cover.view.active_aliases {
+        add(native.native_edge.source_line_ids.len())?;
+        add(native.input.segment.source_line_ids.len())?;
+    }
+    for local in graph.local_face_graphs() {
+        for edge in &local.directed_edges {
+            add(edge.source_line_ids.len())?;
+        }
+    }
+    execution_policy.check_uncancellable_sort(stage, items)?;
+    execution_policy.check(stage, execution_policy.max_candidate_pairs, items)?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, rows)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, items)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        rows.checked_mul(2).ok_or_else(overflow)?,
+    )?;
+    let prepared = cover.view.prepared;
+    if prepared.snapshot_fingerprints.len() != mosaic.partitions.len() {
+        return Ok(None);
+    }
+    for (partition, fingerprint) in &prepared.snapshot_fingerprints {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if mosaic
+            .partitions
+            .get(partition)
+            .is_none_or(|snapshot| snapshot.fingerprint_sha256() != *fingerprint)
+        {
+            return Ok(None);
+        }
+    }
+    let native_key = |partition, component, local| (partition, component, local);
+    let mut current_native = BTreeMap::new();
+    for local in graph.local_face_graphs() {
+        for edge in &local.directed_edges {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if current_native
+                .insert(
+                    native_key(
+                        local.partition_id,
+                        local.component_id,
+                        edge.local_dir_edge_id,
+                    ),
+                    edge,
+                )
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut natives = BTreeMap::new();
+    for native in &cover.view.active_aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let key = native_key(
+            native.alias.partition_id,
+            native.alias.component_id,
+            native.native_edge.local_dir_edge_id,
+        );
+        if current_native.get(&key) != Some(&native.native_edge)
+            || natives.insert(key, native).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if current_native.len() != natives.len() {
+        return Ok(None);
+    }
+    let mut expected = BTreeMap::new();
+    for (&partition, snapshot) in &mosaic.partitions {
+        if partition != snapshot.partition_id {
+            return Ok(None);
+        }
+        for observation in &snapshot.atomic_observations {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if observation.observation_id.partition_id != partition
+                || expected
+                    .insert(observation.observation_id, observation)
+                    .is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    let mut covered = BTreeSet::new();
+    for observation in &cover.observations {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if expected.get(&observation.observation_id) != Some(observation)
+            || !covered.insert(observation.observation_id)
+        {
+            return Ok(None);
+        }
+    }
+    if covered.len() != expected.len() {
+        return Ok(None);
+    }
+    let mut original = BTreeMap::new();
+    for (id, observation) in graph.original_observation_entries() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if *id != observation.observation_id() {
+            return Ok(None);
+        }
+        let identity = partition_border_observation_id(*id);
+        let Some(&snapshot) = expected.get(&identity) else {
+            return Ok(None);
+        };
+        let Some(&native) = natives.get(&native_key(
+            observation.partition_id,
+            observation.component_id,
+            observation.local_dir_edge_id,
+        )) else {
+            return Ok(None);
+        };
+        let edge = native.native_edge;
+        let face = edge
+            .face_ref
+            .map(|face| [face.partition_id, face.component_id, face.face_id]);
+        // Exact original source vectors and payloads; never canonicalize/dedup to match.
+        if observation.component_id != snapshot.component_id
+            || observation.from.xy_bits() != snapshot.from_xy_bits
+            || observation.to.xy_bits() != snapshot.to_xy_bits
+            || observation.from_z_bits != snapshot.from_z_bits
+            || observation.to_z_bits != snapshot.to_z_bits
+            || partition_border_side_code(observation.side) != snapshot.side
+            || observation.source_line_ids != snapshot.source_line_ids
+            || observation.representative_line_id != snapshot.representative_line_id
+            || observation
+                .face_ref
+                .map(|face| [face.partition_id, face.component_id, face.face_id])
+                != snapshot.face_ref
+            || observation.face_id != snapshot.face_ref.map(|face| face[2])
+            || observation.local_face_is_unbounded != snapshot.local_face_is_unbounded
+            || observation.local_face_successor != snapshot.local_face_successor
+            || observation
+                .local_face_boundary_successor
+                .map(partition_border_observation_id)
+                != snapshot.local_face_boundary_successor
+            || edge.edge_key != observation.edge_key
+            || edge.from != observation.from
+            || edge.to != observation.to
+            || edge.from_z_bits != observation.from_z_bits
+            || edge.to_z_bits != observation.to_z_bits
+            || edge.source_line_ids != observation.source_line_ids
+            || native.input.segment.representative_line_id != observation.representative_line_id
+            || face != snapshot.face_ref
+            || edge.local_face_successor != snapshot.local_face_successor
+            || edge.local_face_is_unbounded != snapshot.local_face_is_unbounded
+            || original.insert(identity, (observation, native)).is_some()
+        {
+            return Ok(None);
+        }
+    }
+    if original.len() != expected.len() {
+        return Ok(None);
+    }
+    let mut seen = BTreeSet::new();
+    let mut records = Vec::new();
+    let mut buckets = Vec::new();
+    for (span, bucket) in graph.original_observation_buckets() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if bucket.is_empty() {
+            return Ok(None);
+        }
+        for observation in bucket {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let identity = partition_border_observation_id(observation.observation_id());
+            let Some(&(indexed, native)) = original.get(&identity) else {
+                return Ok(None);
+            };
+            if observation.edge_key != *span || observation != indexed || !seen.insert(identity) {
+                return Ok(None);
+            }
+            records.push(PartitionBoundOriginalObservation {
+                snapshot: expected[&identity],
+                graph: indexed,
+                bucket: observation,
+                native,
+            });
+        }
+        buckets.push((span, bucket));
+    }
+    if seen.len() != expected.len() {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionOriginalObservationBinding {
+        cover,
+        graph,
+        mosaic,
+        records,
+        buckets,
     }))
 }
 
@@ -11125,6 +11386,18 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let observation_binding = native_seam_cover
+                .as_ref()
+                .map(|cover| {
+                    bind_original_graph_observations(
+                        cover,
+                        &partition_border_graph,
+                        &partition_mosaic,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten();
             let isolated_dangle_complement = component_authority
                 .as_ref()
                 .map(|authority| {
@@ -11286,6 +11559,31 @@ impl<'a> TiledPolygonizer<'a> {
                             "isolated_dangle_raw_record_count": proof.raw_records.iter().filter(|record| matches!(record.evidence, PartitionRawRecordComplementEvidence::IsolatedDangle { .. })).count(),
                         })),
                         "raw_families_classified": false,
+                        "claim_consumption_ready": false,
+                        "output_selectable": false,
+                    }),
+                );
+                trace.record(
+                    TraceStageV1::Graph,
+                    "partition_border_original_observation_binding",
+                    serde_json::json!({
+                        "bound": observation_binding.is_some(),
+                        "inventory": observation_binding.as_ref().map(|binding| serde_json::json!({
+                            "snapshot_observation_count": binding.cover.observations.len(),
+                            "graph_observation_count": binding.graph.original_observation_entries().count(),
+                            "matched_record_count": binding.records.len(),
+                            "original_bucket_count": binding.buckets.len(),
+                            "two_member_bucket_count": binding.buckets.iter().filter(|(_, bucket)| bucket.len() == 2).count(),
+                            "four_member_bucket_count": binding.buckets.iter().filter(|(_, bucket)| bucket.len() == 4).count(),
+                            "graph_source_id_count": binding.records.iter().map(|record| record.graph.source_line_ids.len()).sum::<usize>(),
+                            "bucket_source_id_count": binding.records.iter().map(|record| record.bucket.source_line_ids.len()).sum::<usize>(),
+                            "native_source_id_count": binding.records.iter().map(|record| record.native.native_edge.source_line_ids.len()).sum::<usize>(),
+                            "original_boundary_successor_count": binding.records.iter().filter(|record| record.snapshot.local_face_boundary_successor.is_some()).count(),
+                            "verified_partition_count": binding.mosaic.partitions.len(),
+                            "retained_native_alias_count": binding.cover.view.active_aliases.len(),
+                            "retained_raw_record_count": binding.cover.view.raw_payloads.len(),
+                        })),
+                        "roles_classified": false,
                         "claim_consumption_ready": false,
                         "output_selectable": false,
                     }),
