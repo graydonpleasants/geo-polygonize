@@ -1372,6 +1372,324 @@ mod tests {
     }
 
     #[test]
+    fn cross_core_partial_halos_retain_exact_polygon_copy_owners_and_sources() {
+        let square = |left, right| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.25),
+            ]))
+        };
+        let originals = vec![
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![
+                (1.0, 1.0),
+                (9.0, 3.0),
+                (9.0, 1.0),
+                (1.0, 3.0),
+                (1.0, 1.0),
+            ])),
+            Geometry::LineString(LineString::from(vec![(3.0, 3.5), (9.0, 3.5)])),
+        ];
+        let mut checked = 0;
+        // Explicit partition sets check both sides of each inclusive halo-selection threshold.
+        for (buffer, left, right) in [
+            (0.0, &[0][..], &[2][..]),
+            (1.875, &[0][..], &[2][..]),
+            (2.0, &[0][..], &[1, 2][..]),
+            (3.375, &[0][..], &[1, 2][..]),
+            (3.5, &[0, 1][..], &[1, 2][..]),
+            (5.875, &[0, 1][..], &[1, 2][..]),
+            (6.0, &[0, 1][..], &[0, 1, 2][..]),
+            (7.375, &[0, 1][..], &[0, 1, 2][..]),
+            (7.5, &[0, 1, 2][..], &[0, 1, 2][..]),
+        ] {
+            for reverse in [false, true] {
+                let mut geometries = originals.clone();
+                if reverse {
+                    geometries.reverse();
+                    for geometry in &mut geometries {
+                        let Geometry::LineString(line) = geometry else {
+                            unreachable!()
+                        };
+                        line.0.reverse();
+                    }
+                }
+                let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), 4.0)
+                    .with_buffer(buffer)
+                    .with_options(PolygonizerOptions {
+                        provenance: ProvenanceOptions {
+                            enabled: true,
+                            include_boundary_line_ids: true,
+                        },
+                        input_profile_id: Some("partial-halo-inventory".to_string()),
+                        ..Default::default()
+                    })
+                    .with_untiled_equivalence_check();
+                for geometry in &geometries {
+                    tiled.add_geometry(geometry);
+                }
+                let ordinary = tiled.polygonize().unwrap();
+                let traced = tiled
+                    .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                    .unwrap();
+                let conformance = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_global_arrangement_conformance")
+                    .unwrap()
+                    .payload;
+                assert_eq!(
+                    conformance["candidate_built"], true,
+                    "buffer={buffer} reverse={reverse} event={conformance}"
+                );
+                assert_eq!(conformance["equivalence_ready"], true);
+                assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                assert_eq!(conformance["polygon_count"], 2);
+                assert_eq!(conformance["cut_edge_count"], 0);
+                assert_eq!(conformance["dangle_count"], 1);
+                assert_eq!(conformance["invalid_ring_count"], 2);
+                assert_eq!(conformance["raw_non_polygon_ledger_bound"], true);
+                assert_eq!(conformance["output_selectable"], false);
+                let proof = &traced
+                    .trace
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                    .unwrap()
+                    .payload;
+                assert_eq!(proof["proven"], true);
+                let components = proof["proof"]["components"].as_array().unwrap();
+                assert_eq!(components.len(), 2);
+                assert_eq!(
+                    components
+                        .iter()
+                        .map(|component| component["owner_partition_id"].as_u64().unwrap())
+                        .collect::<BTreeSet<_>>(),
+                    [0, 2].into_iter().collect()
+                );
+                for component in components {
+                    let owner = component["owner_partition_id"].as_u64().unwrap() as usize;
+                    let expected = match owner {
+                        0 => left,
+                        2 => right,
+                        _ => panic!("unexpected polygon owner {owner}"),
+                    };
+                    let aliases = component["local_component_aliases"].as_array().unwrap();
+                    assert_eq!(aliases.len(), expected.len());
+                    assert_eq!(
+                        component["copies"].as_array().unwrap().len(),
+                        expected.len()
+                    );
+                    assert_eq!(
+                        aliases
+                            .iter()
+                            .map(|alias| alias[0].as_u64().unwrap() as usize)
+                            .collect::<BTreeSet<_>>(),
+                        expected.iter().copied().collect::<BTreeSet<_>>()
+                    );
+                    let owner_copy = component["owner_copy_index"].as_u64().unwrap() as usize;
+                    assert_eq!(aliases[owner_copy][0].as_u64().unwrap() as usize, owner);
+                }
+                for result in [&ordinary, &traced.result] {
+                    assert_eq!(result.partition_snapshots.len(), 3);
+                    for snapshot in &result.partition_snapshots {
+                        assert_eq!(snapshot.generation.buffer_bits, buffer.to_bits());
+                        assert_eq!(snapshot.generation.retry_attempt, 0);
+                        let mut counts = vec![(2, 4), (3, 1)];
+                        if left.contains(&snapshot.partition_id) {
+                            counts.push((0, 4));
+                        }
+                        if right.contains(&snapshot.partition_id) {
+                            counts.push((1, 4));
+                        }
+                        if reverse {
+                            for (geometry, _) in &mut counts {
+                                *geometry = geometries.len() - 1 - *geometry;
+                            }
+                        }
+                        counts.sort_unstable();
+                        assert_eq!(
+                            snapshot.selected_input_geometry_indices,
+                            counts
+                                .iter()
+                                .map(|&(geometry, _)| geometry)
+                                .collect::<Vec<_>>()
+                        );
+                        assert_eq!(
+                            snapshot
+                                .selected_source_segments
+                                .iter()
+                                .map(|segment| (segment.geometry_index, segment.segment_index))
+                                .collect::<Vec<_>>(),
+                            counts
+                                .iter()
+                                .flat_map(|&(geometry, count)| {
+                                    (0..count).map(move |segment| (geometry, segment))
+                                })
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                    assert!(
+                        !result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_ready
+                    );
+                    assert!(
+                        result
+                            .stitching_report
+                            .partition_border_global_non_polygon_extraction_duplicate_payload_count
+                            > 0
+                    );
+                    assert!(result.stitched_output.is_none());
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 18);
+    }
+
+    #[test]
+    fn cross_core_partial_cut_halos_decline_inconsistent_local_families() {
+        let square = |left, right| {
+            Geometry::LineString(LineString::from(vec![
+                (left, 0.25),
+                (right, 0.25),
+                (right, 0.375),
+                (right, 0.5),
+                (left, 0.5),
+                (left, 0.375),
+                (left, 0.25),
+            ]))
+        };
+        let originals = vec![
+            square(0.25, 0.5),
+            square(10.0, 10.25),
+            Geometry::LineString(LineString::from(vec![(0.5, 0.375), (10.0, 0.375)])),
+        ];
+        let mut checked = 0;
+        for (buffer, dangles, cuts, ready) in [
+            (0.0, 3, 0, false),
+            (3.5, 2, 1, false),
+            (6.0, 1, 2, false),
+            (7.375, 1, 2, false),
+            (7.5, 0, 3, true),
+        ] {
+            for node_input in [false, true] {
+                for reverse in [false, true] {
+                    let mut geometries = originals.clone();
+                    if reverse {
+                        geometries.reverse();
+                        for geometry in &mut geometries {
+                            let Geometry::LineString(line) = geometry else {
+                                unreachable!()
+                            };
+                            line.0.reverse();
+                        }
+                    }
+                    let options = PolygonizerOptions {
+                        node_input,
+                        provenance: ProvenanceOptions {
+                            enabled: true,
+                            include_boundary_line_ids: true,
+                        },
+                        input_profile_id: Some("partial-cut-halos".to_string()),
+                        ..Default::default()
+                    };
+                    let mut reference = Polygonizer::with_options(options.clone());
+                    let mut tiled = TiledPolygonizer::new(Rect::new((0.0, 0.0), (12.0, 4.0)), 4.0)
+                        .with_buffer(buffer)
+                        .with_options(options)
+                        .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        reference.add_borrowed_geometry(geometry);
+                        tiled.add_geometry(geometry);
+                    }
+                    let reference = reference.polygonize().unwrap();
+                    assert_eq!(reference.polygons.len(), 2);
+                    assert_eq!(reference.cut_edges.len(), 1);
+                    assert!(reference.dangles.is_empty());
+                    assert!(reference.invalid_rings.is_empty());
+                    let ordinary = tiled.polygonize().unwrap();
+                    let traced = tiled
+                        .polygonize_with_trace(TraceLevelV1::Full, usize::MAX)
+                        .unwrap();
+                    for result in [&ordinary, &traced.result] {
+                        assert_eq!(result.partition_snapshots.len(), 3);
+                        let mut families = (0, 0, 0);
+                        for snapshot in &result.partition_snapshots {
+                            assert_eq!(snapshot.generation.buffer_bits, buffer.to_bits());
+                            assert_eq!(snapshot.generation.retry_attempt, 0);
+                            families.0 += snapshot.non_polygon.dangles.len();
+                            families.1 += snapshot.non_polygon.cut_edges.len();
+                            families.2 += snapshot.non_polygon.invalid_rings.len();
+                        }
+                        assert_eq!(
+                            families,
+                            (dangles, cuts, 0),
+                            "buffer={buffer} node={node_input} reverse={reverse}"
+                        );
+                        assert!(
+                            !result
+                                .stitching_report
+                                .partition_border_global_non_polygon_extraction_ready
+                        );
+                        assert!(result.stitching_report.partition_border_global_non_polygon_extraction_duplicate_payload_count > 0);
+                        assert!(result.stitched_output.is_none());
+                    }
+                    let conformance = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| {
+                            event.kind == "partition_border_global_arrangement_conformance"
+                        })
+                        .unwrap()
+                        .payload;
+                    assert_eq!(
+                        conformance["candidate_built"], ready,
+                        "buffer={buffer} node={node_input} reverse={reverse} event={conformance}"
+                    );
+                    assert_eq!(conformance["candidate_materialized"], ready);
+                    assert_eq!(conformance["equivalence_checked"], ready);
+                    assert_eq!(conformance["equivalence_ready"], ready);
+                    assert_eq!(conformance["equivalence_mismatch_count"], 0);
+                    assert_eq!(conformance["raw_non_polygon_ledger_bound"], ready);
+                    assert_eq!(conformance["output_selectable"], false);
+                    if ready {
+                        assert_eq!(conformance["polygon_count"], 2);
+                        assert_eq!(conformance["cut_edge_count"], 1);
+                        assert_eq!(conformance["dangle_count"], 0);
+                        assert_eq!(conformance["invalid_ring_count"], 0);
+                    }
+                    let consumer = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| event.kind == "partition_border_global_non_polygon_consumer")
+                        .unwrap()
+                        .payload;
+                    assert_eq!(consumer["constructed"], ready);
+                    let proof = &traced
+                        .trace
+                        .events
+                        .iter()
+                        .find(|event| event.kind == "partition_border_cross_core_physical_proof")
+                        .unwrap()
+                        .payload;
+                    assert_eq!(proof["proven"], ready);
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 20);
+    }
+
+    #[test]
     fn cross_core_polygon_containers_preserve_rings_and_decline_hole_assembly() {
         let mut checked = 0;
         for reverse in [false, true] {
