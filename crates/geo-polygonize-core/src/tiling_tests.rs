@@ -185,6 +185,33 @@ mod tests {
             ] {
                 assert_eq!(roles["authority"][field], count, "{field}");
             }
+            let interiors = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_local_interior_active_roles")
+                .unwrap()
+                .payload;
+            assert_eq!(interiors["proven"], true);
+            assert_eq!(interiors["scope"], "zero_observation_local_interiors");
+            for flag in [
+                "raw_families_classified",
+                "claim_consumption_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(interiors[flag], false);
+            }
+            for (field, count) in [
+                ("interior_span_count", 0),
+                ("interior_alias_count", 0),
+                ("deferred_observed_alias_count", 32),
+                ("retained_native_alias_count", 32),
+                ("retained_observation_count", 32),
+                ("retained_raw_record_count", 16),
+                ("verified_core_count", 4),
+            ] {
+                assert_eq!(interiors["authority"][field], count, "{field}");
+            }
             let leaf = &result
                 .trace
                 .events
@@ -2880,6 +2907,474 @@ mod tests {
                     [0.75f64.to_bits(), 0.25f64.to_bits(), 0.0f64.to_bits()]
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn local_interior_roles_require_actual_ownership_and_complete_native_face_support() {
+        use crate::tiling::{
+            input_bound_physical_alias_view, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_local_interior_active_roles,
+            prove_native_twin_seam_cover, PartitionAliasGlobalFaceProjection,
+            PartitionComponentEulerContainmentAuthority, PartitionMosaic, PartitionProjectedAlias,
+            PartitionProjectedGlobalFace,
+        };
+        for (width, tile_size, interior_count, observed_count, raw_count) in
+            [(2, 1.0, 0, 32, 16), (2, 2.0, 4, 16, 0), (4, 2.0, 8, 32, 6)]
+        {
+            for reversed in [false, true] {
+                for detached in [false, true] {
+                    let mut lines = Vec::new();
+                    for x in 0..width {
+                        for y in 0..=2 {
+                            lines.push(vec![(x as f64, y as f64), ((x + 1) as f64, y as f64)]);
+                        }
+                    }
+                    for x in 0..=width {
+                        for y in 0..2 {
+                            lines.push(vec![(x as f64, y as f64), (x as f64, (y + 1) as f64)]);
+                        }
+                    }
+                    if detached {
+                        lines.extend([
+                            vec![(0.25, 0.25), (0.5, 0.25)],
+                            vec![(0.5, 0.25), (0.75, 0.25)],
+                        ]);
+                    }
+                    if reversed {
+                        lines.reverse();
+                        for line in &mut lines {
+                            line.reverse();
+                        }
+                    }
+                    let geometries = lines
+                        .into_iter()
+                        .map(|line| Geometry::LineString(LineString::from(line)))
+                        .collect::<Vec<_>>();
+                    let refs = geometries.iter().map(|g| (g, None)).collect::<Vec<_>>();
+                    let domain = Rect::new((0.0, 0.0), (width as f64, 2.0));
+                    let options = PolygonizerOptions {
+                        node_input: true,
+                        ..Default::default()
+                    };
+                    let policy = ExecutionPolicy::default();
+                    let mut tiled = TiledPolygonizer::new(domain, tile_size)
+                        .with_buffer(0.0)
+                        .with_options(options.clone())
+                        .with_untiled_equivalence_check();
+                    for geometry in &geometries {
+                        tiled.add_geometry(geometry);
+                    }
+                    let tiles = tiled.generate_tiles().unwrap();
+                    let result = tiled.polygonize().unwrap();
+                    assert!(result.stitched_output.is_none());
+                    let graph = result.partition_border_graph;
+                    let graph_before = graph.clone();
+                    let mut mosaic = PartitionMosaic::default();
+                    for snapshot in result.partition_snapshots {
+                        mosaic.replace_partition(snapshot, &policy).unwrap();
+                    }
+                    let fingerprint = mosaic.fingerprint_sha256();
+                    let witness = graph.global_arrangement_witness(&policy).unwrap().unwrap();
+                    let stats = graph
+                        .clone()
+                        .materialize_global_non_polygon_extraction_payloads(&policy)
+                        .unwrap();
+                    let mut prepared = prepare_partition_input_evidence(
+                        &mosaic, &tiles, &refs, domain, &options, &policy,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    prepared.reference.dangles.clear();
+                    prepared.reference.cut_edges.clear();
+                    prepared.reference.invalid_rings.clear();
+                    let view = input_bound_physical_alias_view(
+                        &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    let cover =
+                        prove_native_twin_seam_cover(&view, &mosaic, &tiles, domain, &policy)
+                            .unwrap()
+                            .unwrap();
+                    let exterior = prove_domain_exterior_authority(&cover, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let projection = prove_alias_global_face_projection(&exterior, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let component =
+                        prove_component_euler_containment_authority(&projection, &policy)
+                            .unwrap()
+                            .unwrap();
+                    let proof =
+                        prove_local_interior_active_roles(&component, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                    assert!(std::ptr::eq(proof.component, &component));
+                    assert!(std::ptr::eq(proof.binding.graph, &graph));
+                    assert!(std::ptr::eq(proof.binding.mosaic, &mosaic));
+                    assert_eq!(proof.interior_spans.len(), interior_count);
+                    assert_eq!(proof.deferred_observed_aliases.len(), observed_count);
+                    assert_eq!(
+                        view.active_aliases.len(),
+                        2 * interior_count + observed_count
+                    );
+                    assert_eq!(
+                        view.raw_payloads.len(),
+                        raw_count + if detached { 2 } else { 0 }
+                    );
+                    let mut all_aliases = BTreeSet::new();
+                    for span in &proof.interior_spans {
+                        let [a, b] = span.aliases;
+                        assert!(all_aliases.insert(a as *const _));
+                        assert!(all_aliases.insert(b as *const _));
+                        assert_ne!(a.global_face_id, b.global_face_id);
+                        assert_eq!(
+                            projection.physical_twins[a.physical_slot_id],
+                            b.physical_slot_id
+                        );
+                        assert_eq!(
+                            projection.physical_twins[b.physical_slot_id],
+                            a.physical_slot_id
+                        );
+                        assert!(std::ptr::eq(
+                            span.owner_core,
+                            &mosaic.partitions[&span.local_segment_alias[0]]
+                        ));
+                        assert_eq!(
+                            &span.owner_core.local_noded_segments[span.local_segment_alias[1]],
+                            span.segment
+                        );
+                        assert!(!proof
+                            .binding
+                            .buckets
+                            .iter()
+                            .any(|(key, _)| **key == a.bound.native_edge.edge_key));
+                        for alias in span.aliases {
+                            let native = alias.bound.native_edge;
+                            assert_eq!(
+                                alias.bound.alias.partition_id,
+                                span.owner_core.partition_id
+                            );
+                            assert!(std::ptr::eq(alias.bound.input.segment, span.segment));
+                            assert!(!native.local_face_is_unbounded);
+                            assert_eq!(native.source_line_ids, span.segment.source_line_ids);
+                            assert_eq!(
+                                view.slots[alias.physical_slot_id].physical_edge.from_z_bits,
+                                native.from_z_bits
+                            );
+                            assert_ne!(alias.global_face_id, component.exterior_face_id);
+                            let face = native.face_ref.unwrap();
+                            assert_eq!(
+                                projection.faces[alias.global_face_id].bounded_face_ref,
+                                Some([face.partition_id, face.component_id, face.face_id])
+                            );
+                            let next = projection
+                                .aliases
+                                .iter()
+                                .find(|next| {
+                                    next.bound.alias.partition_id == alias.bound.alias.partition_id
+                                        && next.bound.alias.component_id
+                                            == alias.bound.alias.component_id
+                                        && Some(next.bound.native_edge.local_dir_edge_id)
+                                            == native.local_face_successor
+                                })
+                                .unwrap();
+                            assert_eq!(
+                                projection.physical_next[alias.physical_slot_id],
+                                next.physical_slot_id
+                            );
+                            assert_eq!(native.to, next.bound.native_edge.from);
+                            assert_eq!(native.to_z_bits, next.bound.native_edge.from_z_bits);
+                            assert_eq!(alias.global_face_id, next.global_face_id);
+                        }
+                    }
+                    for alias in &proof.deferred_observed_aliases {
+                        assert!(all_aliases.insert(*alias as *const _));
+                        assert!(proof
+                            .binding
+                            .buckets
+                            .iter()
+                            .any(|(key, _)| **key == alias.bound.native_edge.edge_key));
+                    }
+                    assert_eq!(all_aliases.len(), view.active_aliases.len());
+                    if width == 4 {
+                        // Raw origin is provenance, not an active alias's actual core owner.
+                        assert!(
+                            view.raw_payloads
+                                .iter()
+                                .filter(|raw| proof.interior_spans.iter().any(|span| raw
+                                    .payload
+                                    .partition_id
+                                    != span.owner_core.partition_id
+                                    && raw
+                                        .segments
+                                        .iter()
+                                        .any(|input| std::ptr::eq(input.segment, span.segment))))
+                                .count()
+                                >= 2
+                        );
+                    }
+                    if width == 2 && tile_size == 2.0 && !reversed && detached {
+                        for mutation in 0..18 {
+                            let mut changed = PartitionAliasGlobalFaceProjection {
+                                authority: projection.authority,
+                                physical_next: projection.physical_next.clone(),
+                                physical_twins: projection.physical_twins.clone(),
+                                faces: projection
+                                    .faces
+                                    .iter()
+                                    .map(|f| PartitionProjectedGlobalFace {
+                                        physical_slots: f.physical_slots.clone(),
+                                        bounded_face_ref: f.bounded_face_ref,
+                                    })
+                                    .collect(),
+                                aliases: projection
+                                    .aliases
+                                    .iter()
+                                    .map(|a| PartitionProjectedAlias {
+                                        bound: a.bound,
+                                        physical_slot_id: a.physical_slot_id,
+                                        global_face_id: a.global_face_id,
+                                    })
+                                    .collect(),
+                            };
+                            let slot = proof.interior_spans[0].aliases[0].physical_slot_id;
+                            let index = changed
+                                .aliases
+                                .iter()
+                                .position(|a| a.physical_slot_id == slot)
+                                .unwrap();
+                            let face = changed.aliases[index].global_face_id;
+                            match mutation {
+                                0 => {
+                                    changed.aliases.remove(index);
+                                }
+                                1 => changed.aliases.push(PartitionProjectedAlias {
+                                    bound: changed.aliases[index].bound,
+                                    physical_slot_id: slot,
+                                    global_face_id: face,
+                                }),
+                                2 => {
+                                    changed.aliases[index].global_face_id =
+                                        component.exterior_face_id
+                                }
+                                3 => changed.aliases[index].physical_slot_id = usize::MAX,
+                                4 => changed.physical_next[slot] = slot,
+                                5 => changed.physical_twins[slot] = slot,
+                                6 => changed.faces[face].physical_slots.clear(),
+                                7 => {
+                                    changed.faces[face].physical_slots.pop();
+                                }
+                                8 => changed.faces[face].physical_slots.push(slot),
+                                9 => changed.faces[face].bounded_face_ref = None,
+                                15 => changed.physical_next[slot] = usize::MAX,
+                                16 => changed.physical_twins[slot] = usize::MAX,
+                                17 => changed.aliases[index].global_face_id = usize::MAX,
+                                _ => {}
+                            }
+                            let stale = PartitionComponentEulerContainmentAuthority {
+                                projection: &changed,
+                                local_components: component.local_components.clone(),
+                                physical_components: component.physical_components.clone(),
+                                vertex_count: component.vertex_count + usize::from(mutation == 10),
+                                edge_count: component.edge_count + usize::from(mutation == 11),
+                                euler_characteristic: component.euler_characteristic
+                                    + usize::from(mutation == 12),
+                                exterior_face_id: if mutation == 13 {
+                                    face
+                                } else {
+                                    component.exterior_face_id
+                                },
+                                parent_cycle_by_face: if mutation == 14 {
+                                    vec![None; projection.faces.len()]
+                                } else {
+                                    component.parent_cycle_by_face.clone()
+                                },
+                            };
+                            assert!(
+                                prove_local_interior_active_roles(&stale, &graph, &mosaic, &policy)
+                                    .unwrap()
+                                    .is_none(),
+                                "mutation {mutation}"
+                            );
+                        }
+                        let mut stale = mosaic.clone();
+                        stale
+                            .partitions
+                            .get_mut(&0)
+                            .unwrap()
+                            .generation
+                            .retry_attempt += 1;
+                        assert!(prove_local_interior_active_roles(
+                            &component, &graph, &stale, &policy
+                        )
+                        .unwrap()
+                        .is_none());
+                        let foreign_graph = graph.clone();
+                        assert!(prove_local_interior_active_roles(
+                            &component,
+                            &foreign_graph,
+                            &mosaic,
+                            &policy
+                        )
+                        .unwrap()
+                        .is_none());
+                        for limited in [
+                            ExecutionPolicy {
+                                max_candidate_pairs: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_edges: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_nodes: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_output_coordinates: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_candidate_pairs: Some(1000),
+                                ..Default::default()
+                            },
+                        ] {
+                            assert!(matches!(
+                                prove_local_interior_active_roles(
+                                    &component, &graph, &mosaic, &limited
+                                ),
+                                Err(PolygonizeError::ResourceLimitExceeded { .. })
+                            ));
+                        }
+                        assert!(prove_local_interior_active_roles(
+                            &component,
+                            &graph,
+                            &mosaic,
+                            &ExecutionPolicy {
+                                max_candidate_pairs: Some(10000),
+                                ..Default::default()
+                            }
+                        )
+                        .unwrap()
+                        .is_some());
+                        let token = CancellationToken::new();
+                        token.cancel();
+                        assert!(matches!(
+                            prove_local_interior_active_roles(
+                                &component,
+                                &graph,
+                                &mosaic,
+                                &ExecutionPolicy {
+                                    cancellation_token: Some(token),
+                                    ..Default::default()
+                                }
+                            ),
+                            Err(PolygonizeError::Cancelled { .. })
+                        ));
+                        let expanded = PartitionAliasGlobalFaceProjection {
+                            authority: projection.authority,
+                            physical_next: projection.physical_next.clone(),
+                            physical_twins: projection.physical_twins.clone(),
+                            faces: Vec::new(),
+                            aliases: (0..2048)
+                                .map(|_| PartitionProjectedAlias {
+                                    bound: projection.aliases[0].bound,
+                                    physical_slot_id: 0,
+                                    global_face_id: 0,
+                                })
+                                .collect(),
+                        };
+                        let expanded_component = PartitionComponentEulerContainmentAuthority {
+                            projection: &expanded,
+                            local_components: Vec::new(),
+                            physical_components: Vec::new(),
+                            vertex_count: 0,
+                            edge_count: 0,
+                            euler_characteristic: 0,
+                            exterior_face_id: 0,
+                            parent_cycle_by_face: Vec::new(),
+                        };
+                        let token = CancellationToken::new();
+                        assert!(
+                            matches!(prove_local_interior_active_roles(&expanded_component, &graph, &mosaic,
+                            &ExecutionPolicy { cancellation_token: Some(token.clone()), cancel_at_work_item: Some((token, 1024)), ..Default::default() }),
+                            Err(PolygonizeError::Cancelled { stage }) if stage == "partition_local_interior_active_roles")
+                        );
+                        assert!(
+                            matches!(prove_local_interior_active_roles(&expanded_component, &graph, &mosaic,
+                            &ExecutionPolicy { max_candidate_pairs: Some(10000), ..Default::default() }),
+                            Err(PolygonizeError::ResourceLimitExceeded { stage, .. }) if stage == "partition_local_interior_active_roles")
+                        );
+                        for mutation in 0..3 {
+                            let mut changed_view = input_bound_physical_alias_view(
+                                &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let mut edges = changed_view
+                                .slots
+                                .iter()
+                                .map(|s| s.physical_edge.clone())
+                                .collect::<Vec<_>>();
+                            for edge in &mut edges {
+                                match mutation {
+                                    0 => {
+                                        edge.from_z_bits = 9.0f64.to_bits();
+                                        edge.to_z_bits = 9.0f64.to_bits();
+                                    }
+                                    1 => edge.source_line_ids = vec![999],
+                                    _ => edge.face_id = (edge.face_id + 1) % projection.faces.len(),
+                                }
+                            }
+                            for (slot, edge) in changed_view.slots.iter_mut().zip(&edges) {
+                                slot.physical_edge = edge;
+                            }
+                            let changed_cover = prove_native_twin_seam_cover(
+                                &changed_view,
+                                &mosaic,
+                                &tiles,
+                                domain,
+                                &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let changed_exterior =
+                                prove_domain_exterior_authority(&changed_cover, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let changed_projection =
+                                prove_alias_global_face_projection(&changed_exterior, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let changed_component = prove_component_euler_containment_authority(
+                                &changed_projection,
+                                &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            assert_eq!(
+                                prove_local_interior_active_roles(
+                                    &changed_component,
+                                    &graph,
+                                    &mosaic,
+                                    &policy
+                                )
+                                .unwrap()
+                                .is_some(),
+                                mutation == 2,
+                                "selected payload mutation {mutation}"
+                            );
+                        }
+                    }
+                    assert_eq!(graph, graph_before);
+                    assert_eq!(mosaic.fingerprint_sha256(), fingerprint);
+                }
+            }
         }
     }
 
