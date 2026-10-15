@@ -66,6 +66,16 @@ ineligible for `CertifiedFixedPrecision`.
 before noding and therefore requires `node_input = true`. It changes semantic
 geometry and should use a tolerance expressed in the same units as the input.
 
+Pre-snap builds its reference vertices from floating-noded input, selects the
+nearest different reference for each segment endpoint within the inclusive
+tolerance, and inserts nearby reference vertices into the moved segments.
+Reference insertion includes the finite segment's endpoint regions: a nearby
+reference just beyond a moved endpoint extends the segment through both points.
+This prevents endpoint relocation from discarding an in-tolerance gap connector.
+It is not a connected-cluster endpoint merger or an exact implementation of GEOS
+whole-LineString snapping. Pre-snap and the subsequent precision grid remain
+separate geometry-changing policies.
+
 Execution budgets and cancellation are non-semantic controls. They can stop
 noding or validation with a structured resource/cancellation error, but raising
 a budget does not change the selected precision or guarantee. Diagnostics and
