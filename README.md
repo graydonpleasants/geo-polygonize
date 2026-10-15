@@ -208,7 +208,10 @@ result = polygonize_with_options(
 
 The default `report` return shape remains a stable dictionary with `polygons`
 as `SimplePolygon` values. `buffers` omits Python geometry objects and the
-fingerprint; `objects` omits flattened arrays and the fingerprint. Use
+fingerprint; `objects` omits flattened arrays and the fingerprint. The opt-in
+`lean_report` preserves all other report fields, including diagnostics and
+provenance, but skips fingerprint construction and JSON materialization.
+Use `profile_binding=True` for [detailed phase observations](docs/guide/python.md). Use
 `return_polygons=True` only when you want Shapely `Polygon` objects.
 
 When provenance is enabled, coincident and partially overlapping input lines

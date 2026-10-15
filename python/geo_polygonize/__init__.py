@@ -55,6 +55,7 @@ def polygonize_with_options(
     return_polygons=False,
     output="report",
     execution_limits=None,
+    profile_binding=False,
 ):
     """
     Polygonize a set of lines with full canonical options.
@@ -67,8 +68,10 @@ def polygonize_with_options(
         stride: stride of coordinates (2 or 3). If None, defaults to 2 unless coords is (N, 3).
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
-        output: one of "buffers", "objects", or "report". "report" preserves the legacy result.
+        output: "buffers", "objects", "report", or "lean_report". The default "report"
+            preserves the legacy result; "lean_report" omits only topology_fingerprint.
         execution_limits: optional non-semantic execution budget dictionary.
+        profile_binding: include detailed, non-semantic native binding phase timings.
     """
     if lines is not None:
         flat_coords = []
@@ -127,7 +130,7 @@ def polygonize_with_options(
         line_ids = np.ascontiguousarray(line_ids, dtype=np.uint32)
 
     if return_polygons and output == "buffers":
-        raise ValueError("return_polygons=True requires output='objects' or output='report'")
+        raise ValueError("return_polygons=True requires output='objects', 'report', or 'lean_report'")
 
     options_json = None if options is None else json.dumps(options)
 
@@ -140,6 +143,7 @@ def polygonize_with_options(
         line_ids=line_ids,
         output=output,
         execution_json=execution_json,
+        profile_binding=profile_binding,
     )
 
     if return_polygons:
@@ -265,6 +269,7 @@ def polygonize(
     return_polygons=False,
     output="report",
     execution_limits=None,
+    profile_binding=False,
 ):
     """
     Polygonize a set of lines.
@@ -279,8 +284,10 @@ def polygonize(
         stride: stride of coordinates (2 or 3). If None, defaults to 2 unless coords is (N, 3).
         line_ids: optional uint32 array of line IDs.
         return_polygons: if True, returns Shapely Polygon objects instead of a dictionary.
-        output: one of "buffers", "objects", or "report". "report" preserves the legacy result.
+        output: "buffers", "objects", "report", or "lean_report". The default "report"
+            preserves the legacy result; "lean_report" omits only topology_fingerprint.
         execution_limits: optional non-semantic execution budget dictionary.
+        profile_binding: include detailed, non-semantic native binding phase timings.
 
     Returns:
         Dict with keys 'polygons' (List[SimplePolygon]), 'dangles', 'invalid_rings', and 'flat_line_ids'.
@@ -395,6 +402,7 @@ def polygonize(
         line_ids=line_ids,
         output=output,
         execution_limits=execution_limits,
+        profile_binding=profile_binding,
     )
 
     if return_polygons:
