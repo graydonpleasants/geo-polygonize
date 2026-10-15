@@ -623,6 +623,14 @@ separately from selectable output; they do not complete the promotion gates.
   the four disjoint bounded cell interiors within the exterior cycle envelope;
   nested, holed and disconnected classes remain unsupported. Claim, raw-family,
   acceptance and public-selection gates remain unchanged.
+- [x] Bind complete original-input active incidence for all twelve prepared
+  spans, retaining all sixteen raw dangle records and both incident global
+  faces. Reference-family contents supply no incidence authority. An original
+  raw-only span fails this cover even with an empty reference family; raw
+  classification and claim-consumption gates remain closed.
+- [ ] Prove global raw-family roles and a face-qualified claim rule accounting
+  for every two-observation domain group and four-observation seam group,
+  without filtering observation-count ambiguity or discarding raw records.
 - [ ] Complete representation review and remaining cross-core input-class
   proofs before promotion; family ownership does not replace polygon, Euler
   or containment evidence.
