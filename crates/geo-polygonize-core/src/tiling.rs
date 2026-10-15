@@ -1972,6 +1972,22 @@ struct PartitionWholeObservationRoleAuthority<'a> {
     groups: Vec<PartitionWholeObservationGroup<'a>>,
 }
 
+#[allow(dead_code)] // Keep exact original native/source and derived-face receipts, not only counts.
+struct PartitionLocalInteriorSpan<'a> {
+    segment: &'a PartitionNodedSegmentV1,
+    aliases: [&'a PartitionProjectedAlias<'a>; 2],
+    owner_core: &'a PartitionSnapshotV1,
+    local_segment_alias: [usize; 2],
+}
+
+struct PartitionLocalInteriorRoleAuthority<'a> {
+    component: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    binding: PartitionOriginalObservationBinding<'a>,
+    interior_spans: Vec<PartitionLocalInteriorSpan<'a>>,
+    // Observation-bearing roles remain a separate receipt; retain every alias here.
+    deferred_observed_aliases: Vec<&'a PartitionProjectedAlias<'a>>,
+}
+
 struct PartitionComponentEulerContainmentAuthority<'a> {
     projection: &'a PartitionAliasGlobalFaceProjection<'a>,
     local_components: Vec<[usize; 2]>,
@@ -6644,6 +6660,501 @@ fn prove_component_euler_containment_authority<'a>(
         euler_characteristic: 2,
         exterior_face_id,
         parent_cycle_by_face,
+    }))
+}
+
+/// Complement observed border roles with independently owned local interior spans.
+fn prove_local_interior_active_roles<'a>(
+    component: &'a PartitionComponentEulerContainmentAuthority<'a>,
+    graph: &'a PartitionBorderGraph,
+    mosaic: &'a PartitionMosaic,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionLocalInteriorRoleAuthority<'a>>> {
+    let stage = "partition_local_interior_active_roles";
+    execution_policy.check_cancelled(stage)?;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let projection = component.projection;
+    let cover = projection.authority.cover;
+    let view = cover.view;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "local interior role work count overflow".to_string(),
+    };
+    let mut items = mosaic.partitions.len();
+    let mut coordinates = 0usize;
+    let mut face_coordinates = 0usize;
+    let mut work = 0usize;
+    let mut add = |count: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        items = items.checked_add(count).ok_or_else(overflow)?;
+        Ok(())
+    };
+    for (row, locals) in &view.prepared.aliases {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+        add(locals.len())?;
+    }
+    for alias in &projection.aliases {
+        add(1)?;
+        add(alias.bound.alias.source_line_ids.len())?;
+        add(alias.bound.native_edge.source_line_ids.len())?;
+        add(alias.bound.input.segment.source_line_ids.len())?;
+    }
+    for bound in &view.active_aliases {
+        add(1)?;
+        add(bound.native_edge.source_line_ids.len())?;
+    }
+    for alias in graph.global_face_edge_map() {
+        add(1)?;
+        add(alias.source_line_ids.len())?;
+    }
+    for slot in &view.slots {
+        add(1)?;
+        add(slot.local_aliases.len())?;
+        add(slot.physical_edge.source_line_ids.len())?;
+    }
+    for (_, observation) in graph.original_observation_entries() {
+        add(2)?;
+        add(observation.source_line_ids.len())?;
+    }
+    for (_, bucket) in graph.original_observation_buckets() {
+        add(2)?;
+        for observation in bucket {
+            add(2)?;
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for observation in &cover.observations {
+        add(2)?;
+        add(observation.source_line_ids.len())?;
+    }
+    for local in graph.local_face_graphs() {
+        for edge in &local.directed_edges {
+            add(2)?;
+            add(edge.source_line_ids.len())?;
+        }
+    }
+    add(cover.seams.len().checked_mul(4).ok_or_else(overflow)?)?;
+    for face in &projection.faces {
+        add(1)?;
+        add(face.physical_slots.len())?;
+        face_coordinates = face_coordinates
+            .checked_add(face.physical_slots.len())
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(overflow)?;
+    }
+    add(projection.physical_next.len())?;
+    add(projection.physical_twins.len())?;
+    for raw in &view.raw_payloads {
+        add(1)?;
+        add(raw.payload.coordinate_bits.len())?;
+        add(raw.segments.len())?;
+        for input in &raw.segments {
+            add(input.segment.source_line_ids.len())?;
+        }
+        coordinates = coordinates
+            .checked_add(raw.payload.coordinate_bits.len())
+            .ok_or_else(overflow)?;
+    }
+    for raw in graph.global_non_polygon_extraction_payload_candidates() {
+        add(1)?;
+        add(raw.coordinate_bits.len())?;
+    }
+    let owner_work = projection
+        .aliases
+        .len()
+        .checked_mul(mosaic.partitions.len())
+        .and_then(|n| n.checked_mul(3))
+        .ok_or_else(overflow)?;
+    let containment_work = face_coordinates
+        .checked_mul(face_coordinates)
+        .and_then(|n| n.checked_add(projection.faces.len()))
+        .ok_or_else(overflow)?;
+    execution_policy.check_uncancellable_sort(stage, items)?;
+    execution_policy.check_uncancellable_sort(stage, containment_work)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_candidate_pairs,
+        items
+            .checked_mul(8)
+            .and_then(|n| n.checked_add(owner_work))
+            .and_then(|n| n.checked_add(containment_work))
+            .ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, items)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, items)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        items
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(coordinates))
+            .and_then(|n| n.checked_add(face_coordinates))
+            .ok_or_else(overflow)?,
+    )?;
+    let Some(binding) = bind_original_graph_observations(cover, graph, mosaic, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    let count = view.slots.len();
+    if projection.physical_next.len() != count
+        || projection.physical_twins.len() != count
+        || projection.faces.iter().any(|face| {
+            face.physical_slots.len() < 3 || face.physical_slots.iter().any(|&slot| slot >= count)
+        })
+        || projection.aliases.iter().any(|alias| {
+            alias.physical_slot_id >= count || alias.global_face_id >= projection.faces.len()
+        })
+    {
+        return Ok(None);
+    }
+    let Some(fresh) = prove_component_euler_containment_authority(projection, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    if component.local_components != fresh.local_components
+        || component.physical_components != fresh.physical_components
+        || component.vertex_count != fresh.vertex_count
+        || component.edge_count != fresh.edge_count
+        || component.euler_characteristic != fresh.euler_characteristic
+        || component.exterior_face_id != fresh.exterior_face_id
+        || component.parent_cycle_by_face != fresh.parent_cycle_by_face
+    {
+        return Ok(None);
+    }
+    // Preserve the actual original raw inventory without assigning it an active owner or kind.
+    let mut raw_pointers = BTreeSet::new();
+    for payload in graph.global_non_polygon_extraction_payload_candidates() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        raw_pointers.insert(payload as *const _);
+    }
+    if raw_pointers.len() != view.raw_payloads.len() {
+        return Ok(None);
+    }
+    for raw in &view.raw_payloads {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !raw_pointers.remove(&(raw.payload as *const _)) {
+            return Ok(None);
+        }
+    }
+    if !raw_pointers.is_empty() {
+        return Ok(None);
+    }
+    let mut cores = BTreeMap::new();
+    for (&partition, snapshot) in &mosaic.partitions {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let min = prepared_non_polygon_coordinate(&snapshot.tile_min)?;
+        let max = prepared_non_polygon_coordinate(&snapshot.tile_max)?;
+        if partition != snapshot.partition_id
+            || ![min.x, min.y, max.x, max.y].iter().all(|v| v.is_finite())
+            || min.x >= max.x
+            || min.y >= max.y
+        {
+            return Ok(None);
+        }
+        cores.insert(
+            partition,
+            (snapshot, Rect::new(min.to_coord_2d(), max.to_coord_2d())),
+        );
+    }
+    for record in &binding.records {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some((_, core)) = cores.get(&record.graph.partition_id) else {
+            return Ok(None);
+        };
+        if !record.graph.side.contains_edge(
+            record.native.native_edge.from,
+            record.native.native_edge.to,
+            *core,
+        ) {
+            return Ok(None);
+        }
+    }
+    let key = |bound: &PartitionInputBoundActiveAlias<'_>| {
+        (
+            bound.alias.partition_id,
+            bound.alias.component_id,
+            bound.native_edge.local_dir_edge_id,
+        )
+    };
+    let mut native = BTreeMap::new();
+    for bound in &view.active_aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if native.insert(key(bound), bound).is_some() {
+            return Ok(None);
+        }
+    }
+    let mut actual_aliases = BTreeMap::new();
+    for alias in graph.global_face_edge_map() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if actual_aliases
+            .insert(
+                (
+                    alias.partition_id,
+                    alias.component_id,
+                    alias.local_dir_edge_id,
+                ),
+                alias,
+            )
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut projected = BTreeMap::new();
+    let mut by_span = BTreeMap::<_, Vec<_>>::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if actual_aliases
+            .get(&key(alias.bound))
+            .is_none_or(|actual| !std::ptr::eq(*actual, alias.bound.alias))
+            || native
+                .get(&key(alias.bound))
+                .is_none_or(|bound| !std::ptr::eq(*bound, alias.bound))
+            || projected.insert(key(alias.bound), alias).is_some()
+        {
+            return Ok(None);
+        }
+        by_span
+            .entry(alias.bound.native_edge.edge_key)
+            .or_default()
+            .push(alias);
+    }
+    if projected.len() != native.len() || projected.len() != actual_aliases.len() {
+        return Ok(None);
+    }
+    let mut face_by_slot = vec![None; count];
+    for (face_id, face) in projection.faces.iter().enumerate() {
+        if face.physical_slots.len() < 3 {
+            return Ok(None);
+        }
+        for (index, &slot) in face.physical_slots.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if slot >= count
+                || face_by_slot[slot].replace(face_id).is_some()
+                || projection.physical_next.get(slot)
+                    != Some(&face.physical_slots[(index + 1) % face.physical_slots.len()])
+            {
+                return Ok(None);
+            }
+        }
+    }
+    if face_by_slot.iter().any(Option::is_none) {
+        return Ok(None);
+    }
+    let mut source = BTreeMap::new();
+    for row in view.prepared.aliases.keys() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(span) = PartitionBorderEdgeKey::new(
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&row.start)?),
+            PartitionBorderNodeKey::from_coord(prepared_non_polygon_coordinate(&row.end)?),
+        ) else {
+            return Ok(None);
+        };
+        // Count all prepared source variants before selecting an active role.
+        if source.insert(span, row).is_some() {
+            return Ok(None);
+        }
+    }
+    let observed = binding
+        .buckets
+        .iter()
+        .map(|(span, _)| **span)
+        .collect::<BTreeSet<_>>();
+    let xy = |node: PartitionBorderNodeKey| {
+        let [x, y] = node.xy_bits().map(f64::from_bits);
+        Coord { x, y }
+    };
+    let mut interior_spans = Vec::new();
+    let mut deferred_observed_aliases = Vec::new();
+    for (span, aliases) in by_span {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if observed.contains(&span) {
+            deferred_observed_aliases.extend(aliases);
+            continue;
+        }
+        // No observation is only a prerequisite: ownership, complete native roles and faces follow.
+        let Ok(pair): std::result::Result<[_; 2], _> = aliases.try_into() else {
+            return Ok(None);
+        };
+        let [a, b] = pair;
+        let (left, right) = (a.bound, b.bound);
+        let (ea, eb) = (left.native_edge, right.native_edge);
+        let Some(&segment) = source.get(&span) else {
+            return Ok(None);
+        };
+        let partition = left.alias.partition_id;
+        let local_alias = left.input.local_segment_alias;
+        if partition != right.alias.partition_id
+            || left.alias.component_id != right.alias.component_id
+            || local_alias != right.input.local_segment_alias
+            || local_alias[0] != partition
+            || !view.prepared.aliases[segment].contains(&local_alias)
+            || mosaic
+                .partitions
+                .get(&partition)
+                .and_then(|core| core.local_noded_segments.get(local_alias[1]))
+                != Some(segment)
+            || !std::ptr::eq(segment, left.input.segment)
+            || !std::ptr::eq(segment, right.input.segment)
+            || ea.local_face_is_unbounded
+            || eb.local_face_is_unbounded
+            || left.alias.symmetric_global_dir_edge_id != right.alias.global_dir_edge_id
+            || right.alias.symmetric_global_dir_edge_id != left.alias.global_dir_edge_id
+            || ea.symmetric_local_dir_edge_id != eb.local_dir_edge_id
+            || eb.symmetric_local_dir_edge_id != ea.local_dir_edge_id
+            || ea.from != eb.to
+            || ea.to != eb.from
+            || ea.from_z_bits != eb.to_z_bits
+            || ea.to_z_bits != eb.from_z_bits
+            || ea.source_line_ids != segment.source_line_ids
+            || eb.source_line_ids != segment.source_line_ids
+            || segment.representative_line_id != ea.source_line_ids.first().copied()
+            || projection.physical_twins.get(a.physical_slot_id) != Some(&b.physical_slot_id)
+            || projection.physical_twins.get(b.physical_slot_id) != Some(&a.physical_slot_id)
+            || a.global_face_id == b.global_face_id
+        {
+            return Ok(None);
+        }
+        for alias in pair {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let bound = alias.bound;
+            let edge = bound.native_edge;
+            if !f64::from_bits(edge.from_z_bits).is_finite()
+                || !f64::from_bits(edge.to_z_bits).is_finite()
+            {
+                return Ok(None);
+            }
+            let a = xy(edge.from);
+            let b = xy(edge.to);
+            let from = crate::fingerprint::coordinate_fingerprint(Coord3D::new(
+                a.x,
+                a.y,
+                f64::from_bits(edge.from_z_bits),
+            ))?;
+            let to = crate::fingerprint::coordinate_fingerprint(Coord3D::new(
+                b.x,
+                b.y,
+                f64::from_bits(edge.to_z_bits),
+            ))?;
+            if !((from == segment.start && to == segment.end)
+                || (from == segment.end && to == segment.start))
+            {
+                return Ok(None);
+            }
+            let selected = &view.slots[alias.physical_slot_id];
+            if selected.local_aliases.len() != 1
+                || !std::ptr::eq(selected.local_aliases[0], bound.alias)
+                || selected.physical_edge.from != edge.from.xy_bits()
+                || selected.physical_edge.to != edge.to.xy_bits()
+                || selected.physical_edge.from_z_bits != edge.from_z_bits
+                || selected.physical_edge.to_z_bits != edge.to_z_bits
+                || selected.physical_edge.source_line_ids != edge.source_line_ids
+                || bound.alias.from != edge.from
+                || bound.alias.to != edge.to
+                || bound.alias.from_z_bits != edge.from_z_bits
+                || bound.alias.to_z_bits != edge.to_z_bits
+                || bound.alias.source_line_ids != edge.source_line_ids
+                || bound.alias.face_ref != edge.face_ref
+                || bound.alias.local_face_is_unbounded
+                || bound.alias.cross_border_twin_global_dir_edge_id.is_some()
+            {
+                return Ok(None);
+            }
+            let Some(face) = edge.face_ref else {
+                return Ok(None);
+            };
+            let Some(next) = edge
+                .local_face_successor
+                .and_then(|id| projected.get(&(partition, bound.alias.component_id, id)))
+            else {
+                return Ok(None);
+            };
+            if face.partition_id != partition
+                || face.component_id != bound.alias.component_id
+                || face_by_slot.get(alias.physical_slot_id) != Some(&Some(alias.global_face_id))
+                || alias.global_face_id == component.exterior_face_id
+                || projection.faces[alias.global_face_id].bounded_face_ref
+                    != Some([face.partition_id, face.component_id, face.face_id])
+                || next.bound.native_edge.from != edge.to
+                || next.bound.native_edge.from_z_bits != edge.to_z_bits
+                || next.bound.native_edge.face_ref != edge.face_ref
+                || bound.alias.local_face_successor_global_dir_edge_id
+                    != Some(next.bound.alias.global_dir_edge_id)
+                || next.global_face_id != alias.global_face_id
+                || projection.physical_next.get(alias.physical_slot_id)
+                    != Some(&next.physical_slot_id)
+            {
+                return Ok(None);
+            }
+        }
+        let (from, to) = (xy(ea.from), xy(ea.to));
+        let middle = Coord {
+            x: from.x * 0.5 + to.x * 0.5,
+            y: from.y * 0.5 + to.y * 0.5,
+        };
+        if ![from.x, from.y, to.x, to.y, middle.x, middle.y]
+            .iter()
+            .all(|v| v.is_finite())
+        {
+            return Ok(None);
+        }
+        let mut owners = Vec::new();
+        for (&owner, &(snapshot, core)) in &cores {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if middle.x > core.min().x
+                && middle.x < core.max().x
+                && middle.y > core.min().y
+                && middle.y < core.max().y
+                && [from, to].iter().all(|p| {
+                    p.x >= core.min().x
+                        && p.x <= core.max().x
+                        && p.y >= core.min().y
+                        && p.y <= core.max().y
+                })
+            {
+                owners.push((owner, snapshot));
+            }
+        }
+        let [(owner, owner_core)] = owners.as_slice() else {
+            return Ok(None);
+        };
+        if *owner != partition {
+            return Ok(None);
+        }
+        interior_spans.push(PartitionLocalInteriorSpan {
+            segment,
+            aliases: pair,
+            owner_core,
+            local_segment_alias: local_alias,
+        });
+    }
+    if interior_spans
+        .len()
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(deferred_observed_aliases.len()))
+        != Some(projection.aliases.len())
+    {
+        return Ok(None);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionLocalInteriorRoleAuthority {
+        component,
+        binding,
+        interior_spans,
+        deferred_observed_aliases,
     }))
 }
 
@@ -12501,6 +13012,18 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let local_interior_roles = component_authority
+                .as_ref()
+                .map(|component| {
+                    prove_local_interior_active_roles(
+                        component,
+                        &partition_border_graph,
+                        &partition_mosaic,
+                        &self.execution_policy,
+                    )
+                })
+                .transpose()?
+                .flatten();
             let original_leaf_paths = component_authority
                 .as_ref()
                 .map(|authority| {
@@ -12730,6 +13253,17 @@ impl<'a> TiledPolygonizer<'a> {
                         "active_raw_record_count":proof.raw_records.iter().filter(|record|matches!(record.evidence,PartitionOriginalLeafRecordEvidence::Active{..})).count(),
                         "pruned_raw_record_count":proof.raw_records.iter().filter(|record|matches!(record.evidence,PartitionOriginalLeafRecordEvidence::Pruned{..})).count(),
                     })),"proof_class":"strict_core_detached_paths","raw_families_classified":false,"claim_consumption_ready":false,"output_selectable":false
+                }));
+                trace.record(TraceStageV1::Graph,"partition_border_local_interior_active_roles",serde_json::json!({
+                    "proven":local_interior_roles.is_some(),"scope":"zero_observation_local_interiors",
+                    "authority":local_interior_roles.as_ref().map(|proof|serde_json::json!({
+                        "interior_span_count":proof.interior_spans.len(),"interior_alias_count":proof.interior_spans.len()*2,
+                        "deferred_observed_alias_count":proof.deferred_observed_aliases.len(),
+                        "retained_native_alias_count":proof.component.projection.aliases.len(),
+                        "retained_observation_count":proof.binding.records.len(),
+                        "retained_raw_record_count":proof.binding.cover.view.raw_payloads.len(),
+                        "verified_core_count":proof.binding.mosaic.partitions.len(),
+                    })),"raw_families_classified":false,"claim_consumption_ready":false,"output_selectable":false
                 }));
             }
         }

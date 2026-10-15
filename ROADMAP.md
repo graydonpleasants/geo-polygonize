@@ -653,6 +653,12 @@ separately from selectable output; they do not complete the promotion gates.
   source/ownership/Z/ordered raw-record incidence without reference-family
   authority. Keep all active/raw records; branches, attachments, cross-core or
   halo copies and multi-edge/cut/invalid raw records remain unsupported here.
+- [x] Prove every zero-observation local interior active span from a unique
+  actual core, both complete native bounded twins/successors, exact source/Z
+  and two projected bounded faces. Retain all observed aliases and original
+  raw records separately; raw-origin partitions do not determine active owners.
+  This private complement never infers a role from an empty observation count
+  or promotes claims, raw-family classification, consumers or output selection.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
@@ -683,6 +689,8 @@ physical alias view before family classification. Native stack #1560
 coverage → domain/exterior authority → per-alias global face projection.
 Native stack #1566 (#1563 → #1564 → #1565) has also merged into main:
 component authority → original active incidence → isolated dangle complements.
+Native stack #1570 (#1567 → #1568 → #1569) has also merged into main:
+original observation inventory → whole domain/seam roles → original leaf paths.
 Component, Euler, containment and output-promotion gates remain independent.
 The 2×2 promotion gate is incomplete.
 These private milestones do not change the published 1.2.0 artifacts.
