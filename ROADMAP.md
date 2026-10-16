@@ -659,6 +659,12 @@ separately from selectable output; they do not complete the promotion gates.
   raw records separately; raw-origin partitions do not determine active owners.
   This private complement never infers a role from an empty observation count
   or promotes claims, raw-family classification, consumers or output selection.
+- [x] Consume complete observed and local-interior roles into a separate private
+  active-topology table with every alias/observation, original native lineage,
+  checked physical links and a cycle-validated derived/witness face bijection.
+  Retain the entire observational raw ledger without assigning output families;
+  complete original raw disposition still gates a complete candidate/output join.
+  Legacy claims, classifiers, candidates and final selection remain unchanged.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
