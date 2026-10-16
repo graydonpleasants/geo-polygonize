@@ -21,6 +21,7 @@ enum OutputMode {
     Buffers,
     Objects,
     Report,
+    LeanReport,
 }
 
 impl OutputMode {
@@ -29,18 +30,23 @@ impl OutputMode {
             "buffers" => Ok(Self::Buffers),
             "objects" => Ok(Self::Objects),
             "report" => Ok(Self::Report),
+            "lean_report" => Ok(Self::LeanReport),
             _ => Err(PolygonizeOptionsError::new_err(
-                "output must be 'buffers', 'objects', or 'report'",
+                "output must be 'buffers', 'objects', 'report', or 'lean_report'",
             )),
         }
     }
 
     fn needs_buffers(self) -> bool {
-        matches!(self, Self::Buffers | Self::Report)
+        matches!(self, Self::Buffers | Self::Report | Self::LeanReport)
     }
 
     fn needs_objects(self) -> bool {
-        matches!(self, Self::Objects | Self::Report)
+        matches!(self, Self::Objects | Self::Report | Self::LeanReport)
+    }
+
+    fn needs_report_metadata(self) -> bool {
+        matches!(self, Self::Report | Self::LeanReport)
     }
 }
 
@@ -94,6 +100,11 @@ struct OwnedBuffers {
 
 #[derive(Default)]
 struct BindingTimings {
+    input_conversion: Duration,
+    native_polygonize: Duration,
+    fingerprint_json: Duration,
+    diagnostics_json: Duration,
+    buffer_export: Duration,
     thread_spawn: Duration,
     buffer_conversion: Duration,
     fingerprint: Duration,
@@ -182,7 +193,9 @@ fn polygonize_without_gil(
     let spawn_started = Instant::now();
     let worker = thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let native_started = Instant::now();
             let result = polygonize_with_execution_policy(lines, &options, &policy)?;
+            let native_polygonize = native_started.elapsed();
             let buffer_started = Instant::now();
             let buffers = output_mode
                 .needs_buffers()
@@ -190,16 +203,19 @@ fn polygonize_without_gil(
                 .transpose()?;
             let buffer_conversion = buffer_started.elapsed();
 
-            let fingerprint_started = Instant::now();
-            let fingerprint = (output_mode == OutputMode::Report)
-                .then(|| TopologyFingerprintV1::try_from_result(&result, &options))
-                .transpose()?;
-            let fingerprint_duration = fingerprint_started.elapsed();
+            let (fingerprint, fingerprint_duration) = if output_mode == OutputMode::Report {
+                let started = Instant::now();
+                let fingerprint = TopologyFingerprintV1::try_from_result(&result, &options)?;
+                (Some(fingerprint), started.elapsed())
+            } else {
+                (None, Duration::ZERO)
+            };
             Ok(WorkerOutput {
                 result,
                 fingerprint,
                 buffers,
                 timings: BindingTimings {
+                    native_polygonize,
                     buffer_conversion,
                     fingerprint: fingerprint_duration,
                     ..Default::default()
@@ -332,7 +348,7 @@ fn append_ring(buffers: &mut OwnedBuffers, ring: &[Coord3D], ids: &[u32], stride
 }
 
 #[pyfunction]
-#[pyo3(signature = (coords, offsets, stride=2, options_json=None, line_ids=None, output="report", execution_json=None))]
+#[pyo3(signature = (coords, offsets, stride=2, options_json=None, line_ids=None, output="report", execution_json=None, profile_binding=false))]
 #[allow(clippy::too_many_arguments)]
 fn polygonize_with_options<'py>(
     py: Python<'py>,
@@ -343,6 +359,7 @@ fn polygonize_with_options<'py>(
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     output: &str,
     execution_json: Option<&str>,
+    profile_binding: bool,
 ) -> PyResult<Py<PyAny>> {
     let options: PolygonizerOptions = if let Some(json) = options_json {
         serde_json::from_str(json)
@@ -360,11 +377,12 @@ fn polygonize_with_options<'py>(
         line_ids,
         OutputMode::parse(output)?,
         parse_execution_limits(execution_json)?,
+        profile_binding,
     )
 }
 
 #[pyfunction]
-#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2, line_ids=None, report_mode=false, output="report", execution_json=None))]
+#[pyo3(signature = (coords, offsets, node=false, snap=1e-10, extract_only_polygonal=false, stride=2, line_ids=None, report_mode=false, output="report", execution_json=None, profile_binding=false))]
 #[allow(clippy::too_many_arguments)]
 fn polygonize<'py>(
     py: Python<'py>,
@@ -378,6 +396,7 @@ fn polygonize<'py>(
     report_mode: bool,
     output: &str,
     execution_json: Option<&str>,
+    profile_binding: bool,
 ) -> PyResult<Py<PyAny>> {
     let mut options = PolygonizerOptions::default();
     options.diagnostics.enabled = report_mode;
@@ -399,6 +418,7 @@ fn polygonize<'py>(
         line_ids,
         OutputMode::parse(output)?,
         parse_execution_limits(execution_json)?,
+        profile_binding,
     )
 }
 
@@ -423,7 +443,10 @@ fn polygonize_internal<'py>(
     line_ids: Option<PyReadonlyArray1<'py, u32>>,
     output_mode: OutputMode,
     execution_limits: PythonExecutionLimits,
+    profile_binding: bool,
 ) -> PyResult<Py<PyAny>> {
+    let binding_started = Instant::now();
+    let input_started = Instant::now();
     let coords_slice = coords.as_slice()?;
     let offsets_slice = offsets.as_slice()?;
 
@@ -525,6 +548,7 @@ fn polygonize_internal<'py>(
         }
     }
 
+    let input_conversion = input_started.elapsed();
     let mut output = polygonize_without_gil(
         py,
         lines,
@@ -533,6 +557,7 @@ fn polygonize_internal<'py>(
         output_mode,
         stride_usize,
     )?;
+    output.timings.input_conversion = input_conversion;
     let result = &output.result;
     let python_objects_started = Instant::now();
     let mut converted_items = 0usize;
@@ -658,6 +683,7 @@ fn polygonize_internal<'py>(
 
     let dict = PyDict::new(py);
     dict.set_item("stride", stride)?;
+    let buffer_export_started = Instant::now();
     if let Some(buffers) = output.buffers {
         dict.set_item("flat_coords", PyArray1::from_vec(py, buffers.flat_coords))?;
         dict.set_item("ring_offsets", PyArray1::from_vec(py, buffers.ring_offsets))?;
@@ -670,29 +696,34 @@ fn polygonize_internal<'py>(
             PyArray1::from_vec(py, buffers.flat_line_ids),
         )?;
     }
+    output.timings.buffer_export = buffer_export_started.elapsed();
     if output_mode.needs_objects() {
         dict.set_item("polygons", py_polygons)?;
         dict.set_item("dangles", py_dangles)?;
         dict.set_item("cut_edges", py_cut_edges)?;
         dict.set_item("invalid_rings", py_invalid_rings)?;
     }
-    if output_mode == OutputMode::Report {
+    if output_mode.needs_report_metadata() {
         let json_module = py.import("json")?;
         let loads = json_module.getattr("loads")?;
         if let Some(fingerprint) = output.fingerprint {
+            let started = Instant::now();
             dict.set_item(
                 "topology_fingerprint",
                 loads.call1((
                     serde_json::to_string(&fingerprint).expect("fingerprint serializes"),
                 ))?,
             )?;
+            output.timings.fingerprint_json = started.elapsed();
         }
         if let Some(ref diagnostics) = result.diagnostics {
+            let started = Instant::now();
             dict.set_item(
                 "diagnostics",
                 loads
                     .call1((serde_json::to_string(diagnostics).expect("diagnostics serialize"),))?,
             )?;
+            output.timings.diagnostics_json = started.elapsed();
         }
         let timings = PyDict::new(py);
         timings.set_item(
@@ -712,6 +743,25 @@ fn polygonize_internal<'py>(
             output.timings.python_objects.as_secs_f64() * 1_000.0,
         )?;
         dict.set_item("binding_timings", timings)?;
+    }
+
+    if profile_binding {
+        let profile = PyDict::new(py);
+        for (name, duration) in [
+            ("input_conversion_ms", output.timings.input_conversion),
+            ("native_polygonize_ms", output.timings.native_polygonize),
+            ("thread_spawn_ms", output.timings.thread_spawn),
+            ("buffer_conversion_ms", output.timings.buffer_conversion),
+            ("buffer_export_ms", output.timings.buffer_export),
+            ("fingerprint_build_ms", output.timings.fingerprint),
+            ("fingerprint_json_ms", output.timings.fingerprint_json),
+            ("python_objects_ms", output.timings.python_objects),
+            ("diagnostics_json_ms", output.timings.diagnostics_json),
+            ("binding_body_ms", binding_started.elapsed()),
+        ] {
+            profile.set_item(name, duration.as_secs_f64() * 1_000.0)?;
+        }
+        dict.set_item("binding_profile", profile)?;
     }
 
     Ok(dict.into())
