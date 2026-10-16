@@ -2197,6 +2197,20 @@ impl PlanarGraph {
         Ok(())
     }
 
+    /// Builds maximal face cycles for the partition arrangement witness.
+    ///
+    /// A topological face can have multiple minimal rings at a point-touch.
+    /// The witness's Euler and face-adjacency checks need maximal face cycles,
+    /// whereas polygon output needs the separately split minimal rings.
+    pub(crate) fn prepare_maximal_face_cycles_for_witness(
+        &mut self,
+        execution_policy: &ExecutionPolicy,
+    ) -> crate::Result<()> {
+        self.compute_next_cw_edges(Some(execution_policy))?;
+        self.assign_deterministic_face_ids(Some(execution_policy))?;
+        Ok(())
+    }
+
     fn assign_deterministic_face_ids(
         &mut self,
         execution_policy: Option<&ExecutionPolicy>,
@@ -2983,8 +2997,12 @@ impl PlanarGraph {
                 let mut first_out: Option<DirEdgeId> = None;
                 let mut prev_in: Option<DirEdgeId> = None;
 
-                // Traverse node star in reverse to process CCW linking semantics.
-                for &de_idx in outgoing.iter().rev() {
+                // Outgoing edges are stored in counter-clockwise order. Pair each
+                // incoming edge of this maximal ring with the next outgoing edge
+                // in that order, splitting repeated-vertex walks into minimal rings.
+                // Reversing this traversal recreates the maximal-ring links and
+                // leaves a point-touching hole embedded in a self-touching shell.
+                for &de_idx in outgoing {
                     if let Some(execution_policy) = execution_policy {
                         execution_policy.check_cancelled_every("ring_extraction", work_items)?;
                     }

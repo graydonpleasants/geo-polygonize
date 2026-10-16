@@ -2571,12 +2571,10 @@ impl PartitionBorderGraph {
             // Non-polygon payloads must stay covered by their existing gates.
             return Ok(None);
         }
-        graph.get_edge_rings_with_graph_ids_and_execution_policy(
-            true,
-            true,
-            execution_policy,
-            true,
-        )?;
+        // This witness models topological faces, not the minimal rings used to
+        // represent polygon shells and holes. Splitting a point-touching face
+        // into minimal rings must not invent an extra face in the Euler check.
+        graph.prepare_maximal_face_cycles_for_witness(execution_policy)?;
         // These shared validators are linear but do not poll cancellation.
         // Bound their work using the existing uninterruptible-work ceiling.
         execution_policy.check_uncancellable_sort(
