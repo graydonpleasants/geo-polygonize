@@ -56,3 +56,23 @@ This is a deliberately reviewed geometry expectation change, not a blanket golde
 regeneration or proof of GEOS topology parity. Application filtering, source
 priority, grading, and the versioned profile/release contract remain adoption
 decisions outside this correctness patch.
+
+## Integration with point-touch ring extraction
+
+The endpoint fix is stacked above the ring-extraction correction in #1562.
+The joint regression closes a gapped outer boundary containing an inner triangle
+that touches the opposite corner. With both corrections, the outer polygon has
+area 41.55 and owns the triangular hole; the inner face has area 3. Each fix
+alone fails this regression.
+
+The test checks 512 combinations of precision, tolerance, feature order and edge
+direction. Every combination retains simple boundaries, exact source sets, and
+an identical full topology fingerprint within its selected options. No dangles,
+cuts or invalid rings remain. The unchanged `cfb_robust_v1` options are covered;
+modified options are tested without claiming that profile identifier.
+
+This qualifies the combined core behavior on the retained fixtures. It does not
+qualify application filters, source-priority rules or grading. Store the library
+version and repository commit alongside the options/profile ID when comparing
+geometry and provenance across this correction; a profile ID alone does not
+identify the implementation that produced a stored result.
