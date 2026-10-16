@@ -2165,6 +2165,48 @@ struct PartitionOriginalRawDisposition<'a> {
     inventory: PartitionOriginalSourceFamilyInventory<'a>,
 }
 
+#[allow(dead_code)] // Source catalog roles never retype or reorder the observational ledger.
+enum PartitionJoinedSourceRole<'a> {
+    Active(&'a PartitionOriginalActiveSource<'a>),
+    Dangle {
+        source: &'a PartitionOriginalDangleSource<'a>,
+        raw_record: &'a PartitionOriginalRawDispositionRecord<'a>,
+    },
+}
+
+#[allow(dead_code)] // Every catalog row borrows the actual immutable original noded source.
+struct PartitionJoinedOriginalSource<'a> {
+    original: &'a PartitionNodedSegment,
+    segment: &'a PartitionNodedSegmentV1,
+    role: PartitionJoinedSourceRole<'a>,
+}
+
+#[allow(dead_code)] // Direction is source lineage; selected/native payloads remain borrowed separately.
+struct PartitionJoinedSourceDirection<'a> {
+    physical_slot_id: usize,
+    source_catalog_index: usize,
+    slot: &'a PartitionConsumedActiveSlot<'a>,
+    reversed_to_original: bool,
+}
+
+#[allow(dead_code)] // Maximal witness cycles are not general output/native boundary rings.
+struct PartitionJoinedMaximalSourceCycle<'a> {
+    derived_face_id: usize,
+    witness_face_id: usize,
+    exterior: bool,
+    directions: Vec<PartitionJoinedSourceDirection<'a>>,
+}
+
+#[allow(dead_code)] // Private integration only: no output policy, candidate or promotion authority.
+struct PartitionJoinedOriginalSources<'a> {
+    topology: &'a PartitionConsumedActiveTopology<'a>,
+    disposition: &'a PartitionOriginalRawDisposition<'a>,
+    source_catalog: Vec<PartitionJoinedOriginalSource<'a>>,
+    maximal_cycles: Vec<PartitionJoinedMaximalSourceCycle<'a>>,
+    observational_raw_ledger: &'a [PartitionInputBoundRawPayload<'a>],
+    raw_support_source_indices: Vec<usize>,
+}
+
 struct PreparedNonPolygonEvidence {
     input_fingerprint_sha256: String,
     snapshot_fingerprints: Vec<(usize, String)>,
@@ -9559,6 +9601,517 @@ fn consume_original_raw_disposition<'a>(
     }))
 }
 
+/// Join actual source lineage without materializing geometry or granting candidate readiness.
+fn join_checked_original_sources<'a>(
+    topology: &'a PartitionConsumedActiveTopology<'a>,
+    disposition: &'a PartitionOriginalRawDisposition<'a>,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionJoinedOriginalSources<'a>>> {
+    let stage = "partition_joined_original_sources";
+    execution_policy.check_cancelled(stage)?;
+    let leaf = disposition.leaf;
+    let component = topology.interior.component;
+    let projection = component.projection;
+    let view = projection.authority.cover.view;
+    let prepared = view.prepared;
+    let graph = topology.interior.binding.graph;
+    let mosaic = topology.interior.binding.mosaic;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "original source join work count overflow".to_string(),
+    };
+    let mut items = prepared.source_segments.len();
+    let mut face_coordinates = 0usize;
+    let mut work = 0usize;
+    let mut add = |n: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        items = items.checked_add(n).ok_or_else(overflow)?;
+        Ok(())
+    };
+    for (row, locals) in &prepared.aliases {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+        add(locals.len())?;
+    }
+    for row in &prepared.noded_segments {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+    }
+    for ((_, bits), locals) in &prepared.local_payloads {
+        add(bits.len())?;
+        add(locals.len())?;
+    }
+    for alias in &projection.aliases {
+        add(1)?;
+        add(alias.bound.alias.source_line_ids.len())?;
+        add(alias.bound.native_edge.source_line_ids.len())?;
+        add(alias.bound.input.segment.source_line_ids.len())?;
+    }
+    for alias in &view.active_aliases {
+        add(1)?;
+        add(alias.native_edge.source_line_ids.len())?;
+        add(alias.input.segment.source_line_ids.len())?;
+    }
+    for slot in &topology.slots {
+        add(1)?;
+        add(slot.physical.physical_edge.source_line_ids.len())?;
+        add(slot.aliases.len())?;
+    }
+    for slot in &view.slots {
+        add(1)?;
+        add(slot.local_aliases.len())?;
+        add(slot.physical_edge.source_line_ids.len())?;
+    }
+    for records in [topology.retained_raw_records, view.raw_payloads.as_slice()] {
+        for raw in records {
+            add(1)?;
+            add(raw.payload.coordinate_bits.len())?;
+            add(raw.segments.len())?;
+            for input in &raw.segments {
+                add(input.segment.source_line_ids.len())?;
+            }
+        }
+    }
+    for record in &leaf.raw_records {
+        add(1)?;
+        add(record.raw.payload.coordinate_bits.len())?;
+        add(record.raw.segments.len())?;
+    }
+    for step in &leaf.steps {
+        add(1)?;
+        add(step.segment.source_line_ids.len())?;
+        add(step.original.source_line_ids.len())?;
+    }
+    for path in &leaf.paths {
+        add(1)?;
+        add(path.step_ids.len())?;
+    }
+    add(leaf.active_segments.len())?;
+    for binding in [
+        &leaf.binding,
+        topology.observed.binding,
+        &topology.interior.binding,
+    ] {
+        add(binding.buckets.len())?;
+        for record in &binding.records {
+            add(1)?;
+            add(record.snapshot.source_line_ids.len())?;
+            add(record.graph.source_line_ids.len())?;
+            add(record.bucket.source_line_ids.len())?;
+            add(record.native.native_edge.source_line_ids.len())?;
+            add(record.native.input.segment.source_line_ids.len())?;
+        }
+        for (_, bucket) in &binding.buckets {
+            add(bucket.len())?;
+        }
+    }
+    for group in &topology.observed.groups {
+        add(1)?;
+        add(group.segment.source_line_ids.len())?;
+        for side in &group.physical_sides {
+            add(side.aliases.len())?;
+        }
+    }
+    for span in &topology.interior.interior_spans {
+        add(2)?;
+        add(span.segment.source_line_ids.len())?;
+    }
+    add(topology.interior.deferred_observed_aliases.len())?;
+    for face in &projection.faces {
+        add(1)?;
+        add(face.physical_slots.len())?;
+        face_coordinates = face_coordinates
+            .checked_add(face.physical_slots.len())
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(overflow)?;
+    }
+    add(projection.physical_next.len())?;
+    add(projection.physical_twins.len())?;
+    add(projection.authority.exterior_cycle.len())?;
+    for boundary in &projection.authority.boundary_segments {
+        add(1)?;
+        add(boundary.segment.source_line_ids.len())?;
+        for observation in boundary.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for seam in &projection.authority.cover.seams {
+        add(4)?;
+        add(seam.segment.source_line_ids.len())?;
+        for observation in seam.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for observation in &projection.authority.cover.observations {
+        add(1)?;
+        add(observation.source_line_ids.len())?;
+    }
+    for alias in graph.global_face_edge_map() {
+        add(1)?;
+        add(alias.source_line_ids.len())?;
+    }
+    for local in graph.local_face_graphs() {
+        for edge in &local.directed_edges {
+            add(1)?;
+            add(edge.source_line_ids.len())?;
+        }
+    }
+    for (_, observation) in graph.original_observation_entries() {
+        add(2)?;
+        add(observation.source_line_ids.len())?;
+    }
+    for (_, bucket) in graph.original_observation_buckets() {
+        add(2)?;
+        for observation in bucket {
+            add(2)?;
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for raw in graph.global_non_polygon_extraction_payload_candidates() {
+        add(1)?;
+        add(raw.coordinate_bits.len())?;
+    }
+    let witness = topology.witness;
+    for edge in &witness.physical_edges {
+        add(1)?;
+        add(edge.source_line_ids.len())?;
+    }
+    for n in [
+        witness.unbounded_face_ids.len(),
+        witness.face_ids_by_local_edge.len(),
+        witness.physical_edge_by_local_edge.len(),
+        witness.face_ids_by_direction.len(),
+        topology.witness_face_by_derived.len(),
+    ] {
+        add(n)?;
+    }
+    for source in &disposition.inventory.active_sources {
+        add(2)?;
+        add(source.segment.source_line_ids.len())?;
+    }
+    for source in &disposition.inventory.dangles {
+        add(1)?;
+        add(source.step.segment.source_line_ids.len())?;
+        add(source.step.original.source_line_ids.len())?;
+    }
+    add(disposition.inventory.valid_residual_faces.len())?;
+    for record in &disposition.raw_records {
+        add(1)?;
+        add(record.raw.payload.coordinate_bits.len())?;
+        add(record.raw.segments.len())?;
+        for segment in &record.raw.segments {
+            add(segment.segment.source_line_ids.len())?;
+        }
+    }
+    let pair_work = prepared
+        .aliases
+        .len()
+        .checked_mul(prepared.aliases.len().saturating_sub(1))
+        .ok_or_else(overflow)?
+        / 2;
+    let geometric_work = face_coordinates
+        .checked_mul(face_coordinates)
+        .and_then(|n| n.checked_mul(16))
+        .ok_or_else(overflow)?;
+    let owner_work = prepared
+        .aliases
+        .len()
+        .checked_add(projection.aliases.len())
+        .and_then(|n| n.checked_mul(mosaic.partitions.len()))
+        .and_then(|n| n.checked_mul(4))
+        .ok_or_else(overflow)?;
+    execution_policy.check_uncancellable_sort(stage, items)?;
+    execution_policy.check_uncancellable_sort(stage, geometric_work)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_candidate_pairs,
+        items
+            .checked_mul(256)
+            .and_then(|n| n.checked_add(pair_work))
+            .and_then(|n| n.checked_add(geometric_work))
+            .and_then(|n| n.checked_add(owner_work))
+            .ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, items)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, items)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        items.checked_mul(8).ok_or_else(overflow)?,
+    )?;
+    if !std::ptr::eq(disposition.topology, topology) {
+        return Ok(None);
+    }
+    let Some(fresh) = consume_original_raw_disposition(topology, leaf, execution_policy)? else {
+        return Ok(None);
+    };
+    let inventory = &disposition.inventory;
+    if disposition.raw_records.len() != fresh.raw_records.len()
+        || inventory.active_sources.len() != fresh.inventory.active_sources.len()
+        || inventory.dangles.len() != fresh.inventory.dangles.len()
+        || inventory.valid_residual_faces != fresh.inventory.valid_residual_faces
+    {
+        return Ok(None);
+    }
+    for (a, b) in inventory
+        .active_sources
+        .iter()
+        .zip(&fresh.inventory.active_sources)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(a.segment, b.segment) || a.physical_slots != b.physical_slots {
+            return Ok(None);
+        }
+    }
+    for (a, b) in inventory.dangles.iter().zip(&fresh.inventory.dangles) {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if a.original_source_index != b.original_source_index
+            || !std::ptr::eq(a.step, b.step)
+            || !std::ptr::eq(a.owner_core, b.owner_core)
+        {
+            return Ok(None);
+        }
+    }
+    for (a, b) in disposition.raw_records.iter().zip(&fresh.raw_records) {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let same = match (&a.support, &b.support) {
+            (
+                PartitionOriginalRawSupport::ResidualActive {
+                    active_source_index: a,
+                    physical_slot_id: b,
+                },
+                PartitionOriginalRawSupport::ResidualActive {
+                    active_source_index: c,
+                    physical_slot_id: d,
+                },
+            ) => a == c && b == d,
+            (
+                PartitionOriginalRawSupport::OriginalDangle {
+                    dangle_index: a,
+                    raw_reversed_to_step: b,
+                    raw_reversed_to_original: c,
+                },
+                PartitionOriginalRawSupport::OriginalDangle {
+                    dangle_index: d,
+                    raw_reversed_to_step: e,
+                    raw_reversed_to_original: f,
+                },
+            ) => a == d && b == e && c == f,
+            _ => false,
+        };
+        if !std::ptr::eq(a.raw, b.raw) || !same {
+            return Ok(None);
+        }
+    }
+    // Raw identities and multiplicity stay in their own sequence, separate from source catalog order.
+    if topology.retained_raw_records.len() != disposition.raw_records.len() {
+        return Ok(None);
+    }
+    for (raw, record) in topology
+        .retained_raw_records
+        .iter()
+        .zip(&disposition.raw_records)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(raw, record.raw) {
+            return Ok(None);
+        }
+    }
+    let mut dangle_raw = vec![None; inventory.dangles.len()];
+    for record in &disposition.raw_records {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if let PartitionOriginalRawSupport::OriginalDangle { dangle_index, .. } = record.support {
+            let Some(entry) = dangle_raw.get_mut(dangle_index) else {
+                return Ok(None);
+            };
+            if entry.replace(record).is_some() {
+                return Ok(None);
+            }
+        }
+    }
+    let mut roles = BTreeMap::new();
+    for source in &inventory.active_sources {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if roles
+            .insert(
+                source.segment as *const _,
+                PartitionJoinedSourceRole::Active(source),
+            )
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    for (index, source) in inventory.dangles.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(raw_record) = dangle_raw[index] else {
+            return Ok(None);
+        };
+        if roles
+            .insert(
+                source.step.segment as *const _,
+                PartitionJoinedSourceRole::Dangle { source, raw_record },
+            )
+            .is_some()
+        {
+            return Ok(None);
+        }
+    }
+    let mut source_catalog = Vec::new();
+    let mut source_index_by_row = BTreeMap::new();
+    for (index, original) in prepared.noded_segments.iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let metadata = partition_noded_segments(std::slice::from_ref(original))?;
+        let [row] = metadata.as_slice() else {
+            return Ok(None);
+        };
+        let Some((segment, _)) = prepared.aliases.get_key_value(row) else {
+            return Ok(None);
+        };
+        let Some(role) = roles.remove(&(segment as *const _)) else {
+            return Ok(None);
+        };
+        if original.source_line_ids != segment.source_line_ids
+            || source_index_by_row
+                .insert(segment as *const _, index)
+                .is_some()
+        {
+            return Ok(None);
+        }
+        if let PartitionJoinedSourceRole::Dangle { source, .. } = &role {
+            if source.original_source_index != index
+                || !std::ptr::eq(source.step.original, original)
+            {
+                return Ok(None);
+            }
+        }
+        source_catalog.push(PartitionJoinedOriginalSource {
+            original,
+            segment,
+            role,
+        });
+    }
+    if !roles.is_empty() || source_catalog.len() != prepared.aliases.len() {
+        return Ok(None);
+    }
+    let mut maximal_cycles = Vec::new();
+    let mut physical_seen = vec![false; topology.slots.len()];
+    for &derived_face_id in &inventory.valid_residual_faces {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(face) = projection.faces.get(derived_face_id) else {
+            return Ok(None);
+        };
+        let Some(&witness_face_id) = topology.witness_face_by_derived.get(derived_face_id) else {
+            return Ok(None);
+        };
+        let mut directions = Vec::new();
+        for &physical_slot_id in &face.physical_slots {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let Some(slot) = topology.slots.get(physical_slot_id) else {
+                return Ok(None);
+            };
+            if physical_seen[physical_slot_id]
+                || slot.derived_face_id != derived_face_id
+                || slot.witness_face_id != witness_face_id
+            {
+                return Ok(None);
+            }
+            physical_seen[physical_slot_id] = true;
+            let Some(&source_catalog_index) =
+                source_index_by_row.get(&(slot.aliases[0].alias.bound.input.segment as *const _))
+            else {
+                return Ok(None);
+            };
+            let source = &source_catalog[source_catalog_index];
+            let PartitionJoinedSourceRole::Active(active) = &source.role else {
+                return Ok(None);
+            };
+            if !active.physical_slots.contains(&physical_slot_id) {
+                return Ok(None);
+            }
+            let edge = slot.physical.physical_edge;
+            let line = source.original.line;
+            let from = PartitionBorderNodeKey::from_coord(line.start);
+            let to = PartitionBorderNodeKey::from_coord(line.end);
+            let forward = edge.from == from.xy_bits() && edge.to == to.xy_bits();
+            let reversed_to_original = edge.from == to.xy_bits() && edge.to == from.xy_bits();
+            if (!forward && !reversed_to_original)
+                || edge.source_line_ids != source.original.source_line_ids
+            {
+                return Ok(None);
+            }
+            // Keep selected native Z and original source Z separate; binding never replaces either.
+            directions.push(PartitionJoinedSourceDirection {
+                physical_slot_id,
+                source_catalog_index,
+                slot,
+                reversed_to_original,
+            });
+        }
+        maximal_cycles.push(PartitionJoinedMaximalSourceCycle {
+            derived_face_id,
+            witness_face_id,
+            exterior: derived_face_id == component.exterior_face_id,
+            directions,
+        });
+    }
+    if physical_seen.iter().any(|seen| !*seen) || maximal_cycles.len() != projection.faces.len() {
+        return Ok(None);
+    }
+    let mut raw_support_source_indices = Vec::new();
+    for record in &disposition.raw_records {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let source = match record.support {
+            PartitionOriginalRawSupport::ResidualActive {
+                active_source_index,
+                physical_slot_id,
+            } => {
+                let Some(active) = inventory.active_sources.get(active_source_index) else {
+                    return Ok(None);
+                };
+                if !active.physical_slots.contains(&physical_slot_id) {
+                    return Ok(None);
+                }
+                active.segment
+            }
+            PartitionOriginalRawSupport::OriginalDangle { dangle_index, .. } => {
+                let Some(dangle) = inventory.dangles.get(dangle_index) else {
+                    return Ok(None);
+                };
+                dangle.step.segment
+            }
+        };
+        if record.raw.segments.len() != 1 || !std::ptr::eq(record.raw.segments[0].segment, source) {
+            return Ok(None);
+        }
+        let Some(&index) = source_index_by_row.get(&(source as *const _)) else {
+            return Ok(None);
+        };
+        raw_support_source_indices.push(index);
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionJoinedOriginalSources {
+        topology,
+        disposition,
+        source_catalog,
+        maximal_cycles,
+        observational_raw_ledger: topology.retained_raw_records,
+        raw_support_source_indices,
+    }))
+}
+
 /// Joins current polygon evidence with a complete, revalidated global consumer.
 fn integrate_private_global_candidate(
     inputs: &PartitionGlobalCandidateInputs<'_>,
@@ -14352,6 +14905,15 @@ impl<'a> TiledPolygonizer<'a> {
                 }
                 _ => None,
             };
+            let joined_original_sources =
+                match (&checked_active_topology, &original_raw_disposition) {
+                    (Some(topology), Some(disposition)) => join_checked_original_sources(
+                        topology,
+                        disposition,
+                        &self.execution_policy,
+                    )?,
+                    _ => None,
+                };
             if let Some(trace) = trace.as_deref_mut() {
                 trace.record(
                     TraceStageV1::Graph,
@@ -14608,6 +15170,19 @@ impl<'a> TiledPolygonizer<'a> {
                         "dangle_supported_raw_count":receipt.raw_records.iter().filter(|record|matches!(record.support,PartitionOriginalRawSupport::OriginalDangle{..})).count(),
                     })),"observational_ledger_rewritten":false,"output_families_materialized":false,
                     "raw_families_classified":false,"candidate_integration_ready":false,"output_selectable":false
+                }));
+                trace.record(TraceStageV1::Graph,"partition_border_joined_original_sources",serde_json::json!({
+                    "joined":joined_original_sources.is_some(),"scope":"strict_core_detached_paths",
+                    "table":joined_original_sources.as_ref().map(|joined|serde_json::json!({
+                        "original_source_catalog_count":joined.source_catalog.len(),
+                        "active_source_count":joined.source_catalog.iter().filter(|row|matches!(row.role,PartitionJoinedSourceRole::Active(_))).count(),
+                        "original_dangle_count":joined.source_catalog.iter().filter(|row|matches!(row.role,PartitionJoinedSourceRole::Dangle{..})).count(),
+                        "maximal_cycle_count":joined.maximal_cycles.len(),
+                        "physical_direction_count":joined.maximal_cycles.iter().map(|cycle|cycle.directions.len()).sum::<usize>(),
+                        "observational_raw_record_count":joined.observational_raw_ledger.len(),
+                        "raw_support_mapping_count":joined.raw_support_source_indices.len(),
+                    })),"output_geometry_materialized":false,"raw_ledger_rewritten":false,
+                    "candidate_integration_ready":false,"output_selectable":false
                 }));
             }
         }
