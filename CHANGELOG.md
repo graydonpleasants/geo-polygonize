@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.2.0...geo-polygonize-v1.3.0) (2026-10-16)
+
+
+### Features
+
+* **core:** adapt physical output for local conformance ([f8b601c](https://github.com/graydonpleasants/geo-polygonize/commit/f8b601caebe625144e2580aa2f9b68cbb85cce99))
+* **core:** adapt physical output for local conformance ([#1541](https://github.com/graydonpleasants/geo-polygonize/issues/1541)) ([6fe006d](https://github.com/graydonpleasants/geo-polygonize/commit/6fe006dbb1d2dc7f65025289ea1b6b2e125ba86f))
+* **core:** bind original input active incidence ([3c0f8e6](https://github.com/graydonpleasants/geo-polygonize/commit/3c0f8e6d9e6749b4130f1e2f1674fb7f5a5cffe9))
+* **core:** bind original input active incidence ([#1564](https://github.com/graydonpleasants/geo-polygonize/issues/1564)) ([efca6ce](https://github.com/graydonpleasants/geo-polygonize/commit/efca6ce8be701baec6c58874841328db5c3eb6e5))
+* **core:** bind original observation inventories ([#1567](https://github.com/graydonpleasants/geo-polygonize/issues/1567)) ([c467930](https://github.com/graydonpleasants/geo-polygonize/commit/c467930fe3dd66d0d81716e5d6ead0ae05f7b343))
+* **core:** bind physical aliases to prepared inputs ([c0a2987](https://github.com/graydonpleasants/geo-polygonize/commit/c0a2987429f6f68175f632fbd39b37c39e825f7f))
+* **core:** construct alias-aware physical topology ([46a7db6](https://github.com/graydonpleasants/geo-polygonize/commit/46a7db605870b6b2bdfdb85f645873eaa3ed1090))
+* **core:** construct alias-aware physical topology ([#1530](https://github.com/graydonpleasants/geo-polygonize/issues/1530)) ([0d48e80](https://github.com/graydonpleasants/geo-polygonize/commit/0d48e801e64def6ecef01af23c4a60a5061546c2))
+* **core:** construct cross-core non-polygon witnesses ([8330fda](https://github.com/graydonpleasants/geo-polygonize/commit/8330fda6bd4ed01ab3ec3d2879dfdd52f9bc3930))
+* **core:** construct cross-core non-polygon witnesses ([#1543](https://github.com/graydonpleasants/geo-polygonize/issues/1543)) ([8ae6cd7](https://github.com/graydonpleasants/geo-polygonize/commit/8ae6cd7701f6abb778d54fffbfffad6e07c6d544))
+* **core:** consume global non-polygon proofs ([1f39a6f](https://github.com/graydonpleasants/geo-polygonize/commit/1f39a6fec017dd98998fefad59a496b4e41acd29))
+* **core:** consume global non-polygon proofs ([#1544](https://github.com/graydonpleasants/geo-polygonize/issues/1544)) ([eeef343](https://github.com/graydonpleasants/geo-polygonize/commit/eeef343ddb9ba4376c5a40ea6f5ffc389a463208))
+* **core:** extract physical table payloads ([a1db704](https://github.com/graydonpleasants/geo-polygonize/commit/a1db704e5aa8ac60f0d2e24197cb279a3f2fb1c9))
+* **core:** extract physical table payloads ([#1537](https://github.com/graydonpleasants/geo-polygonize/issues/1537)) ([b79546c](https://github.com/graydonpleasants/geo-polygonize/commit/b79546cb33d535c20ae6874b5b45e6148ce28332))
+* **core:** gate complete private candidates on conformance ([ea5e700](https://github.com/graydonpleasants/geo-polygonize/commit/ea5e7004bfba6ee070eaff0c3fc11ff12f3d19f2))
+* **core:** gate complete private candidates on conformance ([#1545](https://github.com/graydonpleasants/geo-polygonize/issues/1545)) ([dce2904](https://github.com/graydonpleasants/geo-polygonize/commit/dce2904e25f67b7aaf44fd833fa2ea146aee2008))
+* **core:** model physical slots with borrowed local aliases ([cb4d621](https://github.com/graydonpleasants/geo-polygonize/commit/cb4d6217d58447aeaa46dffc7874d51894c4c57c))
+* **core:** model physical slots with borrowed local aliases ([#1527](https://github.com/graydonpleasants/geo-polygonize/issues/1527)) ([85c11ab](https://github.com/graydonpleasants/geo-polygonize/commit/85c11abf15ab84a8f3bbd2a6a2ac7d8a0c317643))
+* **core:** prove complete cross-core family candidates ([6c319a9](https://github.com/graydonpleasants/geo-polygonize/commit/6c319a9adc19694fa8912c09b75fdc20b371228e))
+* **core:** prove complete cross-core family candidates ([#1547](https://github.com/graydonpleasants/geo-polygonize/issues/1547)) ([12ab0ca](https://github.com/graydonpleasants/geo-polygonize/commit/12ab0caf7c13d533ada674a686593b008b5f6a50))
+* **core:** prove complete native twin seam coverage ([29dba71](https://github.com/graydonpleasants/geo-polygonize/commit/29dba714e1facb4b1fde2a5607945e4b9c685a97))
+* **core:** prove component Euler and containment authority ([fca7619](https://github.com/graydonpleasants/geo-polygonize/commit/fca761936151dc819f16650c6209b07c608af6e0))
+* **core:** prove component Euler and containment authority ([#1563](https://github.com/graydonpleasants/geo-polygonize/issues/1563)) ([559ade4](https://github.com/graydonpleasants/geo-polygonize/commit/559ade4d6120f2105b8e199b9c6b7d921e076cda))
+* **core:** prove global non-polygon ownership ([5e3388d](https://github.com/graydonpleasants/geo-polygonize/commit/5e3388d861d48c11a1a406b675ffa3dd55fcd2b4))
+* **core:** prove global non-polygon ownership ([#1542](https://github.com/graydonpleasants/geo-polygonize/issues/1542)) ([4be9dc4](https://github.com/graydonpleasants/geo-polygonize/commit/4be9dc4442661c818f71893b82e21df362a3f553))
+* **core:** prove isolated original dangle complements ([32ec8cd](https://github.com/graydonpleasants/geo-polygonize/commit/32ec8cdf133bd42783555629c58fdb6c338abb6c))
+* **core:** prove isolated original dangle complements ([#1565](https://github.com/graydonpleasants/geo-polygonize/issues/1565)) ([6c97bf3](https://github.com/graydonpleasants/geo-polygonize/commit/6c97bf3c0ec84f06127cc7ba1342f8673fc5acde))
+* **core:** prove original leaf path pruning ([#1569](https://github.com/graydonpleasants/geo-polygonize/issues/1569)) ([362c99b](https://github.com/graydonpleasants/geo-polygonize/commit/362c99b4a8905158fd69d2cb0484af8ffe07cf38))
+* **core:** prove per-alias global face projection ([9737065](https://github.com/graydonpleasants/geo-polygonize/commit/973706594784bed289c679700b568a9663f14559))
+* **core:** prove per-alias global face projection ([#1559](https://github.com/graydonpleasants/geo-polygonize/issues/1559)) ([23c8868](https://github.com/graydonpleasants/geo-polygonize/commit/23c88685fca61e4b8f365bffec9f29a237296bb7))
+* **core:** prove private domain exterior authority ([f696483](https://github.com/graydonpleasants/geo-polygonize/commit/f696483a1c0d44e4750cea0b4923b65dbdb89eda))
+* **core:** prove private domain exterior authority ([#1558](https://github.com/graydonpleasants/geo-polygonize/issues/1558)) ([e9f7144](https://github.com/graydonpleasants/geo-polygonize/commit/e9f714485775a9a7e384b10bff6c52f7eba584bd))
+* **core:** prove whole observation group roles ([#1568](https://github.com/graydonpleasants/geo-polygonize/issues/1568)) ([be18f5d](https://github.com/graydonpleasants/geo-polygonize/commit/be18f5d20344287a3edecb0f3e6db16650f37188))
+* **core:** reconcile physical components and face identities ([5ac2a7e](https://github.com/graydonpleasants/geo-polygonize/commit/5ac2a7eba27a7959eeedf7e4583b7d5b78f33ee9))
+* **core:** reconcile physical components and face identities ([#1534](https://github.com/graydonpleasants/geo-polygonize/issues/1534)) ([e9e7263](https://github.com/graydonpleasants/geo-polygonize/commit/e9e7263c47a3713f4bc267a1fac867cfd013a43c))
+* **core:** resolve face-qualified physical claims ([fcef5d9](https://github.com/graydonpleasants/geo-polygonize/commit/fcef5d98702ff59644368bc9ec08690dd8f82374))
+* **core:** resolve face-qualified physical claims ([#1528](https://github.com/graydonpleasants/geo-polygonize/issues/1528)) ([5b75a12](https://github.com/graydonpleasants/geo-polygonize/commit/5b75a1201432fdae5ef6514840315cef57ed3b4f))
+
+
+### Bug Fixes
+
+* **core:** bound aggregate non-polygon materialization ([ddb70f2](https://github.com/graydonpleasants/geo-polygonize/commit/ddb70f2db9e8b14daaa6fa8fbc1746af5a244536))
+* **core:** split nested point-touch rings in counterclockwise order ([2588a4c](https://github.com/graydonpleasants/geo-polygonize/commit/2588a4c68157f65ee3e720f0afb97b0a8b07746a))
+* **core:** split nested point-touch rings in counterclockwise order ([#1562](https://github.com/graydonpleasants/geo-polygonize/issues/1562)) ([96b60d6](https://github.com/graydonpleasants/geo-polygonize/commit/96b60d685685d690568c125cdfff1e2ae37f6696))
+
 ## [1.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.1.0...geo-polygonize-v1.2.0) (2026-10-14)
 
 ### Supported changes and package repairs
