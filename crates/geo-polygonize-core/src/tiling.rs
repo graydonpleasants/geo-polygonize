@@ -1988,6 +1988,39 @@ struct PartitionLocalInteriorRoleAuthority<'a> {
     deferred_observed_aliases: Vec<&'a PartitionProjectedAlias<'a>>,
 }
 
+#[allow(dead_code)] // Keep typed ownership and original observations beside every consumed alias.
+enum PartitionConsumedActiveRole<'a> {
+    Observed(&'a PartitionWholeObservationGroup<'a>),
+    Interior(&'a PartitionLocalInteriorSpan<'a>),
+}
+
+#[allow(dead_code)] // Preserve original lineage, not a replacement legacy claim.
+struct PartitionConsumedActiveAlias<'a> {
+    alias: &'a PartitionProjectedAlias<'a>,
+    observation: Option<&'a PartitionBoundOriginalObservation<'a>>,
+    role: PartitionConsumedActiveRole<'a>,
+}
+
+#[allow(dead_code)] // Materialized private topology links keep both face namespaces explicit.
+struct PartitionConsumedActiveSlot<'a> {
+    physical: &'a PartitionBorderPhysicalSlot<'a>,
+    symmetric: usize,
+    next: usize,
+    derived_face_id: usize,
+    witness_face_id: usize,
+    aliases: Vec<PartitionConsumedActiveAlias<'a>>,
+}
+
+#[allow(dead_code)] // Active topology only; original raw disposition still gates any output join.
+struct PartitionConsumedActiveTopology<'a> {
+    observed: &'a PartitionWholeObservationRoleAuthority<'a>,
+    interior: &'a PartitionLocalInteriorRoleAuthority<'a>,
+    witness: &'a PartitionBorderGlobalArrangementWitness,
+    slots: Vec<PartitionConsumedActiveSlot<'a>>,
+    witness_face_by_derived: Vec<usize>,
+    retained_raw_records: &'a [PartitionInputBoundRawPayload<'a>],
+}
+
 struct PartitionComponentEulerContainmentAuthority<'a> {
     projection: &'a PartitionAliasGlobalFaceProjection<'a>,
     local_components: Vec<[usize; 2]>,
@@ -7155,6 +7188,616 @@ fn prove_local_interior_active_roles<'a>(
         binding,
         interior_spans,
         deferred_observed_aliases,
+    }))
+}
+
+/// Consume complete typed active roles without assigning a global family to any raw record.
+fn consume_checked_active_roles<'a>(
+    observed: &'a PartitionWholeObservationRoleAuthority<'a>,
+    interior: &'a PartitionLocalInteriorRoleAuthority<'a>,
+    witness: &'a PartitionBorderGlobalArrangementWitness,
+    execution_policy: &ExecutionPolicy,
+) -> Result<Option<PartitionConsumedActiveTopology<'a>>> {
+    let stage = "partition_checked_active_role_consumer";
+    execution_policy.check_cancelled(stage)?;
+    let projection = interior.component.projection;
+    let view = projection.authority.cover.view;
+    let graph = interior.binding.graph;
+    let mosaic = interior.binding.mosaic;
+    preflight_partition_input_snapshots(mosaic, execution_policy)?;
+    let overflow = || PolygonizeError::InternalInvariantViolation {
+        reason: "active role consumer work count overflow".to_string(),
+    };
+    let mut items = mosaic.partitions.len();
+    let mut face_coordinates = 0usize;
+    let mut work = 0usize;
+    let mut add = |count: usize| -> Result<()> {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        items = items.checked_add(count).ok_or_else(overflow)?;
+        Ok(())
+    };
+    for binding in [observed.binding, &interior.binding] {
+        for record in &binding.records {
+            add(1)?;
+            add(record.snapshot.source_line_ids.len())?;
+            add(record.graph.source_line_ids.len())?;
+            add(record.bucket.source_line_ids.len())?;
+            add(record.native.native_edge.source_line_ids.len())?;
+            add(record.native.input.segment.source_line_ids.len())?;
+        }
+        for (_, bucket) in &binding.buckets {
+            add(1)?;
+            add(bucket.len())?;
+        }
+    }
+    for group in &observed.groups {
+        add(1)?;
+        add(group.segment.source_line_ids.len())?;
+        for side in &group.physical_sides {
+            add(side.aliases.len())?;
+        }
+    }
+    for span in &interior.interior_spans {
+        add(2)?;
+        add(span.segment.source_line_ids.len())?;
+    }
+    add(interior.deferred_observed_aliases.len())?;
+    for (row, aliases) in &view.prepared.aliases {
+        add(1)?;
+        add(row.source_line_ids.len())?;
+        add(aliases.len())?;
+    }
+    for alias in &view.active_aliases {
+        add(1)?;
+        add(alias.alias.source_line_ids.len())?;
+        add(alias.native_edge.source_line_ids.len())?;
+        add(alias.input.segment.source_line_ids.len())?;
+    }
+    for alias in &projection.aliases {
+        add(1)?;
+        add(alias.bound.alias.source_line_ids.len())?;
+        add(alias.bound.native_edge.source_line_ids.len())?;
+        add(alias.bound.input.segment.source_line_ids.len())?;
+    }
+    for observation in &projection.authority.cover.observations {
+        add(1)?;
+        add(observation.source_line_ids.len())?;
+    }
+    add(projection.physical_next.len())?;
+    add(projection.physical_twins.len())?;
+    for slot in &view.slots {
+        add(1)?;
+        add(slot.local_aliases.len())?;
+        add(slot.physical_edge.source_line_ids.len())?;
+    }
+    for raw in &view.raw_payloads {
+        add(1)?;
+        add(raw.payload.coordinate_bits.len())?;
+        add(raw.segments.len())?;
+        for input in &raw.segments {
+            add(input.segment.source_line_ids.len())?;
+        }
+    }
+    for alias in graph.global_face_edge_map() {
+        add(1)?;
+        add(alias.source_line_ids.len())?;
+    }
+    for local in graph.local_face_graphs() {
+        for edge in &local.directed_edges {
+            add(1)?;
+            add(edge.source_line_ids.len())?;
+        }
+    }
+    for (_, observation) in graph.original_observation_entries() {
+        add(2)?;
+        add(observation.source_line_ids.len())?;
+    }
+    for (_, bucket) in graph.original_observation_buckets() {
+        add(2)?;
+        for observation in bucket {
+            add(2)?;
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for raw in graph.global_non_polygon_extraction_payload_candidates() {
+        add(1)?;
+        add(raw.coordinate_bits.len())?;
+    }
+    for face in &projection.faces {
+        add(1)?;
+        add(face.physical_slots.len())?;
+        face_coordinates = face_coordinates
+            .checked_add(face.physical_slots.len())
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(overflow)?;
+    }
+    add(projection.authority.exterior_cycle.len())?;
+    for boundary in &projection.authority.boundary_segments {
+        add(1)?;
+        add(boundary.segment.source_line_ids.len())?;
+        for observation in boundary.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for seam in &projection.authority.cover.seams {
+        add(4)?;
+        add(seam.segment.source_line_ids.len())?;
+        for observation in seam.observations {
+            add(observation.source_line_ids.len())?;
+        }
+    }
+    for edge in &witness.physical_edges {
+        add(1)?;
+        add(edge.source_line_ids.len())?;
+    }
+    for count in [
+        witness.unbounded_face_ids.len(),
+        witness.face_ids_by_local_edge.len(),
+        witness.physical_edge_by_local_edge.len(),
+        witness.face_ids_by_direction.len(),
+    ] {
+        add(count)?;
+    }
+    let containment_work = face_coordinates
+        .checked_mul(face_coordinates)
+        .and_then(|n| n.checked_mul(2))
+        .ok_or_else(overflow)?;
+    let owner_work = projection
+        .aliases
+        .len()
+        .checked_mul(mosaic.partitions.len())
+        .and_then(|n| n.checked_mul(3))
+        .ok_or_else(overflow)?;
+    execution_policy.check_uncancellable_sort(stage, items)?;
+    execution_policy.check_uncancellable_sort(stage, containment_work)?;
+    // Includes both complete parent revalidations and their temporary membership receipts.
+    execution_policy.check(
+        stage,
+        execution_policy.max_candidate_pairs,
+        items
+            .checked_mul(32)
+            .and_then(|n| n.checked_add(containment_work))
+            .and_then(|n| n.checked_add(owner_work))
+            .ok_or_else(overflow)?,
+    )?;
+    execution_policy.check(stage, execution_policy.max_graph_edges, items)?;
+    execution_policy.check(stage, execution_policy.max_graph_nodes, items)?;
+    execution_policy.check(
+        stage,
+        execution_policy.max_output_coordinates,
+        items
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(face_coordinates))
+            .ok_or_else(overflow)?,
+    )?;
+    if !std::ptr::eq(observed.projection, projection)
+        || !std::ptr::eq(observed.binding.cover, projection.authority.cover)
+        || !std::ptr::eq(interior.binding.cover, observed.binding.cover)
+        || !std::ptr::eq(observed.binding.graph, graph)
+        || !std::ptr::eq(observed.binding.mosaic, mosaic)
+        || observed.binding.records.len() != interior.binding.records.len()
+        || observed.binding.buckets.len() != interior.binding.buckets.len()
+    {
+        return Ok(None);
+    }
+    for (a, b) in observed
+        .binding
+        .records
+        .iter()
+        .zip(&interior.binding.records)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(a.snapshot, b.snapshot)
+            || !std::ptr::eq(a.graph, b.graph)
+            || !std::ptr::eq(a.bucket, b.bucket)
+            || !std::ptr::eq(a.native, b.native)
+        {
+            return Ok(None);
+        }
+    }
+    for ((a, b), (c, d)) in observed
+        .binding
+        .buckets
+        .iter()
+        .zip(&interior.binding.buckets)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(*a, *c) || !std::ptr::eq(*b, *d) {
+            return Ok(None);
+        }
+    }
+    let Some(fresh_observed) =
+        prove_whole_observation_roles(observed.binding, projection, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    let Some(fresh_interior) =
+        prove_local_interior_active_roles(interior.component, graph, mosaic, execution_policy)?
+    else {
+        return Ok(None);
+    };
+    if observed.groups.len() != fresh_observed.groups.len()
+        || interior.interior_spans.len() != fresh_interior.interior_spans.len()
+        || interior.deferred_observed_aliases.len()
+            != fresh_interior.deferred_observed_aliases.len()
+    {
+        return Ok(None);
+    }
+    for (a, b) in observed.groups.iter().zip(&fresh_observed.groups) {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let same_role = match (&a.role, &b.role) {
+            (
+                PartitionWholeObservationRole::Domain {
+                    boundary: a,
+                    core: b,
+                    observations: c,
+                },
+                PartitionWholeObservationRole::Domain {
+                    boundary: d,
+                    core: e,
+                    observations: f,
+                },
+            ) => {
+                std::ptr::eq(*a, *d)
+                    && std::ptr::eq(*b, *e)
+                    && c.iter().zip(f).all(|(a, b)| std::ptr::eq(*a, *b))
+            }
+            (
+                PartitionWholeObservationRole::Seam {
+                    seam: a,
+                    cores: b,
+                    sides: c,
+                    observations: d,
+                },
+                PartitionWholeObservationRole::Seam {
+                    seam: e,
+                    cores: f,
+                    sides: g,
+                    observations: h,
+                },
+            ) => {
+                std::ptr::eq(*a, *e)
+                    && c == g
+                    && b.iter().zip(f).all(|(a, b)| std::ptr::eq(*a, *b))
+                    && d.iter().zip(h).all(|(a, b)| std::ptr::eq(*a, *b))
+            }
+            _ => false,
+        };
+        if !same_role
+            || !std::ptr::eq(a.segment, b.segment)
+            || !std::ptr::eq(a.original_bucket.0, b.original_bucket.0)
+            || !std::ptr::eq(a.original_bucket.1, b.original_bucket.1)
+        {
+            return Ok(None);
+        }
+        for (a, b) in a.physical_sides.iter().zip(&b.physical_sides) {
+            if a.physical_slot_id != b.physical_slot_id
+                || a.global_face_id != b.global_face_id
+                || a.aliases.len() != b.aliases.len()
+                || !a
+                    .aliases
+                    .iter()
+                    .zip(&b.aliases)
+                    .all(|(a, b)| std::ptr::eq(*a, *b))
+            {
+                return Ok(None);
+            }
+        }
+    }
+    for (a, b) in interior
+        .interior_spans
+        .iter()
+        .zip(&fresh_interior.interior_spans)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(a.segment, b.segment)
+            || !std::ptr::eq(a.owner_core, b.owner_core)
+            || a.local_segment_alias != b.local_segment_alias
+            || !a
+                .aliases
+                .iter()
+                .zip(b.aliases)
+                .all(|(a, b)| std::ptr::eq(*a, b))
+        {
+            return Ok(None);
+        }
+    }
+    for (a, b) in interior
+        .deferred_observed_aliases
+        .iter()
+        .zip(&fresh_interior.deferred_observed_aliases)
+    {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if !std::ptr::eq(*a, *b) {
+            return Ok(None);
+        }
+    }
+    let count = view.slots.len();
+    let alias_count = projection.aliases.len();
+    if count == 0
+        || witness.physical_edges.len() != count
+        || witness.physical_edge_count != interior.component.edge_count
+        || witness.physical_edge_count.checked_mul(2) != Some(count)
+        || witness.node_count != interior.component.vertex_count
+        || witness.face_count != projection.faces.len()
+        || witness.face_ids_by_local_edge.len() != alias_count
+        || witness.physical_edge_by_local_edge.len() != alias_count
+        || witness.face_ids_by_direction.len() != count
+        || witness.unbounded_face_ids.len() != 1
+    {
+        return Ok(None);
+    }
+    let mut direction_faces = BTreeMap::new();
+    for &(from, to, face) in &witness.face_ids_by_direction {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        if direction_faces.insert((from, to), face).is_some() {
+            return Ok(None);
+        }
+    }
+    let mut witness_face_by_derived = Vec::new();
+    let mut witness_faces = BTreeSet::new();
+    let mut derived_face_by_slot = vec![None; count];
+    for (derived, face) in projection.faces.iter().enumerate() {
+        let Some(&first) = face.physical_slots.first() else {
+            return Ok(None);
+        };
+        let Some(first_edge) = witness.physical_edges.get(first) else {
+            return Ok(None);
+        };
+        let label = first_edge.face_id;
+        if label >= witness.face_count || !witness_faces.insert(label) {
+            return Ok(None);
+        }
+        for (index, &slot) in face.physical_slots.iter().enumerate() {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            let (Some(selected), Some(edge)) =
+                (view.slots.get(slot), witness.physical_edges.get(slot))
+            else {
+                return Ok(None);
+            };
+            if !std::ptr::eq(selected.physical_edge, edge)
+                || derived_face_by_slot[slot].replace(derived).is_some()
+                || edge.face_id != label
+                || direction_faces.get(&(edge.from, edge.to)) != Some(&label)
+                || edge.next != face.physical_slots[(index + 1) % face.physical_slots.len()]
+                || projection.physical_next.get(slot) != Some(&edge.next)
+                || projection.physical_twins.get(slot) != Some(&edge.symmetric)
+            {
+                return Ok(None);
+            }
+        }
+        witness_face_by_derived.push(label);
+    }
+    if derived_face_by_slot.iter().any(Option::is_none)
+        || witness.unbounded_face_ids[0]
+            != witness_face_by_derived[interior.component.exterior_face_id]
+    {
+        return Ok(None);
+    }
+    let mut assignments = BTreeMap::new();
+    let mut consumed_observations = BTreeSet::new();
+    for group in &observed.groups {
+        let records: &[_] = match &group.role {
+            PartitionWholeObservationRole::Domain { observations, .. } => observations,
+            PartitionWholeObservationRole::Seam { observations, .. } => observations,
+        };
+        let mut by_native = BTreeMap::new();
+        for record in records {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if !consumed_observations.insert(*record as *const _)
+                || by_native
+                    .insert(record.native as *const _, *record)
+                    .is_some()
+            {
+                return Ok(None);
+            }
+        }
+        for side in &group.physical_sides {
+            for &alias in &side.aliases {
+                execution_policy.check_cancelled_every(stage, work)?;
+                work += 1;
+                let Some(observation) = by_native.remove(&(alias.bound as *const _)) else {
+                    return Ok(None);
+                };
+                if assignments
+                    .insert(
+                        alias as *const _,
+                        PartitionConsumedActiveAlias {
+                            alias,
+                            observation: Some(observation),
+                            role: PartitionConsumedActiveRole::Observed(group),
+                        },
+                    )
+                    .is_some()
+                {
+                    return Ok(None);
+                }
+            }
+        }
+        if !by_native.is_empty() {
+            return Ok(None);
+        }
+    }
+    if consumed_observations.len() != observed.binding.records.len()
+        || observed
+            .binding
+            .records
+            .iter()
+            .any(|record| !consumed_observations.contains(&(record as *const _)))
+        || assignments.len() != interior.deferred_observed_aliases.len()
+        || interior
+            .deferred_observed_aliases
+            .iter()
+            .any(|alias| !assignments.contains_key(&(*alias as *const _)))
+    {
+        return Ok(None);
+    }
+    for span in &interior.interior_spans {
+        for alias in span.aliases {
+            execution_policy.check_cancelled_every(stage, work)?;
+            work += 1;
+            if assignments
+                .insert(
+                    alias as *const _,
+                    PartitionConsumedActiveAlias {
+                        alias,
+                        observation: None,
+                        role: PartitionConsumedActiveRole::Interior(span),
+                    },
+                )
+                .is_some()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    if assignments.len() != alias_count {
+        return Ok(None);
+    }
+    let native_key = |alias: &PartitionProjectedAlias<'_>| {
+        (
+            alias.bound.alias.partition_id,
+            alias.bound.alias.component_id,
+            alias.bound.native_edge.local_dir_edge_id,
+        )
+    };
+    let native_aliases = projection
+        .aliases
+        .iter()
+        .map(|alias| (native_key(alias), alias))
+        .collect::<BTreeMap<_, _>>();
+    let mut aliases_by_slot = (0..count).map(|_| Vec::new()).collect::<Vec<_>>();
+    let mut global_ids = BTreeSet::new();
+    for alias in &projection.aliases {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let Some(assignment) = assignments.remove(&(alias as *const _)) else {
+            return Ok(None);
+        };
+        let bound = alias.bound;
+        let edge = bound.native_edge;
+        let selected = view.slots[alias.physical_slot_id].physical_edge;
+        let (partition, component, _) = native_key(alias);
+        let row = bound.input.segment;
+        let local = bound.input.local_segment_alias;
+        let from = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits([
+            selected.from[0],
+            selected.from[1],
+            selected.from_z_bits,
+        ]))?;
+        let to = crate::fingerprint::coordinate_fingerprint(coord3d_from_bits([
+            selected.to[0],
+            selected.to[1],
+            selected.to_z_bits,
+        ]))?;
+        if local[0] != partition
+            || mosaic
+                .partitions
+                .get(&partition)
+                .and_then(|snapshot| snapshot.local_noded_segments.get(local[1]))
+                != Some(row)
+            || view
+                .prepared
+                .aliases
+                .get(row)
+                .is_none_or(|aliases| !aliases.contains(&local))
+            || row.source_line_ids != edge.source_line_ids
+            || row.representative_line_id != edge.source_line_ids.first().copied()
+            || !((from == row.start && to == row.end) || (from == row.end && to == row.start))
+        {
+            return Ok(None);
+        }
+
+        let Some(twin) =
+            native_aliases.get(&(partition, component, edge.symmetric_local_dir_edge_id))
+        else {
+            return Ok(None);
+        };
+        let Some(next) = edge
+            .local_face_successor
+            .and_then(|id| native_aliases.get(&(partition, component, id)))
+        else {
+            return Ok(None);
+        };
+        if selected.from != edge.from.xy_bits()
+            || selected.to != edge.to.xy_bits()
+            || selected.from_z_bits != edge.from_z_bits
+            || selected.to_z_bits != edge.to_z_bits
+            || selected.source_line_ids != edge.source_line_ids
+            || bound.alias.local_dir_edge_id != edge.local_dir_edge_id
+            || bound.alias.from != edge.from
+            || bound.alias.to != edge.to
+            || bound.alias.from_z_bits != edge.from_z_bits
+            || bound.alias.to_z_bits != edge.to_z_bits
+            || bound.alias.source_line_ids != edge.source_line_ids
+            || bound.alias.face_ref != edge.face_ref
+            || bound.alias.local_face_is_unbounded != edge.local_face_is_unbounded
+            || bound.alias.symmetric_global_dir_edge_id != twin.bound.alias.global_dir_edge_id
+            || bound.alias.local_face_successor_global_dir_edge_id
+                != Some(next.bound.alias.global_dir_edge_id)
+        {
+            return Ok(None);
+        }
+        let id = alias.bound.alias.global_dir_edge_id;
+        let label = witness_face_by_derived[alias.global_face_id];
+        if !global_ids.insert(id)
+            || witness.physical_edge_by_local_edge.get(id) != Some(&alias.physical_slot_id)
+            || witness.face_ids_by_local_edge.get(id) != Some(&label)
+        {
+            return Ok(None);
+        }
+        aliases_by_slot[alias.physical_slot_id].push(assignment);
+    }
+    let mut slots = Vec::new();
+    for (slot, aliases) in aliases_by_slot.into_iter().enumerate() {
+        execution_policy.check_cancelled_every(stage, work)?;
+        work += 1;
+        let physical = &view.slots[slot];
+        if aliases.len() != physical.local_aliases.len() || aliases.is_empty() {
+            return Ok(None);
+        }
+        let members = aliases
+            .iter()
+            .map(|a| a.alias.bound.alias as *const _)
+            .collect::<BTreeSet<_>>();
+        if members.len() != aliases.len()
+            || physical
+                .local_aliases
+                .iter()
+                .any(|a| !members.contains(&(*a as *const _)))
+        {
+            return Ok(None);
+        }
+        let Some(derived_face_id) = derived_face_by_slot[slot] else {
+            return Ok(None);
+        };
+        slots.push(PartitionConsumedActiveSlot {
+            physical,
+            symmetric: projection.physical_twins[slot],
+            next: projection.physical_next[slot],
+            derived_face_id,
+            witness_face_id: witness_face_by_derived[derived_face_id],
+            aliases,
+        });
+    }
+    execution_policy.check_cancelled(stage)?;
+    Ok(Some(PartitionConsumedActiveTopology {
+        observed,
+        interior,
+        witness,
+        slots,
+        witness_face_by_derived,
+        // This is the observational ledger, never the global output-family inventory.
+        retained_raw_records: &view.raw_payloads,
     }))
 }
 
@@ -13024,6 +13667,19 @@ impl<'a> TiledPolygonizer<'a> {
                 })
                 .transpose()?
                 .flatten();
+            let checked_active_topology = match (
+                &whole_observation_roles,
+                &local_interior_roles,
+                &global_arrangement_witness,
+            ) {
+                (Some(observed), Some(interior), Some(witness)) => consume_checked_active_roles(
+                    observed,
+                    interior,
+                    witness,
+                    &self.execution_policy,
+                )?,
+                _ => None,
+            };
             let original_leaf_paths = component_authority
                 .as_ref()
                 .map(|authority| {
@@ -13264,6 +13920,21 @@ impl<'a> TiledPolygonizer<'a> {
                         "retained_raw_record_count":proof.binding.cover.view.raw_payloads.len(),
                         "verified_core_count":proof.binding.mosaic.partitions.len(),
                     })),"raw_families_classified":false,"claim_consumption_ready":false,"output_selectable":false
+                }));
+                trace.record(TraceStageV1::Graph,"partition_border_checked_active_role_consumer",serde_json::json!({
+                    "constructed":checked_active_topology.is_some(),"scope":"complete_active_topology",
+                    "topology":checked_active_topology.as_ref().map(|table|serde_json::json!({
+                        "physical_slot_count":table.slots.len(),
+                        "consumed_alias_count":table.slots.iter().map(|slot|slot.aliases.len()).sum::<usize>(),
+                        "consumed_observation_count":table.observed.binding.records.len(),
+                        "observed_group_count":table.observed.groups.len(),
+                        "interior_span_count":table.interior.interior_spans.len(),
+                        "translated_face_count":table.witness_face_by_derived.len(),
+                        "derived_exterior_face_id":table.interior.component.exterior_face_id,
+                        "witness_exterior_face_id":table.witness_face_by_derived[table.interior.component.exterior_face_id],
+                        "retained_raw_record_count":table.retained_raw_records.len(),
+                    })),"raw_disposition_required":true,"raw_families_classified":false,
+                    "candidate_integration_ready":false,"claim_consumption_ready":false,"output_selectable":false
                 }));
             }
         }
