@@ -114,22 +114,27 @@ Private inputs must remain outside the source repository.
 
 ### Correctness-baseline qualification
 
-The lean projection is independent of core correctness PRs [#1561](https://github.com/graydonpleasants/geo-polygonize/pull/1561)
-and [#1562](https://github.com/graydonpleasants/geo-polygonize/pull/1562). This change
-does not copy those fixes into its diff. Normal CI always compares full and lean
-outputs for the endpoint-region and point-touch inputs, including source IDs.
-Three expected-correctness assertions (two coordinate strides for the owned
-point-touch hole, and one endpoint closure) additionally require both fixes.
-They are skipped on the standalone main-based projection branch; after applying
-both correctness PRs, enable the combined adoption gate explicitly:
+The lean projection does not change core correctness behavior. The point-touch
+fix [#1562](https://github.com/graydonpleasants/geo-polygonize/pull/1562) is already
+on main, so the owned-hole geometry and source-ID assertions run unconditionally
+for both XY and XYZ inputs on this main-based branch. Normal CI also always
+compares full and lean outputs for both point-touch and endpoint-region inputs,
+including source IDs.
+
+The endpoint-closure expected-correctness assertion still requires the unmerged
+core fix [#1561](https://github.com/graydonpleasants/geo-polygonize/pull/1561).
+Only that assertion is skipped on the standalone projection branch. After
+applying #1561 on top of this main-based build, enable it explicitly for combined
+correctness qualification:
 
 ```sh
 GEO_POLYGONIZE_COMBINED_CORRECTNESS=1 python -m pytest -q python/test_lean_report.py
 ```
 
 This switch does not detect or silently skip missing prerequisites. With it
-enabled, missing endpoint/ring behavior fails the expected geometry, hole, and
-source assertions. A passing standalone projection suite is not evidence that
+enabled, missing endpoint behavior fails the expected geometry and source
+assertions; point-touch geometry, holes, and sources are always checked. A passing
+standalone projection suite is not evidence that
 the combined correctness baseline or downstream grading has been qualified.
 
 ## Signals, cancellation, and limits

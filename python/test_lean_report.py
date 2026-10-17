@@ -8,14 +8,15 @@ from shapely.geometry import Polygon
 from geo_polygonize import cfb_robust_options, polygonize, polygonize_with_options
 
 
-# These expected-correctness assertions belong to the combined adoption lane.
-# Main still lacks core PRs #1561 and #1562. Their inputs remain in CASES and
-# the normal full/lean equivalence test, so projection checks are never skipped.
-# An enabled qualification uses ordinary assertions and fails if either fix is absent.
-combined_correctness = pytest.mark.skipif(
+# Core PR #1562 is on main, so point-touch correctness runs unconditionally.
+# Endpoint correctness still requires core PR #1561 in the combined adoption lane.
+# Both inputs remain in CASES and the normal full/lean equivalence test, so
+# projection checks are never skipped. Enabling the gate asserts endpoint behavior
+# without detecting or silently skipping a missing fix.
+endpoint_correctness = pytest.mark.skipif(
     os.environ.get("GEO_POLYGONIZE_COMBINED_CORRECTNESS") != "1",
-    reason="Combined correctness qualification requires core PRs #1561 and #1562; "
-           "set GEO_POLYGONIZE_COMBINED_CORRECTNESS=1 after applying both",
+    reason="Endpoint correctness qualification requires core PR #1561; "
+           "set GEO_POLYGONIZE_COMBINED_CORRECTNESS=1 after applying it",
 )
 
 
@@ -101,7 +102,6 @@ def test_lean_report_matches_every_semantic_report_field(name, stride, reverse, 
         np.testing.assert_array_equal(kwargs[key], prior)
 
 
-@combined_correctness
 @pytest.mark.parametrize("stride", [2, 3])
 def test_correctness_baseline_preserves_point_touch_owned_hole_and_sources(stride):
     result = polygonize_with_options(**arguments("point_touch", stride, options=cfb_robust_options()), output="lean_report")
@@ -113,7 +113,7 @@ def test_correctness_baseline_preserves_point_touch_owned_hole_and_sources(strid
     assert result["dangles"] == result["cut_edges"] == result["invalid_rings"] == []
 
 
-@combined_correctness
+@endpoint_correctness
 def test_correctness_baseline_retains_endpoint_region_closure():
     result = polygonize_with_options(**arguments("endpoint_region", options=cfb_robust_options()), output="lean_report")
     assert len(result["polygons"]) == 1
