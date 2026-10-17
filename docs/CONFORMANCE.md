@@ -37,7 +37,7 @@ entrypoint retains:
 | Rust | `polygonize`, `polygonize_with_execution_policy`, `polygonize_with_workspace`, `polygonize_with_workspace_and_execution_policy`, `polygonize_line_strings`, `polygonize_line_strings_with_execution_policy` | Exact `TopologyFingerprintV1` |
 | Rust XY projection | `polygonize_to_multi_polygon` | Polygon structure only; non-polygon outputs, IDs, provenance, diagnostics, and Z are discarded |
 | Python | `polygonize_with_options`, legacy `polygonize` with `output="report"` | Exact `topology_fingerprint` serialized by Rust |
-| Python projections | `output="buffers"`, `output="objects"`, and `return_polygons=True` | Only their exposed buffers or objects; these modes do not carry a topology fingerprint |
+| Python projections | `output="buffers"`, `output="objects"`, `output="lean_report"`, and `return_polygons=True` | Only their exposed buffers or objects; these modes do not carry a topology fingerprint |
 | Wasm full-result | `polygonizeFingerprintWithOptions`, `polygonizeReportWithOptions`, `polygonizeTraceWithOptions`, `polygonizeWithOptionsBuffer`, legacy `polygonize_buffers`, and the async report/trace wrappers | Exact fingerprint, or the exact `topology` member for traces |
 | Wasm managed full-result | `polygonizePackedWithOptions` | Exact `TopologyFingerprintV1` plus complete packed polygon structure and coordinates |
 | Wasm managed geometry projection | `polygonizePackedGeometryWithOptions` | Complete retained polygon structure, coordinates, stride, and representative IDs; report fields and complete provenance are intentionally omitted |
