@@ -114,28 +114,25 @@ Private inputs must remain outside the source repository.
 
 ### Correctness-baseline qualification
 
-The lean projection does not change core correctness behavior. The point-touch
-fix [#1562](https://github.com/graydonpleasants/geo-polygonize/pull/1562) is already
-on main, so the owned-hole geometry and source-ID assertions run unconditionally
-for both XY and XYZ inputs on this main-based branch. Normal CI also always
-compares full and lean outputs for both point-touch and endpoint-region inputs,
-including source IDs.
-
-The endpoint-closure expected-correctness assertion still requires the unmerged
-core fix [#1561](https://github.com/graydonpleasants/geo-polygonize/pull/1561).
-Only that assertion is skipped on the standalone projection branch. After
-applying #1561 on top of this main-based build, enable it explicitly for combined
-correctness qualification:
+The lean projection does not change core correctness behavior. Both the
+point-touch fix [#1562](https://github.com/graydonpleasants/geo-polygonize/pull/1562)
+and endpoint-closure fix
+[#1561](https://github.com/graydonpleasants/geo-polygonize/pull/1561) are included.
+Their independent expected-correctness assertions run unconditionally: owned-hole
+geometry and source IDs for XY/XYZ point-touch inputs, and the restored
+endpoint-region closure and source IDs. Normal CI also compares full and lean
+outputs for both inputs.
 
 ```sh
-GEO_POLYGONIZE_COMBINED_CORRECTNESS=1 python -m pytest -q python/test_lean_report.py
+python -m pytest --import-mode=importlib -q python/test_lean_report.py
 ```
 
-This switch does not detect or silently skip missing prerequisites. With it
-enabled, missing endpoint behavior fails the expected geometry and source
-assertions; point-touch geometry, holes, and sources are always checked. A passing
-standalone projection suite is not evidence that
-the combined correctness baseline or downstream grading has been qualified.
+During standalone projection qualification before #1561 was included, explicitly
+enabling the endpoint assertion failed with zero polygons instead of one. That
+omission negative control demonstrated that the assertion detects the missing
+core correction. It no longer needs an environment-variable gate. Passing these
+library regressions does not qualify downstream application filters, source
+priority, conflicting-source elevations, or grading.
 
 ## Signals, cancellation, and limits
 

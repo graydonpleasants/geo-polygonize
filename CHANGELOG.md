@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.2.0...geo-polygonize-v1.3.0) (2026-10-18)
+
+### Supported correctness fixes
+
+- Correct nested point-touch ring extraction by traversing outgoing edges in counterclockwise order. A nested triangle touching its containing shell at one vertex now produces separate minimal boundary rings instead of an invalid self-touching shell ([#1562](https://github.com/graydonpleasants/geo-polygonize/pull/1562)). Regression coverage includes floating and fixed precision, noding enabled and disabled, and `cfb_robust_v1`.
+- For the reviewed bowtie diagnostic fixture, `ring_count` changes from 3 to 4, and `hole_count` and `unassigned_hole_count` from 1 to 2. Polygon coordinates, edge/source IDs, non-polygon sidecars, and unassigned-hole area are unchanged. See [the regression notes](docs/point-touch-ring-regression.md).
+
+- Retain nearby reference vertices in the finite segment's endpoint regions during pre-snap, including just beyond a relocated endpoint. This restores in-tolerance gap connectors while preserving their incident source IDs ([#1561](https://github.com/graydonpleasants/geo-polygonize/pull/1561)). Regression coverage includes out-of-tolerance exclusion, source Z/IDs, input order/direction, and joint endpoint/point-touch behavior.
+- The reviewed public CFB fixture now has 1,256 raw faces instead of 1,253, with three additional microfaces and one fewer dangle. These are reviewed geometry and provenance changes, not three additional lot-sized regions or a claim of GEOS whole-LineString snapping parity. See [the endpoint fixture notes](docs/pre-snap-endpoint-fixture.md).
+- Restored faces and added boundary source IDs can change downstream region selection. Qualify application filters, source priority, conflicting-source elevations, and grading separately. Record the library version and commit alongside the options/profile ID when comparing stored outputs.
+
+### Python report projection
+
+- Add explicit `output="lean_report"` to both Python entry points. It preserves report fields except `topology_fingerprint`, avoiding fingerprint construction and materialization when callers do not need it ([#1571](https://github.com/graydonpleasants/geo-polygonize/pull/1571)). Default `output="report"` is unchanged; geometry, provenance, representative IDs and diagnostic sidecars remain available.
+- Add opt-in binding-phase profiling and correctness-gated report benchmarks. Phase measurements are not an additive ledger or whole-call wall time. This is not an end-to-end zero-copy or general Rust-versus-GEOS speed claim.
+
+### Experimental internal work
+
+- Advance private alias-aware physical topology, face/component reconciliation, exterior and containment proofs, non-polygon ownership, original-input incidence and observation inventories, and conservative leaf-path/dangle proofs.
+- Bound private non-polygon materialization and expand partition-conformance evidence.
+
+These internal milestones do not add a supported stitched-output API. Graph-stitched output, production streamed routing, incremental topology, and out-of-core polygonization remain gated. No new production backend or general performance improvement is claimed.
+
 ## [1.2.0](https://github.com/graydonpleasants/geo-polygonize/compare/geo-polygonize-v1.1.0...geo-polygonize-v1.2.0) (2026-10-14)
 
 ### Supported changes and package repairs

@@ -249,7 +249,7 @@ jobs:
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           package: geo-polygonize-core
-          baseline-rev: geo-polygonize-v1.1.0
+          baseline-rev: geo-polygonize-v1.2.0
           release-type: minor
 
   supply-chain:
