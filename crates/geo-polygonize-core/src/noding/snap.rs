@@ -725,12 +725,13 @@ impl SnapNoder {
                     let vx = vertex.x - start.x;
                     let vy = vertex.y - start.y;
                     let t = (vx * dx + vy * dy) / len_sq;
-                    if !(0.0..=1.0).contains(&t) {
-                        return Ok(());
-                    }
-
-                    let nearest_x = start.x + t * dx;
-                    let nearest_y = start.y + t * dy;
+                    // Endpoint snapping can shorten a segment past another nearby
+                    // reference vertex. Keep that vertex when it is within tolerance
+                    // of the finite segment, including its endpoint regions. Retain
+                    // the unclamped parameter to order the resulting extension.
+                    let nearest_t = t.clamp(0.0, 1.0);
+                    let nearest_x = start.x + nearest_t * dx;
+                    let nearest_y = start.y + nearest_t * dy;
                     let dist_x = vertex.x - nearest_x;
                     let dist_y = vertex.y - nearest_y;
                     if dist_x * dist_x + dist_y * dist_y <= tolerance_sq {
