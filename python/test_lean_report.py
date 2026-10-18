@@ -1,6 +1,4 @@
 """Exact projection equivalence; the independent analytical expectations are deliberate."""
-import os
-
 import numpy as np
 import pytest
 from shapely.geometry import Polygon
@@ -8,16 +6,8 @@ from shapely.geometry import Polygon
 from geo_polygonize import cfb_robust_options, polygonize, polygonize_with_options
 
 
-# Core PR #1562 is on main, so point-touch correctness runs unconditionally.
-# Endpoint correctness still requires core PR #1561 in the combined adoption lane.
-# Both inputs remain in CASES and the normal full/lean equivalence test, so
-# projection checks are never skipped. Enabling the gate asserts endpoint behavior
-# without detecting or silently skipping a missing fix.
-endpoint_correctness = pytest.mark.skipif(
-    os.environ.get("GEO_POLYGONIZE_COMBINED_CORRECTNESS") != "1",
-    reason="Endpoint correctness qualification requires core PR #1561; "
-           "set GEO_POLYGONIZE_COMBINED_CORRECTNESS=1 after applying it",
-)
+# Core fixes #1562 and #1561 are included, so independent point-touch and
+# endpoint correctness assertions run unconditionally alongside full/lean parity.
 
 
 SQUARE = [(0., 0.), (10., 0.), (10., 10.), (0., 10.), (0., 0.)]
@@ -113,7 +103,6 @@ def test_correctness_baseline_preserves_point_touch_owned_hole_and_sources(strid
     assert result["dangles"] == result["cut_edges"] == result["invalid_rings"] == []
 
 
-@endpoint_correctness
 def test_correctness_baseline_retains_endpoint_region_closure():
     result = polygonize_with_options(**arguments("endpoint_region", options=cfb_robust_options()), output="lean_report")
     assert len(result["polygons"]) == 1

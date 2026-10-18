@@ -16,6 +16,11 @@ artifacts and attached a complete report to the GitHub release.
     - Change `[Unreleased]` to the new version number and date.
 
 3.  **Run Tests**:
+    - Compare the supported Rust facade against the latest published release.
+      The `release-contract` job in `.github/workflows/ci.yml` currently uses
+      `geo-polygonize-v1.2.0` as its semver baseline for the next minor release.
+      Advance this baseline after each completed publication; do not compare
+      against the pending release tag.
     - Run `cargo test` to verify Rust tests.
     - Run `./scripts/build_wasm.sh` and `npm test` to verify WASM build.
 
@@ -33,7 +38,7 @@ artifacts and attached a complete report to the GitHub release.
       runs the Rust, npm standard/slim, and Python install-smoke fixtures, and
       uploads `release-publication-report.json`.
     - A complete report is attached to the GitHub release as
-      `publication-report.json`.
+      `release-publication-report.json`.
 
 ## Repair and rerun procedure
 
