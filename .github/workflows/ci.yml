@@ -75,6 +75,9 @@ jobs:
       - name: Check Cargo.lock
         run: cargo check --locked
 
+      - name: Check independent fuzz Cargo.lock
+        run: cargo fetch --locked --manifest-path crates/geo-polygonize-core/fuzz/Cargo.toml
+
       - name: Lint with Clippy
         run: cargo clippy --locked -- -D warnings
 

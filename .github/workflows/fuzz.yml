@@ -24,12 +24,17 @@ jobs:
           workspaces: crates/geo-polygonize-core/fuzz -> target
 
       - uses: taiki-e/install-action@cargo-fuzz
+        with:
+          tool: cargo-fuzz
+
+      - name: Verify cargo-fuzz installation
+        run: cargo fuzz --version
 
       - name: Run fuzz targets
         working-directory: crates/geo-polygonize-core
         run: |
           cargo fetch --locked --manifest-path fuzz/Cargo.toml
-          cargo test --test persisted_differential
+          cargo test --locked --test persisted_differential
           for target in core_pipeline wasm_typed_buffer_ingestion arrow_ffi_ingestion tile_ownership_dedup provenance_report_mode adapter_differential; do
             cargo fuzz run "$target" -- -max_total_time=60
           done
