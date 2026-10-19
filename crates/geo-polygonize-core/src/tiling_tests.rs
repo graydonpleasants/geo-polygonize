@@ -243,6 +243,36 @@ mod tests {
             ] {
                 assert_eq!(consumed["topology"][field], count, "{field}");
             }
+            let disposition = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_original_raw_disposition")
+                .unwrap()
+                .payload;
+            assert_eq!(disposition["accounted"], true);
+            for flag in [
+                "observational_ledger_rewritten",
+                "output_families_materialized",
+                "raw_families_classified",
+                "candidate_integration_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(disposition[flag], false);
+            }
+            for (field, count) in [
+                ("original_source_span_count", 12),
+                ("residual_active_source_count", 12),
+                ("original_dangle_count", 0),
+                ("original_cut_edge_count", 0),
+                ("original_invalid_ring_count", 0),
+                ("validated_residual_face_count", 5),
+                ("observational_raw_record_count", 16),
+                ("residual_supported_raw_count", 16),
+                ("dangle_supported_raw_count", 0),
+            ] {
+                assert_eq!(disposition["inventory"][field], count, "{field}");
+            }
             let leaf = &result
                 .trace
                 .events
@@ -2945,12 +2975,15 @@ mod tests {
     fn local_interior_roles_require_actual_ownership_and_complete_native_face_support() {
         use crate::tiling::{
             bind_original_graph_observations, consume_checked_active_roles,
-            input_bound_physical_alias_view, prepare_partition_input_evidence,
-            prove_alias_global_face_projection, prove_component_euler_containment_authority,
-            prove_domain_exterior_authority, prove_local_interior_active_roles,
-            prove_native_twin_seam_cover, prove_whole_observation_roles,
+            consume_original_raw_disposition, input_bound_physical_alias_view,
+            prepare_partition_input_evidence, prove_alias_global_face_projection,
+            prove_component_euler_containment_authority, prove_domain_exterior_authority,
+            prove_local_interior_active_roles, prove_native_twin_seam_cover,
+            prove_original_leaf_path_pruning, prove_whole_observation_roles,
             PartitionAliasGlobalFaceProjection, PartitionComponentEulerContainmentAuthority,
-            PartitionConsumedActiveRole, PartitionMosaic, PartitionProjectedAlias,
+            PartitionConsumedActiveRole, PartitionInputBoundRawPayload, PartitionInputBoundSegment,
+            PartitionMosaic, PartitionOriginalLeafRecord, PartitionOriginalLeafRecordEvidence,
+            PartitionOriginalLeafStep, PartitionOriginalRawSupport, PartitionProjectedAlias,
             PartitionProjectedGlobalFace, PartitionWholeObservationRole,
             PartitionWholeObservationRoleAuthority,
         };
@@ -3056,6 +3089,76 @@ mod tests {
                     let table = consume_checked_active_roles(&observed, &proof, &witness, &policy)
                         .unwrap()
                         .unwrap();
+                    let leaf =
+                        prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                    let disposition = consume_original_raw_disposition(&table, &leaf, &policy)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        disposition.inventory.active_sources.len(),
+                        (5 * width + 2) as usize
+                    );
+                    assert_eq!(
+                        disposition.inventory.dangles.len(),
+                        if detached { 2 } else { 0 }
+                    );
+                    assert_eq!(disposition.raw_records.len(), view.raw_payloads.len());
+                    assert_eq!(
+                        disposition.inventory.valid_residual_faces.len(),
+                        projection.faces.len()
+                    );
+                    let mut active_records = 0;
+                    let mut dangle_records = 0;
+                    for (record, original) in disposition.raw_records.iter().zip(&view.raw_payloads)
+                    {
+                        assert!(std::ptr::eq(record.raw, original));
+                        match record.support {
+                            PartitionOriginalRawSupport::ResidualActive {
+                                active_source_index,
+                                physical_slot_id,
+                            } => {
+                                active_records += 1;
+                                let span =
+                                    &disposition.inventory.active_sources[active_source_index];
+                                assert!(span.physical_slots.contains(&physical_slot_id));
+                                assert!(std::ptr::eq(span.segment, record.raw.segments[0].segment));
+                                let slot = &table.slots[physical_slot_id];
+                                assert_ne!(
+                                    slot.derived_face_id,
+                                    table.slots[slot.symmetric].derived_face_id
+                                );
+                            }
+                            PartitionOriginalRawSupport::OriginalDangle {
+                                dangle_index,
+                                raw_reversed_to_step,
+                                raw_reversed_to_original,
+                            } => {
+                                dangle_records += 1;
+                                let dangle = &disposition.inventory.dangles[dangle_index];
+                                assert!(std::ptr::eq(
+                                    dangle.step.original,
+                                    &prepared.noded_segments[dangle.original_source_index]
+                                ));
+                                assert!(std::ptr::eq(
+                                    dangle.owner_core,
+                                    &mosaic.partitions[&dangle.step.local_segment_alias[0]]
+                                ));
+                                let bits = &record.raw.payload.coordinate_bits;
+                                assert_eq!(
+                                    bits[usize::from(raw_reversed_to_step)][2],
+                                    dangle.step.from_z_bits
+                                );
+                                assert_eq!(
+                                    bits[usize::from(raw_reversed_to_original)][2],
+                                    dangle.step.original.line.start.z.to_bits()
+                                );
+                            }
+                        }
+                    }
+                    assert_eq!(active_records, raw_count);
+                    assert_eq!(dangle_records, if detached { 2 } else { 0 });
                     assert!(std::ptr::eq(table.observed, &observed));
                     assert!(std::ptr::eq(table.interior, &proof));
                     assert!(std::ptr::eq(table.witness, &witness));
@@ -3134,6 +3237,256 @@ mod tests {
                     assert_eq!(consumed.len(), projection.aliases.len());
                     assert_eq!(consumed_records.len(), binding.records.len());
                     assert_eq!(walks.len(), view.slots.len());
+                    if width == 2 && tile_size == 2.0 && !reversed && detached {
+                        for mutation in 0..16 {
+                            let mut changed = prove_original_leaf_path_pruning(
+                                &component, &graph, &mosaic, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let mut foreign_owner = mosaic.partitions[&0].clone();
+                            foreign_owner.generation.retry_attempt += 1;
+                            match mutation {
+                                0 => {
+                                    changed.raw_records.pop();
+                                }
+                                1 => changed.raw_records.push(PartitionOriginalLeafRecord {
+                                    raw: changed.raw_records[0].raw,
+                                    evidence: PartitionOriginalLeafRecordEvidence::Pruned {
+                                        step_id: 0,
+                                        reversed: false,
+                                    },
+                                }),
+                                2 => changed.raw_records.swap(0, 1),
+                                3 => {
+                                    changed.steps.pop();
+                                }
+                                4 => changed.steps[0].from_z_bits ^= 1,
+                                5 => changed.steps[0].to = changed.steps[0].from,
+                                6 => changed.steps[0].local_segment_alias[0] = usize::MAX,
+                                7 => changed.paths[0].owner_core = &foreign_owner,
+                                8 => changed.paths[0].step_ids.push(0),
+                                9 => changed.steps[0].live_degrees = [0, 0],
+                                10 => changed.steps[0].initial_degrees = [0, 0],
+                                11 => changed.steps[0].original = changed.steps[1].original,
+                                12 => changed.steps[0].segment = changed.steps[1].segment,
+                                13 => changed.active_segments.push(changed.active_segments[0]),
+                                14 => {
+                                    changed.binding.records.pop();
+                                }
+                                _ => {
+                                    if let PartitionOriginalLeafRecordEvidence::Pruned {
+                                        reversed,
+                                        ..
+                                    } = &mut changed.raw_records[0].evidence
+                                    {
+                                        *reversed = !*reversed;
+                                    }
+                                }
+                            }
+                            assert!(
+                                consume_original_raw_disposition(&table, &changed, &policy)
+                                    .unwrap()
+                                    .is_none(),
+                                "leaf mutation {mutation}"
+                            );
+                        }
+                        for mutation in 0..7 {
+                            let mut changed = prove_original_leaf_path_pruning(
+                                &component, &graph, &mosaic, &policy,
+                            )
+                            .unwrap()
+                            .unwrap();
+                            let raw = changed.raw_records[0].raw;
+                            let mut payload = raw.payload.clone();
+                            match mutation {
+                                0=>payload.kind=crate::graph::partition_border::PartitionBorderGlobalNonPolygonPayloadKind::InvalidRing,
+                                1=>payload.coordinate_bits[0][2]^=1,
+                                2=>payload.coordinate_bits.swap(0,1),
+                                3=>payload.partition_id=usize::MAX,
+                                _=>{},
+                            }
+                            let mut foreign = PartitionInputBoundRawPayload {
+                                payload: &payload,
+                                family_local_record_index: raw.family_local_record_index,
+                                segments: raw
+                                    .segments
+                                    .iter()
+                                    .map(|s| PartitionInputBoundSegment {
+                                        local_segment_alias: s.local_segment_alias,
+                                        segment: s.segment,
+                                    })
+                                    .collect(),
+                            };
+                            match mutation {
+                                4 => foreign.family_local_record_index += 1,
+                                5 => foreign.segments[0].local_segment_alias[1] = usize::MAX,
+                                6 => foreign.segments.clear(),
+                                _ => {}
+                            }
+                            changed.raw_records[0].raw = &foreign;
+                            assert!(
+                                consume_original_raw_disposition(&table, &changed, &policy)
+                                    .unwrap()
+                                    .is_none(),
+                                "raw mutation {mutation}"
+                            );
+                        }
+                        for mutation in 0..6 {
+                            let mut changed =
+                                consume_checked_active_roles(&observed, &proof, &witness, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            match mutation {
+                                0 => {
+                                    changed.slots.pop();
+                                }
+                                1 => changed.slots[0].next = 0,
+                                2 => changed.slots[0].symmetric = 0,
+                                3 => changed.slots[0].derived_face_id = usize::MAX,
+                                4 => {
+                                    changed.slots[0].aliases.pop();
+                                }
+                                _ => changed.witness_face_by_derived.reverse(),
+                            }
+                            assert!(
+                                consume_original_raw_disposition(&changed, &leaf, &policy)
+                                    .unwrap()
+                                    .is_none(),
+                                "table mutation {mutation}"
+                            );
+                        }
+                        for limited in [
+                            ExecutionPolicy {
+                                max_candidate_pairs: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_edges: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_nodes: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_output_coordinates: Some(0),
+                                ..Default::default()
+                            },
+                        ] {
+                            assert!(matches!(
+                                consume_original_raw_disposition(&table, &leaf, &limited),
+                                Err(PolygonizeError::ResourceLimitExceeded { .. })
+                            ));
+                        }
+                        let limited = ExecutionPolicy {
+                            max_candidate_pairs: Some(100000),
+                            ..Default::default()
+                        };
+                        assert!(consume_checked_active_roles(
+                            &observed, &proof, &witness, &limited
+                        )
+                        .unwrap()
+                        .is_some());
+                        assert!(prove_original_leaf_path_pruning(
+                            &component, &graph, &mosaic, &limited
+                        )
+                        .unwrap()
+                        .is_some());
+                        assert!(
+                            matches!(consume_original_raw_disposition(&table,&leaf,&limited),Err(PolygonizeError::ResourceLimitExceeded {stage,..}) if stage=="partition_original_raw_disposition")
+                        );
+                        assert!(consume_original_raw_disposition(
+                            &table,
+                            &leaf,
+                            &ExecutionPolicy {
+                                max_candidate_pairs: Some(10_000_000),
+                                ..Default::default()
+                            }
+                        )
+                        .unwrap()
+                        .is_some());
+                        let token = CancellationToken::new();
+                        token.cancel();
+                        assert!(matches!(
+                            consume_original_raw_disposition(
+                                &table,
+                                &leaf,
+                                &ExecutionPolicy {
+                                    cancellation_token: Some(token),
+                                    ..Default::default()
+                                }
+                            ),
+                            Err(PolygonizeError::Cancelled { .. })
+                        ));
+                        let mut expanded =
+                            prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let mut extra = Vec::new();
+                        for _ in 0..2048 {
+                            let s = &expanded.steps[0];
+                            extra.push(PartitionOriginalLeafStep {
+                                segment: s.segment,
+                                original: s.original,
+                                local_segment_alias: s.local_segment_alias,
+                                from: s.from,
+                                to: s.to,
+                                from_z_bits: s.from_z_bits,
+                                to_z_bits: s.to_z_bits,
+                                initial_degrees: s.initial_degrees,
+                                live_degrees: s.live_degrees,
+                            });
+                        }
+                        expanded.steps.extend(extra);
+                        assert!(
+                            matches!(consume_original_raw_disposition(&table,&expanded,&limited),Err(PolygonizeError::ResourceLimitExceeded {stage,..}) if stage=="partition_original_raw_disposition")
+                        );
+                        let token = CancellationToken::new();
+                        assert!(
+                            matches!(consume_original_raw_disposition(&table,&expanded,&ExecutionPolicy {cancellation_token:Some(token.clone()),cancel_at_work_item:Some((token,1024)),..Default::default()}),Err(PolygonizeError::Cancelled {stage}) if stage=="partition_original_raw_disposition")
+                        );
+                        let mut reordered = input_bound_physical_alias_view(
+                            &prepared, &graph, &witness, &mosaic, &options, stats, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        reordered.raw_payloads.reverse();
+                        let c = prove_native_twin_seam_cover(
+                            &reordered, &mosaic, &tiles, domain, &policy,
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let e = prove_domain_exterior_authority(&c, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let p = prove_alias_global_face_projection(&e, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let component = prove_component_euler_containment_authority(&p, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let b = bind_original_graph_observations(&c, &graph, &mosaic, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let o = prove_whole_observation_roles(&b, &p, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let i =
+                            prove_local_interior_active_roles(&component, &graph, &mosaic, &policy)
+                                .unwrap()
+                                .unwrap();
+                        let t = consume_checked_active_roles(&o, &i, &witness, &policy)
+                            .unwrap()
+                            .unwrap();
+                        let l =
+                            prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                                .unwrap()
+                                .unwrap();
+                        assert!(consume_original_raw_disposition(&t, &l, &policy)
+                            .unwrap()
+                            .is_none());
+                    }
                     if width == 2 && !reversed && detached {
                         for mutation in 0..15 {
                             if (6..=9).contains(&mutation) && proof.interior_spans.is_empty() {
@@ -3941,12 +4294,14 @@ mod tests {
     #[test]
     fn original_leaf_paths_cover_every_source_and_ordered_raw_record_without_reference_families() {
         use crate::tiling::{
-            input_bound_physical_alias_view, prepare_partition_input_evidence,
-            prove_alias_global_face_projection, prove_component_euler_containment_authority,
-            prove_domain_exterior_authority, prove_native_twin_seam_cover,
+            bind_original_graph_observations, consume_checked_active_roles,
+            consume_original_raw_disposition, input_bound_physical_alias_view,
+            prepare_partition_input_evidence, prove_alias_global_face_projection,
+            prove_component_euler_containment_authority, prove_domain_exterior_authority,
+            prove_local_interior_active_roles, prove_native_twin_seam_cover,
             prove_original_isolated_dangle_complement, prove_original_leaf_path_pruning,
-            PartitionInputBoundRawPayload, PartitionInputBoundSegment, PartitionMosaic,
-            PartitionOriginalLeafRecordEvidence,
+            prove_whole_observation_roles, PartitionInputBoundRawPayload,
+            PartitionInputBoundSegment, PartitionMosaic, PartitionOriginalLeafRecordEvidence,
         };
         for grid in [false, true] {
             for reversed in [false, true] {
@@ -4050,6 +4405,26 @@ mod tests {
                         prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
                             .unwrap()
                             .unwrap();
+                    let b = bind_original_graph_observations(&cover, &graph, &mosaic, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let o = prove_whole_observation_roles(&b, &projection, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let i = prove_local_interior_active_roles(&component, &graph, &mosaic, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let t = consume_checked_active_roles(&o, &i, &witness, &policy)
+                        .unwrap()
+                        .unwrap();
+                    let disposition = consume_original_raw_disposition(&t, &proof, &policy)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(disposition.inventory.dangles.len(), length);
+                    assert_eq!(
+                        disposition.raw_records.len(),
+                        if grid { 16 + length } else { length }
+                    );
                     assert!(std::ptr::eq(proof.authority, &component));
                     assert!(std::ptr::eq(proof.binding.graph, &graph));
                     assert!(std::ptr::eq(proof.binding.mosaic, &mosaic));

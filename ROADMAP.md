@@ -665,6 +665,13 @@ separately from selectable output; they do not complete the promotion gates.
   Retain the entire observational raw ledger without assigning output families;
   complete original raw disposition still gates a complete candidate/output join.
   Legacy claims, classifiers, candidates and final selection remain unchanged.
+- [x] Account independently for every original raw record in the strict-core
+  detached-path class, retaining its original kind/order/origin while linking
+  residual fragments to checked active topology. A separate original-source
+  inventory derives true dangles from complete leaf removals; checked residual
+  rotation/distinct cycles/valid rings exclude cuts and invalid rings here.
+  The mixed chain retains18 observational records and2 original dangles;
+  unsupported remainders and all candidate/output promotion gates stay closed.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
