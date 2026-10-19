@@ -588,7 +588,7 @@ impl PlanarGraph {
     /// Bulk loads edges into the graph.
     /// This is significantly faster than `add_line_string` for large datasets as it avoids HashMap lookups.
     pub fn bulk_load(&mut self, lines: Vec<Line3D>) {
-        self.bulk_load_impl(lines, None)
+        self.bulk_load_impl(lines, None, None)
             .expect("unlimited graph loading cannot fail")
     }
 
@@ -597,13 +597,23 @@ impl PlanarGraph {
         lines: Vec<Line3D>,
         execution_policy: &ExecutionPolicy,
     ) -> crate::Result<()> {
-        self.bulk_load_impl(lines, Some(execution_policy))
+        self.bulk_load_impl(lines, Some(execution_policy), None)
+    }
+
+    pub(crate) fn bulk_load_with_contacts(
+        &mut self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+        capture: &mut crate::contact::ContactCapture,
+    ) -> crate::Result<()> {
+        self.bulk_load_impl(lines, Some(execution_policy), Some(capture))
     }
 
     fn bulk_load_impl(
         &mut self,
         lines: Vec<Line3D>,
         execution_policy: Option<&ExecutionPolicy>,
+        mut capture: Option<&mut crate::contact::ContactCapture>,
     ) -> crate::Result<()> {
         if let Some(execution_policy) = execution_policy {
             execution_policy.check_cancelled("graph_construction")?;
@@ -721,8 +731,14 @@ impl PlanarGraph {
             if let Some((last_u, last_v, _, sources)) = dissolved.last_mut() {
                 if ((*last_u).min(*last_v), (*last_u).max(*last_v)) == key {
                     sources.merge_line_id(line.line_id);
+                    if let Some(capture) = capture.as_deref_mut() {
+                        capture.graph_edge(self.edges.len() + dissolved.len() - 1, u, v, &line);
+                    }
                     continue;
                 }
+            }
+            if let Some(capture) = capture.as_deref_mut() {
+                capture.graph_edge(self.edges.len() + dissolved.len(), u, v, &line);
             }
             dissolved.push((u, v, line, EdgeSources::from_line_id(line.line_id)));
         }

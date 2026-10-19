@@ -52,6 +52,7 @@ pub struct Polygonizer {
     input_lines: Vec<Line3D>,
     input_line_strings: Vec<SourceLineString>,
     trace: Option<TraceRecorderV1>,
+    contacts: Option<crate::contact::ContactCapture>,
     partition_border_export: Option<PartitionBorderExport>,
     partition_border_observations: Vec<PartitionBorderHalfEdge>,
     partition_border_local_face_graphs: Vec<PartitionBorderLocalFaceGraph>,
@@ -365,6 +366,7 @@ pub fn polygonize_with_workspace_and_execution_policy(
         input_lines: Vec::new(),
         input_line_strings: Vec::new(),
         trace: None,
+        contacts: None,
         partition_border_export: None,
         partition_border_observations: Vec::new(),
         partition_border_local_face_graphs: Vec::new(),
@@ -390,6 +392,7 @@ impl Polygonizer {
             input_lines: Vec::new(),
             input_line_strings: Vec::new(),
             trace: None,
+            contacts: None,
             partition_border_export: None,
             partition_border_observations: Vec::new(),
             partition_border_local_face_graphs: Vec::new(),
@@ -408,6 +411,7 @@ impl Polygonizer {
             input_lines: Vec::new(),
             input_line_strings: Vec::new(),
             trace: None,
+            contacts: None,
             partition_border_export: None,
             partition_border_observations: Vec::new(),
             partition_border_local_face_graphs: Vec::new(),
@@ -516,6 +520,7 @@ impl Polygonizer {
                     self.options.pre_snap_tolerance,
                     self.options.z.policy,
                     &self.execution_policy,
+                    self.contacts.as_mut(),
                 )?;
                 all_segments = snapped;
                 pre_snap_vertex_candidates = candidates;
@@ -653,10 +658,38 @@ impl Polygonizer {
                             } else {
                                 None
                             };
+                        if let Some(capture) = self.contacts.as_mut() {
+                            capture.map_topology(&noder, restore_coordinates.as_ref());
+                        }
                         let trace_candidates = self.trace.as_ref().is_some_and(|trace| {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
                         });
-                        if trace_candidates {
+                        if let Some(capture) = self.contacts.as_mut() {
+                            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                                let (noded, stats, mut work_stats) = noder
+                                    .node_with_lineage_and_stats(
+                                        all_segments,
+                                        &self.execution_policy,
+                                        &mut capture.lineage,
+                                    )?;
+                                work_stats.pre_snap_vertex_candidates = pre_snap_vertex_candidates;
+                                diagnostics.intersection_stats.interpolated_intersections = stats
+                                    .iter()
+                                    .map(|iteration| iteration.intersections_found)
+                                    .sum();
+                                diagnostics.noding_iterations = stats;
+                                diagnostics.intersection_stats.exact_intersections =
+                                    work_stats.exact_intersection_calls;
+                                diagnostics.noding_work_stats = work_stats;
+                                segments = noded;
+                            } else {
+                                segments = noder.node_with_lineage(
+                                    all_segments,
+                                    &self.execution_policy,
+                                    &mut capture.lineage,
+                                )?;
+                            }
+                        } else if trace_candidates {
                             let capture_byte_limit = self
                                 .trace
                                 .as_ref()
@@ -732,6 +765,7 @@ impl Polygonizer {
                                 &mut segments,
                                 &coordinates,
                                 &self.execution_policy,
+                                self.contacts.as_mut().map(|capture| &mut capture.lineage),
                             )?;
                         }
                     }
@@ -790,7 +824,10 @@ impl Polygonizer {
         }
 
         // Use bulk load
-        if self.execution_policy.cancellation_token.is_some()
+        if let Some(capture) = self.contacts.as_mut() {
+            self.graph
+                .bulk_load_with_contacts(segments, &self.execution_policy, capture)?;
+        } else if self.execution_policy.cancellation_token.is_some()
             || self.execution_policy.max_graph_nodes.is_some()
             || self.execution_policy.max_graph_edges.is_some()
         {
@@ -798,6 +835,13 @@ impl Polygonizer {
                 .bulk_load_with_execution_policy(segments, &self.execution_policy)?;
         } else {
             self.graph.bulk_load(segments);
+        }
+        if let Some(capture) = self.contacts.as_mut() {
+            capture.resolve(
+                &self.graph.nodes_x,
+                &self.graph.nodes_y,
+                &self.graph.nodes_z,
+            );
         }
         self.execution_policy.check(
             "graph_nodes",
@@ -819,6 +863,41 @@ impl Polygonizer {
     /// Returns a `PolygonizerResult` containing polygons and dangles.
     pub fn polygonize(&mut self) -> Result<PolygonizerResult> {
         self.polygonize_owned(self.input_lines.clone())
+    }
+
+    /// Experimental bounded pre-snap contact provenance. Records at most `max_records`
+    /// original-vertex and contact rows combined. Requires pre-snap and the ordinary
+    /// iterative noder. Geometry and existing result serialization are unchanged.
+    /// A truncated report MUST NOT be used to decide absence of contact.
+    #[doc(hidden)]
+    pub fn polygonize_with_contact_provenance(
+        &mut self,
+        max_records: usize,
+    ) -> Result<(PolygonizerResult, crate::contact::ContactReport)> {
+        self.options.validate()?;
+        if !self.options.node_input
+            || self.trace.is_some()
+            || self.partition_border_export.is_some()
+            || self.options.pre_snap_tolerance <= 0.0
+            || matches!(
+                self.options.noding.guarantee,
+                NodingGuarantee::CertifiedFixedPrecision
+            )
+        {
+            return Err(PolygonizeError::UnsupportedOptionCombination {
+                reason: "contact prototype requires global pre-snap and iterative noding without trace capture or partition export".into(),
+            });
+        }
+        self.contacts = Some(crate::contact::ContactCapture::new(
+            &self.input_lines,
+            max_records,
+        ));
+        let result = self.polygonize();
+        let mut capture = self.contacts.take().expect("contact capture installed");
+        result.map(|result| {
+            capture.classify(&result);
+            (result, capture.report)
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -1402,9 +1481,14 @@ fn restore_noded_coordinates(
     lines: &mut [Line3D],
     coordinates: &HashMap<(u64, u64), Coord3D>,
     execution_policy: &ExecutionPolicy,
+    mut lineage: Option<&mut crate::contact::SourceLineage>,
 ) -> Result<()> {
     execution_policy.check_cancelled("noding")?;
+    if let Some(lineage) = lineage.as_deref_mut() {
+        lineage.begin_split();
+    }
     for (index, line) in lines.iter_mut().enumerate() {
+        let parent = *line;
         execution_policy.check_cancelled_every("noding", index)?;
         if let Some(restored) = coordinates.get(&coordinate_key(line.start)) {
             line.start.x = restored.x;
@@ -1414,6 +1498,12 @@ fn restore_noded_coordinates(
             line.end.x = restored.x;
             line.end.y = restored.y;
         }
+        if let Some(lineage) = lineage.as_deref_mut() {
+            lineage.inherit(&parent, line);
+        }
+    }
+    if let Some(lineage) = lineage {
+        lineage.finish_split();
     }
     Ok(())
 }
@@ -2053,7 +2143,7 @@ mod topology_tests {
             Err(PolygonizeError::Cancelled { stage }) if stage == "noding"
         ));
         assert!(matches!(
-            restore_noded_coordinates(&mut [], &HashMap::new(), &policy),
+            restore_noded_coordinates(&mut [], &HashMap::new(), &policy, None),
             Err(PolygonizeError::Cancelled { stage }) if stage == "noding"
         ));
     }
@@ -3192,5 +3282,34 @@ mod tests {
         // 6. Empty rings
         assert!(!rings_touch_at_vertex(&[], &hole1, 1e-10));
         assert!(!rings_touch_at_vertex(&shell, &[], 1e-10));
+    }
+}
+
+#[cfg(test)]
+mod contact_capture_cleanup_tests {
+    use super::*;
+    #[test]
+    fn cancelled_contact_capture_is_removed_before_returning_error() {
+        let token = crate::CancellationToken::new();
+        token.cancel();
+        let mut polygonizer = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            pre_snap_tolerance: 0.01,
+            ..Default::default()
+        })
+        .with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token),
+            ..Default::default()
+        });
+        polygonizer.add_lines(vec![Line3D::new(
+            Coord3D::new(0., 0., 0.),
+            Coord3D::new(1., 0., 0.),
+            0,
+        )]);
+        assert!(polygonizer.polygonize_with_contact_provenance(100).is_err());
+        assert!(polygonizer.contacts.is_none());
+        let mut polygonizer = polygonizer.with_execution_policy(ExecutionPolicy::default());
+        assert!(polygonizer.polygonize().is_ok());
+        assert!(polygonizer.contacts.is_none());
     }
 }
