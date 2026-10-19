@@ -516,40 +516,42 @@ impl ContactCapture {
         let mut boundary_refs = 0usize;
         let mut boundary_limit_exceeded = false;
         let mut output_work = 0usize;
-        let mut mark =
-            |points: &[Coord3D], category: u8, owner: Option<(usize, Option<usize>)>| -> Result<()> {
+        let mut mark = |points: &[Coord3D],
+                        category: u8,
+                        owner: Option<(usize, Option<usize>)>|
+         -> Result<()> {
+            execution_policy.check_cancelled_every("contact_classification", output_work)?;
+            output_work = output_work.saturating_add(1);
+            for (edge_index, pair) in points.windows(2).enumerate() {
                 execution_policy.check_cancelled_every("contact_classification", output_work)?;
                 output_work = output_work.saturating_add(1);
-                for (edge_index, pair) in points.windows(2).enumerate() {
-                    execution_policy.check_cancelled_every("contact_classification", output_work)?;
-                    output_work = output_work.saturating_add(1);
-                    let a = key(pair[0]);
-                    let b = key(pair[1]);
-                    if let Some(&i) = by_xy.get(&(a.min(b), a.max(b))) {
-                        let edge = &mut self.report.source_edges[i];
-                        match category {
-                            0 => {
-                                if boundary_refs >= self.limit {
-                                    boundary_limit_exceeded = true;
-                                    continue;
-                                }
-                                let (polygon_index, interior_ring) = owner.expect("boundary owner");
-                                edge.output_boundaries.push(OutputBoundaryRef {
-                                    polygon_index,
-                                    interior_ring,
-                                    edge_index,
-                                });
-                                boundary_refs += 1;
-                                edge.polygon_boundary = true;
+                let a = key(pair[0]);
+                let b = key(pair[1]);
+                if let Some(&i) = by_xy.get(&(a.min(b), a.max(b))) {
+                    let edge = &mut self.report.source_edges[i];
+                    match category {
+                        0 => {
+                            if boundary_refs >= self.limit {
+                                boundary_limit_exceeded = true;
+                                continue;
                             }
-                            1 => edge.dangle = true,
-                            2 => edge.cut_edge = true,
-                            _ => edge.invalid_ring = true,
+                            let (polygon_index, interior_ring) = owner.expect("boundary owner");
+                            edge.output_boundaries.push(OutputBoundaryRef {
+                                polygon_index,
+                                interior_ring,
+                                edge_index,
+                            });
+                            boundary_refs += 1;
+                            edge.polygon_boundary = true;
                         }
+                        1 => edge.dangle = true,
+                        2 => edge.cut_edge = true,
+                        _ => edge.invalid_ring = true,
                     }
                 }
-                Ok(())
-            };
+            }
+            Ok(())
+        };
         for (polygon_index, polygon) in result.polygons.iter().enumerate() {
             mark(&polygon.exterior, 0, Some((polygon_index, None)))?;
             for (interior_ring, hole) in polygon.interiors.iter().enumerate() {
@@ -589,7 +591,8 @@ impl ContactCapture {
                 ),
             ];
             for &source in &edge.source_segments {
-                execution_policy.check_cancelled_every("contact_classification", membership_work)?;
+                execution_policy
+                    .check_cancelled_every("contact_classification", membership_work)?;
                 membership_work = membership_work.saturating_add(1);
                 descendants.insert(source);
                 for (endpoint, &node_id) in edge.node_ids.iter().enumerate() {
@@ -794,17 +797,10 @@ mod contact_execution_tests {
 
     #[test]
     fn contact_capture_checks_before_work_and_during_original_rows() {
-        let line = Line3D::new(
-            Coord3D::new(0.0, 0.0, 0.0),
-            Coord3D::new(1.0, 0.0, 0.0),
-            0,
-        );
+        let line = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 0);
         let cancelled = policy_at(usize::MAX);
         cancelled.cancellation_token.as_ref().unwrap().cancel();
-        assert_cancelled(
-            ContactCapture::new(&[], 0, &cancelled),
-            "contact_capture",
-        );
+        assert_cancelled(ContactCapture::new(&[], 0, &cancelled), "contact_capture");
         assert_cancelled(
             ContactCapture::new(&[line; 200], 1_000, &policy_at(256)),
             "contact_capture",
@@ -825,20 +821,13 @@ mod contact_execution_tests {
         let point = Coord3D::new(0.0, 0.0, 0.0);
         let lines = [Line3D::new(point, point, 0); 150];
         let mut capture = ContactCapture::new(&lines, 1_000, &ExecutionPolicy::default()).unwrap();
-        assert_cancelled(
-            capture.accept(0, point, &policy_at(256)),
-            "contact_capture",
-        );
+        assert_cancelled(capture.accept(0, point, &policy_at(256)), "contact_capture");
         assert_eq!(capture.report.accepted_contacts.len(), 256);
     }
 
     #[test]
     fn contact_capture_interrupts_graph_memberships_and_node_resolution() {
-        let line = Line3D::new(
-            Coord3D::new(0.0, 0.0, 0.0),
-            Coord3D::new(1.0, 0.0, 0.0),
-            0,
-        );
+        let line = Line3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(1.0, 0.0, 0.0), 0);
         let mut capture = capture(1_000);
         for source in 0..300 {
             capture.child(source, line);

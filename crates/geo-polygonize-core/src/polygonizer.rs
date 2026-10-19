@@ -3390,5 +3390,4 @@ mod contact_capture_cleanup_tests {
         ));
         assert!(polygonizer.contacts.is_none());
     }
-
 }
