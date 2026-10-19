@@ -11319,6 +11319,7 @@ impl<'a> TiledPolygonizer<'a> {
                 self.options.pre_snap_tolerance,
                 self.options.z.policy,
                 &self.execution_policy,
+                None,
             )?;
             segments = snapped
                 .into_iter()

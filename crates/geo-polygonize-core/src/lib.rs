@@ -18,6 +18,8 @@
 //! - **Wasm**: Optimized for WebAssembly environments.
 
 #[doc(hidden)]
+pub mod contact;
+#[doc(hidden)]
 pub mod containment;
 mod diagnostics;
 #[doc(hidden)]

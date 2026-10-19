@@ -1,3 +1,4 @@
+use crate::contact::SourceLineage;
 use crate::diagnostics::{ExecutionWorkTracker, NodingIterationStats, NodingWorkStats};
 use crate::error::PolygonizeError;
 use crate::index::{IndexedEnvelope, RStarBackend};
@@ -171,7 +172,7 @@ impl SnapNoder {
     }
 
     pub fn node(&self, lines: Vec<Line3D>) -> Vec<Line3D> {
-        self.node_impl(lines, None, None, None, None)
+        self.node_impl(lines, None, None, None, None, None)
             .expect("unlimited noding cannot fail")
     }
 
@@ -182,7 +183,14 @@ impl SnapNoder {
         let mut stats = Vec::new();
         let mut work_stats = NodingWorkStats::default();
         let lines = self
-            .node_impl(lines, Some(&mut stats), Some(&mut work_stats), None, None)
+            .node_impl(
+                lines,
+                Some(&mut stats),
+                Some(&mut work_stats),
+                None,
+                None,
+                None,
+            )
             .expect("unlimited noding cannot fail");
         (lines, stats, work_stats)
     }
@@ -192,7 +200,41 @@ impl SnapNoder {
         lines: Vec<Line3D>,
         execution_policy: &ExecutionPolicy,
     ) -> crate::Result<Vec<Line3D>> {
-        self.node_impl(lines, None, None, Some(execution_policy), None)
+        self.node_impl(lines, None, None, Some(execution_policy), None, None)
+    }
+
+    pub(crate) fn node_with_lineage(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+        lineage: &mut SourceLineage,
+    ) -> crate::Result<Vec<Line3D>> {
+        let execution_policy = (execution_policy.has_noding_work_budgets()
+            || execution_policy.has_cancellation())
+        .then_some(execution_policy);
+        self.node_impl(lines, None, None, execution_policy, None, Some(lineage))
+    }
+
+    pub(crate) fn node_with_lineage_and_stats(
+        &self,
+        lines: Vec<Line3D>,
+        execution_policy: &ExecutionPolicy,
+        lineage: &mut SourceLineage,
+    ) -> crate::Result<(Vec<Line3D>, Vec<NodingIterationStats>, NodingWorkStats)> {
+        let mut stats = Vec::new();
+        let mut work_stats = NodingWorkStats::default();
+        let execution_policy = (execution_policy.has_noding_work_budgets()
+            || execution_policy.has_cancellation())
+        .then_some(execution_policy);
+        let lines = self.node_impl(
+            lines,
+            Some(&mut stats),
+            Some(&mut work_stats),
+            execution_policy,
+            None,
+            Some(lineage),
+        )?;
+        Ok((lines, stats, work_stats))
     }
 
     pub(crate) fn node_with_stats_and_execution_policy(
@@ -207,6 +249,7 @@ impl SnapNoder {
             Some(&mut stats),
             Some(&mut work_stats),
             Some(execution_policy),
+            None,
             None,
         )?;
         Ok((lines, stats, work_stats))
@@ -227,6 +270,7 @@ impl SnapNoder {
             Some(&mut work_stats),
             execution_policy,
             Some(&mut trace),
+            None,
         )?;
         Ok((
             lines,
@@ -241,6 +285,7 @@ impl SnapNoder {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn node_impl(
         &self,
         mut lines: Vec<Line3D>,
@@ -248,11 +293,30 @@ impl SnapNoder {
         mut work_stats: Option<&mut NodingWorkStats>,
         execution_policy: Option<&ExecutionPolicy>,
         mut trace: Option<&mut FloatingTraceCapture>,
+        mut lineage: Option<&mut SourceLineage>,
     ) -> crate::Result<Vec<Line3D>> {
-        // 1. Initial Snap of endpoints
+        // 1. Initial Snap of endpoints. Build the next lineage generation without
+        // cloning the geometry buffer; collapsed and invalid lines have no children.
+        if let Some(lineage) = lineage.as_deref_mut() {
+            lineage.begin_split();
+        }
         for line in &mut lines {
+            let parent = *line;
             line.start = self.snap(line.start);
             line.end = self.snap(line.end);
+            if let Some(lineage) = lineage.as_deref_mut() {
+                if line.start.to_coord_2d() != line.end.to_coord_2d()
+                    && line.start.x.is_finite()
+                    && line.start.y.is_finite()
+                    && line.end.x.is_finite()
+                    && line.end.y.is_finite()
+                {
+                    lineage.inherit(&parent, line);
+                }
+            }
+        }
+        if let Some(lineage) = lineage.as_deref_mut() {
+            lineage.finish_split();
         }
 
         // Remove degenerates and invalid lines
@@ -361,6 +425,7 @@ impl SnapNoder {
                 &mut new_lines,
                 iteration_index,
                 trace.as_deref_mut(),
+                lineage.as_deref_mut(),
             )?;
             if let Some(work_stats) = work_stats.as_deref_mut() {
                 work_stats.split_events += split_event_count;
@@ -397,6 +462,7 @@ impl SnapNoder {
         new_lines: &mut Vec<Line3D>,
         iteration_index: usize,
         mut trace: Option<&mut FloatingTraceCapture>,
+        mut lineage: Option<&mut SourceLineage>,
     ) -> crate::Result<usize> {
         // Sort and dedup events by (line_index, split_point) to stabilize near-equal repeats.
         if let Some(execution_policy) = execution_policy {
@@ -432,6 +498,9 @@ impl SnapNoder {
                 .map_or(estimated_len, |limit| estimated_len.min(limit)),
         );
 
+        if let Some(lineage) = lineage.as_deref_mut() {
+            lineage.begin_split();
+        }
         let mut event_idx = 0;
         let mut src_idx = 0;
         let mut points = Vec::new();
@@ -453,6 +522,11 @@ impl SnapNoder {
                     )?;
                 }
                 new_lines.extend_from_slice(&lines[src_idx..line_idx]);
+                if let Some(lineage) = lineage.as_deref_mut() {
+                    for line in &lines[src_idx..line_idx] {
+                        lineage.inherit(line, line);
+                    }
+                }
             }
 
             points.clear();
@@ -508,7 +582,11 @@ impl SnapNoder {
                             })?,
                         )?;
                     }
-                    new_lines.push(Line3D::new(p0, p1, line.line_id));
+                    let child = Line3D::new(p0, p1, line.line_id);
+                    new_lines.push(child);
+                    if let Some(lineage) = lineage.as_deref_mut() {
+                        lineage.inherit(&line, &child);
+                    }
                     if let Some(trace) = trace.as_deref_mut() {
                         trace.budget.capture(
                             &mut trace.splits,
@@ -541,8 +619,16 @@ impl SnapNoder {
                 )?;
             }
             new_lines.extend_from_slice(&lines[src_idx..]);
+            if let Some(lineage) = lineage.as_deref_mut() {
+                for line in &lines[src_idx..] {
+                    lineage.inherit(line, line);
+                }
+            }
         }
 
+        if let Some(lineage) = lineage {
+            lineage.finish_split();
+        }
         self.normalize_and_dedup(new_lines);
         Ok(split_event_count)
     }
@@ -562,6 +648,7 @@ impl SnapNoder {
             &mut split_events,
             &mut new_lines,
             0,
+            None,
             None,
         )?;
         debug_assert_eq!(split_events, split_event_count);
@@ -597,9 +684,16 @@ impl SnapNoder {
     }
 
     pub fn pre_snap_to_reference_vertices(lines: &[Line3D], tolerance: f64) -> Vec<Line3D> {
-        Self::pre_snap_impl(lines, tolerance, true, ZPolicy::InterpolateAlongEdge, None)
-            .expect("unlimited pre-snap cannot fail")
-            .0
+        Self::pre_snap_impl(
+            lines,
+            tolerance,
+            true,
+            ZPolicy::InterpolateAlongEdge,
+            None,
+            None,
+        )
+        .expect("unlimited pre-snap cannot fail")
+        .0
     }
 
     pub(crate) fn pre_snap_to_reference_vertices_with_stats(
@@ -607,8 +701,16 @@ impl SnapNoder {
         tolerance: f64,
         z_policy: ZPolicy,
         execution_policy: &ExecutionPolicy,
+        contacts: Option<&mut crate::contact::ContactCapture>,
     ) -> crate::Result<(Vec<Line3D>, usize)> {
-        Self::pre_snap_impl(lines, tolerance, true, z_policy, Some(execution_policy))
+        Self::pre_snap_impl(
+            lines,
+            tolerance,
+            true,
+            z_policy,
+            Some(execution_policy),
+            contacts,
+        )
     }
 
     fn pre_snap_impl(
@@ -617,6 +719,7 @@ impl SnapNoder {
         use_index: bool,
         z_policy: ZPolicy,
         execution_policy: Option<&ExecutionPolicy>,
+        mut contacts: Option<&mut crate::contact::ContactCapture>,
     ) -> crate::Result<(Vec<Line3D>, usize)> {
         if let Some(policy) = execution_policy {
             policy.check_cancelled("pre_snap")?;
@@ -700,6 +803,9 @@ impl SnapNoder {
             };
             start.z = z_resolver.interpolate_z(start.to_coord_2d(), line);
             end.z = z_resolver.interpolate_z(end.to_coord_2d(), line);
+            if let Some(capture) = contacts.as_deref_mut() {
+                capture.endpoints(line_index, start, end);
+            }
             vertex_candidates += start_candidates + end_candidates;
             let dx = end.x - start.x;
             let dy = end.y - start.y;
@@ -785,11 +891,25 @@ impl SnapNoder {
             });
             points.dedup_by(|a, b| a.1.x == b.1.x && a.1.y == b.1.y);
 
+            if let Some(capture) = contacts.as_deref_mut() {
+                for &(_, point) in &points {
+                    capture.accept(
+                        line_index,
+                        point,
+                        execution_policy.expect("contact execution policy"),
+                    )?;
+                }
+            }
+
             for pair in points.windows(2) {
                 let p0 = pair[0].1;
                 let p1 = pair[1].1;
                 if p0.x != p1.x || p0.y != p1.y {
-                    snapped.push(Line3D::new(p0, p1, line.line_id));
+                    let child = Line3D::new(p0, p1, line.line_id);
+                    snapped.push(child);
+                    if let Some(capture) = contacts.as_deref_mut() {
+                        capture.child(line_index, child);
+                    }
                 }
             }
         }
@@ -1774,11 +1894,17 @@ mod tests {
             })
             .collect();
 
-        let (linear, linear_candidates) =
-            SnapNoder::pre_snap_impl(&lines, 0.5, false, ZPolicy::InterpolateAlongEdge, None)
-                .unwrap();
+        let (linear, linear_candidates) = SnapNoder::pre_snap_impl(
+            &lines,
+            0.5,
+            false,
+            ZPolicy::InterpolateAlongEdge,
+            None,
+            None,
+        )
+        .unwrap();
         let (indexed, indexed_candidates) =
-            SnapNoder::pre_snap_impl(&lines, 0.5, true, ZPolicy::InterpolateAlongEdge, None)
+            SnapNoder::pre_snap_impl(&lines, 0.5, true, ZPolicy::InterpolateAlongEdge, None, None)
                 .unwrap();
 
         assert_eq!(indexed.len(), linear.len());
@@ -1811,6 +1937,7 @@ mod tests {
                 true,
                 ZPolicy::InterpolateAlongEdge,
                 Some(&policy),
+                None,
             ),
             Err(PolygonizeError::Cancelled { stage }) if stage == "pre_snap"
         ));
