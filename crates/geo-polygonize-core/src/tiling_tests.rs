@@ -273,6 +273,33 @@ mod tests {
             ] {
                 assert_eq!(disposition["inventory"][field], count, "{field}");
             }
+            let join = &result
+                .trace
+                .events
+                .iter()
+                .find(|event| event.kind == "partition_border_joined_original_sources")
+                .unwrap()
+                .payload;
+            assert_eq!(join["joined"], true);
+            for flag in [
+                "output_geometry_materialized",
+                "raw_ledger_rewritten",
+                "candidate_integration_ready",
+                "output_selectable",
+            ] {
+                assert_eq!(join[flag], false);
+            }
+            for (field, count) in [
+                ("original_source_catalog_count", 12),
+                ("active_source_count", 12),
+                ("original_dangle_count", 0),
+                ("maximal_cycle_count", 5),
+                ("physical_direction_count", 24),
+                ("observational_raw_record_count", 16),
+                ("raw_support_mapping_count", 16),
+            ] {
+                assert_eq!(join["table"][field], count, "{field}");
+            }
             let leaf = &result
                 .trace
                 .events
@@ -2976,16 +3003,18 @@ mod tests {
         use crate::tiling::{
             bind_original_graph_observations, consume_checked_active_roles,
             consume_original_raw_disposition, input_bound_physical_alias_view,
-            prepare_partition_input_evidence, prove_alias_global_face_projection,
-            prove_component_euler_containment_authority, prove_domain_exterior_authority,
-            prove_local_interior_active_roles, prove_native_twin_seam_cover,
-            prove_original_leaf_path_pruning, prove_whole_observation_roles,
-            PartitionAliasGlobalFaceProjection, PartitionComponentEulerContainmentAuthority,
-            PartitionConsumedActiveRole, PartitionInputBoundRawPayload, PartitionInputBoundSegment,
-            PartitionMosaic, PartitionOriginalLeafRecord, PartitionOriginalLeafRecordEvidence,
-            PartitionOriginalLeafStep, PartitionOriginalRawSupport, PartitionProjectedAlias,
-            PartitionProjectedGlobalFace, PartitionWholeObservationRole,
-            PartitionWholeObservationRoleAuthority,
+            join_checked_original_sources, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_local_interior_active_roles,
+            prove_native_twin_seam_cover, prove_original_leaf_path_pruning,
+            prove_whole_observation_roles, PartitionAliasGlobalFaceProjection,
+            PartitionComponentEulerContainmentAuthority, PartitionConsumedActiveRole,
+            PartitionInputBoundRawPayload, PartitionInputBoundSegment, PartitionJoinedSourceRole,
+            PartitionMosaic, PartitionOriginalActiveSource, PartitionOriginalDangleSource,
+            PartitionOriginalLeafRecord, PartitionOriginalLeafRecordEvidence,
+            PartitionOriginalLeafStep, PartitionOriginalRawDispositionRecord,
+            PartitionOriginalRawSupport, PartitionProjectedAlias, PartitionProjectedGlobalFace,
+            PartitionWholeObservationRole, PartitionWholeObservationRoleAuthority,
         };
         for (width, tile_size, interior_count, observed_count, raw_count) in
             [(2, 1.0, 0, 32, 16), (2, 2.0, 4, 16, 0), (4, 2.0, 8, 32, 6)]
@@ -3109,6 +3138,325 @@ mod tests {
                         disposition.inventory.valid_residual_faces.len(),
                         projection.faces.len()
                     );
+                    let joined = join_checked_original_sources(&table, &disposition, &policy)
+                        .unwrap()
+                        .unwrap();
+                    assert!(std::ptr::eq(joined.topology, &table));
+                    assert!(std::ptr::eq(joined.disposition, &disposition));
+                    assert!(std::ptr::eq(
+                        joined.observational_raw_ledger,
+                        view.raw_payloads.as_slice()
+                    ));
+                    assert_eq!(joined.source_catalog.len(), prepared.noded_segments.len());
+                    assert_eq!(
+                        joined.raw_support_source_indices.len(),
+                        view.raw_payloads.len()
+                    );
+                    let mut active_sources = 0;
+                    let mut dangle_sources = 0;
+                    for (index, source) in joined.source_catalog.iter().enumerate() {
+                        assert!(std::ptr::eq(
+                            source.original,
+                            &prepared.noded_segments[index]
+                        ));
+                        match &source.role {
+                            PartitionJoinedSourceRole::Active(active) => {
+                                active_sources += 1;
+                                assert!(std::ptr::eq(source.segment, active.segment));
+                                assert!(disposition
+                                    .inventory
+                                    .active_sources
+                                    .iter()
+                                    .any(|a| std::ptr::eq(a, *active)));
+                            }
+                            PartitionJoinedSourceRole::Dangle {
+                                source: dangle,
+                                raw_record,
+                            } => {
+                                dangle_sources += 1;
+                                assert_eq!(dangle.original_source_index, index);
+                                assert!(std::ptr::eq(source.original, dangle.step.original));
+                                assert!(disposition
+                                    .raw_records
+                                    .iter()
+                                    .any(|r| std::ptr::eq(r, *raw_record)));
+                            }
+                        }
+                    }
+                    assert_eq!(active_sources, disposition.inventory.active_sources.len());
+                    assert_eq!(dangle_sources, disposition.inventory.dangles.len());
+                    let mut directions = BTreeSet::new();
+                    for cycle in &joined.maximal_cycles {
+                        assert_eq!(
+                            cycle.exterior,
+                            cycle.derived_face_id == component.exterior_face_id
+                        );
+                        assert_eq!(
+                            cycle.witness_face_id,
+                            table.witness_face_by_derived[cycle.derived_face_id]
+                        );
+                        for direction in &cycle.directions {
+                            assert!(directions.insert(direction.physical_slot_id));
+                            assert!(std::ptr::eq(
+                                direction.slot,
+                                &table.slots[direction.physical_slot_id]
+                            ));
+                            let source = &joined.source_catalog[direction.source_catalog_index];
+                            let line = source.original.line;
+                            let (from, to) = if direction.reversed_to_original {
+                                (line.end, line.start)
+                            } else {
+                                (line.start, line.end)
+                            };
+                            let edge = direction.slot.physical.physical_edge;
+                            assert_eq!(
+                                edge.from,
+                                crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+                                    from
+                                )
+                                .xy_bits()
+                            );
+                            assert_eq!(
+                                edge.to,
+                                crate::graph::partition_border::PartitionBorderNodeKey::from_coord(
+                                    to
+                                )
+                                .xy_bits()
+                            );
+                            assert_eq!(edge.source_line_ids, source.original.source_line_ids);
+                        }
+                    }
+                    assert_eq!(directions.len(), table.slots.len());
+                    for (record, &index) in disposition
+                        .raw_records
+                        .iter()
+                        .zip(&joined.raw_support_source_indices)
+                    {
+                        assert!(std::ptr::eq(
+                            record.raw.segments[0].segment,
+                            joined.source_catalog[index].segment
+                        ));
+                    }
+                    if width == 2 && tile_size == 2.0 && !reversed && detached {
+                        for mutation in 0..18 {
+                            let mut changed =
+                                consume_original_raw_disposition(&table, &leaf, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let mut owner = mosaic.partitions[&0].clone();
+                            owner.generation.retry_attempt += 1;
+                            match mutation {
+                                0 => {
+                                    changed.inventory.active_sources.pop();
+                                }
+                                1 => {
+                                    let s = &changed.inventory.active_sources[0];
+                                    let extra = PartitionOriginalActiveSource {
+                                        segment: s.segment,
+                                        physical_slots: s.physical_slots,
+                                    };
+                                    changed.inventory.active_sources.push(extra);
+                                }
+                                2 => changed.inventory.active_sources[0].physical_slots.reverse(),
+                                3 => {
+                                    changed.inventory.active_sources[0].segment =
+                                        changed.inventory.active_sources[1].segment
+                                }
+                                4 => {
+                                    changed.inventory.dangles.pop();
+                                }
+                                5 => {
+                                    changed.inventory.dangles[0].original_source_index = usize::MAX
+                                }
+                                6 => {
+                                    changed.inventory.dangles[0].step =
+                                        changed.inventory.dangles[1].step
+                                }
+                                7 => changed.inventory.dangles[0].owner_core = &owner,
+                                8 => {
+                                    changed.inventory.valid_residual_faces.pop();
+                                }
+                                9 => changed.inventory.valid_residual_faces.push(0),
+                                10 => {
+                                    changed.raw_records.pop();
+                                }
+                                11 => changed.raw_records.push(
+                                    PartitionOriginalRawDispositionRecord {
+                                        raw: changed.raw_records[0].raw,
+                                        support: PartitionOriginalRawSupport::OriginalDangle {
+                                            dangle_index: 0,
+                                            raw_reversed_to_step: false,
+                                            raw_reversed_to_original: false,
+                                        },
+                                    },
+                                ),
+                                12 => changed.raw_records.swap(0, 1),
+                                13 => {
+                                    if let PartitionOriginalRawSupport::OriginalDangle {
+                                        dangle_index,
+                                        ..
+                                    } = &mut changed.raw_records[0].support
+                                    {
+                                        *dangle_index = usize::MAX
+                                    }
+                                }
+                                14 => {
+                                    if let PartitionOriginalRawSupport::OriginalDangle {
+                                        raw_reversed_to_step,
+                                        ..
+                                    } = &mut changed.raw_records[0].support
+                                    {
+                                        *raw_reversed_to_step = !*raw_reversed_to_step
+                                    }
+                                }
+                                15 => {
+                                    if let PartitionOriginalRawSupport::OriginalDangle {
+                                        raw_reversed_to_original,
+                                        ..
+                                    } = &mut changed.raw_records[0].support
+                                    {
+                                        *raw_reversed_to_original = !*raw_reversed_to_original
+                                    }
+                                }
+                                16 => changed.inventory.valid_residual_faces.reverse(),
+                                _ => {
+                                    let s = &changed.inventory.dangles[0];
+                                    let extra = PartitionOriginalDangleSource {
+                                        original_source_index: s.original_source_index,
+                                        step: s.step,
+                                        owner_core: s.owner_core,
+                                    };
+                                    changed.inventory.dangles.push(extra);
+                                }
+                            }
+                            assert!(
+                                join_checked_original_sources(&table, &changed, &policy)
+                                    .unwrap()
+                                    .is_none(),
+                                "join inventory mutation {mutation}"
+                            );
+                        }
+                        let other =
+                            consume_checked_active_roles(&observed, &proof, &witness, &policy)
+                                .unwrap()
+                                .unwrap();
+                        assert!(join_checked_original_sources(&other, &disposition, &policy)
+                            .unwrap()
+                            .is_none());
+                        for mutation in 0..3 {
+                            let mut changed_table =
+                                consume_checked_active_roles(&observed, &proof, &witness, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            let mut changed =
+                                consume_original_raw_disposition(&table, &leaf, &policy)
+                                    .unwrap()
+                                    .unwrap();
+                            match mutation {
+                                0 => changed_table.slots[0].next = 0,
+                                1 => changed_table.slots[0].witness_face_id = usize::MAX,
+                                _ => changed_table.slots[0].aliases.clear(),
+                            }
+                            changed.topology = &changed_table;
+                            assert!(join_checked_original_sources(
+                                &changed_table,
+                                &changed,
+                                &policy
+                            )
+                            .unwrap()
+                            .is_none());
+                        }
+                        let mut fake_original = prepared.noded_segments[0].clone();
+                        fake_original.line.start.z = 9.0;
+                        let mut fake_leaf =
+                            prove_original_leaf_path_pruning(&component, &graph, &mosaic, &policy)
+                                .unwrap()
+                                .unwrap();
+                        fake_leaf.steps[0].original = &fake_original;
+                        let mut changed = consume_original_raw_disposition(&table, &leaf, &policy)
+                            .unwrap()
+                            .unwrap();
+                        changed.leaf = &fake_leaf;
+                        assert!(join_checked_original_sources(&table, &changed, &policy)
+                            .unwrap()
+                            .is_none());
+                        for limited in [
+                            ExecutionPolicy {
+                                max_candidate_pairs: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_edges: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_graph_nodes: Some(0),
+                                ..Default::default()
+                            },
+                            ExecutionPolicy {
+                                max_output_coordinates: Some(0),
+                                ..Default::default()
+                            },
+                        ] {
+                            assert!(matches!(
+                                join_checked_original_sources(&table, &disposition, &limited),
+                                Err(PolygonizeError::ResourceLimitExceeded { .. })
+                            ));
+                        }
+                        let limited = ExecutionPolicy {
+                            max_candidate_pairs: Some(250000),
+                            ..Default::default()
+                        };
+                        assert!(consume_original_raw_disposition(&table, &leaf, &limited)
+                            .unwrap()
+                            .is_some());
+                        assert!(
+                            matches!(join_checked_original_sources(&table,&disposition,&limited),Err(PolygonizeError::ResourceLimitExceeded {stage,..}) if stage=="partition_joined_original_sources")
+                        );
+                        assert!(join_checked_original_sources(
+                            &table,
+                            &disposition,
+                            &ExecutionPolicy {
+                                max_candidate_pairs: Some(10_000_000),
+                                ..Default::default()
+                            }
+                        )
+                        .unwrap()
+                        .is_some());
+                        let token = CancellationToken::new();
+                        token.cancel();
+                        assert!(matches!(
+                            join_checked_original_sources(
+                                &table,
+                                &disposition,
+                                &ExecutionPolicy {
+                                    cancellation_token: Some(token),
+                                    ..Default::default()
+                                }
+                            ),
+                            Err(PolygonizeError::Cancelled { .. })
+                        ));
+                        let mut expanded = consume_original_raw_disposition(&table, &leaf, &policy)
+                            .unwrap()
+                            .unwrap();
+                        for _ in 0..4096 {
+                            let s = &disposition.inventory.active_sources[0];
+                            expanded
+                                .inventory
+                                .active_sources
+                                .push(PartitionOriginalActiveSource {
+                                    segment: s.segment,
+                                    physical_slots: s.physical_slots,
+                                });
+                        }
+                        assert!(
+                            matches!(join_checked_original_sources(&table,&expanded,&limited),Err(PolygonizeError::ResourceLimitExceeded {stage,..}) if stage=="partition_joined_original_sources")
+                        );
+                        let token = CancellationToken::new();
+                        assert!(
+                            matches!(join_checked_original_sources(&table,&expanded,&ExecutionPolicy {cancellation_token:Some(token.clone()),cancel_at_work_item:Some((token,1024)),..Default::default()}),Err(PolygonizeError::Cancelled {stage}) if stage=="partition_joined_original_sources")
+                        );
+                    }
                     let mut active_records = 0;
                     let mut dangle_records = 0;
                     for (record, original) in disposition.raw_records.iter().zip(&view.raw_payloads)
@@ -4296,12 +4644,13 @@ mod tests {
         use crate::tiling::{
             bind_original_graph_observations, consume_checked_active_roles,
             consume_original_raw_disposition, input_bound_physical_alias_view,
-            prepare_partition_input_evidence, prove_alias_global_face_projection,
-            prove_component_euler_containment_authority, prove_domain_exterior_authority,
-            prove_local_interior_active_roles, prove_native_twin_seam_cover,
-            prove_original_isolated_dangle_complement, prove_original_leaf_path_pruning,
-            prove_whole_observation_roles, PartitionInputBoundRawPayload,
-            PartitionInputBoundSegment, PartitionMosaic, PartitionOriginalLeafRecordEvidence,
+            join_checked_original_sources, prepare_partition_input_evidence,
+            prove_alias_global_face_projection, prove_component_euler_containment_authority,
+            prove_domain_exterior_authority, prove_local_interior_active_roles,
+            prove_native_twin_seam_cover, prove_original_isolated_dangle_complement,
+            prove_original_leaf_path_pruning, prove_whole_observation_roles,
+            PartitionInputBoundRawPayload, PartitionInputBoundSegment, PartitionMosaic,
+            PartitionOriginalLeafRecordEvidence,
         };
         for grid in [false, true] {
             for reversed in [false, true] {
@@ -4420,6 +4769,14 @@ mod tests {
                     let disposition = consume_original_raw_disposition(&t, &proof, &policy)
                         .unwrap()
                         .unwrap();
+                    let joined = join_checked_original_sources(&t, &disposition, &policy)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(joined.source_catalog.len(), prepared.noded_segments.len());
+                    assert_eq!(
+                        joined.raw_support_source_indices.len(),
+                        disposition.raw_records.len()
+                    );
                     assert_eq!(disposition.inventory.dangles.len(), length);
                     assert_eq!(
                         disposition.raw_records.len(),

@@ -672,6 +672,13 @@ separately from selectable output; they do not complete the promotion gates.
   rotation/distinct cycles/valid rings exclude cuts and invalid rings here.
   The mixed chain retains18 observational records and2 original dangles;
   unsupported remainders and all candidate/output promotion gates stay closed.
+- [x] Join the checked active table and original-source family inventory to
+  the actual immutable original noded-row catalog, maximal cycle directions
+  and an ordered raw-support map. Source catalog order, raw multiplicity and
+  output order remain separate; no geometry or output-policy buffers are made.
+  Independent review and reviewed-base validation passed for this private
+  binding and its raw-receipt premise;
+  legacy candidate readiness and all selection/promotion gates remain closed.
 - [ ] Prove global raw-family roles and a face-qualified claim rule accounting
   for every two-observation domain group and four-observation seam group,
   without filtering observation-count ambiguity or discarding raw records.
