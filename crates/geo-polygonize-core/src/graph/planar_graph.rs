@@ -732,13 +732,25 @@ impl PlanarGraph {
                 if ((*last_u).min(*last_v), (*last_u).max(*last_v)) == key {
                     sources.merge_line_id(line.line_id);
                     if let Some(capture) = capture.as_deref_mut() {
-                        capture.graph_edge(self.edges.len() + dissolved.len() - 1, u, v, &line);
+                        capture.graph_edge(
+                            self.edges.len() + dissolved.len() - 1,
+                            u,
+                            v,
+                            &line,
+                            execution_policy.expect("contact execution policy"),
+                        )?;
                     }
                     continue;
                 }
             }
             if let Some(capture) = capture.as_deref_mut() {
-                capture.graph_edge(self.edges.len() + dissolved.len(), u, v, &line);
+                capture.graph_edge(
+                    self.edges.len() + dissolved.len(),
+                    u,
+                    v,
+                    &line,
+                    execution_policy.expect("contact execution policy"),
+                )?;
             }
             dissolved.push((u, v, line, EdgeSources::from_line_id(line.line_id)));
         }

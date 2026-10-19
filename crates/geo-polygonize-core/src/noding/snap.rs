@@ -893,7 +893,11 @@ impl SnapNoder {
 
             if let Some(capture) = contacts.as_deref_mut() {
                 for &(_, point) in &points {
-                    capture.accept(line_index, point);
+                    capture.accept(
+                        line_index,
+                        point,
+                        execution_policy.expect("contact execution policy"),
+                    )?;
                 }
             }
 

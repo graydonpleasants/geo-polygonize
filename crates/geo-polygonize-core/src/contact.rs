@@ -1,6 +1,6 @@
 //! Experimental, bounded original-vertex contact lineage. Not a supported 1.x API.
-use crate::{Coord3D, Line3D};
-use std::collections::{BTreeSet, HashMap};
+use crate::{Coord3D, ExecutionPolicy, Line3D, Result};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 type XY = (u64, u64);
 fn key(c: Coord3D) -> XY {
@@ -165,7 +165,12 @@ pub(crate) struct ContactCapture {
     edge_memberships: usize,
 }
 impl ContactCapture {
-    pub(crate) fn new(lines: &[Line3D], limit: usize) -> Self {
+    pub(crate) fn new(
+        lines: &[Line3D],
+        limit: usize,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<Self> {
+        execution_policy.check_cancelled("contact_capture")?;
         let mut capture = Self {
             report: ContactReport {
                 original_vertices: Vec::new(),
@@ -181,8 +186,13 @@ impl ContactCapture {
         };
         for (input_segment, line) in lines.iter().enumerate() {
             for (endpoint, raw) in [(Endpoint::Start, line.start), (Endpoint::End, line.end)] {
+                execution_policy.check_cancelled_every(
+                    "contact_capture",
+                    capture.report.original_vertices.len(),
+                )?;
                 if !capture.room() {
-                    return capture;
+                    execution_policy.check_cancelled("contact_capture")?;
+                    return Ok(capture);
                 }
                 let index = capture.report.original_vertices.len();
                 capture
@@ -201,7 +211,8 @@ impl ContactCapture {
                 });
             }
         }
-        capture
+        execution_policy.check_cancelled("contact_capture")?;
+        Ok(capture)
     }
     fn room(&mut self) -> bool {
         if self.report.original_vertices.len() + self.report.accepted_contacts.len() >= self.limit {
@@ -219,14 +230,22 @@ impl ContactCapture {
             }
         }
     }
-    pub(crate) fn accept(&mut self, source: usize, point: Coord3D) {
+    pub(crate) fn accept(
+        &mut self,
+        source: usize,
+        point: Coord3D,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        execution_policy.check_cancelled("contact_capture")?;
         let Some(indices) = self.originals_by_xy.get(&key(point)) else {
-            return;
+            return Ok(());
         };
         // Bound fan-out without allocating a copy of the original-vertex list.
         for i in 0..indices.len() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             if !self.room() {
-                return;
+                execution_policy.check_cancelled("contact_capture")?;
+                return Ok(());
             }
             let original_vertex = self.originals_by_xy[&key(point)][i];
             self.report.accepted_contacts.push(AcceptedContact {
@@ -240,13 +259,17 @@ impl ContactCapture {
                 absent_reason: None,
             });
         }
+        execution_policy.check_cancelled("contact_capture")
     }
     pub(crate) fn map_topology(
         &mut self,
         noder: &crate::noding::snap::SnapNoder,
         restoration: Option<&HashMap<XY, Coord3D>>,
-    ) {
-        for vertex in &mut self.report.original_vertices {
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        execution_policy.check_cancelled("contact_capture")?;
+        for (i, vertex) in self.report.original_vertices.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             vertex.endpoint_output = vertex.pre_snap_endpoint.map(|point| {
                 let mut output = noder.snap(point);
                 if let Some(restored) = restoration.and_then(|map| map.get(&key(output))) {
@@ -256,7 +279,8 @@ impl ContactCapture {
                 output
             });
         }
-        for contact in &mut self.report.accepted_contacts {
+        for (i, contact) in self.report.accepted_contacts.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             contact.topology = noder.snap(contact.accepted);
             contact.output = contact.topology;
             if let Some(restored) = restoration.and_then(|map| map.get(&key(contact.topology))) {
@@ -264,27 +288,37 @@ impl ContactCapture {
                 contact.output.y = restored.y;
             }
         }
+        execution_policy.check_cancelled("contact_capture")
     }
-    pub(crate) fn resolve(&mut self, xs: &[f64], ys: &[f64], zs: &[f64]) {
+    pub(crate) fn resolve(
+        &mut self,
+        xs: &[f64],
+        ys: &[f64],
+        zs: &[f64],
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        execution_policy.check_cancelled("contact_capture")?;
         // Only index tracked vertices: auxiliary memory is bounded by the report limit.
-        let mut wanted: HashMap<XY, Option<(usize, Coord3D)>> = self
-            .report
-            .accepted_contacts
-            .iter()
-            .map(|c| (key(c.output), None))
-            .collect();
-        for vertex in &self.report.original_vertices {
+        let mut wanted: HashMap<XY, Option<(usize, Coord3D)>> = HashMap::new();
+        for (i, contact) in self.report.accepted_contacts.iter().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
+            wanted.insert(key(contact.output), None);
+        }
+        for (i, vertex) in self.report.original_vertices.iter().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             if let Some(output) = vertex.endpoint_output {
                 wanted.entry(key(output)).or_default();
             }
         }
         for (node_id, ((&x, &y), &z)) in xs.iter().zip(ys).zip(zs).enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", node_id)?;
             let coordinate = Coord3D::new(x, y, z);
             if let Some(slot) = wanted.get_mut(&key(coordinate)) {
                 *slot = Some((node_id, coordinate));
             }
         }
-        for vertex in &mut self.report.original_vertices {
+        for (i, vertex) in self.report.original_vertices.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             vertex.endpoint_node = match vertex.endpoint_output.and_then(|c| wanted[&key(c)]) {
                 Some((node_id, coordinate)) => FinalNode::Present {
                     node_id,
@@ -293,7 +327,8 @@ impl ContactCapture {
                 None => FinalNode::Missing,
             };
         }
-        for contact in &mut self.report.accepted_contacts {
+        for (i, contact) in self.report.accepted_contacts.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             contact.final_node = match wanted[&key(contact.output)] {
                 Some((node_id, coordinate)) => FinalNode::Present {
                     node_id,
@@ -302,6 +337,7 @@ impl ContactCapture {
                 None => FinalNode::Missing,
             };
         }
+        execution_policy.check_cancelled("contact_capture")
     }
 }
 
@@ -403,21 +439,29 @@ impl ContactCapture {
     pub(crate) fn child(&mut self, source: usize, child: Line3D) {
         self.lineage.seed(source, &child);
     }
-    pub(crate) fn graph_edge(&mut self, edge_id: usize, u: usize, v: usize, line: &Line3D) {
+    pub(crate) fn graph_edge(
+        &mut self,
+        edge_id: usize,
+        u: usize,
+        v: usize,
+        line: &Line3D,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        execution_policy.check_cancelled("contact_capture")?;
         if !self.lineage.complete {
-            return;
+            return Ok(());
         }
         let Some(sources) = self.lineage.current.get(&segment_key(line)) else {
             self.lineage.invalidate();
             self.lineage.failure = LineageStatus::IncompletePropagation;
-            return;
+            return Ok(());
         };
         let edges = &mut self.report.source_edges;
         if edges.last().is_none_or(|edge| edge.edge_id != edge_id) {
             // Every edge requires at least one membership, so this also bounds edge records.
             if self.edge_memberships >= self.limit {
                 self.lineage.invalidate();
-                return;
+                return Ok(());
             }
             edges.push(SourceEdgeAudit {
                 edge_id,
@@ -433,109 +477,143 @@ impl ContactCapture {
             });
         }
         let edge = edges.last_mut().expect("captured edge");
-        for &source in sources {
+        for (i, &source) in sources.iter().enumerate() {
+            execution_policy.check_cancelled_every("contact_capture", i)?;
             match edge.source_segments.binary_search(&source) {
                 Ok(_) => (),
                 Err(at) => {
                     if self.edge_memberships >= self.limit {
                         self.lineage.invalidate();
-                        return;
+                        return Ok(());
                     }
                     edge.source_segments.insert(at, source);
                     self.edge_memberships += 1;
                 }
             }
         }
+        execution_policy.check_cancelled("contact_capture")
     }
-    pub(crate) fn classify(&mut self, result: &crate::polygonizer::PolygonizerResult) {
+    pub(crate) fn classify(
+        &mut self,
+        result: &crate::polygonizer::PolygonizerResult,
+        execution_policy: &ExecutionPolicy,
+    ) -> Result<()> {
+        execution_policy.check_cancelled("contact_classification")?;
         if !self.lineage.complete {
             self.report.lineage_status = self.lineage.failure;
             self.report.source_edges.clear();
-            return;
+            return Ok(());
         }
         // Match output edges only to edges whose source membership was already
         // captured at actual graph creation/merge. No coordinate source inference.
         let mut by_xy = HashMap::new();
         for (i, edge) in self.report.source_edges.iter().enumerate() {
+            execution_policy.check_cancelled_every("contact_classification", i)?;
             let a = key(edge.start);
             let b = key(edge.end);
             by_xy.insert((a.min(b), a.max(b)), i);
         }
         let mut boundary_refs = 0usize;
         let mut boundary_limit_exceeded = false;
-        let mut mark = |points: &[Coord3D], category: u8, owner: Option<(usize, Option<usize>)>| {
-            for (edge_index, pair) in points.windows(2).enumerate() {
-                let a = key(pair[0]);
-                let b = key(pair[1]);
-                if let Some(&i) = by_xy.get(&(a.min(b), a.max(b))) {
-                    let edge = &mut self.report.source_edges[i];
-                    match category {
-                        0 => {
-                            if boundary_refs >= self.limit {
-                                boundary_limit_exceeded = true;
-                                continue;
+        let mut output_work = 0usize;
+        let mut mark =
+            |points: &[Coord3D], category: u8, owner: Option<(usize, Option<usize>)>| -> Result<()> {
+                execution_policy.check_cancelled_every("contact_classification", output_work)?;
+                output_work = output_work.saturating_add(1);
+                for (edge_index, pair) in points.windows(2).enumerate() {
+                    execution_policy.check_cancelled_every("contact_classification", output_work)?;
+                    output_work = output_work.saturating_add(1);
+                    let a = key(pair[0]);
+                    let b = key(pair[1]);
+                    if let Some(&i) = by_xy.get(&(a.min(b), a.max(b))) {
+                        let edge = &mut self.report.source_edges[i];
+                        match category {
+                            0 => {
+                                if boundary_refs >= self.limit {
+                                    boundary_limit_exceeded = true;
+                                    continue;
+                                }
+                                let (polygon_index, interior_ring) = owner.expect("boundary owner");
+                                edge.output_boundaries.push(OutputBoundaryRef {
+                                    polygon_index,
+                                    interior_ring,
+                                    edge_index,
+                                });
+                                boundary_refs += 1;
+                                edge.polygon_boundary = true;
                             }
-                            let (polygon_index, interior_ring) = owner.expect("boundary owner");
-                            edge.output_boundaries.push(OutputBoundaryRef {
-                                polygon_index,
-                                interior_ring,
-                                edge_index,
-                            });
-                            boundary_refs += 1;
-                            edge.polygon_boundary = true;
+                            1 => edge.dangle = true,
+                            2 => edge.cut_edge = true,
+                            _ => edge.invalid_ring = true,
                         }
-                        1 => edge.dangle = true,
-                        2 => edge.cut_edge = true,
-                        _ => edge.invalid_ring = true,
                     }
                 }
-            }
-        };
+                Ok(())
+            };
         for (polygon_index, polygon) in result.polygons.iter().enumerate() {
-            mark(&polygon.exterior, 0, Some((polygon_index, None)));
+            mark(&polygon.exterior, 0, Some((polygon_index, None)))?;
             for (interior_ring, hole) in polygon.interiors.iter().enumerate() {
-                mark(hole, 0, Some((polygon_index, Some(interior_ring))));
+                mark(hole, 0, Some((polygon_index, Some(interior_ring))))?;
             }
         }
         for points in &result.dangles {
-            mark(points, 1, None);
+            mark(points, 1, None)?;
         }
         for points in &result.cut_edges {
-            mark(points, 2, None);
+            mark(points, 2, None)?;
         }
         for points in &result.invalid_rings {
-            mark(points, 3, None);
+            mark(points, 3, None)?;
         }
+        execution_policy.check_cancelled("contact_classification")?;
         if boundary_limit_exceeded {
             self.lineage.invalidate();
             self.report.lineage_status = LineageStatus::LimitExceeded;
             self.report.source_edges.clear();
-            return;
+            return Ok(());
         }
-        for contact in &mut self.report.accepted_contacts {
-            let mut counts = [0; 5];
-            let mut any_descendant = false;
-            for edge in &self.report.source_edges {
-                if edge
-                    .source_segments
-                    .binary_search(&contact.accepted_source_segment)
-                    .is_err()
-                {
-                    continue;
-                }
-                any_descendant = true;
-                if !matches!(contact.final_node, FinalNode::Present { node_id, .. } if edge.node_ids.contains(&node_id))
-                {
-                    continue;
-                }
-                counts[0] += usize::from(edge.polygon_boundary);
-                counts[1] += usize::from(edge.dangle);
-                counts[2] += usize::from(edge.cut_edge);
-                counts[3] += usize::from(edge.invalid_ring);
-                counts[4] += usize::from(
+        // Aggregate once per already-capped graph membership, rather than scanning
+        // every audited edge for every accepted contact. At most 2 * limit keys
+        // and limit descendants are retained; neither index scales with raw input.
+        let mut incident_counts: HashMap<(usize, usize), [usize; 5]> = HashMap::new();
+        let mut descendants = HashSet::new();
+        let mut membership_work = 0usize;
+        for edge in &self.report.source_edges {
+            let edge_counts = [
+                usize::from(edge.polygon_boundary),
+                usize::from(edge.dangle),
+                usize::from(edge.cut_edge),
+                usize::from(edge.invalid_ring),
+                usize::from(
                     !(edge.polygon_boundary || edge.dangle || edge.cut_edge || edge.invalid_ring),
-                );
+                ),
+            ];
+            for &source in &edge.source_segments {
+                execution_policy.check_cancelled_every("contact_classification", membership_work)?;
+                membership_work = membership_work.saturating_add(1);
+                descendants.insert(source);
+                for (endpoint, &node_id) in edge.node_ids.iter().enumerate() {
+                    // An undirected edge is counted once, even if both IDs agree.
+                    if endpoint == 1 && node_id == edge.node_ids[0] {
+                        continue;
+                    }
+                    let counts = incident_counts.entry((node_id, source)).or_default();
+                    for (count, contribution) in counts.iter_mut().zip(edge_counts) {
+                        *count += contribution;
+                    }
+                }
             }
+        }
+        for (i, contact) in self.report.accepted_contacts.iter_mut().enumerate() {
+            execution_policy.check_cancelled_every("contact_classification", i)?;
+            let counts = match contact.final_node {
+                FinalNode::Present { node_id, .. } => incident_counts
+                    .get(&(node_id, contact.accepted_source_segment))
+                    .copied()
+                    .unwrap_or_default(),
+                FinalNode::Missing => [0; 5],
+            };
+            let any_descendant = descendants.contains(&contact.accepted_source_segment);
             contact.final_source_incidence = if counts.iter().all(|&n| n == 0) {
                 contact.absent_reason = Some(if any_descendant {
                     AbsentReason::SourceNotIncident
@@ -553,6 +631,7 @@ impl ContactCapture {
                 }
             };
         }
+        execution_policy.check_cancelled("contact_classification")
     }
 }
 
@@ -644,5 +723,320 @@ mod source_lineage_tests {
         assert!(lineage.next.is_empty());
         lineage.finish_split();
         assert!(lineage.current.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod contact_execution_tests {
+    use super::*;
+    use crate::{CancellationToken, Polygon3D, PolygonizeError, PolygonizerResult};
+
+    fn policy_at(work_item: usize) -> ExecutionPolicy {
+        let token = CancellationToken::new();
+        ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, work_item)),
+            ..Default::default()
+        }
+    }
+
+    fn empty_result() -> PolygonizerResult {
+        PolygonizerResult {
+            polygons: Vec::new(),
+            dangles: Vec::new(),
+            cut_edges: Vec::new(),
+            invalid_rings: Vec::new(),
+            diagnostics: None,
+        }
+    }
+
+    fn capture(limit: usize) -> ContactCapture {
+        ContactCapture::new(&[], limit, &ExecutionPolicy::default()).unwrap()
+    }
+
+    fn edge(id: usize, nodes: [usize; 2], sources: Vec<usize>) -> SourceEdgeAudit {
+        SourceEdgeAudit {
+            edge_id: id,
+            node_ids: nodes,
+            source_segments: sources,
+            start: Coord3D::new(id as f64, 0.0, 0.0),
+            end: Coord3D::new(id as f64, 1.0, 0.0),
+            polygon_boundary: false,
+            output_boundaries: Vec::new(),
+            dangle: false,
+            cut_edge: false,
+            invalid_ring: false,
+        }
+    }
+
+    fn contact(source: usize, node: Option<usize>) -> AcceptedContact {
+        let point = Coord3D::new(0.0, 0.0, 0.0);
+        AcceptedContact {
+            original_vertex: 0,
+            accepted_source_segment: source,
+            accepted: point,
+            topology: point,
+            output: point,
+            final_node: node.map_or(FinalNode::Missing, |node_id| FinalNode::Present {
+                node_id,
+                coordinate: point,
+            }),
+            final_source_incidence: FinalSourceIncidence::NotTracked,
+            absent_reason: None,
+        }
+    }
+
+    fn assert_cancelled<T>(result: Result<T>, expected_stage: &str) {
+        assert!(
+            matches!(result, Err(PolygonizeError::Cancelled { stage }) if stage == expected_stage)
+        );
+    }
+
+    #[test]
+    fn contact_capture_checks_before_work_and_during_original_rows() {
+        let line = Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            0,
+        );
+        let cancelled = policy_at(usize::MAX);
+        cancelled.cancellation_token.as_ref().unwrap().cancel();
+        assert_cancelled(
+            ContactCapture::new(&[], 0, &cancelled),
+            "contact_capture",
+        );
+        assert_cancelled(
+            ContactCapture::new(&[line; 200], 1_000, &policy_at(256)),
+            "contact_capture",
+        );
+        // Cancellation between periodic checkpoints is caught before returning.
+        assert_cancelled(
+            ContactCapture::new(&[line], 2, &policy_at(1)),
+            "contact_capture",
+        );
+        assert_cancelled(
+            ContactCapture::new(&[line], 1, &policy_at(1)),
+            "contact_capture",
+        );
+    }
+
+    #[test]
+    fn contact_capture_interrupts_duplicate_xy_acceptance_fanout() {
+        let point = Coord3D::new(0.0, 0.0, 0.0);
+        let lines = [Line3D::new(point, point, 0); 150];
+        let mut capture = ContactCapture::new(&lines, 1_000, &ExecutionPolicy::default()).unwrap();
+        assert_cancelled(
+            capture.accept(0, point, &policy_at(256)),
+            "contact_capture",
+        );
+        assert_eq!(capture.report.accepted_contacts.len(), 256);
+    }
+
+    #[test]
+    fn contact_capture_interrupts_graph_memberships_and_node_resolution() {
+        let line = Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            0,
+        );
+        let mut capture = capture(1_000);
+        for source in 0..300 {
+            capture.child(source, line);
+        }
+        assert_cancelled(
+            capture.graph_edge(0, 0, 1, &line, &policy_at(256)),
+            "contact_capture",
+        );
+        assert_eq!(capture.edge_memberships, 256);
+        assert_cancelled(
+            capture.resolve(&[0.0; 300], &[0.0; 300], &[0.0; 300], &policy_at(256)),
+            "contact_capture",
+        );
+    }
+
+    #[test]
+    fn contact_capture_interrupts_topology_mapping() {
+        let mut capture = capture(1_000);
+        capture.report.accepted_contacts = vec![contact(0, None); 300];
+        assert_cancelled(
+            capture.map_topology(
+                &crate::noding::snap::SnapNoder::new(1.0),
+                None,
+                &policy_at(256),
+            ),
+            "contact_capture",
+        );
+    }
+
+    #[test]
+    fn classification_preserves_distinct_edge_counts_absence_and_output_owners() {
+        let mut capture = capture(100);
+        capture.report.source_edges = vec![
+            edge(0, [10, 11], vec![3, 4]),
+            edge(1, [10, 12], vec![3]),
+            edge(2, [10, 13], vec![3]),
+            edge(3, [10, 14], vec![3]),
+            edge(4, [20, 21], vec![5]),
+            // Even a repeated endpoint must count its undirected edge only once.
+            edge(5, [10, 10], vec![3]),
+        ];
+        capture.report.accepted_contacts = vec![
+            contact(3, Some(10)),
+            contact(4, Some(10)),
+            contact(5, Some(10)),
+            contact(6, Some(10)),
+            contact(3, None),
+        ];
+        let pair = |i: usize| {
+            vec![
+                capture.report.source_edges[i].start,
+                capture.report.source_edges[i].end,
+            ]
+        };
+        let mut result = empty_result();
+        result.polygons = vec![
+            Polygon3D::new(pair(0), Vec::new(), Vec::new(), Vec::new()),
+            Polygon3D::new(Vec::new(), vec![pair(0)], Vec::new(), Vec::new()),
+        ];
+        result.dangles = vec![pair(0), pair(4)];
+        result.cut_edges = vec![pair(1)];
+        result.invalid_rings = vec![pair(2)];
+        capture
+            .classify(&result, &ExecutionPolicy::default())
+            .unwrap();
+        let rows = capture.report.complete_source_incidence().unwrap();
+        assert_eq!(
+            rows[0].final_source_incidence,
+            FinalSourceIncidence::Present {
+                polygon_boundary: 1,
+                dangle: 1,
+                cut_edge: 1,
+                invalid_ring: 1,
+                other: 2,
+            }
+        );
+        assert_eq!(
+            rows[1].final_source_incidence,
+            FinalSourceIncidence::Present {
+                polygon_boundary: 1,
+                dangle: 1,
+                cut_edge: 0,
+                invalid_ring: 0,
+                other: 0,
+            }
+        );
+        for (i, reason) in [
+            (2, AbsentReason::SourceNotIncident),
+            (3, AbsentReason::NoGraphDescendants),
+            (4, AbsentReason::SourceNotIncident),
+        ] {
+            assert_eq!(rows[i].final_source_incidence, FinalSourceIncidence::Absent);
+            assert_eq!(rows[i].absent_reason, Some(reason));
+        }
+        assert_eq!(
+            capture.report.source_edges[0].output_boundaries,
+            vec![
+                OutputBoundaryRef {
+                    polygon_index: 0,
+                    interior_ring: None,
+                    edge_index: 0,
+                },
+                OutputBoundaryRef {
+                    polygon_index: 1,
+                    interior_ring: Some(0),
+                    edge_index: 0,
+                },
+            ]
+        );
+        assert!(capture.report.complete_output_classification().is_none());
+    }
+
+    #[test]
+    fn classification_reference_limit_still_discards_lineage() {
+        let mut capture = capture(1);
+        capture.report.source_edges = vec![edge(0, [0, 1], vec![0])];
+        capture.report.accepted_contacts = vec![contact(0, Some(0))];
+        let pair = vec![
+            capture.report.source_edges[0].start,
+            capture.report.source_edges[0].end,
+        ];
+        let mut result = empty_result();
+        result.polygons = vec![Polygon3D::new(
+            pair.clone(),
+            vec![pair],
+            Vec::new(),
+            Vec::new(),
+        )];
+        capture
+            .classify(&result, &ExecutionPolicy::default())
+            .unwrap();
+        assert_eq!(capture.report.lineage_status, LineageStatus::LimitExceeded);
+        assert!(capture.report.source_edges.is_empty());
+        assert_eq!(
+            capture.report.accepted_contacts[0].final_source_incidence,
+            FinalSourceIncidence::NotTracked
+        );
+        assert!(capture.report.complete_source_incidence().is_none());
+    }
+
+    #[test]
+    fn classification_checks_cancellation_before_incomplete_lineage_return() {
+        let mut capture = capture(0);
+        capture.lineage.invalidate();
+        let policy = policy_at(usize::MAX);
+        policy.cancellation_token.as_ref().unwrap().cancel();
+        assert_cancelled(
+            capture.classify(&empty_result(), &policy),
+            "contact_classification",
+        );
+    }
+
+    #[test]
+    fn classification_interrupts_edge_index_construction() {
+        let mut capture = capture(1_000);
+        capture.report.source_edges = (0..300)
+            .map(|id| edge(id, [id, id + 1], vec![id]))
+            .collect();
+        assert_cancelled(
+            capture.classify(&empty_result(), &policy_at(256)),
+            "contact_classification",
+        );
+    }
+
+    #[test]
+    fn classification_interrupts_output_traversal() {
+        let mut capture = capture(1_000);
+        let mut result = empty_result();
+        result.dangles = vec![vec![Coord3D::new(0.0, 0.0, 0.0); 300]];
+        assert_cancelled(
+            capture.classify(&result, &policy_at(256)),
+            "contact_classification",
+        );
+    }
+
+    #[test]
+    fn classification_interrupts_membership_aggregation() {
+        let mut capture = capture(1_000);
+        capture.report.source_edges = vec![edge(0, [0, 1], (0..300).collect())];
+        assert_cancelled(
+            capture.classify(&empty_result(), &policy_at(256)),
+            "contact_classification",
+        );
+    }
+
+    #[test]
+    fn classification_interrupts_contact_lookup_and_checks_before_success() {
+        let mut capture = capture(1_000);
+        capture.report.accepted_contacts = vec![contact(0, Some(0)); 300];
+        assert_cancelled(
+            capture.classify(&empty_result(), &policy_at(256)),
+            "contact_classification",
+        );
+        let mut capture = self::capture(10);
+        capture.report.accepted_contacts = vec![contact(0, None); 2];
+        assert_cancelled(
+            capture.classify(&empty_result(), &policy_at(1)),
+            "contact_classification",
+        );
     }
 }

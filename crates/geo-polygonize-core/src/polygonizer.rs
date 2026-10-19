@@ -659,7 +659,11 @@ impl Polygonizer {
                                 None
                             };
                         if let Some(capture) = self.contacts.as_mut() {
-                            capture.map_topology(&noder, restore_coordinates.as_ref());
+                            capture.map_topology(
+                                &noder,
+                                restore_coordinates.as_ref(),
+                                &self.execution_policy,
+                            )?;
                         }
                         let trace_candidates = self.trace.as_ref().is_some_and(|trace| {
                             trace.records_stage(crate::trace::TraceStageV1::Noding)
@@ -841,7 +845,8 @@ impl Polygonizer {
                 &self.graph.nodes_x,
                 &self.graph.nodes_y,
                 &self.graph.nodes_z,
-            );
+                &self.execution_policy,
+            )?;
         }
         self.execution_policy.check(
             "graph_nodes",
@@ -888,16 +893,24 @@ impl Polygonizer {
                 reason: "contact prototype requires global pre-snap and iterative noding without trace capture or partition export".into(),
             });
         }
+        // Reject cancelled or over-limit input before allocating the bounded
+        // capture indexes or cloning the input for the ordinary pipeline.
+        self.execution_policy.check_cancelled("ingest")?;
+        self.execution_policy.check(
+            "input_segments",
+            self.execution_policy.max_input_segments,
+            self.input_lines.len(),
+        )?;
         self.contacts = Some(crate::contact::ContactCapture::new(
             &self.input_lines,
             max_records,
-        ));
+            &self.execution_policy,
+        )?);
         let result = self.polygonize();
         let mut capture = self.contacts.take().expect("contact capture installed");
-        result.map(|result| {
-            capture.classify(&result);
-            (result, capture.report)
-        })
+        let result = result?;
+        capture.classify(&result, &self.execution_policy)?;
+        Ok((result, capture.report))
     }
 
     #[allow(clippy::type_complexity)]
@@ -3306,10 +3319,76 @@ mod contact_capture_cleanup_tests {
             Coord3D::new(1., 0., 0.),
             0,
         )]);
-        assert!(polygonizer.polygonize_with_contact_provenance(100).is_err());
+        assert!(matches!(
+            polygonizer.polygonize_with_contact_provenance(100),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
+        ));
         assert!(polygonizer.contacts.is_none());
         let mut polygonizer = polygonizer.with_execution_policy(ExecutionPolicy::default());
         assert!(polygonizer.polygonize().is_ok());
         assert!(polygonizer.contacts.is_none());
     }
+
+    #[test]
+    fn contact_input_limit_is_checked_before_capture_or_pipeline_allocation() {
+        let token = crate::CancellationToken::new();
+        let mut polygonizer = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            pre_snap_tolerance: 0.01,
+            ..Default::default()
+        })
+        .with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token.clone(), 0)),
+            max_input_segments: Some(0),
+            ..Default::default()
+        });
+        polygonizer.input_lines = vec![Line3D::new(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1.0, 0.0, 0.0),
+            0,
+        )];
+        assert!(matches!(
+            polygonizer.polygonize_with_contact_provenance(100),
+            Err(PolygonizeError::ResourceLimitExceeded { stage, limit: 0, observed: 1 })
+                if stage == "input_segments"
+        ));
+        assert!(
+            !token.is_cancelled(),
+            "capture must not begin before preflight"
+        );
+        assert!(polygonizer.contacts.is_none());
+        assert!(polygonizer.input_line_strings.is_empty());
+    }
+
+    #[test]
+    fn contact_capture_is_removed_when_the_pipeline_is_cancelled() {
+        let token = crate::CancellationToken::new();
+        let mut polygonizer = Polygonizer::with_options(PolygonizerOptions {
+            node_input: true,
+            pre_snap_tolerance: 0.01,
+            ..Default::default()
+        })
+        .with_execution_policy(ExecutionPolicy {
+            cancellation_token: Some(token.clone()),
+            cancel_at_work_item: Some((token, 256)),
+            ..Default::default()
+        });
+        polygonizer.add_lines(vec![
+            Line3D::new(
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(1.0, 0.0, 0.0),
+                0,
+            );
+            300
+        ]);
+        // The row budget stops initial capture before the cancellation hook;
+        // validation then cancels after capture has actually been installed.
+        assert!(matches!(
+            polygonizer.polygonize_with_contact_provenance(1),
+            Err(PolygonizeError::Cancelled { stage }) if stage == "ingest"
+        ));
+        assert!(polygonizer.contacts.is_none());
+    }
+
 }
